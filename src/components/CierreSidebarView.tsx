@@ -335,11 +335,12 @@ export default function CierreSidebarView({
     const [selectedHistoryDelivery, setSelectedHistoryDelivery] = useState<{ dateStr: string, deliveryId: string } | null>(null)
     const [selectedHistoryStoreFilterId, setSelectedHistoryStoreFilterId] = useState<string>('all')
 
-    const [expandedStoreDays, setExpandedStoreDays] = useState<Record<string, boolean>>({})
-    const [expandedDayStores, setExpandedDayStores] = useState<Record<string, boolean>>({})
+    const [expandedRestaurants, setExpandedRestaurants] = useState<Record<string, boolean>>({})
+    const [expandedRestaurantDays, setExpandedRestaurantDays] = useState<Record<string, boolean>>({})
     const [localCollectorOverrides, setLocalCollectorOverrides] = useState<Record<string, 'fuddi' | 'store'>>({})
     const [localSettlementStatusOverrides, setLocalSettlementStatusOverrides] = useState<Record<string, 'settled' | 'pending'>>({})
     const [restaurantSubTab, setRestaurantSubTab] = useState<'pending' | 'history'>('pending')
+    const [storeToSettle, setStoreToSettle] = useState<any | null>(null)
 
     // Estados de Deliverys agrupados por día
     const [deliverySubTab, setDeliverySubTab] = useState<'pending' | 'history'>('pending')
@@ -347,17 +348,17 @@ export default function CierreSidebarView({
     const [expandedDayDeliveries, setExpandedDayDeliveries] = useState<Record<string, boolean>>({})
     const [localDeliverySettlementOverrides, setLocalDeliverySettlementOverrides] = useState<Record<string, 'settled' | 'pending'>>({})
 
-    const toggleStoreDayExpand = (dateStr: string) => {
-        setExpandedStoreDays(prev => ({
+    const toggleRestaurantExpand = (businessId: string) => {
+        setExpandedRestaurants(prev => ({
             ...prev,
-            [dateStr]: !prev[dateStr]
+            [businessId]: !prev[businessId]
         }))
     }
 
-    const toggleDayStoreExpand = (storeKey: string) => {
-        setExpandedDayStores(prev => ({
+    const toggleRestaurantDayExpand = (key: string) => {
+        setExpandedRestaurantDays(prev => ({
             ...prev,
-            [storeKey]: !prev[storeKey]
+            [key]: !prev[key]
         }))
     }
 
@@ -586,6 +587,51 @@ export default function CierreSidebarView({
                 })
                 return copy
             })
+        }
+    }
+
+    // Liquidar todas las fechas pendientes de una tienda a la vez (llamada tras confirmación)
+    const executeSettleStoreAllDates = async (store: any) => {
+        const pendingOrders = store.dates.flatMap((d: any) =>
+            d.storeAccount ? d.storeAccount.ordersList.filter((o: Order) => {
+                const status = localSettlementStatusOverrides[o.id] || o.settlementStatus
+                return status !== 'settled'
+            }) : []
+        )
+        if (pendingOrders.length === 0) return
+
+        setSettling(true)
+        // 1. Actualización optimista visual inmediata
+        const newOverrides: Record<string, 'settled' | 'pending'> = {}
+        pendingOrders.forEach((o: Order) => {
+            newOverrides[o.id] = 'settled'
+        })
+
+        setLocalSettlementStatusOverrides(prev => ({
+            ...prev,
+            ...newOverrides
+        }))
+
+        // 2. Guardar en Firestore en segundo plano
+        try {
+            const updatePromises = pendingOrders.map((order: Order) =>
+                updateDoc(doc(db, 'orders', order.id), {
+                    settlementStatus: 'settled'
+                })
+            )
+            await Promise.all(updatePromises)
+        } catch (error) {
+            console.error("Error liquidando todas las fechas de tienda:", error)
+            // Revertir si hay error
+            setLocalSettlementStatusOverrides(prev => {
+                const copy = { ...prev }
+                pendingOrders.forEach((o: Order) => {
+                    delete copy[o.id]
+                })
+                return copy
+            })
+        } finally {
+            setSettling(false)
         }
     }
 
@@ -913,73 +959,123 @@ export default function CierreSidebarView({
         return calculateStoreAccounts(activeOrders, businesses || [], localCollectorOverrides, localSettlementStatusOverrides)
     }, [activeOrders, businesses, localCollectorOverrides, localSettlementStatusOverrides])
 
-    // Agrupación de cierres de restaurantes por fecha de programación
-    const storeDaysGrouped = useMemo(() => {
+    // Agrupación de cierres de restaurantes por negocio (Restaurante -> Fechas)
+    const storeAccountsGrouped = useMemo(() => {
         const todayStr = getLocalDateString(new Date())
         const allOrdersList = Array.from(
             new Map([...historyOrders, ...orders].map(o => [o.id, o])).values()
         ).filter(o => o.status !== 'cancelled' && o.status !== 'borrador')
 
-        const groups: Record<string, Order[]> = {}
+        const ordersByBusiness: Record<string, Order[]> = {}
         allOrdersList.forEach(o => {
-            const refDate = getOrderReferenceDate(o)
-            const dateStr = getLocalDateString(refDate)
-            if (!groups[dateStr]) {
-                groups[dateStr] = []
+            if (!o.businessId) return
+            if (!ordersByBusiness[o.businessId]) {
+                ordersByBusiness[o.businessId] = []
             }
-            groups[dateStr].push(o)
+            ordersByBusiness[o.businessId].push(o)
         })
 
-        return Object.entries(groups).map(([dateStr, ordersList]) => {
-            const [y, m, d] = dateStr.split('-').map(Number)
-            const date = new Date(y, m - 1, d, 12, 0, 0)
-            const isToday = dateStr === todayStr
+        return Object.entries(ordersByBusiness).map(([businessId, bizOrders]) => {
+            const businessInfo = businesses?.find(b => b.id === businessId)
+            const businessName = businessInfo?.name || (bizOrders[0] as any).businessName || `Restaurante ${businessId.substring(0, 6)}...`
 
-            let displayDate = ''
-            if (isToday) {
-                displayDate = `Hoy (${date.toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })})`
-            } else {
-                const formatted = date.toLocaleDateString('es-EC', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric'
-                })
-                displayDate = formatted.charAt(0).toUpperCase() + formatted.slice(1)
-            }
-
-            const storeAccountsList = calculateStoreAccounts(ordersList, businesses || [], localCollectorOverrides, localSettlementStatusOverrides).sort((a, b) => {
-                const aIsPending = a.pendingOrderCount > 0 ? 0 : 1
-                const bIsPending = b.pendingOrderCount > 0 ? 0 : 1
-                return aIsPending - bIsPending
+            const dateGroups: Record<string, Order[]> = {}
+            bizOrders.forEach(o => {
+                const refDate = getOrderReferenceDate(o)
+                const dateStr = getLocalDateString(refDate)
+                if (!dateGroups[dateStr]) {
+                    dateGroups[dateStr] = []
+                }
+                dateGroups[dateStr].push(o)
             })
-            const pendingStoresCount = storeAccountsList.filter(s => s.pendingOrderCount > 0).length
-            const totalStoresCount = storeAccountsList.length
-            const settledStoresCount = totalStoresCount - pendingStoresCount
-            const isDayFullySettled = totalStoresCount > 0 && pendingStoresCount === 0
+
+            const datesList = Object.entries(dateGroups).map(([dateStr, ordersList]) => {
+                const [y, m, d] = dateStr.split('-').map(Number)
+                const date = new Date(y, m - 1, d, 12, 0, 0)
+                const isToday = dateStr === todayStr
+
+                let displayDate = ''
+                if (isToday) {
+                    displayDate = `Hoy (${date.toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })})`
+                } else {
+                    const formatted = date.toLocaleDateString('es-EC', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric'
+                    })
+                    displayDate = formatted.charAt(0).toUpperCase() + formatted.slice(1)
+                }
+
+                const storeAccountsList = calculateStoreAccounts(ordersList, businesses || [], localCollectorOverrides, localSettlementStatusOverrides)
+                const storeAccount = storeAccountsList[0]
+
+                return {
+                    dateStr,
+                    displayDate,
+                    date,
+                    isToday,
+                    ordersList,
+                    storeAccount
+                }
+            }).sort((a, b) => b.dateStr.localeCompare(a.dateStr))
+
+            const pendingDates = datesList.filter(d => d.storeAccount && d.storeAccount.pendingOrderCount > 0)
+            const pendingNetBalance = pendingDates.reduce((sum, d) => sum + (d.storeAccount?.netBalance || 0), 0)
+            const pendingDatesCount = pendingDates.length
+            const totalDatesCount = datesList.length
+            const settledDatesCount = totalDatesCount - pendingDatesCount
+            const isFullySettled = totalDatesCount > 0 && pendingDatesCount === 0
 
             return {
-                dateStr,
-                displayDate,
-                date,
-                isToday,
-                ordersList,
-                storeAccounts: storeAccountsList,
-                pendingStoresCount,
-                totalStoresCount,
-                settledStoresCount,
-                isDayFullySettled
+                businessId,
+                name: businessName,
+                dates: datesList,
+                pendingNetBalance,
+                pendingDatesCount,
+                totalDatesCount,
+                settledDatesCount,
+                isFullySettled
             }
-        }).sort((a, b) => b.dateStr.localeCompare(a.dateStr))
+        }).sort((a, b) => {
+            const aIsPending = a.pendingDatesCount > 0 ? 0 : 1
+            const bIsPending = b.pendingDatesCount > 0 ? 0 : 1
+            if (aIsPending !== bIsPending) return aIsPending - bIsPending
+            return a.name.localeCompare(b.name)
+        })
     }, [orders, historyOrders, businesses, localCollectorOverrides, localSettlementStatusOverrides])
 
-    // Días de restaurantes filtrados por Pendientes / Historial
-    const filteredStoreDays = useMemo(() => {
+    // Filtrar restaurantes y sus fechas según la subpestaña seleccionada (Pendientes / Historial)
+    const filteredStoreGroups = useMemo(() => {
         if (restaurantSubTab === 'pending') {
-            return storeDaysGrouped.filter(day => !day.isDayFullySettled && day.pendingStoresCount > 0)
+            return storeAccountsGrouped
+                .map(store => {
+                    const pendingDates = store.dates.filter(d => d.storeAccount && d.storeAccount.pendingOrderCount > 0)
+                    return {
+                        ...store,
+                        dates: pendingDates
+                    }
+                })
+                .filter(store => store.dates.length > 0)
         }
-        return storeDaysGrouped
-    }, [storeDaysGrouped, restaurantSubTab])
+        return storeAccountsGrouped
+    }, [storeAccountsGrouped, restaurantSubTab])
+
+    const pendingStoresCountGlobal = useMemo(() => {
+        return storeAccountsGrouped.filter(s => !s.isFullySettled && s.pendingDatesCount > 0).length
+    }, [storeAccountsGrouped])
+
+    const totalStoresCountGlobal = useMemo(() => {
+        return storeAccountsGrouped.length
+    }, [storeAccountsGrouped])
+
+    const todayStoreGroups = useMemo(() => {
+        return filteredStoreGroups.filter(store => store.dates.some(d => d.isToday))
+    }, [filteredStoreGroups])
+
+    const previousStoreGroups = useMemo(() => {
+        return filteredStoreGroups.filter(store => !store.dates.some(d => d.isToday))
+    }, [filteredStoreGroups])
 
     // Cuenta del restaurante seleccionado hoy
     const selectedStoreAccount = useMemo(() => {
@@ -1277,6 +1373,234 @@ export default function CierreSidebarView({
         )
     }
 
+    const renderStoreCard = (store: any) => {
+        const isStoreExpanded = Boolean(expandedRestaurants[store.businessId])
+
+        return (
+            <div key={store.businessId} className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden transition-all animate-in fade-in duration-150">
+                {/* Cabecera del Restaurante (Colapsada por defecto) */}
+                <div
+                    onClick={() => toggleRestaurantExpand(store.businessId)}
+                    className="p-4 hover:bg-slate-50/60 transition-colors cursor-pointer flex flex-wrap items-center justify-between gap-3 select-none"
+                >
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-bold text-sm text-slate-900 leading-tight">{store.name}</h4>
+                            <span className="text-[10px] font-semibold text-slate-400">
+                                ({store.dates.length} {store.dates.length === 1 ? 'fecha' : 'fechas'})
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                        {store.isFullySettled ? (
+                            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center gap-1.5 shadow-2xs">
+                                <div className="w-3.5 h-3.5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[8px] font-black">
+                                    ✓
+                                </div>
+                                <span>Todo depositado</span>
+                            </span>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setStoreToSettle(store)
+                                }}
+                                disabled={settling}
+                                className={`px-2.5 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1 text-white shadow-2xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
+                                    store.pendingNetBalance >= 0
+                                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                                        : 'bg-amber-600 hover:bg-amber-700'
+                                }`}
+                                title={`Liquidar todo lo pendiente de ${store.name}`}
+                            >
+                                <i className="bi bi-check2-all text-xs"></i>
+                                <span>
+                                    {store.pendingNetBalance >= 0
+                                        ? `Transferir $${store.pendingNetBalance.toFixed(2)}`
+                                        : `Cobrar $${Math.abs(store.pendingNetBalance).toFixed(2)}`
+                                    }
+                                </span>
+                            </button>
+                        )}
+                        <i className={`bi bi-chevron-${isStoreExpanded ? 'up' : 'down'} text-slate-400 text-xs ml-1`}></i>
+                    </div>
+                </div>
+
+                {/* Subagrupación por Fecha dentro del Restaurante */}
+                {isStoreExpanded && (
+                    <div className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-3 animate-in fade-in duration-150">
+                        {store.dates.map((day: any) => {
+                            const dateKey = `${store.businessId}_${day.dateStr}`
+                            const isDayExpanded = Boolean(expandedRestaurantDays[dateKey])
+                            const isPositive = day.storeAccount.netBalance >= 0
+
+                            return (
+                                <div key={day.dateStr} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                                    {/* Cabecera de la Fecha */}
+                                    <div
+                                        onClick={() => toggleRestaurantDayExpand(dateKey)}
+                                        className="p-3.5 hover:bg-slate-50/50 transition-colors cursor-pointer flex justify-between items-center select-none"
+                                    >
+                                        <div>
+                                            <h4 className="font-bold text-sm text-slate-900">{day.displayDate}</h4>
+                                            <p className="text-xs text-slate-500 mt-0.5">{day.storeAccount.orderCount} {day.storeAccount.orderCount === 1 ? 'orden' : 'órdenes'}</p>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            {day.storeAccount.pendingOrderCount > 0 ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleSettleStoreAll(day.storeAccount)
+                                                    }}
+                                                    disabled={settling}
+                                                    className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 text-white shadow-2xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
+                                                        isPositive
+                                                            ? 'bg-emerald-600 hover:bg-emerald-700'
+                                                            : 'bg-amber-600 hover:bg-amber-700'
+                                                    }`}
+                                                    title={`Liquidar todas las órdenes del día de ${store.name}`}
+                                                >
+                                                    <i className="bi bi-check2-all text-xs"></i>
+                                                    <span>
+                                                        {isPositive
+                                                            ? `Transferir $${day.storeAccount.netBalance.toFixed(2)}`
+                                                            : `Cobrar $${Math.abs(day.storeAccount.netBalance).toFixed(2)}`
+                                                        }
+                                                    </span>
+                                                </button>
+                                            ) : (
+                                                <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full flex items-center gap-1 border ${
+                                                    isPositive
+                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                                                        : 'bg-amber-50 text-amber-700 border-amber-200/60'
+                                                }`}>
+                                                    <i className="bi bi-check-circle-fill text-[10px]"></i>
+                                                    <span>Liquidado ${Math.abs(day.storeAccount.netBalance).toFixed(2)}</span>
+                                                </span>
+                                            )}
+                                            <i className={`bi bi-chevron-${isDayExpanded ? 'up' : 'down'} text-slate-400 text-xs ml-0.5`}></i>
+                                        </div>
+                                    </div>
+
+                                    {/* Detalle de Órdenes en esta Fecha */}
+                                    {isDayExpanded && (
+                                        <div className="border-t border-slate-100 p-3 bg-slate-50/30 space-y-3 animate-in fade-in duration-150">
+                                            {/* Resumen de Totales Fuddi, Tienda, Comisión en el cuerpo desplegable */}
+                                            <div className="grid grid-cols-3 gap-2 bg-white p-2.5 rounded-xl text-center border border-slate-200/60 shadow-2xs text-xs">
+                                                <div>
+                                                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Fuddi</p>
+                                                    <p className="font-bold text-slate-900 mt-0.5">${day.storeAccount.digitalCollected.toFixed(2)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Tienda</p>
+                                                    <p className="font-bold text-slate-900 mt-0.5">${day.storeAccount.cashCollected.toFixed(2)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Comisión</p>
+                                                    <p className="font-bold text-slate-500 mt-0.5">-${day.storeAccount.commission.toFixed(2)}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                {day.storeAccount.ordersList.map((order: Order) => {
+                                                    const isPickup = order.delivery?.type === 'pickup'
+                                                    const isCash = order.payment?.method === 'cash'
+                                                    const effectiveCollector = localCollectorOverrides[order.id]
+                                                        || (order.paymentCollector ? order.paymentCollector : (isPickup && isCash ? 'store' : 'fuddi'))
+                                                    const isStoreMoney = effectiveCollector === 'store'
+                                                    const isSettled = (localSettlementStatusOverrides[order.id] ? localSettlementStatusOverrides[order.id] === 'settled' : order.settlementStatus === 'settled')
+                                                    const orderTotal = order.total || 0
+
+                                                    let orderCommission = 0
+                                                    if (order.items && order.items.length > 0) {
+                                                        order.items.forEach((item: any) => {
+                                                            orderCommission += (item.commission || 0) * (item.quantity || 1)
+                                                        })
+                                                    }
+
+                                                    const deliveryFee = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0
+                                                    const productSubtotal = order.subtotal || Math.max(0, orderTotal - deliveryFee)
+
+                                                    return (
+                                                        <div key={order.id} className="bg-white p-3 rounded-lg border border-slate-200/80 shadow-2xs space-y-2 text-xs">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                                                                    <span className="font-bold text-slate-900">{order.customer?.name || 'Cliente'}</span>
+                                                                    <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {isCash ? 'Efectivo' : 'Transferencia'})</span>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            handleTogglePaymentCollector(order)
+                                                                        }}
+                                                                        title="Haz clic para alternar quien recibió el dinero (Tienda / Fuddi)"
+                                                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all active:scale-95 cursor-pointer select-none border ${
+                                                                            isStoreMoney
+                                                                                ? 'bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200/60'
+                                                                                : 'bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200/60'
+                                                                        }`}
+                                                                    >
+                                                                        {isStoreMoney ? '🏢 Tienda' : '🦅 Fuddi'}
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            handleSettleStoreOrder(order)
+                                                                        }}
+                                                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer border ${
+                                                                            isSettled
+                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60 hover:bg-red-50 hover:text-red-700 hover:border-red-200'
+                                                                                : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent'
+                                                                        }`}
+                                                                        title={isSettled ? "Hacer clic para deshacer liquidación" : "Marcar este pedido como liquidado/depositado"}
+                                                                    >
+                                                                        <i className={`bi ${isSettled ? 'bi-check-circle-fill' : 'bi-check2'} text-[10px]`}></i>
+                                                                        <span>{isSettled ? 'Depositado' : 'Liquidar'}</span>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600 text-xs">
+                                                                <div className="flex items-center gap-3">
+                                                                    <span>Venta: <strong className="text-slate-900">${productSubtotal.toFixed(2)}</strong></span>
+                                                                    <span className="text-slate-400">Comisión: <strong className="text-slate-500">-${orderCommission.toFixed(2)}</strong></span>
+                                                                </div>
+
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        onManagePayment(order)
+                                                                    }}
+                                                                    className="px-2 py-0.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-2xs"
+                                                                >
+                                                                    <i className="bi bi-pencil text-[10px]"></i>
+                                                                    <span>Gestionar</span>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+        )
+    }
+
     return (
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50">
             {/* Cierre Header inside sidebar */}
@@ -1497,7 +1821,7 @@ export default function CierreSidebarView({
                                     </div>
                                 </div>
                             ) : (
-                                /* Lista de Cierre de Restaurantes Agrupada por Día y Subagrupada por Restaurante */
+                                /* Lista de Cierre de Restaurantes Agrupada por Restaurante y Subagrupada por Fecha */
                                 <div className="space-y-3">
                                     {/* Selector de subpestañas Pendientes / Historial para Restaurantes */}
                                     <div className="flex bg-slate-200/60 p-1 rounded-xl shadow-2xs border border-slate-200/40 text-xs">
@@ -1511,9 +1835,9 @@ export default function CierreSidebarView({
                                             }`}
                                         >
                                             <span>Pendientes</span>
-                                            {storeDaysGrouped.filter(d => !d.isDayFullySettled && d.pendingStoresCount > 0).length > 0 && (
+                                            {pendingStoresCountGlobal > 0 && (
                                                 <span className="px-1.5 py-0.2 text-[9px] font-black rounded-full bg-amber-500 text-white shadow-2xs">
-                                                    {storeDaysGrouped.filter(d => !d.isDayFullySettled && d.pendingStoresCount > 0).length}
+                                                    {pendingStoresCountGlobal}
                                                 </span>
                                             )}
                                         </button>
@@ -1528,12 +1852,12 @@ export default function CierreSidebarView({
                                         >
                                             <span>Historial</span>
                                             <span className="px-1.5 py-0.2 text-[9px] font-semibold rounded-full bg-slate-200 text-slate-700">
-                                                {storeDaysGrouped.length}
+                                                {totalStoresCountGlobal}
                                             </span>
                                         </button>
                                     </div>
 
-                                    {filteredStoreDays.length === 0 ? (
+                                    {filteredStoreGroups.length === 0 ? (
                                         <div className="bg-white p-6 rounded-2xl border border-slate-200/80 text-center space-y-2 shadow-2xs">
                                             <div className="w-9 h-9 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center mx-auto">
                                                 <i className={`bi ${restaurantSubTab === 'pending' ? 'bi-check-circle-fill text-emerald-600' : 'bi-shop'} text-lg`}></i>
@@ -1543,242 +1867,36 @@ export default function CierreSidebarView({
                                             </p>
                                             <p className="text-xs text-slate-500 font-medium">
                                                 {restaurantSubTab === 'pending'
-                                                    ? 'No hay días con restaurantes pendientes por liquidar'
+                                                    ? 'No hay restaurantes pendientes por liquidar'
                                                     : 'No hay registros de ventas para restaurantes'
                                                 }
                                             </p>
                                         </div>
                                     ) : (
-                                        <div className="space-y-3">
-                                            {filteredStoreDays.map(day => {
-                                                const isDayExpanded = Boolean(expandedStoreDays[day.dateStr])
-
-                                                return (
-                                                    <div key={day.dateStr} className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden transition-all">
-                                                        {/* Cabecera del Día (Colapsada por defecto) */}
-                                                        <div
-                                                            onClick={() => toggleStoreDayExpand(day.dateStr)}
-                                                            className="p-4 hover:bg-slate-50/60 transition-colors cursor-pointer flex flex-wrap items-center justify-between gap-3 select-none"
-                                                        >
-                                                            <div className="min-w-0 flex-1 space-y-1">
-                                                                <div className="flex items-center gap-2 flex-wrap">
-                                                                    <h4 className="font-bold text-sm text-slate-900 leading-tight">{day.displayDate}</h4>
-                                                                    <span className="text-[10px] font-semibold text-slate-400">
-                                                                        ({day.storeAccounts.length} {day.storeAccounts.length === 1 ? 'restaurante' : 'restaurantes'})
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="flex items-center gap-2.5 shrink-0">
-                                                                {day.isDayFullySettled ? (
-                                                                    <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center gap-1.5 shadow-2xs">
-                                                                        <div className="w-3.5 h-3.5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[8px] font-black">
-                                                                            ✓
-                                                                        </div>
-                                                                        <span>{day.settledStoresCount}/{day.totalStoresCount} Depositado</span>
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-amber-50 text-amber-900 border border-amber-200/80 flex items-center gap-1.5 shadow-2xs">
-                                                                        {/* Mini Anillo SVG de Progreso Circular */}
-                                                                        <div className="relative w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                                                                            <svg className="w-3.5 h-3.5 transform -rotate-90" viewBox="0 0 36 36">
-                                                                                <path
-                                                                                    className="text-amber-200"
-                                                                                    strokeWidth="6"
-                                                                                    stroke="currentColor"
-                                                                                    fill="none"
-                                                                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                                                                />
-                                                                                <path
-                                                                                    className="text-amber-600 transition-all duration-300"
-                                                                                    strokeDasharray={`${(day.settledStoresCount / day.totalStoresCount) * 100}, 100`}
-                                                                                    strokeWidth="6"
-                                                                                    strokeLinecap="round"
-                                                                                    stroke="currentColor"
-                                                                                    fill="none"
-                                                                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                                                                />
-                                                                            </svg>
-                                                                        </div>
-                                                                        <span>Faltan {day.pendingStoresCount}/{day.totalStoresCount}</span>
-                                                                    </span>
-                                                                )}
-                                                                <i className={`bi bi-chevron-${isDayExpanded ? 'up' : 'down'} text-slate-400 text-xs ml-1`}></i>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Subagrupación por Restaurante dentro del Día */}
-                                                        {isDayExpanded && (
-                                                            <div className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-3 animate-in fade-in duration-150">
-                                                                {day.storeAccounts.map(store => {
-                                                                    const storeKey = `${day.dateStr}_${store.businessId}`
-                                                                    const isStoreExpanded = Boolean(expandedDayStores[storeKey])
-                                                                    const isPositive = store.netBalance >= 0
-
-                                                                    return (
-                                                                        <div key={store.businessId} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
-                                                                            {/* Cabecera del Restaurante */}
-                                                                            <div
-                                                                                onClick={() => toggleDayStoreExpand(storeKey)}
-                                                                                className="p-3.5 hover:bg-slate-50/50 transition-colors cursor-pointer flex justify-between items-center select-none"
-                                                                            >
-                                                                                <div>
-                                                                                    <h4 className="font-bold text-sm text-slate-900">{store.name}</h4>
-                                                                                    <p className="text-xs text-slate-500 mt-0.5">{store.orderCount} {store.orderCount === 1 ? 'orden' : 'órdenes'}</p>
-                                                                                </div>
-
-                                                                                <div className="flex items-center gap-1.5 shrink-0">
-                                                                                    {store.pendingOrderCount > 0 ? (
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation()
-                                                                                                handleSettleStoreAll(store)
-                                                                                            }}
-                                                                                            disabled={settling}
-                                                                                            className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 text-white shadow-2xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
-                                                                                                isPositive
-                                                                                                    ? 'bg-emerald-600 hover:bg-emerald-700'
-                                                                                                    : 'bg-amber-600 hover:bg-amber-700'
-                                                                                            }`}
-                                                                                            title={`Liquidar todas las órdenes del día de ${store.name}`}
-                                                                                        >
-                                                                                            <i className="bi bi-check2-all text-xs"></i>
-                                                                                            <span>
-                                                                                                {isPositive
-                                                                                                    ? `Transferir $${store.netBalance.toFixed(2)}`
-                                                                                                    : `Cobrar $${Math.abs(store.netBalance).toFixed(2)}`
-                                                                                                }
-                                                                                            </span>
-                                                                                        </button>
-                                                                                    ) : (
-                                                                                        <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full flex items-center gap-1 border ${
-                                                                                            isPositive
-                                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-                                                                                                : 'bg-amber-50 text-amber-700 border-amber-200/60'
-                                                                                        }`}>
-                                                                                            <i className="bi bi-check-circle-fill text-[10px]"></i>
-                                                                                            <span>Liquidado ${Math.abs(store.netBalance).toFixed(2)}</span>
-                                                                                        </span>
-                                                                                    )}
-                                                                                    <i className={`bi bi-chevron-${isStoreExpanded ? 'up' : 'down'} text-slate-400 text-xs ml-0.5`}></i>
-                                                                                </div>
-                                                                            </div>
-
-                                                                            {/* Detalle de Órdenes del Restaurante en este Día */}
-                                                                            {isStoreExpanded && (
-                                                                                <div className="border-t border-slate-100 p-3 bg-slate-50/30 space-y-3 animate-in fade-in duration-150">
-                                                                                    {/* Resumen de Totales Fuddi, Tienda, Comisión en el cuerpo desplegable */}
-                                                                                    <div className="grid grid-cols-3 gap-2 bg-white p-2.5 rounded-xl text-center border border-slate-200/60 shadow-2xs text-xs">
-                                                                                        <div>
-                                                                                            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Fuddi</p>
-                                                                                            <p className="font-bold text-slate-900 mt-0.5">${store.digitalCollected.toFixed(2)}</p>
-                                                                                        </div>
-                                                                                        <div>
-                                                                                            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Tienda</p>
-                                                                                            <p className="font-bold text-slate-900 mt-0.5">${store.cashCollected.toFixed(2)}</p>
-                                                                                        </div>
-                                                                                        <div>
-                                                                                            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Comisión</p>
-                                                                                            <p className="font-bold text-slate-500 mt-0.5">-${store.commission.toFixed(2)}</p>
-                                                                                        </div>
-                                                                                    </div>
-
-                                                                                    <div className="space-y-2">
-                                                                                        {store.ordersList.map(order => {
-                                                                                            const isPickup = order.delivery?.type === 'pickup'
-                                                                                            const isCash = order.payment?.method === 'cash'
-                                                                                            const effectiveCollector = localCollectorOverrides[order.id]
-                                                                                                || (order.paymentCollector ? order.paymentCollector : (isPickup && isCash ? 'store' : 'fuddi'))
-                                                                                            const isStoreMoney = effectiveCollector === 'store'
-                                                                                            const isSettled = (localSettlementStatusOverrides[order.id] ? localSettlementStatusOverrides[order.id] === 'settled' : order.settlementStatus === 'settled')
-                                                                                            const orderTotal = order.total || 0
-
-                                                                                            let orderCommission = 0
-                                                                                            if (order.items && order.items.length > 0) {
-                                                                                                order.items.forEach((item: any) => {
-                                                                                                    orderCommission += (item.commission || 0) * (item.quantity || 1)
-                                                                                                })
-                                                                                            }
-
-                                                                                            const deliveryFee = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0
-                                                                                            const productSubtotal = order.subtotal || Math.max(0, orderTotal - deliveryFee)
-
-                                                                                            return (
-                                                                                                <div key={order.id} className="bg-white p-3 rounded-lg border border-slate-200/80 shadow-2xs space-y-2 text-xs">
-                                                                                                    <div className="flex items-center justify-between gap-2">
-                                                                                                        <div className="min-w-0 flex items-center gap-2 flex-wrap">
-                                                                                                            <span className="font-bold text-slate-900">{order.customer?.name || 'Cliente'}</span>
-                                                                                                            <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {isCash ? 'Efectivo' : 'Transferencia'})</span>
-                                                                                                        </div>
-
-                                                                                                        <div className="flex items-center gap-1.5 shrink-0">
-                                                                                                            <button
-                                                                                                                type="button"
-                                                                                                                onClick={(e) => {
-                                                                                                                    e.stopPropagation()
-                                                                                                                    handleTogglePaymentCollector(order)
-                                                                                                                }}
-                                                                                                                title="Haz clic para alternar quien recibió el dinero (Tienda / Fuddi)"
-                                                                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all active:scale-95 cursor-pointer select-none border ${
-                                                                                                                    isStoreMoney
-                                                                                                                        ? 'bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200/60'
-                                                                                                                        : 'bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200/60'
-                                                                                                                }`}
-                                                                                                            >
-                                                                                                                {isStoreMoney ? '🏢 Tienda' : '🦅 Fuddi'}
-                                                                                                            </button>
-
-                                                                                                            <button
-                                                                                                                type="button"
-                                                                                                                onClick={(e) => {
-                                                                                                                    e.stopPropagation()
-                                                                                                                    handleSettleStoreOrder(order)
-                                                                                                                }}
-                                                                                                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer border ${
-                                                                                                                    isSettled
-                                                                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60 hover:bg-red-50 hover:text-red-700 hover:border-red-200'
-                                                                                                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent'
-                                                                                                                }`}
-                                                                                                                title={isSettled ? "Hacer clic para deshacer liquidación" : "Marcar este pedido como liquidado/depositado"}
-                                                                                                            >
-                                                                                                                <i className={`bi ${isSettled ? 'bi-check-circle-fill' : 'bi-check2'} text-[10px]`}></i>
-                                                                                                                <span>{isSettled ? 'Depositado' : 'Liquidar'}</span>
-                                                                                                            </button>
-                                                                                                        </div>
-                                                                                                    </div>
-
-                                                                                                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600 text-xs">
-                                                                                                        <div className="flex items-center gap-3">
-                                                                                                            <span>Venta: <strong className="text-slate-900">${productSubtotal.toFixed(2)}</strong></span>
-                                                                                                            <span className="text-slate-400">Comisión: <strong className="text-slate-500">-${orderCommission.toFixed(2)}</strong></span>
-                                                                                                        </div>
-
-                                                                                                        <button
-                                                                                                            onClick={(e) => {
-                                                                                                                e.stopPropagation()
-                                                                                                                onManagePayment(order)
-                                                                                                            }}
-                                                                                                            className="px-2 py-0.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-2xs"
-                                                                                                        >
-                                                                                                            <i className="bi bi-pencil text-[10px]"></i>
-                                                                                                            <span>Gestionar</span>
-                                                                                                        </button>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            )
-                                                                                        })}
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )
-                                                                })}
-                                                            </div>
-                                                        )}
+                                        <div className="space-y-5">
+                                            {todayStoreGroups.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+                                                        <i className="bi bi-clock-fill text-slate-400"></i>
+                                                        <span>Hoy ({todayStoreGroups.length})</span>
+                                                    </h3>
+                                                    <div className="space-y-3">
+                                                        {todayStoreGroups.map(store => renderStoreCard(store))}
                                                     </div>
-                                                )
-                                            })}
+                                                </div>
+                                            )}
+
+                                            {previousStoreGroups.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+                                                        <i className="bi bi-calendar-event-fill text-slate-400"></i>
+                                                        <span>Anteriores ({previousStoreGroups.length})</span>
+                                                    </h3>
+                                                    <div className="space-y-3">
+                                                        {previousStoreGroups.map(store => renderStoreCard(store))}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -2178,6 +2296,84 @@ export default function CierreSidebarView({
                     )
                 }
             </div>
+
+            {/* Modal de confirmación de liquidación total sin usar alert del navegador */}
+            {storeToSettle && (() => {
+                const isPositive = storeToSettle.pendingNetBalance >= 0
+                const pendingOrders = storeToSettle.dates.flatMap((d: any) =>
+                    d.storeAccount ? d.storeAccount.ordersList.filter((o: Order) => {
+                        const status = localSettlementStatusOverrides[o.id] || o.settlementStatus
+                        return status !== 'settled'
+                    }) : []
+                )
+
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+                        <div className="bg-white w-full max-w-sm rounded-3xl border border-slate-100 shadow-2xl p-6 space-y-6 transform scale-100 transition-all duration-200 animate-in zoom-in-95">
+                            {/* Header */}
+                            <div className="text-center space-y-2">
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto text-xl shadow-2xs ${
+                                    isPositive ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                                }`}>
+                                    <i className="bi bi-wallet2"></i>
+                                </div>
+                                <h3 className="text-base font-black text-slate-900 leading-snug">
+                                    ¿Confirmar liquidación total?
+                                </h3>
+                                <p className="text-xs text-slate-500 font-medium">
+                                    Vas a marcar como liquidado todos los días pendientes de <strong className="text-slate-700">{storeToSettle.name}</strong>.
+                                </p>
+                            </div>
+
+                            {/* Details */}
+                            <div className="bg-slate-50 rounded-2xl p-4 space-y-2.5 text-xs border border-slate-100">
+                                <div className="flex justify-between items-center text-slate-500 font-semibold">
+                                    <span>Pedidos a liquidar</span>
+                                    <span className="text-slate-800 font-bold">{pendingOrders.length}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-slate-500 font-semibold">
+                                    <span>Monto total</span>
+                                    <span className={`font-black text-sm ${isPositive ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                        ${Math.abs(storeToSettle.pendingNetBalance).toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center text-slate-400 text-[10px] pt-2 border-t border-slate-200/60 font-semibold">
+                                    <span>Tipo de operación</span>
+                                    <span className="font-bold text-slate-500">
+                                        {isPositive ? 'Transferencia (Fuddi paga)' : 'Cobro (Tienda paga)'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Buttons */}
+                            <div className="flex gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setStoreToSettle(null)}
+                                    className="flex-1 py-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all cursor-pointer border border-transparent"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const store = storeToSettle
+                                        setStoreToSettle(null)
+                                        executeSettleStoreAllDates(store)
+                                    }}
+                                    className={`flex-1 py-3 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition-all cursor-pointer border border-transparent ${
+                                        isPositive
+                                            ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200/50'
+                                            : 'bg-amber-600 hover:bg-amber-700 shadow-amber-200/50'
+                                    }`}
+                                >
+                                    Confirmar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            })()}
         </div>
     )
 }

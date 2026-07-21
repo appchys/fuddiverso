@@ -30,6 +30,7 @@ import { isStoreOpen, calculateManualStatusExpiry } from '@/lib/store-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
 import CierreSidebarView from '@/components/CierreSidebarView'
+import ReportesSidebarView from '@/components/ReportesSidebarView'
 
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -264,7 +265,7 @@ export default function AdminPedidosPage() {
 
     // Menu Sidebar states
     const [isMenuSidebarOpen, setIsMenuSidebarOpen] = useState(false)
-    const [activeSidebarTab, setActiveSidebarTab] = useState<'menu' | 'cierre'>('menu')
+    const [activeSidebarTab, setActiveSidebarTab] = useState<'menu' | 'cierre' | 'reportes'>('menu')
 
     const mergedHistoryOrders = useMemo(() => {
         const seen = new Set<string>()
@@ -1769,6 +1770,13 @@ export default function AdminPedidosPage() {
                                     <span>Cierre de Caja</span>
                                 </button>
                                 <button
+                                    onClick={() => setActiveSidebarTab('reportes')}
+                                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
+                                >
+                                    <i className="bi bi-bar-chart-line-fill text-lg text-red-500"></i>
+                                    <span>Reportes</span>
+                                </button>
+                                <button
                                     onClick={() => {
                                         setIsMenuSidebarOpen(false)
                                         router.push('/admin/dashboard')
@@ -1789,6 +1797,14 @@ export default function AdminPedidosPage() {
                                 selectedBusinessId={selectedBusinessId}
                                 businesses={businesses}
                                 onManagePayment={handlePaymentClick}
+                            />
+                        ) : activeSidebarTab === 'reportes' ? (
+                            /* Reportes view inside the sidebar */
+                            <ReportesSidebarView
+                                onBack={() => setActiveSidebarTab('menu')}
+                                onClose={() => setIsMenuSidebarOpen(false)}
+                                selectedBusinessId={selectedBusinessId}
+                                businesses={businesses}
                             />
                         ) : null}
                     </div>
