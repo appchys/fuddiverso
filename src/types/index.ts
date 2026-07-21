@@ -381,6 +381,8 @@ export interface Delivery {
   telegramChatId?: string // ID de chat de Telegram para notificaciones
   manualStatus?: 'active' | 'inactive' | null // Override manual: null = usar horario automático
   emailNotificationsEnabled?: boolean // Enable/disable email notifications for assigned orders
+  businessId?: string // ID de la tienda a la que está vinculado originalmente el repartidor
+  businessIds?: string[] // IDs de tiendas vinculadas a este repartidor
   scheduleAvailability?: {
     enabled: boolean
     schedules: {

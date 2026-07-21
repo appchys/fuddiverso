@@ -24,6 +24,7 @@ import {
   clearCheckoutProgress,
   getDeliveriesByStatus,
   getCoverageZones,
+  getDeliveryForLocation,
   isPointInPolygon,
   getUserCredits,
   useUserCredits,
@@ -373,6 +374,75 @@ export function CheckoutContent({
   const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
   const [hasPreviousPickup, setHasPreviousPickup] = useState<boolean | null>(null)
   const [isDeliveryAvailableNow, setIsDeliveryAvailableNow] = useState<boolean>(true)
+  const [isLocationDeliveryAvailable, setIsLocationDeliveryAvailable] = useState<boolean>(true)
+  const [locationDeliveryUnavailableReason, setLocationDeliveryUnavailableReason] = useState<'out_of_coverage' | 'no_deliveries_in_zone' | null>(null)
+
+  // Verificar disponibilidad de delivery y repartidores por zona para la ubicación seleccionada
+  useEffect(() => {
+    const checkLocationDelivery = async () => {
+      if (deliveryData.type !== 'delivery' || !selectedLocation?.latlong) {
+        setIsLocationDeliveryAvailable(true)
+        setLocationDeliveryUnavailableReason(null)
+        return
+      }
+
+      try {
+        const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
+        if (isNaN(lat) || isNaN(lng)) {
+          setIsLocationDeliveryAvailable(false)
+          setLocationDeliveryUnavailableReason('out_of_coverage')
+          return
+        }
+
+        // 1. Verificar si la ubicación está dentro de alguna zona de cobertura activa
+        const zones = await getCoverageZones(business?.id)
+        let matchingZone = zones.find(z => z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
+
+        if (!matchingZone && business?.id) {
+          const globalZones = await getCoverageZones()
+          matchingZone = globalZones.find(z => !z.businessId && z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
+        }
+
+        const isOutsideCoverage = !matchingZone || selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0
+        if (isOutsideCoverage) {
+          setIsLocationDeliveryAvailable(false)
+          setLocationDeliveryUnavailableReason('out_of_coverage')
+          return
+        }
+
+        // 2. Si la tienda usa servicio Fuddi, verificar si hay repartidores activos disponibles asignados a esta zona
+        if (business?.deliveryServiceType === 'fuddi') {
+          const assignedDeliveryId = await getDeliveryForLocation({ lat, lng }, business?.id)
+          if (!assignedDeliveryId) {
+            setIsLocationDeliveryAvailable(false)
+            setLocationDeliveryUnavailableReason('no_deliveries_in_zone')
+            return
+          }
+        }
+
+        setIsLocationDeliveryAvailable(true)
+        setLocationDeliveryUnavailableReason(null)
+      } catch (error) {
+        console.error('Error checking location delivery availability:', error)
+        setIsLocationDeliveryAvailable(true)
+        setLocationDeliveryUnavailableReason(null)
+      }
+    }
+
+    void checkLocationDelivery()
+  }, [selectedLocation?.latlong, selectedLocation?.tarifa, deliveryData.type, business?.id, business?.deliveryServiceType])
+
+  // Deshabilitar/resetear transferencia si el delivery no está disponible para la ubicación seleccionada
+  useEffect(() => {
+    if (deliveryData.type === 'delivery' && !isLocationDeliveryAvailable && paymentData.method === 'transfer') {
+      setPaymentData(prev => ({
+        ...prev,
+        method: 'cash',
+        selectedBank: '',
+        receiptImageUrl: ''
+      }))
+    }
+  }, [deliveryData.type, isLocationDeliveryAvailable, paymentData.method])
 
   // Verificar si hay deliveries disponibles ahora (solo para tiendas con delivery Fuddi)
   useEffect(() => {
@@ -1701,6 +1771,14 @@ export function CheckoutContent({
         }
       }
 
+      // Bloquear pago por transferencia si la ubicación no tiene delivery disponible
+      if (paymentData.method === 'transfer' && deliveryData.type === 'delivery' && !isLocationDeliveryAvailable) {
+        alert('El pago por transferencia no está disponible para esta ubicación porque no hay delivery disponible en la zona. Por favor selecciona pago en efectivo o retiro en local.')
+        setLoading(false)
+        setIsProcessingOrder(false)
+        return
+      }
+
       // VALIDACIÓN CRÍTICA: Si el método de pago es transferencia, debe existir comprobante
       if (paymentData.method === 'transfer') {
         if (!paymentData.selectedBank) {
@@ -2857,24 +2935,50 @@ export function CheckoutContent({
                     )}
                   </button>
                   {/* Transferencia */}
-                  <button
-                    type="button"
-                    onClick={() => setPaymentData({ ...paymentData, method: 'transfer' })}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'transfer'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'transfer' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
-                      <i className="bi bi-bank"></i>
-                    </div>
-                    <span className="font-bold">Transferencia</span>
-                    {paymentData.method === 'transfer' && (
-                      <div className="absolute top-2 right-2 text-white text-xs">
-                        <i className="bi bi-check-circle-fill"></i>
-                      </div>
-                    )}
-                  </button>
+                  {(() => {
+                    const isTransferDisabled = deliveryData.type === 'delivery' && !isLocationDeliveryAvailable;
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isTransferDisabled}
+                          onClick={() => {
+                            if (isTransferDisabled) return;
+                            setPaymentData({ ...paymentData, method: 'transfer' });
+                          }}
+                          className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${
+                            isTransferDisabled
+                              ? 'opacity-50 cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
+                              : paymentData.method === 'transfer'
+                                ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                                : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                          }`}
+                          title={isTransferDisabled ? 'No disponible para esta ubicación' : undefined}
+                        >
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${
+                            isTransferDisabled
+                              ? 'bg-gray-200 text-gray-400'
+                              : paymentData.method === 'transfer'
+                                ? 'bg-white/20 text-white'
+                                : 'bg-white text-gray-400'
+                          }`}>
+                            <i className="bi bi-bank"></i>
+                          </div>
+                          <div className="flex flex-col items-center">
+                            <span className="font-bold">Transferencia</span>
+                            {isTransferDisabled && (
+                              <span className="text-[10px] text-amber-600 font-medium mt-0.5">No disponible</span>
+                            )}
+                          </div>
+                          {paymentData.method === 'transfer' && !isTransferDisabled && (
+                            <div className="absolute top-2 right-2 text-white text-xs">
+                              <i className="bi bi-check-circle-fill"></i>
+                            </div>
+                          )}
+                        </button>
+                      </>
+                    );
+                  })()}
                   </div>
                 )}
 

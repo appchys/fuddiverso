@@ -3296,6 +3296,7 @@ export async function createDelivery(deliveryData: Omit<Delivery, 'id'>): Promis
   try {
     const deliveryDoc = {
       ...deliveryData,
+      businessIds: deliveryData.businessIds || (deliveryData.businessId ? [deliveryData.businessId] : []),
       fechaRegistro: new Date().toISOString(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
@@ -3334,7 +3335,9 @@ export async function getAllDeliveries(): Promise<Delivery[]> {
         uid: data.uid,
         manualStatus: data.manualStatus ?? null,
         emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
-        scheduleAvailability: data.scheduleAvailability
+        scheduleAvailability: data.scheduleAvailability,
+        businessId: data.businessId,
+        businessIds: data.businessIds
       })
     })
 
@@ -3366,7 +3369,9 @@ export async function getDeliveryById(deliveryId: string): Promise<Delivery | nu
         uid: data.uid,
         manualStatus: data.manualStatus ?? null,
         emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
-        scheduleAvailability: data.scheduleAvailability
+        scheduleAvailability: data.scheduleAvailability,
+        businessId: data.businessId,
+        businessIds: data.businessIds
       }
     }
 
@@ -3456,7 +3461,9 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
         uid: data.uid,
         manualStatus: data.manualStatus ?? null,
         emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
-        scheduleAvailability: data.scheduleAvailability
+        scheduleAvailability: data.scheduleAvailability,
+        businessId: data.businessId,
+        businessIds: data.businessIds
       })
     })
 
@@ -3495,7 +3502,9 @@ export async function searchDeliveryByPhone(phone: string): Promise<Delivery | n
       uid: data.uid,
       manualStatus: data.manualStatus ?? null,
       emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
-      scheduleAvailability: data.scheduleAvailability
+      scheduleAvailability: data.scheduleAvailability,
+      businessId: data.businessId,
+      businessIds: data.businessIds
     } as Delivery
   } catch (error) {
     console.error('Error searching delivery by phone:', error)
@@ -3534,11 +3543,93 @@ export async function getDeliveryByEmail(email: string): Promise<Delivery | null
       uid: data.uid,
       manualStatus: data.manualStatus ?? null,
       emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
-      scheduleAvailability: data.scheduleAvailability
+      scheduleAvailability: data.scheduleAvailability,
+      businessId: data.businessId,
+      businessIds: data.businessIds
     }
   } catch (error) {
     console.error('Error getting delivery by email:', error)
     return null
+  }
+}
+
+/**
+ * Obtener todos los repartidores vinculados a un negocio específico
+ */
+export async function getDeliveriesByBusiness(businessId: string): Promise<Delivery[]> {
+  try {
+    if (!businessId) return []
+    const q1 = query(
+      collection(db, 'deliveries'),
+      where('businessId', '==', businessId)
+    )
+    const q2 = query(
+      collection(db, 'deliveries'),
+      where('businessIds', 'array-contains', businessId)
+    )
+
+    const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)])
+    const map = new Map<string, Delivery>()
+
+    const processDoc = (docSnap: any) => {
+      const data = docSnap.data()
+      map.set(docSnap.id, {
+        id: docSnap.id,
+        nombres: data.nombres || '',
+        celular: data.celular || '',
+        email: data.email || '',
+        fotoUrl: data.fotoUrl,
+        estado: data.estado || 'activo',
+        fechaRegistro: data.fechaRegistro || new Date().toISOString(),
+        uid: data.uid,
+        manualStatus: data.manualStatus ?? null,
+        emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
+        scheduleAvailability: data.scheduleAvailability,
+        businessId: data.businessId,
+        businessIds: data.businessIds || (data.businessId ? [data.businessId] : [])
+      })
+    }
+
+    snap1.forEach(processDoc)
+    snap2.forEach(processDoc)
+
+    return Array.from(map.values())
+  } catch (error) {
+    console.error('Error getting deliveries by business:', error)
+    return []
+  }
+}
+
+/**
+ * Vincular un repartidor existente a un negocio
+ */
+export async function linkDeliveryToBusiness(deliveryId: string, businessId: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'deliveries', deliveryId)
+    await updateDoc(docRef, {
+      businessId: businessId,
+      businessIds: arrayUnion(businessId),
+      updatedAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error linking delivery to business:', error)
+    throw error
+  }
+}
+
+/**
+ * Desvincular un repartidor de un negocio
+ */
+export async function unlinkDeliveryFromBusiness(deliveryId: string, businessId: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'deliveries', deliveryId)
+    await updateDoc(docRef, {
+      businessIds: arrayRemove(businessId),
+      updatedAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error unlinking delivery from business:', error)
+    throw error
   }
 }
 

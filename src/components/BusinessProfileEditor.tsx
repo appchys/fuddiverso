@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Business, Delivery, CoverageGroup } from '@/types'
-import { uploadImage, searchDeliveryByPhone, createDelivery, getDeliveryById, getCoverageGroups, getCoverageZoneForLocation } from '@/lib/database'
+import { uploadImage, searchDeliveryByPhone, createDelivery, getDeliveryById, getCoverageGroups, getCoverageZoneForLocation, getDeliveriesByBusiness, linkDeliveryToBusiness, unlinkDeliveryFromBusiness } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
 
@@ -886,6 +886,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                 {/* Divisor */}
                                 <div className="border-t border-dashed border-gray-200 pt-12">
                                     <DeliveryConfigSection
+                                        businessId={business.id}
                                         defaultDeliveryId={formData.defaultDeliveryId}
                                         onDeliverySelect={(id) => setFormData(prev => ({ ...prev, defaultDeliveryId: id }))}
                                     />
@@ -940,19 +941,19 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
 }
 
 /**
- * Sección de configuración de delivery predeterminado
+ * Sección de configuración de delivery y repartidores de la tienda
  */
 const DeliveryConfigSection: React.FC<{
+    businessId: string;
     defaultDeliveryId: string;
     onDeliverySelect: (id: string) => void;
-}> = ({ defaultDeliveryId, onDeliverySelect }) => {
-    const [searchPhone, setSearchPhone] = useState('')
-    const [searching, setSearching] = useState(false)
-    const [foundDelivery, setFoundDelivery] = useState<Delivery | null>(null)
-    const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null)
-    const [showRegisterForm, setShowRegisterForm] = useState(false)
+}> = ({ businessId, defaultDeliveryId, onDeliverySelect }) => {
+    const [myDeliveries, setMyDeliveries] = useState<Delivery[]>([])
+    const [loadingMyDeliveries, setLoadingMyDeliveries] = useState(false)
+    const [showForm, setShowForm] = useState(false)
     const [newDeliveryData, setNewDeliveryData] = useState({
         nombres: '',
+        celular: '',
         email: ''
     })
     const [creating, setCreating] = useState(false)
@@ -963,64 +964,77 @@ const DeliveryConfigSection: React.FC<{
         setTimeout(() => setMessage(null), 3000)
     }
 
-    // Cargar delivery actual si existe
-    useEffect(() => {
-        if (defaultDeliveryId) {
-            getDeliveryById(defaultDeliveryId).then(setSelectedDelivery)
-        } else {
-            setSelectedDelivery(null)
-        }
-    }, [defaultDeliveryId])
-
-    const handleSearch = async () => {
-        if (!searchPhone || searchPhone.length < 7) {
-            showMessage('Ingresa un número de celular válido', 'error')
-            return
-        }
-
-        setSearching(true)
-        setFoundDelivery(null)
-        setShowRegisterForm(false)
-
+    const loadMyDeliveries = async () => {
+        if (!businessId) return
+        setLoadingMyDeliveries(true)
         try {
-            const delivery = await searchDeliveryByPhone(searchPhone)
-            if (delivery) {
-                setFoundDelivery(delivery)
-                showMessage('Repartidor encontrado', 'success')
-            } else {
-                setShowRegisterForm(true)
-                showMessage('No se encontró el repartidor, puedes registrarlo', 'info')
-            }
+            const list = await getDeliveriesByBusiness(businessId)
+            setMyDeliveries(list)
         } catch (error) {
-            console.error('Error searching delivery:', error)
-            showMessage('Error al buscar el repartidor', 'error')
+            console.error('Error loading store deliveries:', error)
         } finally {
-            setSearching(false)
+            setLoadingMyDeliveries(false)
         }
     }
 
-    const handleRegister = async () => {
-        if (!newDeliveryData.nombres || searchPhone.length < 7) {
-            showMessage('Completa los datos del repartidor', 'error')
+    useEffect(() => {
+        loadMyDeliveries()
+    }, [businessId])
+
+    const handleUnlink = async (driver: Delivery) => {
+        try {
+            await unlinkDeliveryFromBusiness(driver.id, businessId)
+            if (defaultDeliveryId === driver.id) {
+                onDeliverySelect('')
+            }
+            showMessage(`Repartidor ${driver.nombres} eliminado de tu tienda`, 'info')
+            await loadMyDeliveries()
+        } catch (error) {
+            console.error('Error unlinking delivery:', error)
+            showMessage('Error al desvincular repartidor', 'error')
+        }
+    }
+
+    const handleSaveDriver = async () => {
+        const nameClean = newDeliveryData.nombres.trim()
+        const phoneClean = newDeliveryData.celular.trim()
+        const emailClean = newDeliveryData.email.trim()
+
+        if (!nameClean || !phoneClean || phoneClean.length < 7) {
+            showMessage('Completa el nombre y un celular válido de WhatsApp', 'error')
             return
         }
 
         setCreating(true)
         try {
-            const newId = await createDelivery({
-                nombres: newDeliveryData.nombres,
-                celular: searchPhone,
-                email: newDeliveryData.email || `${searchPhone}@fuddi.delivery`,
-                estado: 'activo',
-                fechaRegistro: new Date().toISOString()
-            })
-            onDeliverySelect(newId)
-            setFoundDelivery(null)
-            setShowRegisterForm(false)
-            setSearchPhone('')
-            showMessage('Repartidor registrado y asignado', 'success')
+            const existing = await searchDeliveryByPhone(phoneClean)
+            let driverId = ''
+
+            if (existing) {
+                await linkDeliveryToBusiness(existing.id, businessId)
+                driverId = existing.id
+            } else {
+                driverId = await createDelivery({
+                    nombres: nameClean,
+                    celular: phoneClean,
+                    email: emailClean || `${phoneClean}@fuddi.delivery`,
+                    estado: 'activo',
+                    fechaRegistro: new Date().toISOString(),
+                    businessId: businessId,
+                    businessIds: [businessId]
+                })
+            }
+
+            if (!defaultDeliveryId) {
+                onDeliverySelect(driverId)
+            }
+
+            setNewDeliveryData({ nombres: '', celular: '', email: '' })
+            setShowForm(false)
+            showMessage('Repartidor registrado exitosamente en tu tienda', 'success')
+            await loadMyDeliveries()
         } catch (error) {
-            console.error('Error creating delivery:', error)
+            console.error('Error al guardar repartidor:', error)
             showMessage('Error al registrar el repartidor', 'error')
         } finally {
             setCreating(false)
@@ -1029,9 +1043,22 @@ const DeliveryConfigSection: React.FC<{
 
     return (
         <div className="space-y-8 animate-fadeIn">
-            <div className="flex items-center gap-3 mb-4">
-                <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">6</span>
-                <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Repartidor Predeterminado</h3>
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">6</span>
+                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Repartidores de la Tienda</h3>
+                </div>
+
+                {!showForm && (
+                    <button
+                        type="button"
+                        onClick={() => setShowForm(true)}
+                        className="px-4 py-2 bg-gray-900 hover:bg-black text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2 shadow-sm"
+                    >
+                        <i className="bi bi-plus-lg"></i>
+                        Registrar Repartidor
+                    </button>
+                )}
             </div>
 
             {/* Mensajes de Feedback */}
@@ -1046,162 +1073,169 @@ const DeliveryConfigSection: React.FC<{
                 </div>
             )}
 
-            {/* Repartidor Seleccionado */}
-            {selectedDelivery ? (
-                <div className="p-6 bg-emerald-50 border-2 border-emerald-100 rounded-3xl mb-8 relative group overflow-hidden">
-                    <div className="flex items-center gap-4 relative z-10">
-                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-emerald-600 shadow-xl shadow-emerald-200/50 overflow-hidden">
-                            {selectedDelivery.fotoUrl ? (
-                                <img src={selectedDelivery.fotoUrl} className="w-full h-full object-cover" />
-                            ) : (
-                                <i className="bi bi-bicycle text-3xl"></i>
-                            )}
-                        </div>
-                        <div className="flex-1">
-                            <h4 className="font-black text-gray-900 uppercase tracking-tight">{selectedDelivery.nombres}</h4>
-                            <p className="text-sm font-bold text-gray-500 flex items-center gap-2">
-                                <i className="bi bi-telephone-fill text-xs"></i>
-                                {selectedDelivery.celular}
-                            </p>
-                        </div>
+            {/* Formulario de Registro Integrado */}
+            {showForm && (
+                <div className="p-6 bg-white border-2 border-red-500/20 rounded-3xl space-y-4 shadow-xl shadow-red-500/5 animate-fadeIn">
+                    <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                        <h4 className="font-black text-gray-900 text-xs uppercase tracking-widest flex items-center gap-2">
+                            <i className="bi bi-person-plus text-red-600 text-base"></i>
+                            Registrar Nuevo Repartidor
+                        </h4>
                         <button
-                            onClick={() => onDeliverySelect('')}
-                            className="bg-white/80 hover:bg-white text-red-600 w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-sm"
-                            title="Quitar repartidor"
+                            type="button"
+                            onClick={() => setShowForm(false)}
+                            className="text-gray-400 hover:text-gray-600 text-sm font-bold"
                         >
-                            <i className="bi bi-trash"></i>
+                            <i className="bi bi-x-lg"></i>
                         </button>
                     </div>
-                </div>
-            ) : (
-                <div className="p-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-[3rem] text-center mb-8">
-                    <div className="w-16 h-16 bg-white rounded-[1.5rem] shadow-sm flex items-center justify-center mx-auto mb-4 text-gray-300">
-                        <i className="bi bi-bicycle text-3xl"></i>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Nombre Completo *</label>
+                            <input
+                                type="text"
+                                value={newDeliveryData.nombres}
+                                onChange={(e) => setNewDeliveryData(prev => ({ ...prev, nombres: e.target.value }))}
+                                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:border-red-500 transition-all font-bold text-sm text-gray-900"
+                                placeholder="Ej: Carlos Mendoza"
+                            />
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Teléfono / WhatsApp *</label>
+                            <div className="relative">
+                                <i className="bi bi-whatsapp absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold"></i>
+                                <input
+                                    type="tel"
+                                    value={newDeliveryData.celular}
+                                    onChange={(e) => setNewDeliveryData(prev => ({ ...prev, celular: e.target.value }))}
+                                    className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:border-red-500 transition-all font-bold text-sm text-gray-900"
+                                    placeholder="Ej: 0991234567"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="sm:col-span-2 space-y-1.5">
+                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Correo Electrónico (Opcional)</label>
+                            <input
+                                type="email"
+                                value={newDeliveryData.email}
+                                onChange={(e) => setNewDeliveryData(prev => ({ ...prev, email: e.target.value }))}
+                                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:border-red-500 transition-all font-bold text-sm text-gray-900"
+                                placeholder="ejemplo@correo.com"
+                            />
+                        </div>
                     </div>
-                    <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-1">Sin Repartidor Asignado</h4>
-                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
-                        Busca un repartidor por su WhatsApp para asignarlo <br /> como el predeterminado para tus pedidos.
-                    </p>
+
+                    <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={() => setShowForm(false)}
+                            className="px-5 py-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-600"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSaveDriver}
+                            disabled={creating}
+                            className="px-6 py-3 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-red-200 disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {creating ? <i className="bi bi-arrow-repeat animate-spin"></i> : <i className="bi bi-check-lg text-base"></i>}
+                            Guardar Repartidor
+                        </button>
+                    </div>
                 </div>
             )}
 
-            {/* Buscador */}
+            {/* Lista de Repartidores de la Tienda */}
             <div className="space-y-4">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">
-                    {foundDelivery ? 'Repartidor Encontrado' : showRegisterForm ? 'Registrar Nuevo Repartidor' : 'Buscar por Celular'}
-                </label>
-                
-                {!foundDelivery && !showRegisterForm && (
-                    <div className="flex gap-3">
-                        <div className="relative flex-1">
-                            <i className="bi bi-whatsapp absolute left-5 top-1/2 -translate-y-1/2 text-emerald-500 font-bold"></i>
-                            <input
-                                type="tel"
-                                value={searchPhone}
-                                onChange={(e) => setSearchPhone(e.target.value)}
-                                className="w-full pl-12 pr-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300"
-                                placeholder="Ej: 0987654321"
-                                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                            />
+                <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">
+                        Repartidores Registrados ({myDeliveries.length})
+                    </label>
+                    {loadingMyDeliveries && <i className="bi bi-arrow-repeat animate-spin text-xs text-gray-400"></i>}
+                </div>
+
+                {myDeliveries.length === 0 ? (
+                    <div className="p-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-[2.5rem] text-center">
+                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-3 text-gray-300">
+                            <i className="bi bi-person-badge text-2xl"></i>
                         </div>
-                        <button
-                            onClick={handleSearch}
-                            disabled={searching}
-                            className="px-6 py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50"
-                        >
-                            {searching ? <i className="bi bi-arrow-repeat animate-spin"></i> : 'Buscar'}
-                        </button>
+                        <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-1">Sin Repartidores Registrados</h4>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-relaxed mb-4">
+                            Agrega los repartidores que se encargarán de llevar los pedidos de tu tienda.
+                        </p>
+                        {!showForm && (
+                            <button
+                                type="button"
+                                onClick={() => setShowForm(true)}
+                                className="px-5 py-3 bg-red-600 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-black transition-all shadow-lg shadow-red-200 inline-flex items-center gap-2"
+                            >
+                                <i className="bi bi-plus-lg"></i>
+                                Registrar Repartidor
+                            </button>
+                        )}
                     </div>
-                )}
-
-                {/* Resultado de búsqueda */}
-                {foundDelivery && (
-                    <div className="p-6 bg-white border-2 border-gray-100 rounded-3xl flex items-center justify-between shadow-sm animate-fadeIn">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400">
-                                <i className="bi bi-person-fill text-2xl"></i>
-                            </div>
-                            <div>
-                                <h5 className="font-black text-gray-900 text-sm uppercase">{foundDelivery.nombres}</h5>
-                                <p className="text-xs font-bold text-gray-400">{foundDelivery.celular}</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => { setFoundDelivery(null); setSearchPhone(''); }}
-                                className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 hover:text-gray-600"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={() => { onDeliverySelect(foundDelivery.id); setFoundDelivery(null); setSearchPhone(''); }}
-                                className="px-5 py-3 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-200 transition-all"
-                            >
-                                Asignar Como Default
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Formulario de registro */}
-                {showRegisterForm && (
-                    <div className="p-6 bg-white border-2 border-red-500/10 rounded-3xl space-y-4 shadow-xl shadow-red-500/5 animate-fadeIn">
-                        <div className="flex items-start gap-3 bg-red-50 p-4 rounded-2xl mb-2">
-                            <i className="bi bi-info-circle-fill text-red-500 mt-0.5"></i>
-                            <p className="text-[10px] font-bold text-red-800 uppercase tracking-widest leading-relaxed">
-                                No encontramos ningún repartidor con ese número. <br />
-                                <span className="text-red-600 font-black">¡Puedes registrarlo tú mismo ahora mismo!</span>
-                            </p>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Nombre Completo</label>
-                                <input
-                                    type="text"
-                                    value={newDeliveryData.nombres}
-                                    onChange={(e) => setNewDeliveryData(prev => ({ ...prev, nombres: e.target.value }))}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:border-red-500 transition-all font-bold text-sm"
-                                    placeholder="Nombre del Repartidor"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Email (Opcional)</label>
-                                <input
-                                    type="email"
-                                    value={newDeliveryData.email}
-                                    onChange={(e) => setNewDeliveryData(prev => ({ ...prev, email: e.target.value }))}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:border-red-500 transition-all font-bold text-sm"
-                                    placeholder="email@ejemplo.com"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end gap-3 pt-2">
-                            <button
-                                onClick={() => setShowRegisterForm(false)}
-                                className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 hover:text-gray-600"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleRegister}
-                                disabled={creating}
-                                className="px-6 py-3 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {creating ? <i className="bi bi-arrow-repeat animate-spin"></i> : <i className="bi bi-plus-lg"></i>}
-                                Registrar y Asignar
-                            </button>
-                        </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {myDeliveries.map((driver) => {
+                            const isDefault = defaultDeliveryId === driver.id
+                            return (
+                                <div key={driver.id} className={`p-4 rounded-2xl border-2 transition-all flex items-center justify-between gap-3 ${isDefault ? 'border-emerald-500 bg-emerald-50/50 shadow-sm' : 'border-gray-100 bg-white hover:border-gray-200'}`}>
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${isDefault ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-gray-500'}`}>
+                                            <i className="bi bi-person-badge"></i>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1.5">
+                                                <h5 className="font-bold text-gray-900 text-sm truncate">{driver.nombres}</h5>
+                                                {isDefault && (
+                                                    <span className="text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-emerald-600 text-white shrink-0">Predeterminado</span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs font-semibold text-gray-500 flex items-center gap-1">
+                                                <i className="bi bi-whatsapp text-emerald-500"></i>
+                                                {driver.celular}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {!isDefault && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    onDeliverySelect(driver.id)
+                                                    showMessage(`Asignado ${driver.nombres} como predeterminado`, 'success')
+                                                }}
+                                                className="p-2 text-xs font-bold text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors"
+                                                title="Marcar como predeterminado"
+                                            >
+                                                <i className="bi bi-star"></i>
+                                            </button>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleUnlink(driver)}
+                                            className="p-2 text-xs font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                            title="Eliminar de la tienda"
+                                        >
+                                            <i className="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            )
+                        })}
                     </div>
                 )}
             </div>
-            
+
             <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl">
                 <div className="flex gap-3">
                     <i className="bi bi-lightbulb text-blue-500 text-lg"></i>
                     <p className="text-[10px] text-blue-800 font-bold uppercase tracking-widest leading-relaxed italic">
-                        Un repartidor predeterminado tendrá prioridad sobre cualquier zona de cobertura. Solo se usará el reparto por zona si el repartidor predeterminado no está disponible.
+                        Los repartidores que registres aquí estarán disponibles directamente para la entrega de tus pedidos.
                     </p>
                 </div>
             </div>
