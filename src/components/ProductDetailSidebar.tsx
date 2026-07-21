@@ -363,59 +363,77 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                 className={`fixed right-0 top-0 h-full w-full sm:w-[500px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-[130] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
             >
                 <div ref={sidebarContentRef} className="h-full overflow-y-auto scrollbar-hide bg-white">
-                    <div className="min-h-full flex flex-col p-6 relative">
+                    <div className="min-h-full flex flex-col relative">
 
-                        {/* Close Button */}
-                        <button
-                            onClick={onClose}
-                            className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center bg-gray-100/80 hover:bg-gray-200 text-gray-600 transition-colors z-20 backdrop-blur-sm"
-                            aria-label="Cerrar"
-                        >
-                            <i className="bi bi-x-lg"></i>
-                        </button>
+                        {/* Product Image & Overlaid Store Header Container (Edge to Edge, 0px margins) */}
+                        <div className="w-full aspect-[16/9] sm:aspect-[16/10] bg-gray-900 overflow-hidden shadow-sm relative group flex-shrink-0">
+                            {/* Gradient Overlay for Top Controls Visibility */}
+                            <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/70 via-black/20 to-transparent z-10 pointer-events-none" />
 
-                        {/* Business Header */}
-                        {business && (
-                            <Link 
-                                href={`/${business.username}`}
+                            {/* Business Header without background */}
+                            {business && (
+                                <Link 
+                                    href={`/${business.username}`}
+                                    onClick={onClose}
+                                    className="absolute top-4 left-4 z-20 flex items-center gap-3 text-white hover:opacity-85 transition-opacity group/header cursor-pointer max-w-[calc(100%-4.5rem)] drop-shadow-md"
+                                >
+                                    <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 bg-white ring-2 ring-white/60 shadow-md">
+                                        {business.image ? (
+                                            <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center bg-red-600 text-white font-bold text-xs">
+                                                {business.name.charAt(0)}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="truncate text-left">
+                                        <h3 className="text-sm font-black leading-tight text-white group-hover/header:text-red-300 transition-colors truncate">
+                                            {business.name}
+                                        </h3>
+                                        {business.username && (
+                                            <p className="text-xs text-gray-200 font-medium leading-none truncate mt-0.5">
+                                                @{business.username}
+                                            </p>
+                                        )}
+                                    </div>
+                                </Link>
+                            )}
+
+                            {/* Close Button without background */}
+                            <button
                                 onClick={onClose}
-                                className="mb-6 flex items-center gap-3 pr-12 group/header hover:opacity-85 transition-opacity inline-flex cursor-pointer"
+                                className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center text-white hover:opacity-75 transition-opacity z-20 drop-shadow-md"
+                                aria-label="Cerrar"
                             >
-                                <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white shadow-sm ring-1 ring-gray-100 group-hover/header:shadow-md transition-all">
-                                    {business.image ? (
-                                        <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-400 font-bold">
-                                            {business.name.charAt(0)}
-                                        </div>
-                                    )}
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black text-gray-900 leading-tight group-hover/header:text-red-600 transition-colors">{business.name}</h3>
-                                    {business.username && <p className="text-xs text-gray-400">@{business.username}</p>}
-                                </div>
-                            </Link>
-                        )}
+                                <i className="bi bi-x-lg text-lg"></i>
+                            </button>
 
-                        {/* Product Image */}
-                        <div className="w-full aspect-square bg-gray-50 rounded-[2rem] overflow-hidden shadow-sm border border-gray-100 mb-6 relative">
+                            {/* Product Image */}
                             {allImages.length > 0 ? (
-                                <img src={allImages[currentImgIndex]} alt={product.name} className="w-full h-full object-cover transition-all duration-700" style={{ objectPosition: allImages[currentImgIndex] === product.image ? (product.imagePosition || 'center') : 'center' }} />
+                                <img 
+                                    src={allImages[currentImgIndex]} 
+                                    alt={product.name} 
+                                    className="w-full h-full object-cover transition-all duration-700" 
+                                    style={{ objectPosition: allImages[currentImgIndex] === product.image ? (product.imagePosition || 'center') : 'center' }} 
+                                />
                             ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-200">
-                                    <i className="bi bi-image text-6xl"></i>
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                    <i className="bi bi-image text-5xl"></i>
                                 </div>
                             )}
 
-                            {/* Share Button */}
+                            {/* Share Button without background */}
                             <button
                                 onClick={handleCopyProductLink}
-                                className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-md p-2 rounded-full shadow-sm text-gray-500 hover:text-gray-900 transition-colors"
+                                className="absolute bottom-4 right-4 p-2 text-white hover:opacity-75 transition-opacity z-20 drop-shadow-md"
                                 title="Compartir"
                             >
-                                <i className={`bi ${copySuccess ? 'bi-check-lg text-emerald-500' : 'bi-share'}`}></i>
+                                <i className={`bi ${copySuccess ? 'bi-check-lg text-emerald-400' : 'bi-share'} text-lg`}></i>
                             </button>
                         </div>
+
+                        {/* Sidebar Content Padding Container */}
+                        <div className="p-6 flex-1 flex flex-col">
 
                         {/* Product Info */}
                         <div className="mb-6">
@@ -937,7 +955,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                 onOpenCart?.();
                                             }}
                                             disabled={!isComboComplete}
-                                            className="flex-1 py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                            className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                         >
                                             <i className={`bi ${isComboComplete ? 'bi-bag-plus-fill' : 'bi-info-circle'}`}></i>
                                             {isComboComplete ? 'Agregar Combo' : `Arma tu combo (${totalComboSelected}/${product.minComboItems})`}
@@ -959,6 +977,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             </div>
                         )
                     })()}
+                        </div>
                 </div>
             </div>
 

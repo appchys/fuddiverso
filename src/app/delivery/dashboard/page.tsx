@@ -563,34 +563,42 @@ function DeliveryDashboardContent() {
   }, [deliveryId, orders])
 
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
+    const previousOrders = orders
+    const previousSelectedOrder = selectedOrder
+
+    // Actualización optimista de la UI
+    setOrders(orders.map(order =>
+      order.id === orderId ? {
+        ...order,
+        status: newStatus,
+        deliveredAt: newStatus === 'delivered' ? new Date() : order.deliveredAt,
+        statusHistory: {
+          ...order.statusHistory,
+          deliveredAt: newStatus === 'delivered' ? new Date() : order.statusHistory?.deliveredAt
+        }
+      } : order
+    ))
+
+    if (selectedOrder?.id === orderId) {
+      setSelectedOrder({
+        ...selectedOrder,
+        status: newStatus,
+        deliveredAt: newStatus === 'delivered' ? new Date() : selectedOrder.deliveredAt,
+        statusHistory: {
+          ...selectedOrder.statusHistory,
+          deliveredAt: newStatus === 'delivered' ? new Date() : selectedOrder.statusHistory?.deliveredAt
+        }
+      })
+    }
+
     try {
       await updateOrderStatus(orderId, newStatus)
-      setOrders(orders.map(order =>
-        order.id === orderId ? {
-          ...order,
-          status: newStatus,
-          deliveredAt: newStatus === 'delivered' ? new Date() : order.deliveredAt,
-          statusHistory: {
-            ...order.statusHistory,
-            deliveredAt: newStatus === 'delivered' ? new Date() : order.statusHistory?.deliveredAt
-          }
-        } : order
-      ))
-
-      // Cerrar modal si está abierto
-      if (selectedOrder?.id === orderId) {
-        setSelectedOrder({
-          ...selectedOrder,
-          status: newStatus,
-          deliveredAt: newStatus === 'delivered' ? new Date() : selectedOrder.deliveredAt,
-          statusHistory: {
-            ...selectedOrder.statusHistory,
-            deliveredAt: newStatus === 'delivered' ? new Date() : selectedOrder.statusHistory?.deliveredAt
-          }
-        })
-      }
     } catch (error) {
       console.error('Error updating status:', error)
+      setOrders(previousOrders)
+      if (previousSelectedOrder?.id === orderId) {
+        setSelectedOrder(previousSelectedOrder)
+      }
       alert('Error al actualizar el estado del pedido')
     }
   }

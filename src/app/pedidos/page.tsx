@@ -978,25 +978,36 @@ export default function AdminPedidosPage() {
     }
 
     const handleStatusChange = async (orderId: string, newStatus: Order['status'], reason?: string) => {
+        const previousOrder = orders.find(o => o.id === orderId)
+            || historicalOrders.find(o => o.id === orderId)
+            || allUpcomingOrders.find(o => o.id === orderId);
+
+        if (!previousOrder) return;
+
+        // Actualización optimista de la UI: reflejar el cambio de estado inmediatamente sin esperar la base de datos
+        patchOrderEverywhere(orderId, order => ({
+            ...order,
+            status: newStatus,
+            updatedAt: new Date(),
+            ...(reason ? { cancellationReason: reason } : {})
+        }))
+
         try {
-            const currentOrder = orders.find(o => o.id === orderId)
-                || historicalOrders.find(o => o.id === orderId)
-                || allUpcomingOrders.find(o => o.id === orderId);
             let assignmentUpdate: any = {};
 
-            const isScheduled = currentOrder?.timing?.type === 'scheduled';
-            const isDelivery = currentOrder?.delivery?.type === 'delivery';
-            const hasNoDeliveryAssigned = !currentOrder?.delivery?.assignedDelivery;
+            const isScheduled = previousOrder.timing?.type === 'scheduled';
+            const isDelivery = previousOrder.delivery?.type === 'delivery';
+            const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
 
-            if (currentOrder && isDelivery && hasNoDeliveryAssigned) {
-                if (currentOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(currentOrder, business?.defaultDeliveryId);
+            if (isDelivery && hasNoDeliveryAssigned) {
+                if (previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
+                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                     }
                 }
-                else if (currentOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(currentOrder, business?.defaultDeliveryId);
+                else if (previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
+                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                     }
@@ -1008,22 +1019,22 @@ export default function AdminPedidosPage() {
             if (Object.keys(assignmentUpdate).length > 0) {
                 const orderRef = doc(db, 'orders', orderId);
                 await updateDoc(orderRef, assignmentUpdate);
-            }
 
-            patchOrderEverywhere(orderId, order => ({
-                ...order,
-                status: newStatus,
-                updatedAt: new Date(),
-                ...(reason ? { cancellationReason: reason } : {}),
-                delivery: {
-                    ...order.delivery,
-                    ...(assignmentUpdate['delivery.assignedDelivery']
-                        ? { assignedDelivery: assignmentUpdate['delivery.assignedDelivery'] }
-                        : {})
-                }
-            }))
+                // Aplicar actualización de repartidor en caso de que se haya auto-asignado
+                patchOrderEverywhere(orderId, order => ({
+                    ...order,
+                    delivery: {
+                        ...order.delivery,
+                        ...(assignmentUpdate['delivery.assignedDelivery']
+                            ? { assignedDelivery: assignmentUpdate['delivery.assignedDelivery'] }
+                            : {})
+                    }
+                }))
+            }
         } catch (error) {
             console.error("Error updating status:", error)
+            // Revertir estado optimista en caso de error
+            updateOrderEverywhere(previousOrder)
             alert("Error al actualizar estado")
         }
     }
@@ -1733,17 +1744,19 @@ export default function AdminPedidosPage() {
                     {/* Sidebar content container */}
                     <div className="relative flex flex-col w-full sm:max-w-sm bg-white h-full shadow-2xl animate-in slide-in-from-left duration-300">
                         {/* Header */}
-                        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 shrink-0">
-                            <div className="flex items-center gap-2">
-                                <span className="text-lg font-black text-red-600 tracking-tighter">Fuddi Pedidos</span>
+                        {activeSidebarTab === 'menu' && (
+                            <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-lg font-black text-red-600 tracking-tighter">Fuddi Pedidos</span>
+                                </div>
+                                <button
+                                    onClick={() => setIsMenuSidebarOpen(false)}
+                                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                                >
+                                    <i className="bi bi-x-lg text-lg"></i>
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setIsMenuSidebarOpen(false)}
-                                className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
-                            >
-                                <i className="bi bi-x-lg text-lg"></i>
-                            </button>
-                        </div>
+                        )}
 
                         {/* Sidebar Main Content */}
                         {activeSidebarTab === 'menu' ? (
@@ -1772,6 +1785,7 @@ export default function AdminPedidosPage() {
                                 orders={orders}
                                 availableDeliveries={availableDeliveries}
                                 onBack={() => setActiveSidebarTab('menu')}
+                                onClose={() => setIsMenuSidebarOpen(false)}
                                 selectedBusinessId={selectedBusinessId}
                                 businesses={businesses}
                                 onManagePayment={handlePaymentClick}

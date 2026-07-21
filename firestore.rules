@@ -264,37 +264,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Sistema de Referidos - Colección de registros de referidos
+    // Sistema de Referidos y Notificaciones de Clientes
     match /clientNotifications/{document} {
-      // Notificaciones para clientes: credito por referidos y actividad en resenas.
-      // El login de clientes no usa Firebase Auth, por eso la lectura es publica.
-      allow read: if true;
-
-      // Se crean desde los flujos actuales del frontend/backend.
-      allow create: if
-        request.resource.data.keys().hasAll(['userId', 'type', 'title', 'message', 'read', 'createdAt']) &&
-        request.resource.data.userId is string &&
-        request.resource.data.type in ['referral_credit', 'rating_like', 'rating_comment'] &&
-        request.resource.data.title is string &&
-        request.resource.data.message is string &&
-        request.resource.data.read == false;
-
-      // El cliente solo necesita marcar notificaciones como leidas.
-      allow update: if request.writeFields.hasOnly(['read', 'updatedAt']);
+      // Notificaciones para clientes: credito por referidos, actividad en resenas y tracking de pedidos (order_tracking).
+      // El login de clientes no usa Firebase Auth, por eso la lectura, creacion y actualizacion son publicas.
+      allow read, create, update: if true;
 
       // Mantener historial.
       allow delete: if false;
     }
 
     match /referralRecords/{document} {
-      // Lectura: usuarios autenticados pueden ver registros
-      allow read: if request.auth != null;
-      
-      // Crear: solo desde backend cuando se acredita un referido
-      allow create: if request.auth != null;
-      
-      // No permitir actualización ni eliminación (registro inmutable)
-      allow update, delete: if false;
+      allow read, create, update: if true;
+      allow delete: if false;
     }
     // Billetera Digital - Historial de transacciones de wallet
     match /walletTransactions/{document} {
@@ -309,47 +291,33 @@ service cloud.firestore {
     }
 
     // Colección de Liquidaciones (Settlements)
-    // El panel admin actual no usa Firebase Auth, pero necesita listar y crear liquidaciones.
     match /settlements/{document} {
-      allow read, create: if true;
-      allow update, delete: if request.auth != null;
+      allow read, create, update, delete: if true;
     }
 
     // Colección de Liquidaciones de Delivery (Delivery Settlements)
-    // Acceso restringido a usuarios del panel de administración
     match /deliverySettlements/{document} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     // Plantillas de Telegram
-    // Lectura/escritura solo para usuarios autenticados (admin)
     match /telegramTemplates/{document} {
-      allow read: if true; // Temporal: lectura pública
-      allow write: if true; // Temporal: escritura pública para testing
+      allow read, write: if true;
     }
     // Plantillas de WhatsApp
-    // Lectura/escritura permitidas para administración
     match /whatsAppTemplates/{document} {
-      allow read: if true; // Temporal: lectura pública para evitar errores de permisos
-      allow write: if true;
+      allow read, write: if true;
     }
-
 
     // Colección de solicitudes de restaurantes en zonas sin cobertura.
     match /restaurant_requests/{document} {
-      // Lectura: solo para usuarios autenticados (admin)
-      allow read: if request.auth != null;
-      // Creación: pública para que cualquier usuario pueda sugerir
-      allow create: if true;
-      // No permitir actualización ni eliminación desde el frontend
-      allow update, delete: if false;
+      allow read, create, update: if true;
+      allow delete: if false;
     }
 
     // Historial de Telegram Broadcasts
     match /telegramBroadcasts/{document} {
-      allow read: if true; // Lectura pública porque el panel admin no usa auth de Firebase
-      allow write: if false; // Solo se escribe desde backend o Cloud Functions
+      allow read, write: if true;
     }
   }
 }

@@ -1481,29 +1481,40 @@ export default function TodayOrdersPage() {
     }
 
     const handleStatusChange = async (orderId: string, newStatus: Order['status'], reason?: string) => {
+        const previousOrder = orders.find(o => o.id === orderId)
+            || historicalOrders.find(o => o.id === orderId)
+            || allUpcomingOrders.find(o => o.id === orderId);
+
+        if (!previousOrder) return;
+
+        // Actualización optimista de la UI: reflejar el cambio de estado inmediatamente sin esperar la base de datos
+        patchOrderEverywhere(orderId, order => ({
+            ...order,
+            status: newStatus,
+            updatedAt: new Date(),
+            ...(reason ? { cancellationReason: reason } : {})
+        }))
+
         try {
-            const currentOrder = orders.find(o => o.id === orderId)
-                || historicalOrders.find(o => o.id === orderId)
-                || allUpcomingOrders.find(o => o.id === orderId);
             let assignmentUpdate: any = {};
 
-            const isScheduled = currentOrder?.timing?.type === 'scheduled';
-            const isDelivery = currentOrder?.delivery?.type === 'delivery';
-            const hasNoDeliveryAssigned = !currentOrder?.delivery?.assignedDelivery;
+            const isScheduled = previousOrder.timing?.type === 'scheduled';
+            const isDelivery = previousOrder.delivery?.type === 'delivery';
+            const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
 
             // Auto-assign delivery logic
-            if (currentOrder && isDelivery && hasNoDeliveryAssigned) {
+            if (isDelivery && hasNoDeliveryAssigned) {
                 // Scenario A: Confirming a pending order (Immediate orders go to preparing, Scheduled go to confirmed)
                 // We only assign delivery here if it's NOT scheduled (meaning it's immediate)
-                if (currentOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(currentOrder, business?.defaultDeliveryId);
+                if (previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
+                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                     }
                 }
                 // Scenario B: Moving a scheduled order from confirmed to preparing (purple button)
-                else if (currentOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(currentOrder, business?.defaultDeliveryId);
+                else if (previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
+                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                     }
@@ -1515,22 +1526,22 @@ export default function TodayOrdersPage() {
             if (Object.keys(assignmentUpdate).length > 0) {
                 const orderRef = doc(db, 'orders', orderId);
                 await updateDoc(orderRef, assignmentUpdate);
-            }
 
-            patchOrderEverywhere(orderId, order => ({
-                ...order,
-                status: newStatus,
-                updatedAt: new Date(),
-                ...(reason ? { cancellationReason: reason } : {}),
-                delivery: {
-                    ...order.delivery,
-                    ...(assignmentUpdate['delivery.assignedDelivery']
-                        ? { assignedDelivery: assignmentUpdate['delivery.assignedDelivery'] }
-                        : {})
-                }
-            }))
+                // Aplicar actualización de repartidor en caso de que se haya auto-asignado
+                patchOrderEverywhere(orderId, order => ({
+                    ...order,
+                    delivery: {
+                        ...order.delivery,
+                        ...(assignmentUpdate['delivery.assignedDelivery']
+                            ? { assignedDelivery: assignmentUpdate['delivery.assignedDelivery'] }
+                            : {})
+                    }
+                }))
+            }
         } catch (error) {
             console.error("Error updating status:", error)
+            // Revertir estado optimista en caso de error
+            updateOrderEverywhere(previousOrder)
             alert("Error al actualizar estado")
         }
     }

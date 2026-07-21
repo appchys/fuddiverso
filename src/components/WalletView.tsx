@@ -1,8 +1,11 @@
+'use client'
+
 import React, { useState, useMemo, useEffect } from 'react'
 import { Order, Business, Settlement } from '@/types'
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { getSettlementsByBusiness } from '@/lib/database'
+import { getSettlementsByBusiness, getOrdersByBusinessComplete } from '@/lib/database'
+import { Timestamp } from 'firebase/firestore'
 
 interface WalletViewProps {
     business: Business
@@ -13,13 +16,58 @@ interface WalletViewProps {
 type TimeRange = 'today' | 'week' | 'month' | 'custom'
 type ViewMode = 'pending' | 'all'
 
+const toSafeDate = (val: any): Date => {
+    if (!val) return new Date()
+    if (val instanceof Timestamp) return val.toDate()
+    if (typeof val.toDate === 'function') return val.toDate()
+    if (val.seconds) return new Date(val.seconds * 1000)
+    if (typeof val === 'string') {
+        const dateOnlyMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+        if (dateOnlyMatch) {
+            const [, year, month, day] = dateOnlyMatch
+            return new Date(Number(year), Number(month) - 1, Number(day))
+        }
+        return new Date(val)
+    }
+    if (val instanceof Date) return val
+    return new Date()
+}
+
+const getOrderProgrammedDate = (order: Order): Date => {
+    if (order.timing?.scheduledDate) {
+        return toSafeDate(order.timing.scheduledDate)
+    }
+    return toSafeDate(order.createdAt)
+}
+
+const getLocalDateString = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+}
+
+const getOrderDisplayTime = (order: Order) => {
+    try {
+        if (order.timing?.scheduledTime) {
+            return order.timing.scheduledTime;
+        }
+        const date = toSafeDate(order.createdAt);
+        return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+        return '--:--';
+    }
+}
+
 export default function WalletView({ business, orders, historicalOrders }: WalletViewProps) {
-    const [timeRange, setTimeRange] = useState<TimeRange>('today')
-    const [customStartDate, setCustomStartDate] = useState('')
-    const [customEndDate, setCustomEndDate] = useState('')
-    const [viewMode, setViewMode] = useState<ViewMode>('pending')
     const [settlements, setSettlements] = useState<Settlement[]>([])
     const [loadingSettlements, setLoadingSettlements] = useState(true)
+    const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({})
+    const [localHistoricalOrders, setLocalHistoricalOrders] = useState<Order[]>([])
+    const [loadingHistory, setLoadingHistory] = useState(true)
+    const [pendingGroupsExpanded, setPendingGroupsExpanded] = useState(true)
+    const [settledGroupsExpanded, setSettledGroupsExpanded] = useState(false)
+    const [showInfoModal, setShowInfoModal] = useState(false)
 
     // Cargar liquidaciones de esta tienda
     useEffect(() => {
@@ -38,20 +86,34 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
         loadSettlements()
     }, [business.id])
 
-    // Combinar todas las órdenes
+    // Cargar historial de órdenes completo para las finanzas de esta tienda
+    useEffect(() => {
+        const loadHistory = async () => {
+            try {
+                setLoadingHistory(true)
+                const data = await getOrdersByBusinessComplete(business.id)
+                setLocalHistoricalOrders(data || [])
+            } catch (error) {
+                console.error('Error loading complete history in WalletView:', error)
+            } finally {
+                setLoadingHistory(false)
+            }
+        }
+        loadHistory()
+    }, [business.id])
+
+    // Combinar todas las órdenes sin duplicados y excluir borradores/canceladas
     const allOrders = useMemo(() => {
-        // Filtrar duplicados por si acaso
         const seen = new Set()
-        return [...orders, ...historicalOrders].filter(order => {
+        return [...orders, ...localHistoricalOrders].filter(order => {
             if (seen.has(order.id)) return false
             seen.add(order.id)
             return true
         }).filter(order => {
-            // Excluir estados no válidos
             if (['borrador', 'pending', 'cancelled'].includes(order.status as any)) return false
             return true
         })
-    }, [orders, historicalOrders])
+    }, [orders, localHistoricalOrders])
 
     // Separar órdenes pendientes vs liquidadas
     const { pendingOrders, settledOrders } = useMemo(() => {
@@ -61,500 +123,449 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
         })
         
         const settled = allOrders.filter(order => {
-            return order.settlementStatus === 'settled' || order.settlementId
+            return order.settlementStatus === 'settled' || Boolean(order.settlementId)
         })
         
         return { pendingOrders: pending, settledOrders: settled }
     }, [allOrders])
 
-    // Filtrar por tiempo según vista actual
-    const filteredOrders = useMemo(() => {
-        const ordersToFilter = viewMode === 'pending' ? pendingOrders : [...pendingOrders, ...settledOrders]
-        
-        const now = new Date()
-        let start: Date
-        let end: Date
+    // Mostrar la totalidad de las órdenes históricas sin ningún filtro de fecha
+    const filteredOrders = allOrders
 
-        switch (timeRange) {
-            case 'today':
-                start = startOfDay(now)
-                end = endOfDay(now)
-                break
-            case 'week':
-                start = startOfWeek(now, { weekStartsOn: 1 }) // Lunes
-                end = endOfWeek(now, { weekStartsOn: 1 })
-                break
-            case 'month':
-                start = startOfMonth(now)
-                end = endOfMonth(now)
-                break
-            case 'custom':
-                if (!customStartDate || !customEndDate) return ordersToFilter
-                start = startOfDay(parseISO(customStartDate))
-                end = endOfDay(parseISO(customEndDate))
-                break
-            default:
-                start = startOfDay(now)
-                end = endOfDay(now)
-        }
-
-        return ordersToFilter.filter(order => {
-            let orderDate: Date
-            if (order.createdAt && typeof order.createdAt === 'object' && 'toDate' in order.createdAt) {
-                orderDate = (order.createdAt as any).toDate()
-            } else if (typeof order.createdAt === 'string') {
-                orderDate = new Date(order.createdAt)
-            } else {
-                return false
-            }
-            return isWithinInterval(orderDate, { start, end })
-        })
-    }, [pendingOrders, settledOrders, timeRange, customStartDate, customEndDate, viewMode])
-
-    // Filtrar liquidaciones por tiempo
-    const filteredSettlements = useMemo(() => {
-        if (viewMode === 'pending') return []
-        
-        const now = new Date()
-        let start: Date
-        let end: Date
-
-        switch (timeRange) {
-            case 'today':
-                start = startOfDay(now)
-                end = endOfDay(now)
-                break
-            case 'week':
-                start = startOfWeek(now, { weekStartsOn: 1 })
-                end = endOfWeek(now, { weekStartsOn: 1 })
-                break
-            case 'month':
-                start = startOfMonth(now)
-                end = endOfMonth(now)
-                break
-            case 'custom':
-                if (!customStartDate || !customEndDate) return settlements
-                start = startOfDay(parseISO(customStartDate))
-                end = endOfDay(parseISO(customEndDate))
-                break
-            default:
-                start = startOfDay(now)
-                end = endOfDay(now)
-        }
-
-        return settlements.filter(settlement => {
-            const settlementDate = new Date(settlement.createdAt)
-            return isWithinInterval(settlementDate, { start, end })
-        })
-    }, [settlements, timeRange, customStartDate, customEndDate, viewMode])
-
-    // Función para calcular información de liquidación (igual que en AdminSettlements)
+    // Información financiera de cada pedido
     const getSettlementOrderInfo = (order: Order) => {
-        let orderBasePrice = 0
         let orderCommission = 0
-        let orderStoreReceives = 0
-        let orderPublicSubtotal = 0
+        let orderSubtotal = 0
 
         if (order.items && order.items.length > 0) {
             order.items.forEach((item: any) => {
                 const qty = item.quantity || 1
-                const publicPrice = (item.price || 0) * qty
-                const commission = (item.commission || 0) * qty
-                const basePrice = (item.basePrice || item.storePrice || 0) * qty
-
-                orderPublicSubtotal += publicPrice
-                orderBasePrice += basePrice
-                orderCommission += commission
-                orderStoreReceives += (item.storeReceives != null ? (item.storeReceives || 0) * qty : (publicPrice - commission))
+                orderCommission += (item.commission || 0) * qty
+                orderSubtotal += (item.price || 0) * qty
             })
         } else {
-            const subtotal = order.subtotal || ((order.total || 0) - (order.delivery?.deliveryCost || 0))
-            orderBasePrice = subtotal
-            orderCommission = 0
-            orderStoreReceives = subtotal
-            orderPublicSubtotal = subtotal
+            const deliveryFee = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0
+            orderSubtotal = order.subtotal || Math.max(0, (order.total || 0) - deliveryFee)
         }
 
+        const isPickup = order.delivery?.type === 'pickup'
+        const isCash = order.payment?.method === 'cash'
+        const isStoreMoney = order.paymentCollector ? (order.paymentCollector === 'store') : (isPickup && isCash)
+
+        const cashCollected = isStoreMoney ? orderSubtotal : 0
+        const digitalCollected = isStoreMoney ? 0 : orderSubtotal
+        const storeReceives = digitalCollected - orderCommission
+
         return {
-            basePrice: orderBasePrice,
+            subtotal: orderSubtotal,
             commission: orderCommission,
-            storeReceives: orderStoreReceives,
-            publicSubtotal: orderPublicSubtotal
+            storeReceives,
+            cashCollected,
+            digitalCollected,
+            isStoreMoney
         }
     }
 
+    // Totales financieros generales para el encabezado (solo valores pendientes, sin filtro de fecha)
     const financials = useMemo(() => {
         let totalSales = 0
-        let totalSubtotal = 0
         let totalCommission = 0
-        let totalDelivery = 0
         let collectedByFuddi = 0
         let collectedByStore = 0
-        let collectedByFuddiSubtotal = 0
-        let collectedByStoreSubtotal = 0
+        let totalDelivery = 0
         let settledAmount = 0
-        let totalWithdrawals = 0
 
-        // Calcular ingresos de órdenes
-        filteredOrders.forEach(order => {
-            let orderCommission = 0
-            let orderSubtotal = 0
+        pendingOrders.forEach(order => {
+            const info = getSettlementOrderInfo(order)
+            const deliveryFee = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0
 
-            if (order.items && order.items.length > 0) {
-                order.items.forEach((item: any) => {
-                    const qty = item.quantity || 1
-                    orderCommission += (item.commission || 0) * qty
-                    orderSubtotal += (item.price || 0) * qty
-                })
+            totalSales += info.subtotal
+            totalCommission += info.commission
+            totalDelivery += deliveryFee
+
+            if (info.isStoreMoney) {
+                collectedByStore += info.subtotal
             } else {
-                orderSubtotal = order.subtotal || ((order.total || 0) - (order.delivery?.deliveryCost || 0))
+                collectedByFuddi += info.subtotal
             }
 
-            const deliveryCost = order.delivery?.deliveryCost || 0
-
-            totalSales += (order.total || 0)
-            totalSubtotal += orderSubtotal
-            totalCommission += orderCommission
-            totalDelivery += deliveryCost
-
-            const isPickup = order.delivery?.type === 'pickup'
-            const isCash = order.payment?.method === 'cash'
-            const isStoreMoney = isPickup && isCash
-            const currentOrderTotal = order.total || 0
-
-            if (isStoreMoney) {
-                collectedByStore += currentOrderTotal
-                collectedByStoreSubtotal += orderSubtotal
-            } else {
-                collectedByFuddi += currentOrderTotal
-                collectedByFuddiSubtotal += orderSubtotal
-            }
-
-            // Si está liquidada, sumar al monto retirado
             if (order.settlementStatus === 'settled') {
-                const info = getSettlementOrderInfo(order)
                 settledAmount += info.storeReceives
             }
         })
 
-        // Sumar retiros de liquidaciones procesadas
-        filteredSettlements.forEach(settlement => {
-            totalWithdrawals += Math.abs(settlement.netAmount)
-        })
-
-        // El resultado neto a transferir a la tienda es: Ventas Digitales recaudadas por Fuddi - Comisión Total de Fuddi - Retiros previos
-        const netIncome = collectedByFuddiSubtotal - totalCommission
-        const currentBalance = netIncome - totalWithdrawals
-        const pendingToSettle = netIncome - settledAmount
+        const netBalance = collectedByFuddi - totalCommission
+        const pendingToSettle = netBalance - settledAmount
 
         return {
             totalSales,
-            totalSubtotal,
             totalCommission,
-            totalDelivery,
             collectedByFuddi,
             collectedByStore,
-            collectedByFuddiSubtotal,
-            collectedByStoreSubtotal,
-            netIncome,
-            totalWithdrawals,
-            currentBalance,
+            totalDelivery,
+            netBalance,
             pendingToSettle,
             settledAmount,
-            orderCount: filteredOrders.length
+            orderCount: pendingOrders.length
         }
-    }, [filteredOrders, filteredSettlements])
+    }, [pendingOrders])
 
-    return (
-        <div className="p-6 max-w-7xl mx-auto">
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-gray-900 mb-1">Finanzas</h1>
-                <p className="text-gray-600">Resumen de ingresos, valores a recibir y estado de depósitos de Fuddi.</p>
-            </div>
+    // Agrupar órdenes por FECHA DE PROGRAMACIÓN
+    const groupedDays = useMemo(() => {
+        const todayStr = getLocalDateString(new Date())
+        const groups: Record<string, Order[]> = {}
 
-            {/* Aviso de Horario Fijo de Depósitos y Corte Visual */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3 text-amber-900 shadow-sm">
-                <span className="material-symbols-rounded text-amber-600 text-xl mt-0.5">schedule</span>
-                <div className="text-sm">
-                    <span className="font-bold">Corte diario y horario de depósito:</span>
-                    <p className="mt-0.5 text-amber-800">
-                        Los cortes se realizan automáticamente a las <strong>00:00 (medianoche)</strong>. Las ventas posteriores pertenecen al día siguiente. Las transferencias bancarias correspondientes al saldo pendiente se realizan antes de las <strong>2:00 PM</strong>.
-                    </p>
-                </div>
-            </div>
+        filteredOrders.forEach(order => {
+            const progDate = getOrderProgrammedDate(order)
+            const dateStr = getLocalDateString(progDate)
+            if (!groups[dateStr]) {
+                groups[dateStr] = []
+            }
+            groups[dateStr].push(order)
+        })
 
-            {/* Filtros de Fecha y Vista */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6">
-                <div className="flex flex-wrap items-center gap-4">
-                    {/* Selector de Vista */}
-                    <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
-                        <button
-                            onClick={() => setViewMode('pending')}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'pending'
-                                ? 'bg-amber-500 text-white shadow-sm'
-                                : 'text-gray-500 hover:text-gray-900'
-                                }`}
-                        >
-                            🟡 Pendientes de Pago
-                        </button>
-                        <button
-                            onClick={() => setViewMode('all')}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'all'
-                                ? 'bg-emerald-600 text-white shadow-sm'
-                                : 'text-gray-500 hover:text-gray-900'
-                                }`}
-                        >
-                            🟢 Historial Completo
-                        </button>
+        return Object.entries(groups).map(([dateStr, ordersList]) => {
+            const [y, m, d] = dateStr.split('-').map(Number)
+            const date = new Date(y, m - 1, d, 12, 0, 0)
+            const isToday = dateStr === todayStr
+
+            let displayDate = ''
+            if (isToday) {
+                displayDate = `Hoy (${date.toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })})`
+            } else {
+                const formatted = date.toLocaleDateString('es-EC', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric'
+                })
+                displayDate = formatted.charAt(0).toUpperCase() + formatted.slice(1)
+            }
+
+            let daySales = 0
+            let dayCommission = 0
+            let dayCashCollected = 0
+            let dayDigitalCollected = 0
+            let dayPendingCount = 0
+            let daySettledCount = 0
+
+            ordersList.forEach(o => {
+                const info = getSettlementOrderInfo(o)
+                daySales += info.subtotal
+                dayCommission += info.commission
+                dayCashCollected += info.cashCollected
+                dayDigitalCollected += info.digitalCollected
+
+                if (o.settlementStatus === 'settled') {
+                    daySettledCount++
+                } else {
+                    dayPendingCount++
+                }
+            })
+
+            const dayNetBalance = dayDigitalCollected - dayCommission
+            const isDayFullySettled = ordersList.length > 0 && ordersList.every(o => o.settlementStatus === 'settled')
+
+            return {
+                dateStr,
+                displayDate,
+                date,
+                isToday,
+                ordersList,
+                daySales,
+                dayCommission,
+                dayCashCollected,
+                dayDigitalCollected,
+                dayNetBalance,
+                dayPendingCount,
+                daySettledCount,
+                isDayFullySettled
+            }
+        }).sort((a, b) => b.dateStr.localeCompare(a.dateStr))
+    }, [filteredOrders])
+
+    // Separar jornadas según su estado (Pendientes vs Liquidadas)
+    const { pendingDays, settledDays } = useMemo(() => {
+        const pending = groupedDays.filter(day => !day.isDayFullySettled)
+        const settled = groupedDays.filter(day => day.isDayFullySettled)
+        return { pendingDays: pending, settledDays: settled }
+    }, [groupedDays])
+
+    const renderDayRow = (day: typeof groupedDays[0]) => {
+        const isExpanded = Boolean(expandedDays[day.dateStr])
+
+        return (
+            <div key={day.dateStr} className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden transition-all">
+                {/* Cabecera del Día */}
+                <div
+                    onClick={() => toggleDayExpand(day.dateStr)}
+                    className="py-3 px-4 hover:bg-slate-50/60 transition-colors cursor-pointer flex flex-wrap items-center justify-between gap-3 select-none"
+                >
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-bold text-sm text-slate-900 leading-tight">{day.displayDate}</h4>
+                            <span className="text-[10px] font-semibold text-slate-400">({day.ordersList.length} {day.ordersList.length === 1 ? 'orden' : 'órdenes'})</span>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-xs">
+                            <span className="text-slate-600 font-medium">Ventas: <strong className="text-slate-900">${day.daySales.toFixed(2)}</strong></span>
+                            <span className="text-slate-400">Comisión: <strong className="text-slate-500">-${day.dayCommission.toFixed(2)}</strong></span>
+                        </div>
                     </div>
 
-                    {/* Filtros de Fecha */}
-                    <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
-                        {(['today', 'week', 'month', 'custom'] as TimeRange[]).map((range) => (
-                            <button
-                                key={range}
-                                onClick={() => setTimeRange(range)}
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeRange === range
-                                    ? 'bg-white text-gray-900 shadow-sm'
-                                    : 'text-gray-500 hover:text-gray-900'
-                                    }`}
-                            >
-                                {range === 'today' && 'Hoy'}
-                                {range === 'week' && 'Esta Semana'}
-                                {range === 'month' && 'Este Mes'}
-                                {range === 'custom' && 'Personalizado'}
-                            </button>
-                        ))}
-                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                            <span className="text-[10px] text-slate-400 font-medium block">Neto del Día</span>
+                            <span className={`text-sm font-bold ${day.dayNetBalance >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                {day.dayNetBalance >= 0 ? `+$${day.dayNetBalance.toFixed(2)}` : `-$${Math.abs(day.dayNetBalance).toFixed(2)}`}
+                            </span>
+                        </div>
 
-                    {timeRange === 'custom' && (
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="date"
-                                value={customStartDate}
-                                onChange={(e) => setCustomStartDate(e.target.value)}
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                            />
-                            <span className="text-gray-500">-</span>
-                            <input
-                                type="date"
-                                value={customEndDate}
-                                onChange={(e) => setCustomEndDate(e.target.value)}
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                            />
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Tarjeta Destacada de Valores a Recibir */}
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl text-white mb-8">
-                <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 bg-white/10 rounded-xl backdrop-blur-md">
-                            <span className="material-symbols-rounded text-2xl text-emerald-400">payments</span>
-                        </div>
-                        <div>
-                            <span className="text-xs uppercase tracking-widest text-slate-400 font-bold block">Resumen de Liquidación</span>
-                            <h2 className="text-lg font-semibold text-white">Valores por Recibir</h2>
-                        </div>
-                    </div>
-                    <div>
-                        {financials.currentBalance > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-                                🟡 Pendiente de depósito
+                        {day.isDayFullySettled ? (
+                            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center gap-1">
+                                <i className="bi bi-check-circle-fill text-[10px]"></i>
+                                <span>Depositado</span>
                             </span>
                         ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
-                                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                                🟢 Depositado / Al día
+                            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-amber-50 text-amber-700 border border-amber-200/60 flex items-center gap-1">
+                                <i className="bi bi-hourglass-split text-[10px]"></i>
+                                <span>Pendiente ({day.dayPendingCount})</span>
                             </span>
                         )}
+
+                        <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-slate-400 text-xs ml-1`}></i>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-700/60">
-                    <div>
-                        <span className="text-xs text-slate-400 block mb-1">Resultado Neto del Período</span>
-                        {financials.currentBalance >= 0 ? (
-                            <div className="text-3xl sm:text-4xl font-extrabold text-emerald-400">
-                                Te transferiremos ${financials.currentBalance.toFixed(2)}
+                {/* Detalle Expandido del Día */}
+                {isExpanded && (
+                    <div className="border-t border-slate-100 bg-slate-50/40 p-3.5 space-y-3 animate-in fade-in duration-150">
+                        {/* Resumen del Día */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-white p-3 rounded-xl border border-slate-200/80 text-center text-xs">
+                            <div>
+                                <p className="text-[10px] font-medium text-slate-400 uppercase">Fuddi</p>
+                                <p className="font-semibold text-slate-900 mt-0.5">${day.dayDigitalCollected.toFixed(2)}</p>
                             </div>
-                        ) : (
-                            <div className="text-3xl sm:text-4xl font-extrabold text-amber-400">
-                                Debes pagar de comisiones ${Math.abs(financials.currentBalance).toFixed(2)}
+                            <div>
+                                <p className="text-[10px] font-medium text-slate-400 uppercase">Tienda</p>
+                                <p className="font-semibold text-slate-900 mt-0.5">${day.dayCashCollected.toFixed(2)}</p>
                             </div>
-                        )}
-                        <span className="text-xs text-slate-400 mt-2 block">
-                            (Ventas Digitales - Comisión Fuddi - Efectivo Retenido)
-                        </span>
-                    </div>
+                            <div>
+                                <p className="text-[10px] font-medium text-slate-400 uppercase">Comisión</p>
+                                <p className="font-semibold text-slate-500 mt-0.5">-${day.dayCommission.toFixed(2)}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-medium text-slate-400 uppercase">Saldo Neto Día</p>
+                                <p className={`font-bold mt-0.5 ${day.dayNetBalance >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                    ${day.dayNetBalance.toFixed(2)}
+                                </p>
+                            </div>
+                        </div>
 
-                    <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700/50">
-                        <span className="text-xs text-slate-400 block mb-1">Ventas Digitales</span>
-                        <div className="text-xl font-bold text-white">${financials.collectedByFuddiSubtotal.toFixed(2)}</div>
-                        <div className="text-xs text-emerald-400 mt-1">Cobrado por Fuddi (Tarjeta/Transferencia)</div>
-                    </div>
-
-                    <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700/50">
-                        <span className="text-xs text-slate-400 block mb-1">Comisiones Fuddi</span>
-                        <div className="text-xl font-bold text-rose-400">-${financials.totalCommission.toFixed(2)}</div>
-                        <div className="text-xs text-slate-400 mt-1">{financials.orderCount} órdenes en el período</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Movimientos / Órdenes */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-                <div className="p-6 border-b border-gray-100">
-                    <h3 className="text-lg font-bold text-gray-900 mb-1">
-                        {viewMode === 'pending' ? 'Órdenes Pendientes de Pago' : 'Todos los Movimientos'}
-                    </h3>
-                    <p className="text-sm text-gray-500">
-                        {viewMode === 'pending' 
-                            ? 'Ventas registradas en el período que están por ser depositadas'
-                            : 'Historial completo de ventas y liquidaciones depositadas'
-                        }
-                    </p>
-                </div>
-                
-                {loadingSettlements ? (
-                    <div className="p-12 text-center text-gray-500">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
-                        Cargando movimientos...
-                    </div>
-                ) : filteredOrders.length === 0 && filteredSettlements.length === 0 ? (
-                    <div className="p-12 text-center text-gray-500">
-                        <span className="material-symbols-rounded text-4xl mb-3 block text-emerald-500">check_circle</span>
-                        No hay movimientos en este período.
-                    </div>
-                ) : (
-                    <div className="divide-y divide-gray-100">
-                        {/* Ventas (Ingresos) */}
-                        {filteredOrders
-                            .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
-                            .map((order) => {
+                        {/* Lista de Órdenes del Día */}
+                        <div className="space-y-2">
+                            {day.ordersList.map(order => {
                                 const info = getSettlementOrderInfo(order)
-                                const isStoreCollector = order.paymentCollector === 'store'
                                 const isSettled = order.settlementStatus === 'settled'
-                                const isPickup = order.delivery?.type === 'pickup'
-                                
+
                                 return (
-                                    <div key={order.id} className="p-6 hover:bg-gray-50 transition-colors">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                                                    isSettled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                    <div key={order.id} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs space-y-2 text-xs">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                                                <span className="font-bold text-slate-900">{order.customer?.name || 'Cliente'}</span>
+                                                <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'})</span>
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                <span className={`px-2 py-0.5 text-[10px] font-medium rounded-md ${
+                                                    info.isStoreMoney ? 'bg-slate-100 text-slate-700' : 'bg-blue-50 text-blue-700'
                                                 }`}>
-                                                    <span className="material-symbols-rounded text-xl">
-                                                        {isSettled ? 'check_circle' : 'hourglass_top'}
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <div className="font-semibold text-gray-900 flex items-center gap-2 flex-wrap">
-                                                        <span>Venta - Pedido #{order.id.slice(-6)}</span>
-                                                        <span className={`text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
-                                                            isPickup ? 'bg-gray-100 text-gray-600' : 'bg-blue-100 text-blue-700'
-                                                        }`}>
-                                                            {isPickup ? 'Retiro' : 'Delivery'}
-                                                        </span>
-                                                        {isSettled ? (
-                                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                                                                🟢 Depositado
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                                                                🟡 Pendiente de depósito
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-sm text-gray-500">
-                                                        {new Date(order.createdAt as any).toLocaleDateString()} • {order.customer?.name || 'Cliente'}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <span className={`text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
-                                                            isStoreCollector
-                                                                ? 'bg-purple-100 text-purple-700'
-                                                                : 'bg-blue-100 text-blue-700'
-                                                        }`}>
-                                                            {isStoreCollector ? '🏢 Tienda' : '🦅 Fuddi'}
-                                                        </span>
-                                                        <span className="text-xs text-gray-500">
-                                                            {order.payment.method === 'cash' ? 'Efectivo' : 
-                                                             order.payment.method === 'transfer' ? 'Transferencia' : 'Mixto'}
-                                                        </span>
-                                                    </div>
-                                                </div>
+                                                    {info.isStoreMoney ? '🏢 Tienda' : '🦅 Fuddi'}
+                                                </span>
+
+                                                <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full ${
+                                                    isSettled ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                                                }`}>
+                                                    {isSettled ? 'Depositado' : 'Pendiente'}
+                                                </span>
                                             </div>
-                                            <div className="text-right">
-                                                <div className="text-lg font-bold text-emerald-600">
-                                                    +${info.storeReceives.toFixed(2)}
-                                                </div>
-                                                <div className="text-xs text-gray-500">
-                                                    Total: ${(order.total || 0).toFixed(2)}
-                                                </div>
-                                                <div className="text-xs text-red-500">
-                                                    Comisión: -${info.commission.toFixed(2)}
-                                                </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600 text-xs">
+                                            <div className="flex items-center gap-3">
+                                                <span>Venta: <strong className="text-slate-900">${info.subtotal.toFixed(2)}</strong></span>
+                                                <span className="text-slate-400">Comisión: <strong className="text-slate-500">-${info.commission.toFixed(2)}</strong></span>
                                             </div>
+
+                                            <span className={`font-bold ${info.storeReceives >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                Ganancia: ${info.storeReceives.toFixed(2)}
+                                            </span>
                                         </div>
                                     </div>
                                 )
-                            })
-                        }
-                        
-                        {/* Liquidaciones (Retiros / Pagos Realizados) */}
-                        {viewMode === 'all' && filteredSettlements
-                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                            .map((settlement) => (
-                                <div key={settlement.id} className="p-6 hover:bg-gray-50 transition-colors">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
-                                                <span className="material-symbols-rounded text-emerald-600 text-xl">verified</span>
-                                            </div>
-                                            <div>
-                                                <div className="font-semibold text-gray-900 flex items-center gap-2">
-                                                    <span>Liquidación Depositada</span>
-                                                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                                                        🟢 Depositado
-                                                    </span>
-                                                </div>
-                                                <div className="text-sm text-gray-500">
-                                                    {new Date(settlement.createdAt).toLocaleDateString()} • {settlement.totalOrders} órdenes liquidadas
-                                                </div>
-                                                {(settlement as any).referenceNumber && (
-                                                    <div className="text-xs text-gray-600 mt-1 font-mono">
-                                                        Ref. Bancaria: {(settlement as any).referenceNumber}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-lg font-bold text-emerald-600">${Math.abs(settlement.netAmount).toFixed(2)}</div>
-                                            <div className="text-xs text-gray-500">Depositado en tu cuenta</div>
-                                        </div>
-                                    </div>
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    const toggleDayExpand = (dateStr: string) => {
+        setExpandedDays(prev => ({
+            ...prev,
+            [dateStr]: !prev[dateStr]
+        }))
+    }
+
+    return (
+        <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">Finanzas y Cierres</h1>
+                </div>
+            </div>
+
+
+
+            {/* Tarjeta Resumen General de Liquidación (Minimalista) */}
+            <div className="bg-slate-900 px-5 py-4 rounded-2xl shadow-lg text-white">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    {/* Sección Principal: Valor a recibir */}
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-1 text-slate-400">
+                            <span className="text-[10px] uppercase tracking-widest font-bold">Valor a Recibir</span>
+                            <button
+                                onClick={() => setShowInfoModal(true)}
+                                className="hover:text-white transition-colors focus:outline-hidden"
+                                title="Ver información sobre el Proceso de Liquidación"
+                            >
+                                <span className="material-symbols-rounded text-[11px] block">info</span>
+                            </button>
+                        </div>
+                        <div className="text-3xl font-black text-emerald-400">
+                            ${financials.netBalance.toFixed(2)}
+                        </div>
+                        <span className="text-[10px] text-slate-400 block">
+                            Total neto acumulado pendiente de depósito
+                        </span>
+                    </div>
+
+                    {/* Desglose Minimalista */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 border-t md:border-t-0 md:border-l border-slate-800 pt-3 md:pt-0 md:pl-6">
+                        <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold block">Total de Ventas</span>
+                            <span className="text-sm font-extrabold text-white">${financials.totalSales.toFixed(2)}</span>
+                        </div>
+                        <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold block">Recaudado por Tienda</span>
+                            <span className="text-sm font-extrabold text-white">${financials.collectedByStore.toFixed(2)}</span>
+                        </div>
+                        <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold block">Comisión</span>
+                            <span className="text-sm font-extrabold text-rose-400">-${financials.totalCommission.toFixed(2)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Listado Agrupado por Día (Jornadas por Fecha de Programación) */}
+            <div className="space-y-3">
+
+                {loadingSettlements || loadingHistory ? (
+                    <div className="bg-white p-12 rounded-2xl border border-slate-200/80 text-center text-slate-500 shadow-2xs">
+                        <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-slate-900 mx-auto mb-3"></div>
+                        <p className="text-xs font-semibold">Cargando cierre de finanzas...</p>
+                    </div>
+                ) : groupedDays.length === 0 ? (
+                    <div className="bg-white p-10 rounded-2xl border border-slate-200/80 text-center space-y-2 shadow-2xs">
+                        <div className="w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center mx-auto">
+                            <span className="material-symbols-rounded text-xl">event_busy</span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-700">Sin órdenes registradas en este período</p>
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        {/* Jornadas Pendientes */}
+                        {pendingDays.length > 0 && (
+                            <div className="space-y-3">
+                                <div
+                                    onClick={() => setPendingGroupsExpanded(prev => !prev)}
+                                    className="flex items-center justify-between gap-1.5 px-1 pt-1 cursor-pointer select-none group"
+                                >
+                                    <h4 className="text-xs font-bold text-amber-600 uppercase tracking-wider flex items-center gap-1.5 group-hover:text-amber-700 transition-colors">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse border border-amber-300"></span>
+                                        Jornadas Pendientes de Depósito ({pendingDays.length})
+                                    </h4>
+                                    <i className={`bi bi-chevron-${pendingGroupsExpanded ? 'up' : 'down'} text-amber-500 text-xs`}></i>
                                 </div>
-                            ))
-                        }
+                                {pendingGroupsExpanded && (
+                                    <div className="space-y-3">
+                                        {pendingDays.map(renderDayRow)}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Jornadas Liquidadas */}
+                        {settledDays.length > 0 && (
+                            <div className="space-y-3">
+                                <div
+                                    onClick={() => setSettledGroupsExpanded(prev => !prev)}
+                                    className="flex items-center justify-between gap-1.5 px-1 pt-1 cursor-pointer select-none group"
+                                >
+                                    <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-1.5 group-hover:text-emerald-700 transition-colors">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                        Jornadas Liquidadas ({settledDays.length})
+                                    </h4>
+                                    <i className={`bi bi-chevron-${settledGroupsExpanded ? 'up' : 'down'} text-emerald-500 text-xs`}></i>
+                                </div>
+                                {settledGroupsExpanded && (
+                                    <div className="space-y-3">
+                                        {settledDays.map(renderDayRow)}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3 mt-6">
-                <span className="material-symbols-rounded text-slate-600 mt-0.5">info</span>
-                <div>
-                    <h4 className="font-semibold text-slate-900 text-sm">¿Cómo se calculan tus valores a recibir?</h4>
-                    <p className="text-slate-700 text-sm mt-1">
-                        • <strong>Ventas Digitales:</strong> Dinero cobrado por Fuddi (Tarjeta/Transferencia) que se te abonará.<br/>
-                        • <strong>Ventas en Efectivo:</strong> Dinero cobrado directamente en tu local o por tus repartidores.<br/>
-                        • <strong>Corte Automático:</strong> Toda orden generada antes de la medianoche (00:00) entra en el depósito de las 2:00 PM del día siguiente.<br/>
-                        • <strong>Estado:</strong> Cambia automáticamente de 🟡 <strong>Pendiente de depósito</strong> a 🟢 <strong>Depositado</strong> cuando el administrador procesa el pago.
-                    </p>
+            {/* Modal Informativo del Proceso de Liquidación */}
+            {showInfoModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 relative space-y-4 animate-in zoom-in-95 duration-200">
+                        {/* Botón Cerrar */}
+                        <button
+                            onClick={() => setShowInfoModal(false)}
+                            className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors focus:outline-hidden"
+                        >
+                            <span className="material-symbols-rounded text-xl">close</span>
+                        </button>
+
+                        <div className="flex items-start gap-3">
+                            <div className="p-2.5 bg-amber-50 rounded-xl text-amber-600 shrink-0">
+                                <span className="material-symbols-rounded text-xl block">schedule</span>
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-sm font-black text-slate-900 leading-tight">Proceso de Liquidación por Jornada</h3>
+                                <p className="text-xs text-slate-600 leading-relaxed">
+                                    Las órdenes se agrupan automáticamente por su <strong>fecha de programación</strong>. Si una jornada del pasado no ha sido marcada como liquidada por la administración, sus órdenes se mantendrán en estado <strong>Pendiente de depósito</strong> agrupadas en esa misma fecha.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="pt-2 flex justify-end">
+                            <button
+                                onClick={() => setShowInfoModal(false)}
+                                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all"
+                            >
+                                Entendido
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     )
 }
