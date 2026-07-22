@@ -1600,10 +1600,11 @@ export default function TodayOrdersPage() {
 
     const handleSendWhatsAppToDelivery = async (order: Order) => {
         try {
+            const orderBusiness = businesses.find(b => b.id === order.businessId) || business
             await sendWhatsAppToDelivery(
                 order,
                 availableDeliveries,
-                business
+                orderBusiness
                 // Removed callbacks to prevent automatic status advancement
             )
         } catch (e) {
@@ -1631,21 +1632,22 @@ export default function TodayOrdersPage() {
 
     const handlePrint = async (order: Order, silent: boolean = false) => {
         try {
+            const orderBusiness = businesses.find(b => b.id === order.businessId) || business
             if (printMode === 'bluetooth') {
                 const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
                 await printOrderBluetooth({
                     order: order as any,
-                    businessName: business?.name || "Negocio",
-                    businessLogo: business?.image,
-                    groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
+                    businessName: orderBusiness?.name || "Negocio",
+                    businessLogo: orderBusiness?.image,
+                    groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true
                 })
             } else {
                 const { printOrder } = await import('@/lib/print-utils')
                 await printOrder({
                     order: order as any,
-                    businessName: business?.name || "Negocio",
-                    businessLogo: business?.image,
-                    groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
+                    businessName: orderBusiness?.name || "Negocio",
+                    businessLogo: orderBusiness?.image,
+                    groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true
                 })
             }
         } catch (e: any) {
