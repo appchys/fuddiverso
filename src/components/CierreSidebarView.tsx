@@ -50,6 +50,34 @@ const getOrderDisplayTime = (order: Order) => {
     }
 }
 
+// Helper para formatear número de celular para WhatsApp en Ecuador
+const formatWhatsAppPhone = (phone: string): string => {
+    if (!phone) return ''
+    let cleaned = phone.replace(/\D/g, '')
+    if (cleaned.startsWith('00')) {
+        cleaned = cleaned.substring(2)
+    }
+    if (cleaned.startsWith('593')) {
+        return cleaned
+    }
+    if (cleaned.startsWith('0')) {
+        return '593' + cleaned.substring(1)
+    }
+    if (cleaned.length === 9 && cleaned.startsWith('9')) {
+        return '593' + cleaned
+    }
+    return cleaned
+}
+
+// Helper para formatear montos: entero si no tiene decimales (20, 10), 2 decimales si tiene fracción (3.75)
+const formatMoney = (val: number): string => {
+    const absVal = Math.abs(val)
+    if (Number.isInteger(absVal) || absVal % 1 === 0) {
+        return absVal.toString()
+    }
+    return absVal.toFixed(2)
+}
+
 interface CierreSidebarViewProps {
     orders: Order[]
     availableDeliveries: Delivery[]
@@ -735,70 +763,85 @@ export default function CierreSidebarView({
 
     // Adaptador genérico para enviar reportes de WhatsApp para cualquier cuenta
     const handleSendWhatsAppSummaryForAccount = (account: any) => {
-        const cel = account.celular
+        const cel = account.celular || availableDeliveries.find(d => d.id === account.deliveryId)?.celular
         if (!cel) {
             alert("El repartidor no tiene número de celular registrado.")
             return
         }
 
-        let cleanCel = cel.replace(/\D/g, '') // Eliminar todo lo que no sea dígito
-        if (cleanCel.startsWith('00')) {
-            cleanCel = cleanCel.substring(2)
-        }
-        if (cleanCel.length === 10 && cleanCel.startsWith('0')) {
-            cleanCel = '593' + cleanCel.substring(1)
-        } else if (cleanCel.length === 9 && cleanCel.startsWith('9')) {
-            cleanCel = '593' + cleanCel
+        const cleanCel = formatWhatsAppPhone(cel)
+        if (!cleanCel) {
+            alert("El número de celular del repartidor no es válido.")
+            return
         }
 
         const isFullySettled = account.pendingOrderCount === 0
-
-        const emojiEfectivo = '💵'
-        const emojiMotoneta = '🛵'
-        
-        const cash = isFullySettled ? account.settledCashCollected : account.cashCollected
-        const fee = isFullySettled ? account.settledDeliveryFeeEarned : account.deliveryFeeEarned
-        const count = isFullySettled ? account.settledOrderCount : account.pendingOrderCount
-        const netCash = cash - fee
-
         const targetStatus = isFullySettled ? 'settled' : 'pending'
 
-        const labelEntregarRecibir = netCash >= 0 ? 'Valor a entregar:' : 'Valor a recibir:'
-        const netCashDisplay = Math.abs(netCash)
+        const ordersToConsider = (account.ordersList || []).filter((o: Order) => {
+            const effectiveStatus = localDeliverySettlementOverrides[o.id] || o.deliverySettlementStatus
+            if (targetStatus === 'settled') {
+                return effectiveStatus === 'settled'
+            } else {
+                return effectiveStatus !== 'settled'
+            }
+        })
 
-        let message = `*${emojiEfectivo} Efectivo cobrado:* $${cash.toFixed(2)}\n` +
-            `*${emojiMotoneta} Servicio de delivery:* $${fee.toFixed(2)}\n` +
-            `_(${count} entregas)_\n\n` +
-            `*${labelEntregarRecibir}* $${netCashDisplay.toFixed(2)}\n\n`
+        const activeOrdersList = ordersToConsider.length > 0 ? ordersToConsider : (account.ordersList || [])
 
-        const cashOrders = account.ordersList.filter((o: Order) => {
-            const isMatch = targetStatus === 'settled' 
-                ? o.deliverySettlementStatus === 'settled' 
-                : o.deliverySettlementStatus !== 'settled'
-            return isMatch && (o.payment?.method === 'cash' || o.payment?.method === 'mixed')
+        let cashCollected = 0
+        let feeEarned = 0
+        const count = activeOrdersList.length
+
+        activeOrdersList.forEach((o: Order) => {
+            const method = o.payment?.method || 'cash'
+            const total = o.total || 0
+            const deliveryCost = o.delivery?.deliveryCost || 0
+            feeEarned += deliveryCost
+
+            if (method === 'cash') {
+                cashCollected += total
+            } else if (method === 'mixed') {
+                cashCollected += (o.payment?.cashAmount || 0)
+            }
+        })
+
+        const difference = cashCollected - feeEarned
+        const entregasLabel = count === 1 ? '1 entrega' : `${count} entregas`
+
+        let message = `Valor cobrado en efectivo: $${formatMoney(cashCollected)}\n` +
+            `Delivery (${entregasLabel}): $${formatMoney(feeEarned)}\n\n` +
+            `*Diferencia a entregar/recibir:* $${formatMoney(difference)}\n`
+
+        const cashOrders = activeOrdersList.filter((o: Order) => {
+            const method = o.payment?.method || 'cash'
+            if (method === 'cash') return true
+            if (method === 'mixed' && (o.payment?.cashAmount || 0) > 0) return true
+            return false
         })
 
         if (cashOrders.length > 0) {
-            message += `*Efectivo*\n`
+            message += `\nEfectivo\n`
             cashOrders.forEach((o: Order) => {
                 const amount = o.payment?.method === 'mixed' ? (o.payment?.cashAmount || 0) : (o.total || 0)
-                message += `${o.customer?.name || 'Cliente'} - $${amount.toFixed(2)}\n`
+                const customerName = o.customer?.name || 'Cliente'
+                message += `° ${customerName} $${formatMoney(amount)}\n`
             })
-            message += `\n`
         }
 
-        const transferOrders = account.ordersList.filter((o: Order) => {
-            const isMatch = targetStatus === 'settled' 
-                ? o.deliverySettlementStatus === 'settled' 
-                : o.deliverySettlementStatus !== 'settled'
-            return isMatch && (o.payment?.method === 'transfer' || o.payment?.method === 'mixed')
+        const transferOrders = activeOrdersList.filter((o: Order) => {
+            const method = o.payment?.method
+            if (method === 'transfer') return true
+            if (method === 'mixed' && (o.payment?.transferAmount || 0) > 0) return true
+            return false
         })
 
         if (transferOrders.length > 0) {
-            message += `*Transferencias*\n`
+            message += `\nTransferencias\n`
             transferOrders.forEach((o: Order) => {
                 const amount = o.payment?.method === 'mixed' ? (o.payment?.transferAmount || 0) : (o.total || 0)
-                message += `${o.customer?.name || 'Cliente'} - $${amount.toFixed(2)}\n`
+                const customerName = o.customer?.name || 'Cliente'
+                message += `° ${customerName} $${formatMoney(amount)}\n`
             })
         }
 
@@ -2049,6 +2092,17 @@ export default function CierreSidebarView({
                                                                                     <span>Liquidado ${Math.abs(displayNet).toFixed(2)}</span>
                                                                                 </span>
                                                                             )}
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation()
+                                                                                    handleSendWhatsAppSummaryForAccount(driver)
+                                                                                }}
+                                                                                className="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200/80 flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-2xs shrink-0"
+                                                                                title={`Enviar resumen por WhatsApp a ${driver.name}`}
+                                                                            >
+                                                                                <i className="bi bi-whatsapp text-xs"></i>
+                                                                            </button>
                                                                             <i className={`bi bi-chevron-${isDriverExpanded ? 'up' : 'down'} text-slate-400 text-xs ml-0.5`}></i>
                                                                         </div>
                                                                     </div>
