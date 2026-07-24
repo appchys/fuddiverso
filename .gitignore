@@ -18,7 +18,12 @@ firebase-debug.log*
 tmp_*.js
 
 # Local env files
-.env*.local
+.env
+.env*
+!.env.example
+!.env*.example
+diff*.txt
+scratch/
 
 # Vercel
 .vercel

@@ -1,3 +1,4 @@
+// Telegram Bot Integration - Tokens updated 2026-07-24
 const axios = require('axios');
 const admin = require('firebase-admin');
 const functions = require('firebase-functions');
@@ -298,6 +299,21 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         locationImageLinkHtml = `<a href="${locationImageLink}">Ver foto de ubicación</a>`;
     }
 
+    const commissionAmount = typeof orderData.totalCommission === 'number'
+        ? orderData.totalCommission
+        : (typeof orderData.commissionTotal === 'number'
+            ? orderData.commissionTotal
+            : (Array.isArray(orderData.items)
+                ? orderData.items.reduce((sum, item) => sum + ((item.commission || 0) * (item.quantity || 1)), 0)
+                : 0));
+
+    const storeSubtotal = orderData.items?.reduce((sum, item) => {
+        const itemStore = item.storeReceives !== undefined
+            ? item.storeReceives
+            : (item.basePrice !== undefined ? item.basePrice : ((item.price || 0) - (item.commission || 0)));
+        return sum + (itemStore * (item.quantity || 1));
+    }, 0) || Math.max(0, subtotal - commissionAmount);
+
     return {
         businessName: businessName || 'Negocio',
         customerName,
@@ -305,7 +321,11 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         customerPhoneFormatted: phone,
         orderId: orderId.slice(0, 6),
         total: `$${total.toFixed(2)}`,
-        subtotal: `$${subtotal.toFixed(2)}`,
+        subtotal: `$${storeSubtotal.toFixed(2)}`,
+        publicSubtotal: `$${subtotal.toFixed(2)}`,
+        storeSubtotal: `$${storeSubtotal.toFixed(2)}`,
+        commission: `$${commissionAmount.toFixed(2)}`,
+        commissionVal: commissionAmount.toFixed(2),
         deliveryCost: `$${deliveryCost.toFixed(2)}`,
         paymentMethod: paymentMethodText,
         deliveryAddress,
@@ -436,6 +456,20 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
     const deliveryCost = orderData.delivery?.deliveryCost !== undefined
         ? orderData.delivery.deliveryCost
         : Math.max(0, total - subtotal);
+    const commissionAmount = typeof orderData.totalCommission === 'number'
+        ? orderData.totalCommission
+        : (typeof orderData.commissionTotal === 'number'
+            ? orderData.commissionTotal
+            : (Array.isArray(orderData.items)
+                ? orderData.items.reduce((sum, item) => sum + ((item.commission || 0) * (item.quantity || 1)), 0)
+                : 0));
+
+    const storeSubtotal = orderData.items?.reduce((sum, item) => {
+        const itemStore = item.storeReceives !== undefined
+            ? item.storeReceives
+            : (item.basePrice !== undefined ? item.basePrice : ((item.price || 0) - (item.commission || 0)));
+        return sum + (itemStore * (item.quantity || 1));
+    }, 0) || Math.max(0, subtotal - commissionAmount);
 
     const customerName = orderData.customer?.name || 'No especificado';
     const phone = orderData.customer?.phone || '';
@@ -542,8 +576,9 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
         }
 
         text += `\n<b>Detalles del pago</b>\n`;
-        text += `Pedido: $${subtotal.toFixed(2)}\n`;
-        text += `Envío: $${deliveryCost.toFixed(2)}\n\n`;
+        text += `Pedido: $${storeSubtotal.toFixed(2)}\n`;
+        text += `Comisión: $${commissionAmount.toFixed(2)}\n`;
+        text += `Delivery: $${deliveryCost.toFixed(2)}\n\n`;
 
         text += `${paymentMethodText}\n`;
 
@@ -882,6 +917,137 @@ async function handleStoreWebhook(req, res) {
                     callback_query_id: callbackQuery.id,
                     text: answerText
                 });
+            } else if (actionType.startsWith('order_')) {
+                // Si llega una acción de delivery al Store Webhook, la procesamos
+                // (útil por si se comparte el bot o los webhooks están cruzados)
+                let action = actionType.replace('order_', '');
+                console.log(`⚠️ [Store Webhook] Procesando acción de delivery (${action}) para orden desde Store Bot`);
+
+                const result = await processOrderAction(token, action);
+
+                if (result.error) {
+                    await sendStoreTelegramMessage(chatId, `❌ Error: ${result.error}`);
+                } else {
+                    const orderId = result.orderId;
+                    let statusLabel = '';
+                    if (action === 'confirm') {
+                        statusLabel = '✅ <b>Aceptado</b>';
+                    } else if (action === 'on_way') {
+                        statusLabel = '🛵 <b>En camino</b>';
+                    } else if (action === 'delivered') {
+                        statusLabel = '🏁 <b>Entregado</b>';
+                    } else if (action === 'discard') {
+                        statusLabel = '❌ <b>Descartado</b>';
+                    }
+
+                    try {
+                        const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
+                        if (orderDoc.exists) {
+                            const orderData = orderDoc.data();
+                            let businessName = 'Negocio';
+                            if (orderData.businessId) {
+                                const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+                                if (businessDoc.exists) {
+                                    businessName = businessDoc.data().name || businessName;
+                                }
+                            }
+
+                            let newText = "";
+                            let replyMarkup = undefined;
+                            let linkPreviewOptions = { is_disabled: true };
+
+                            if (action === 'delivered') {
+                                const customerName = orderData.customer?.name || 'Cliente';
+                                const references = orderData.delivery?.references || 'Sin referencias';
+                                const total = orderData.total || orderData.payment?.total || 0;
+                                const subtotal = orderData.subtotal || orderData.payment?.subtotal || 0;
+                                const deliveryCost = orderData.delivery?.deliveryCost || orderData.delivery?.cost || Math.max(0, total - subtotal);
+                                const paymentMethod = orderData.payment?.method || 'cash';
+
+                                newText = `<b>${businessName}</b> · ${customerName}\n`;
+                                newText += `${references}\n\n`;
+                                newText += `Pedido: $${subtotal.toFixed(2)}\n`;
+                                newText += `Envío: $${deliveryCost.toFixed(2)}\n`;
+
+                                if (paymentMethod === 'cash') {
+                                    newText += `💵 Efectivo: $${total.toFixed(2)}`;
+                                } else if (paymentMethod === 'mixed') {
+                                    const cash = orderData.payment?.cashAmount || 0;
+                                    const transfer = orderData.payment?.transferAmount || 0;
+                                    newText += `💵 Efectivo: $${cash.toFixed(2)}\n`;
+                                    newText += `🏦 Transferencia: $${transfer.toFixed(2)}`;
+                                } else {
+                                    newText += `🏦 Transferencia`;
+                                }
+                                newText += `\n\n🎉 <b>Entregado</b>`;
+                            } else if (action !== 'discard') {
+                                let templateKey = 'delivery_accepted';
+                                if (action === 'on_way') templateKey = 'delivery_on_way';
+
+                                const { text: formattedText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey);
+                                newText = formattedText + `\n\n${statusLabel}`;
+
+                                replyMarkup = { inline_keyboard: [] };
+                                const onWayToken = Buffer.from(`${orderId}|on_way`).toString('base64');
+                                const deliveredToken = Buffer.from(`${orderId}|delivered`).toString('base64');
+
+                                if (action === 'confirm') {
+                                    replyMarkup.inline_keyboard.push([
+                                        { text: "🛵 En camino", callback_data: `order_on_way|${onWayToken}` },
+                                        { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
+                                    ]);
+                                } else if (action === 'on_way') {
+                                    replyMarkup.inline_keyboard.push([
+                                        { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
+                                    ]);
+                                }
+
+                                if (locationImageLink) {
+                                    linkPreviewOptions = {
+                                        url: locationImageLink,
+                                        prefer_large_media: true,
+                                        show_above_text: true
+                                    };
+                                } else if (mapsLink) {
+                                    linkPreviewOptions = {
+                                        url: mapsLink,
+                                        prefer_large_media: true,
+                                        show_above_text: true
+                                    };
+                                }
+                            } else {
+                                const customerName = orderData.customer?.name || 'Cliente';
+                                newText = `<b>${businessName}</b> · ${customerName}\n\nx Descartado`;
+                            }
+
+                            // Editar mensaje
+                            const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
+                            await axios.post(editUrl, {
+                                chat_id: chatId,
+                                message_id: messageId,
+                                text: newText,
+                                parse_mode: 'HTML',
+                                reply_markup: replyMarkup,
+                                link_preview_options: linkPreviewOptions
+                            });
+                        }
+                    } catch (fetchError) {
+                        console.error('Error fetching data/updating message in Store Webhook for delivery action:', fetchError);
+                    }
+                }
+
+                // Responder al callback
+                const answerUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/answerCallbackQuery`;
+                let answerText = "Acción procesada";
+                if (action === 'confirm') answerText = "Pedido Aceptado";
+                else if (action === 'on_way') answerText = "Pedido En Camino";
+                else if (action === 'delivered') answerText = "Pedido Entregado";
+                else if (action === 'discard') answerText = "Pedido Descartado";
+
+                await axios.post(answerUrl, {
+                    callback_query_id: callbackQuery.id,
+                    text: answerText
+                });
             }
         }
 
@@ -1182,19 +1348,96 @@ async function handleDeliveryWebhook(req, res) {
             try {
                 const [actionType, token] = data.split('|');
 
-                // Delivery Bot maneja acciones de orden (order_*)
-                let action = actionType.replace('order_', '');
+                let result;
+                let action;
 
-                // Seguridad: Asegurar que no sea una acción de negocio
-                if (action.startsWith('biz_')) {
+                if (actionType.startsWith('biz_') || actionType === 'store_preparing') {
+                    // Si llega una acción de tienda al Delivery Webhook, la procesamos
+                    // (útil por si se comparte el bot o los webhooks están cruzados)
+                    action = actionType;
+                    console.log(`⚠️ [Delivery Webhook] Procesando acción de tienda (${action}) para orden desde Delivery Bot`);
+                    result = await processOrderAction(token, action);
+
+                    if (result.error) {
+                        await sendDeliveryTelegramMessage(chatId, `❌ Error: ${result.error}`);
+                    } else {
+                        const orderId = result.orderId;
+                        try {
+                            const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
+                            const orderData = orderDoc.data();
+                            const businessName = orderData.businessName || 'Tienda';
+                            const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+
+                            const handlerName = callbackQuery.from.first_name || 'Alguien';
+                            let finalStatusText = '';
+
+                            if (action === 'biz_confirm') {
+                                await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName, confirmationSource: 'telegram_bot' });
+                                const deliveryName = result.assignedDeliveryName;
+                                finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
+                                if (deliveryName) {
+                                    finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
+                                } else if (orderData.delivery?.type === 'delivery') {
+                                    finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
+                                }
+                            } else if (action === 'store_preparing') {
+                                finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
+                            } else {
+                                finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+                            }
+
+                            const syncText = telegramText + finalStatusText;
+                            const businessMessages = orderData.telegramBusinessMessages || [];
+
+                            // Editar usando el token de este bot (DELIVERY_BOT_TOKEN)
+                            const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
+                            const updatePromises = businessMessages.map(msg => {
+                                return axios.post(editUrl, {
+                                    chat_id: msg.chatId,
+                                    message_id: msg.messageId,
+                                    text: syncText,
+                                    parse_mode: 'HTML',
+                                    link_preview_options: { is_disabled: true }
+                                }).catch(async err => {
+                                    const errorDesc = err.response?.data?.description || '';
+                                    if (err.response?.status === 400 && errorDesc.includes("can't parse entities")) {
+                                        try {
+                                            return await axios.post(editUrl, {
+                                                chat_id: msg.chatId,
+                                                message_id: msg.messageId,
+                                                text: syncText.replace(/<[^>]+>/g, ''),
+                                                link_preview_options: { is_disabled: true }
+                                            });
+                                        } catch (retryErr) {
+                                            console.error(`❌ [Delivery Webhook] Fallback falló en ${msg.chatId}:`, retryErr.message);
+                                        }
+                                    }
+                                    return err;
+                                });
+                            });
+                            await Promise.allSettled(updatePromises);
+                        } catch (err) {
+                            console.error('❌ Error updating business message in Delivery Webhook:', err);
+                        }
+                    }
+
+                    // Responder al callback
+                    const answerUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/answerCallbackQuery`;
+                    let answerText = "Acción procesada";
+                    if (action === 'biz_confirm') answerText = "Pedido Aceptado";
+                    else if (action === 'biz_discard') answerText = "Pedido Rechazado";
+                    else if (action === 'store_preparing') answerText = "Pedido en preparación";
+
                     await axios.post(answerUrl, {
                         callback_query_id: callbackQuery.id,
-                        text: 'Acción no permitida'
+                        text: answerText
                     });
                     return res.status(200).send('OK');
                 }
 
-                const result = await processOrderAction(token, action);
+                // Si es acción de delivery (order_*)
+                action = actionType.replace('order_', '');
+                result = await processOrderAction(token, action);
 
                 if (result.error) {
                     console.error(`Error processing action ${action}: ${result.error}`);
