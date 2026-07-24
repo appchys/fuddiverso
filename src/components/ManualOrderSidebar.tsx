@@ -2913,7 +2913,7 @@ export default function ManualOrderSidebar({
                         {product.variants && product.variants.length > 0 ? (
                           <i className="bi bi-chevron-down text-xs text-blue-600"></i>
                         ) : (
-                          <p className="text-xs text-gray-500">${product.price}</p>
+                          <p className="text-xs text-gray-500">${getManualOrderStorePrice(product)}</p>
                         )}
                       </div>
                     </div>
