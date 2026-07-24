@@ -11,8 +11,10 @@ Este archivo define las reglas de comportamiento, diseño y estructura del proye
 ## Directrices de Diseño y Estética
 
 - **Estética Premium**: La aplicación debe tener un diseño visual de alta calidad, moderno, con combinaciones de colores armónicas (evitando colores puros como rojo, azul o verde genéricos).
-- **Tipografía y UI**: Utilizar fuentes modernas (como Inter, Outfit) y estilos consistentes.
-- **Interactividad**: Usar microanimaciones, efectos hover y transiciones fluidas en componentes interactivos.
+- **Directrices de Tipografía Principal (Basadas en [username])**:
+  - **Nombre de la Tienda**: Utilizar peso súper enérgico `font-black` (900), color principal `text-gray-900`, interletrado ajustado `tracking-tight` e interlineado apretado `leading-tight`.
+  - **Nombre del Producto**: Utilizar peso destacado `font-black` (900), color principal `text-gray-900`, interletrado `tracking-tight` y `leading-tight`.
+  - **Descripción (Tienda / Producto)**: Utilizar peso medio `font-medium` (500) o regular, color secundario `text-gray-500` / `text-gray-700` e interlineado relajado `leading-relaxed`.
 - **Sin Marcadores de Posición**: Evitar el uso de imágenes placeholder genéricas. En su lugar, generar recursos reales o descriptivos.
 
 ## Estructura de la Aplicación y Desarrollo

@@ -4688,6 +4688,68 @@ export async function updateBusinessRatingStats(businessId: string): Promise<voi
   }
 }
 
+export interface ProductRatingItem {
+  id: string;
+  orderId: string;
+  clientName?: string;
+  clientPhone?: string;
+  clientPhotoURL?: string;
+  rating: number;
+  comment?: string;
+  createdAt: any;
+  replies?: any[];
+}
+
+export async function getProductRatings(
+  businessId: string,
+  productId: string,
+  limitCount: number = 30
+): Promise<{
+  ratings: ProductRatingItem[];
+  averageRating: number;
+  ratingCount: number;
+}> {
+  try {
+    const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+    const snapshot = await getDocs(query(ratingsRef, orderBy('createdAt', 'desc'), limit(100)));
+
+    const productRatingsList: ProductRatingItem[] = [];
+
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as BusinessRating;
+      if (data.productRatings && Array.isArray(data.productRatings)) {
+        const pRating = data.productRatings.find((pr: any) => pr.productId === productId);
+        if (pRating && pRating.rating > 0) {
+          productRatingsList.push({
+            id: `${docSnap.id}_${productId}`,
+            orderId: data.orderId || '',
+            clientName: data.clientName || 'Cliente',
+            clientPhone: data.clientPhone || '',
+            clientPhotoURL: data.clientPhotoURL || '',
+            rating: pRating.rating,
+            comment: pRating.comment || '',
+            createdAt: data.createdAt,
+            replies: data.replies || []
+          });
+        }
+      }
+    });
+
+    const ratingCount = productRatingsList.length;
+    const totalRating = productRatingsList.reduce((sum, item) => sum + item.rating, 0);
+    const averageRating = ratingCount > 0 ? totalRating / ratingCount : 0;
+
+    return {
+      ratings: productRatingsList.slice(0, limitCount),
+      averageRating: Math.round(averageRating * 10) / 10,
+      ratingCount
+    };
+  } catch (error) {
+    console.error('Error fetching product ratings:', error);
+    return { ratings: [], averageRating: 0, ratingCount: 0 };
+  }
+}
+
 /**
  * Get ratings for a business
  */

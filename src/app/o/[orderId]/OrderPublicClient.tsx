@@ -881,14 +881,19 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
   const handleGenerateReferral = async (item: any) => {
     if (!business?.id) return
 
-    try {
-      const productData = {
-        id: item.productId || item.id,
-        name: item.product?.name || item.name,
-        image: item.product?.image || item.image || business.image,
-        slug: item.product?.slug || item.slug || generateProductSlug(business.username, item.productId || item.id)
-      }
+    const productData = {
+      id: item.productId || item.id,
+      name: item.product?.name || item.name,
+      image: item.product?.image || item.image || business.image,
+      slug: item.product?.slug || item.slug || generateProductSlug(business.username, item.productId || item.id)
+    }
 
+    // Abrir modal de inmediato para máxima fluidez en la interfaz (0ms)
+    setSelectedProductForReferral(productData)
+    setGeneratedReferralLink('')
+    setReferralModalOpen(true)
+
+    try {
       const { code } = await generateReferralLink(
         productData.id,
         business.id,
@@ -902,16 +907,8 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
 
       const referralUrl = `${window.location.origin}/${business.username}/${productData.slug}?ref=${code}`
 
-      // Guardar estados para el modal de incentivo
+      // Actualizar enlace una vez generado
       setGeneratedReferralLink(referralUrl)
-      setSelectedProductForReferral(productData)
-
-      // Enviar directamente a WhatsApp
-      const text = `¡Mira este producto de ${business.name}! ${productData.name} - ${referralUrl}`
-      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
-
-      // Abrir modal de incentivo
-      setReferralModalOpen(true)
     } catch (error) {
       console.error('Error generating referral:', error)
       alert('Error al generar link de referido')

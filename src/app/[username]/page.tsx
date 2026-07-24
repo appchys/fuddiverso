@@ -678,6 +678,11 @@ function RestaurantContent() {
   const handleGenerateReferral = async (product: any) => {
     if (!business?.id) return
 
+    // Abrir modal de inmediato para máxima fluidez en la interfaz (0ms)
+    setSelectedProductForReferral(product)
+    setGeneratedReferralLink('')
+    setReferralModalOpen(true)
+
     try {
       const { code, isNew } = await generateReferralLink(
         product.id,
@@ -692,7 +697,6 @@ function RestaurantContent() {
 
       const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
       setGeneratedReferralLink(referralUrl)
-      setSelectedProductForReferral(product)
       setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
       if (isNew) {
         setReferralCounts(prev => ({
@@ -700,7 +704,6 @@ function RestaurantContent() {
           [product.id]: (prev[product.id] || 0) + 1
         }))
       }
-      setReferralModalOpen(true)
     } catch (error) {
       console.error('Error generating referral:', error)
       showNotification('Error al generar link de referido', 'error')
@@ -1523,6 +1526,10 @@ function RestaurantContent() {
         business={business}
         onProductSelect={(product) => setSelectedProduct(product)}
         onOpenCart={() => setIsCartOpen(true)}
+        onGenerateReferral={selectedProduct ? () => handleGenerateReferral(selectedProduct) : undefined}
+        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
+        onOpenRatingModal={() => setIsRatingModalOpen(true)}
       />
 
       {notification.show && (

@@ -435,6 +435,12 @@ function HomePageContent() {
   const handleGenerateReferral = async (product: any, business: Business) => {
     if (!business?.id) return
 
+    // Abrir modal de inmediato para máxima fluidez en la interfaz (0ms)
+    setSelectedProductForReferral(product)
+    setReferralBusinessName(business.name)
+    setGeneratedReferralLink('')
+    setReferralModalOpen(true)
+
     try {
       const { code, isNew } = await generateReferralLink(
         product.id,
@@ -449,8 +455,6 @@ function HomePageContent() {
 
       const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
       setGeneratedReferralLink(referralUrl)
-      setSelectedProductForReferral(product)
-      setReferralBusinessName(business.name)
       setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
       // Actualizar contador local solo si es nuevo
       if (isNew) {
@@ -459,7 +463,6 @@ function HomePageContent() {
           [product.id]: (prev[product.id] || 0) + 1
         }))
       }
-      setReferralModalOpen(true)
     } catch (error) {
       console.error('Error generating referral:', error)
     }
@@ -1932,6 +1935,15 @@ function HomePageContent() {
         business={selectedProductBusiness!}
         onProductSelect={handleProductClick}
         onOpenCart={() => setIsCartOpen(true)}
+        onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
+        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
+        onOpenRatingModal={() => {
+          if (selectedProductBusiness) {
+            setSelectedRatingBusiness(selectedProductBusiness)
+            setIsRatingModalOpen(true)
+          }
+        }}
       />
 
       <StoryProductDetail

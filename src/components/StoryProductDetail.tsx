@@ -153,7 +153,7 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
                             <span className="inline-block px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-black uppercase tracking-widest rounded-full mb-1">
                                 {product.category}
                             </span>
-                            <h2 className="text-xl font-black text-gray-900 leading-tight line-clamp-2">{product.name}</h2>
+                            <h2 className="text-xl font-black text-gray-900 tracking-tight leading-tight line-clamp-2">{product.name}</h2>
                             <p className="text-lg font-black text-red-600 mt-1">
                                 {formatPrice(getProductPublicPrice(selectedVariant ? product.variants?.find(v => v.name === selectedVariant) || product : product))}
                             </p>

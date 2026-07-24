@@ -16,13 +16,6 @@ export default function ReferralModal({
   businessName: string
 }) {
   const [copied, setCopied] = useState(false)
-  const [recommendation, setRecommendation] = useState('')
-
-  useEffect(() => {
-    if (!isOpen) {
-      setRecommendation('')
-    }
-  }, [isOpen])
 
   if (!isOpen || !product) return null
 
@@ -37,12 +30,7 @@ export default function ReferralModal({
   }
 
   const shareOnWhatsApp = () => {
-    let text: string
-    if (recommendation.trim()) {
-      text = `${recommendation} - ${referralLink}`
-    } else {
-      text = `¡Mira este producto de ${businessName}! - ${referralLink}`
-    }
+    const text = `¡Mira este producto de ${businessName}! - ${referralLink}`
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
   }
 
@@ -90,47 +78,48 @@ export default function ReferralModal({
 
             <div className="bg-white rounded-xl p-3 border border-gray-200">
               <p className="text-xs text-gray-400 mb-1">Tu link de referido:</p>
-              <p className="text-xs text-gray-900 break-all font-mono">{referralLink}</p>
+              {referralLink ? (
+                <p className="text-xs text-gray-900 break-all font-mono animate-in fade-in duration-300">{referralLink}</p>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-gray-400 font-medium py-0.5 animate-pulse">
+                  <i className="bi bi-arrow-repeat animate-spin text-red-500"></i>
+                  <span>Generando tu enlace único...</span>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="mb-6">
-            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">
-              Tu recomendación (opcional)
-            </label>
-            <textarea
-              value={recommendation}
-              onChange={(e) => setRecommendation(e.target.value)}
-              placeholder="Ej: ¡Lo probé y está increíble! Se los recomiendo..."
-              maxLength={200}
-              rows={3}
-              className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-[#aa1918]/20 transition-all resize-none placeholder:text-gray-300"
-            />
-            <p className="text-[10px] text-gray-400 text-right mt-1">{recommendation.length}/200</p>
-          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleCopy}
+              disabled={!referralLink}
+              title={copied ? '¡Enlace copiado!' : 'Copiar enlace'}
+              className={`flex-1 py-2.5 rounded-2xl font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-sm disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed ${
+                copied ? 'bg-emerald-600 text-white' : 'bg-gray-900 text-white hover:bg-black'
+              }`}
+            >
+              <i className={`bi ${copied ? 'bi-check-lg' : 'bi-clipboard'} text-xl`}></i>
+              <span className="text-[11px] font-bold tracking-tight">{copied ? 'Copiado' : 'Copiar'}</span>
+            </button>
 
-          <button
-            onClick={handleCopy}
-            className="w-full py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-all mb-3 flex items-center justify-center gap-2"
-          >
-            <i className={`bi ${copied ? 'bi-check-circle' : 'bi-clipboard'}`}></i>
-            {copied ? '¡Copiado!' : 'Copiar enlace'}
-          </button>
-
-          <div className="grid grid-cols-2 gap-3">
             <button
               onClick={shareOnWhatsApp}
-              className="py-3 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 transition-all flex items-center justify-center gap-2"
+              disabled={!referralLink}
+              title="Compartir en WhatsApp"
+              className="flex-1 py-2.5 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-sm"
             >
-              <i className="bi bi-whatsapp"></i>
-              WhatsApp
+              <i className="bi bi-whatsapp text-xl"></i>
+              <span className="text-[11px] font-bold tracking-tight">WhatsApp</span>
             </button>
+
             <button
               onClick={shareOnFacebook}
-              className="py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+              disabled={!referralLink}
+              title="Compartir en Facebook"
+              className="flex-1 py-2.5 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-sm"
             >
-              <i className="bi bi-facebook"></i>
-              Facebook
+              <i className="bi bi-facebook text-xl"></i>
+              <span className="text-[11px] font-bold tracking-tight">Facebook</span>
             </button>
           </div>
         </div>

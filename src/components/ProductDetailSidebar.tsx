@@ -5,8 +5,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Product, Business } from '@/types'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
-import { unredeemQRCodePrize, getProductsByBusiness } from '@/lib/database'
+import { unredeemQRCodePrize, getProductsByBusiness, getProductRatings } from '@/lib/database'
+import dynamic from 'next/dynamic'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
+import { Flame, Star } from 'lucide-react'
+
+const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
+const ProductRatingModal = dynamic(() => import('@/components/ProductRatingModal'), { ssr: false })
 
 interface ProductDetailSidebarProps {
     isOpen: boolean
@@ -15,10 +20,18 @@ interface ProductDetailSidebarProps {
     business: Business | null
     onProductSelect: (product: Product) => void
     onOpenCart?: () => void
+    onGenerateReferral?: () => void
+    hasRecommended?: boolean
+    referralCount?: number
+    onOpenRatingModal?: () => void
 }
 
-export default function ProductDetailSidebar({ isOpen, onClose, product, business, onProductSelect, onOpenCart }: ProductDetailSidebarProps) {
+export default function ProductDetailSidebar({ isOpen, onClose, product, business, onProductSelect, onOpenCart, onGenerateReferral, hasRecommended, referralCount, onOpenRatingModal }: ProductDetailSidebarProps) {
     const router = useRouter()
+    const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
+    const [isProductRatingModalOpen, setIsProductRatingModalOpen] = useState(false)
+    const [productRatingAvg, setProductRatingAvg] = useState<number>(0)
+    const [productRatingCount, setProductRatingCount] = useState<number>(0)
     const [selectedVariant, setSelectedVariant] = useState<string | null>(null)
     const [quantity, setQuantity] = useState(1)
     const [comboSelection, setComboSelection] = useState<Record<string, number>>({})
@@ -55,6 +68,30 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     useEffect(() => {
         setCurrentImgIndex(0)
     }, [product?.id])
+
+    useEffect(() => {
+        if (!isOpen || !product?.id || !business?.id) {
+            setProductRatingAvg(0)
+            setProductRatingCount(0)
+            return
+        }
+
+        let isMounted = true
+        getProductRatings(business.id, product.id)
+            .then((res) => {
+                if (isMounted) {
+                    setProductRatingAvg(res.averageRating)
+                    setProductRatingCount(res.ratingCount)
+                }
+            })
+            .catch((err) => {
+                console.error('Error fetching product ratings in sidebar:', err)
+            })
+
+        return () => {
+            isMounted = false
+        }
+    }, [isOpen, product?.id, business?.id])
 
     const availableVariants = useMemo(() => {
         return product?.variants?.filter(v => v.isAvailable !== false) || []
@@ -387,7 +424,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                         )}
                                     </div>
                                     <div className="truncate text-left">
-                                        <h3 className="text-sm font-black leading-tight text-white group-hover/header:text-red-300 transition-colors truncate">
+                                        <h3 className="text-sm font-black tracking-tight leading-tight text-white group-hover/header:text-red-300 transition-colors truncate">
                                             {business.name}
                                         </h3>
                                         {business.username && (
@@ -421,33 +458,89 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                     <i className="bi bi-image text-5xl"></i>
                                 </div>
                             )}
-
-                            {/* Share Button without background */}
-                            <button
-                                onClick={handleCopyProductLink}
-                                className="absolute bottom-4 right-4 p-2 text-white hover:opacity-75 transition-opacity z-20 drop-shadow-md"
-                                title="Compartir"
-                            >
-                                <i className={`bi ${copySuccess ? 'bi-check-lg text-emerald-400' : 'bi-share'} text-lg`}></i>
-                            </button>
                         </div>
 
                         {/* Sidebar Content Padding Container */}
                         <div className="p-6 flex-1 flex flex-col">
 
                         {/* Product Info */}
-                        <div className="mb-6">
-                            <div className="flex items-center gap-2 mb-2">
+                        <div className="mb-4">
+                            <div className="flex items-center gap-2 mb-1">
                                 {product.category && (
-                                    <span className="px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-black uppercase tracking-widest rounded-full">
+                                    <span className="px-2 py-0.5 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-full">
                                         {product.category}
                                     </span>
                                 )}
-                                <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-widest rounded-full ${product.isAvailable ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                    {product.isAvailable ? 'Disponible' : 'No disponible'}
-                                </span>
+                                {!product.isAvailable && (
+                                    <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-widest rounded-full bg-rose-50 text-rose-600">
+                                        No disponible
+                                    </span>
+                                )}
                             </div>
-                            <h2 className="text-2xl font-black text-gray-900 leading-tight mb-2">{product.name}</h2>
+
+                            <div className="flex items-start justify-between gap-4 mb-1">
+                                <h2 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">{product.name}</h2>
+
+                                {/* Acciones: Comentar & Recomendar alineados a la derecha */}
+                                <div className="flex items-center gap-3.5 flex-shrink-0 pt-0.5">
+                                    {/* 1. Botón de Calificaciones del Producto */}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            setIsProductRatingModalOpen(true)
+                                        }}
+                                        className={`flex items-center gap-1.5 transition-all active:scale-90 ${
+                                            productRatingAvg > 0 ? 'text-amber-500 font-bold' : 'text-gray-700 hover:text-amber-500'
+                                        }`}
+                                        title="Calificaciones y opiniones de este producto"
+                                    >
+                                        <Star
+                                            size={20}
+                                            strokeWidth={1.8}
+                                            color={productRatingAvg > 0 ? '#F59E0B' : 'currentColor'}
+                                            className={`transition-transform hover:scale-110 ${
+                                                productRatingAvg > 0 ? 'fill-amber-500 text-amber-500' : 'fill-none'
+                                            }`}
+                                        />
+                                        {productRatingAvg > 0 ? (
+                                            <span className="text-xs font-extrabold text-gray-700">
+                                                {productRatingAvg.toFixed(1)}
+                                            </span>
+                                        ) : null}
+                                    </button>
+
+                                    {/* 2. Botón de Recomendar (Fueguito) */}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (onGenerateReferral) {
+                                                onGenerateReferral()
+                                            } else {
+                                                handleCopyProductLink()
+                                            }
+                                        }}
+                                        className={`flex items-center gap-1.5 transition-all active:scale-90 ${
+                                            hasRecommended ? 'text-amber-500 font-bold' : 'text-gray-700 hover:text-amber-500'
+                                        }`}
+                                        title="Recomendar"
+                                    >
+                                        <Flame
+                                            size={20}
+                                            strokeWidth={hasRecommended ? 2.5 : 1.8}
+                                            color={hasRecommended ? '#F59E0B' : 'currentColor'}
+                                            className={`transition-transform hover:scale-110 ${
+                                                hasRecommended ? 'fill-amber-500' : ''
+                                            }`}
+                                        />
+                                        {referralCount !== undefined && referralCount > 0 && (
+                                            <span className="text-xs font-extrabold text-gray-700">
+                                                {referralCount}
+                                            </span>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+
                             {product.description && (
                                 <p className="text-sm text-gray-500 font-medium leading-relaxed">{product.description}</p>
                             )}
@@ -822,7 +915,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                         </div>
                                                     )}
                                                 </div>
-                                                <h5 className="text-xs font-bold text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors h-[2.5em]">
+                                                <h5 className="text-xs font-black text-gray-900 tracking-tight line-clamp-2 leading-tight group-hover:text-red-600 transition-colors h-[2.5em]">
                                                     {otherProduct.name}
                                                 </h5>
                                             </div>
@@ -1001,6 +1094,24 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
           `}</style>
                 </div>
             )}
+            {business && (
+                <StoreRatingModal
+                    isOpen={isRatingModalOpen}
+                    onClose={() => setIsRatingModalOpen(false)}
+                    business={business}
+                    clientPhone={null}
+                    clientUser={null}
+                    businessUser={null}
+                    businessOwnerId={business.ownerId || null}
+                    onSuccess={() => {}}
+                />
+            )}
+            <ProductRatingModal
+                isOpen={isProductRatingModalOpen}
+                onClose={() => setIsProductRatingModalOpen(false)}
+                product={product}
+                businessId={business?.id || null}
+            />
         </div>
     )
 }
