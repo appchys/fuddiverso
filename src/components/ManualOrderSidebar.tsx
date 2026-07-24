@@ -2889,12 +2889,12 @@ export default function ManualOrderSidebar({
                   ...filtered.map((product) => (
                     <div
                       key={product.id}
-                      className={`aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col ${!product.isAvailable ? 'opacity-50 grayscale' : ''
+                      className={`p-1.5 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col justify-between ${!product.isAvailable ? 'opacity-50 grayscale' : ''
                         }`}
                       onClick={() => handleSelectProduct(product)}
                     >
                       {/* Imagen del producto */}
-                      <div className="w-full h-8 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                      <div className="w-full h-14 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
                         {product.image ? (
                           <img
                             src={product.image}
@@ -2921,12 +2921,12 @@ export default function ManualOrderSidebar({
                   // Tarjeta de producto personalizado
                   <div
                     key="custom-product"
-                    className="aspect-square p-1 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 cursor-pointer transition-colors flex flex-col items-center justify-center"
+                    className="p-1.5 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 cursor-pointer transition-colors flex flex-col items-center justify-between"
                     onClick={() => setShowCustomProductModal(true)}
                   >
                     {/* Ícono en lugar de imagen */}
-                    <div className="w-full h-8 mb-1 bg-blue-100 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
-                      <i className="bi bi-plus-circle text-blue-500 text-sm"></i>
+                    <div className="w-full h-14 mb-1 bg-blue-100 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
+                      <i className="bi bi-plus-circle text-blue-500 text-base"></i>
                     </div>
 
                     <div className="flex-1 flex flex-col justify-center text-center">

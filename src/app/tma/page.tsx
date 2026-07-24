@@ -1050,7 +1050,7 @@ function TMAContent() {
                                         }}
                                         className="text-xs font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-wide cursor-pointer"
                                       >
-                                        ¿Pedido listo?
+                                        ¿Listo?
                                       </button>
                                     )}
                                     <button 

@@ -671,7 +671,7 @@ function TMADeliveryContent() {
                                 
                                 {order.status === 'ready' && (
                                   <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
-                                    ¿Pedido listo?
+                                    ¿Listo?
                                   </span>
                                 )}
                               </div>
