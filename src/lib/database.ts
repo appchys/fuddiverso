@@ -1188,8 +1188,24 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       updatedAt: serverTimestamp()
     }
 
-    // Si es una orden manual, asegurarse que tenga toda la estructura de statusHistory
+    // Si es una orden manual, asegurarse que no tenga comisión y tenga la estructura de statusHistory
     if (standardizedOrder.createdByAdmin) {
+      if (Array.isArray(standardizedOrder.items)) {
+        standardizedOrder.items = standardizedOrder.items.map((item: any) => {
+          const storePrice = (typeof item.basePrice === 'number' && !Number.isNaN(item.basePrice))
+            ? item.basePrice
+            : (typeof item.price === 'number' && !Number.isNaN(item.price) ? item.price : 0);
+          return {
+            ...item,
+            price: storePrice,
+            basePrice: storePrice,
+            commission: 0,
+            commissionType: 'no_commission',
+            storeReceives: storePrice
+          }
+        });
+      }
+
       standardizedOrder.statusHistory = {
         pendingAt: standardizedOrder.statusHistory.pendingAt,
         confirmedAt: null,

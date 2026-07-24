@@ -97,6 +97,16 @@ export function getProductPublicPrice(item: Partial<Product | ProductVariant>): 
 }
 
 /**
+ * Returns the store base price of a product or variant (without commission) for manual orders.
+ */
+export function getManualOrderStorePrice(item: Partial<Product | ProductVariant>): number {
+    if (!item) return 0;
+    const basePrice = typeof item.basePrice === 'number' && !Number.isNaN(item.basePrice) ? item.basePrice : undefined;
+    const price = typeof item.price === 'number' && !Number.isNaN(item.price) ? item.price : 0;
+    return basePrice !== undefined ? basePrice : price;
+}
+
+/**
  * Formats a price number as a currency string.
  */
 export function formatPrice(price: number): string {

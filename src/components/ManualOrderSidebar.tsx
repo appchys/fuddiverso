@@ -5,7 +5,7 @@ import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
-import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata } from '@/lib/price-utils'
+import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -189,14 +189,14 @@ export default function ManualOrderSidebar({
       return Object.entries(comboSelection).reduce((total, [variantName, qty]) => {
         const variant = selectedProductForVariants.variants?.find(v => v.name === variantName);
         if (variant && qty > 0) {
-          return total + (getProductPublicPrice(variant) * qty);
+          return total + (getManualOrderStorePrice(variant) * qty);
         }
         return total;
       }, 0);
     } else {
       const basePrice = selectedVariant
-        ? getProductPublicPrice(selectedVariant)
-        : getProductPublicPrice(selectedProductForVariants);
+        ? getManualOrderStorePrice(selectedVariant)
+        : getManualOrderStorePrice(selectedProductForVariants);
       const optionsPrice = selectedProductForVariants.optionGroups
         ? Object.values(selectedOptions).reduce((sum, groupSelections) => {
             return sum + groupSelections.reduce((gSum, opt) => gSum + (opt.price || 0), 0);
@@ -1931,35 +1931,19 @@ export default function ManualOrderSidebar({
       return;
     }
 
-    // 3. Calcular precio y metadatos de precios
-    let basePriceMeta: any = {};
+    // 3. Calcular precio y metadatos de precios (para órdenes manuales sin comisión)
     let baseProductPrice = 0;
     let variantNameStr = '';
 
     if (product.isCombo) {
-      // Para combos, el precio base es la suma de los precios de las variantes seleccionadas
-      const comboMeta = Object.entries(comboSelection).reduce((acc, [variantName, qty]) => {
+      // Para combos, el precio base es la suma de los precios de tienda de las variantes seleccionadas
+      baseProductPrice = Object.entries(comboSelection).reduce((acc, [variantName, qty]) => {
         const variant = product.variants?.find(v => v.name === variantName);
         if (variant && qty > 0) {
-          const meta = getPriceMetadata(variant);
-          return {
-            basePrice: acc.basePrice + ((meta.basePrice || getProductPublicPrice(variant)) * qty),
-            commission: acc.commission + ((meta.commission || 0) * qty),
-            publicPrice: acc.publicPrice + (getProductPublicPrice(variant) * qty),
-            storeReceives: acc.storeReceives + ((meta.storeReceives || getProductPublicPrice(variant)) * qty),
-          };
+          return acc + (getManualOrderStorePrice(variant) * qty);
         }
         return acc;
-      }, { basePrice: 0, commission: 0, publicPrice: 0, storeReceives: 0 });
-
-      basePriceMeta = {
-        basePrice: comboMeta.basePrice,
-        commission: comboMeta.commission,
-        publicPrice: comboMeta.publicPrice,
-        storeReceives: comboMeta.storeReceives,
-        commissionType: product.commissionType || 'no_commission'
-      };
-      baseProductPrice = comboMeta.publicPrice;
+      }, 0);
 
       const selectedVariantsStr = Object.entries(comboSelection)
         .filter(([_, q]) => q > 0)
@@ -1969,12 +1953,9 @@ export default function ManualOrderSidebar({
 
     } else {
       // Para productos normales (con o sin variantes)
-      basePriceMeta = selectedVariant
-        ? getPriceMetadata(selectedVariant)
-        : getPriceMetadata(product);
       baseProductPrice = selectedVariant
-        ? getProductPublicPrice(selectedVariant)
-        : getProductPublicPrice(product);
+        ? getManualOrderStorePrice(selectedVariant)
+        : getManualOrderStorePrice(product);
 
       if (selectedVariant) {
         variantNameStr = selectedVariant.name;
@@ -2012,19 +1993,20 @@ export default function ManualOrderSidebar({
       finalVariantName = optionsStr;
     }
 
-    // 5. Crear Item de la orden
+    // 5. Crear Item de la orden (precio de tienda, 0 comisión)
+    const unitPrice = baseProductPrice + optionsPrice;
     const newItem: OrderItem = {
       name: product.name,
       variant: finalVariantName,
       variantName: finalVariantName,
       productName: product.name,
-      price: baseProductPrice + optionsPrice,
+      price: unitPrice,
       productId: product.id,
       quantity: product.isCombo ? 1 : customizingQuantity,
-      basePrice: (basePriceMeta.basePrice || baseProductPrice) + optionsPrice,
-      commission: basePriceMeta.commission || 0,
-      commissionType: basePriceMeta.commissionType || 'no_commission',
-      storeReceives: (basePriceMeta.storeReceives || baseProductPrice) + optionsPrice
+      basePrice: unitPrice,
+      commission: 0,
+      commissionType: 'no_commission',
+      storeReceives: unitPrice
     };
 
     setManualOrderData(prev => ({
@@ -2047,8 +2029,7 @@ export default function ManualOrderSidebar({
 
   // Agregar variante directamente (cuando no tiene modificadores ni es combo)
   const addVariantToOrderDirectly = (product: Product, variant: ProductVariant) => {
-    const basePriceMeta = getPriceMetadata(variant);
-    const baseProductPrice = getProductPublicPrice(variant);
+    const storeProductPrice = getManualOrderStorePrice(variant);
     const finalVariantName = variant.name;
 
     const newItem: OrderItem = {
@@ -2056,13 +2037,13 @@ export default function ManualOrderSidebar({
       variant: finalVariantName,
       variantName: finalVariantName,
       productName: product.name,
-      price: baseProductPrice,
+      price: storeProductPrice,
       productId: product.id,
       quantity: customizingQuantity,
-      basePrice: basePriceMeta.basePrice || baseProductPrice,
-      commission: basePriceMeta.commission || 0,
-      commissionType: basePriceMeta.commissionType || 'no_commission',
-      storeReceives: basePriceMeta.storeReceives || baseProductPrice
+      basePrice: storeProductPrice,
+      commission: 0,
+      commissionType: 'no_commission',
+      storeReceives: storeProductPrice
     };
 
     setManualOrderData(prev => ({
@@ -2089,15 +2070,14 @@ export default function ManualOrderSidebar({
   // Agregar producto a la orden
   const addProductToOrder = (product: Product, variant?: ProductVariant) => {
     const item = variant || product
-    const pubPrice = getProductPublicPrice(item)
-    const metadata = getPriceMetadata(item)
+    const storeProductPrice = getManualOrderStorePrice(item)
 
     const newItem: OrderItem = {
       name: product.name,                    // Nombre base del producto
       variant: variant?.name || '',          // Nombre de la variante
       variantName: variant?.name || '',      // Nombre de la variante
       productName: product.name,             // Nombre base
-      price: pubPrice,
+      price: storeProductPrice,
       productId: product.id,
       quantity: 1,
       image: product.image || '',
@@ -2106,7 +2086,10 @@ export default function ManualOrderSidebar({
         originalBusinessName: product.originalBusinessName,
         originalBusinessImage: product.originalBusinessImage
       }),
-      ...metadata
+      basePrice: storeProductPrice,
+      commission: 0,
+      commissionType: 'no_commission',
+      storeReceives: storeProductPrice
     }
 
     setManualOrderData(prev => ({
@@ -2129,24 +2112,23 @@ export default function ManualOrderSidebar({
     }
 
     const storePrice = parseFloat(customProductData.price)
-    if (isNaN(storePrice) || storePrice <= 0 || !customProductPricing) {
+    if (isNaN(storePrice) || storePrice <= 0) {
       alert('Por favor ingresa un precio válido')
       return
     }
 
     const customItem: OrderItem = {
       name: customProductData.name.trim(),
-      price: customProductPricing.publicPrice,
+      price: storePrice,
       productId: `custom_${Date.now()}`, // ID temporal único
       quantity: 1,
       variant: '',
       variantName: '',
       productName: customProductData.name.trim(),
-      // El valor escrito es el valor de tienda; el precio publico se calcula aparte.
-      basePrice: customProductPricing.storePrice,
-      commission: customProductPricing.commission,
-      commissionType: customProductPricing.commissionType,
-      storeReceives: customProductPricing.storeReceives
+      basePrice: storePrice,
+      commission: 0,
+      commissionType: 'no_commission',
+      storeReceives: storePrice
     }
 
     setManualOrderData(prev => ({
@@ -2276,21 +2258,26 @@ export default function ManualOrderSidebar({
 
       let orderData: any = {
         businessId: business.id,
-        items: manualOrderData.selectedProducts.map(item => ({
-          productId: item.productId,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          variant: item.variant,
-          image: item.image || '',
-          originalBusinessId: item.originalBusinessId || null,
-          originalBusinessName: item.originalBusinessName || null,
-          originalBusinessImage: item.originalBusinessImage || null,
-          basePrice: (item as any).basePrice,
-          commission: (item as any).commission,
-          commissionType: (item as any).commissionType,
-          storeReceives: (item as any).storeReceives
-        })),
+        items: manualOrderData.selectedProducts.map(item => {
+          const storePrice = (typeof item.basePrice === 'number' && !isNaN(item.basePrice))
+            ? item.basePrice
+            : (typeof item.price === 'number' ? item.price : 0);
+          return {
+            productId: item.productId,
+            name: item.name,
+            price: storePrice,
+            quantity: item.quantity,
+            variant: item.variant,
+            image: item.image || '',
+            originalBusinessId: item.originalBusinessId || null,
+            originalBusinessName: item.originalBusinessName || null,
+            originalBusinessImage: item.originalBusinessImage || null,
+            basePrice: storePrice,
+            commission: 0,
+            commissionType: 'no_commission',
+            storeReceives: storePrice
+          };
+        }),
         customer: {
           name: manualOrderData.customerName,
           phone: manualOrderData.customerPhone
@@ -3674,7 +3661,7 @@ export default function ManualOrderSidebar({
                           <div className="flex-1 min-w-0 pr-2">
                             <span className="font-semibold text-sm text-gray-800 block">{variant.name}</span>
                             {variant.description && <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{variant.description}</p>}
-                            <span className="text-xs font-bold text-blue-600 mt-1 block">${getProductPublicPrice(variant).toFixed(2)}</span>
+                            <span className="text-xs font-bold text-blue-600 mt-1 block">${getManualOrderStorePrice(variant).toFixed(2)}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <button
@@ -3730,7 +3717,7 @@ export default function ManualOrderSidebar({
                               />
                               <span className="text-sm font-semibold text-gray-800">{variant.name}</span>
                             </div>
-                            <span className="text-sm font-bold text-blue-600">${getProductPublicPrice(variant).toFixed(2)}</span>
+                            <span className="text-sm font-bold text-blue-600">${getManualOrderStorePrice(variant).toFixed(2)}</span>
                           </label>
                         );
                       })}
