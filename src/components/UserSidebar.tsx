@@ -1768,24 +1768,41 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     {/* Header with User Info and Plus Banner */}
                     <div className="sticky top-0 bg-white z-50">
-                        {/* User Greeting */}
-                        <div className="px-6 pt-6 pb-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
+                        {/* User Greeting + Ubicación */}
+                        <div className="px-6 pt-6 pb-3 min-w-0 overflow-hidden">
+                            <div className="flex items-center justify-between min-w-0">
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
                                         {user?.photoURL ? (
                                             <img src={user.photoURL} alt={user.nombres} className="w-full h-full rounded-full object-cover" />
                                         ) : (
                                             <User size={48} />
                                         )}
                                     </div>
-                                    <h2 className="text-xl font-semibold text-gray-900">
-                                        {user?.nombres ? `¡Hola, ${user.nombres.split(' ')[0]}!` : '¡Hola!'}
-                                    </h2>
+                                    <div className="min-w-0">
+                                        <h2 className="text-xl font-semibold text-gray-900">
+                                            {user?.nombres ? `¡Hola, ${user.nombres.split(' ')[0]}!` : '¡Hola!'}
+                                        </h2>
+                                        {(savedLocation || userLocations.length > 0) && (
+                                            <button
+                                                onClick={() => {
+                                                    setIsAddingNewLocation(false)
+                                                    setIsLocationModalOpen(true)
+                                                }}
+                                                className="flex items-center bg-gray-50 rounded-xl px-3 py-1.5 mt-1.5 text-left group hover:bg-gray-100 transition-all w-full min-w-0"
+                                            >
+                                                <MapPin size={12} className="text-gray-500 flex-shrink-0" />
+                                                <span className="text-xs font-medium text-gray-900 truncate min-w-0 flex-1 ml-1.5">
+                                                    {savedLocation?.referencia || 'Seleccionar ubicación'}
+                                                </span>
+                                                <ChevronRight size={14} className="text-gray-400 flex-shrink-0 ml-2 group-hover:text-gray-900 transition-colors" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                                 <button
                                     onClick={onClose}
-                                    className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors"
+                                    className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors flex-shrink-0"
                                 >
                                     <X size={20} />
                                 </button>
@@ -2090,31 +2107,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                 </button>
                                             ))}
                                         </div>
-                                    </div>
-                                )}
-
-                                {/* Ubicación */}
-                                {(savedLocation || userLocations.length > 0) && (
-                                    <div className="space-y-3 border-t border-gray-100 pt-6">
-                                        <p className="text-xs font-black uppercase tracking-wider text-gray-400">UBICACIÓN DE ENTREGA</p>
-                                        <button
-                                            onClick={() => {
-                                                setIsAddingNewLocation(false)
-                                                setIsLocationModalOpen(true)
-                                            }}
-                                            className="w-full bg-gradient-to-r from-gray-50 to-gray-100 p-3.5 rounded-xl border border-gray-200 flex items-center gap-3 hover:border-gray-900 transition-all group"
-                                        >
-                                            <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center text-white flex-shrink-0 group-hover:shadow-lg transition-all">
-                                                <MapPin size={16} />
-                                            </div>
-                                            <div className="flex-1 text-left min-w-0">
-                                                <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-0.5">Entrega en</p>
-                                                <h4 className="text-xs font-medium text-gray-900 truncate">
-                                                    {savedLocation?.referencia || 'Seleccionar ubicación'}
-                                                </h4>
-                                            </div>
-                                            <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-900 flex-shrink-0" />
-                                        </button>
                                     </div>
                                 )}
 
