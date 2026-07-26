@@ -6,13 +6,13 @@ import { useRouter } from 'next/navigation'
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { auth } from '@/lib/firebase'
-import { Flame, User, Ticket, Headphones, Bell, Info, Store, Heart, Star, ChevronRight, ChevronUp, ChevronDown, X, ArrowLeft, MapPin, Wallet, Settings, Map, LogOut, Trash2, ShoppingCart, CircleDollarSign } from 'lucide-react'
+import { Flame, User, Ticket, Headphones, Bell, Info, Store, Heart, Star, ChevronRight, ChevronUp, ChevronDown, X, ArrowLeft, ArrowRight, MapPin, Wallet, Settings, Map, LogOut, Trash2, ShoppingCart, CircleDollarSign, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, Edit3 } from 'lucide-react'
 import {
     searchClientByPhone, createClient, updateClient, getClientLocations,
     serverTimestamp, createClientLocation, deleteLocation,
     getUserReferrals, getAllUserCredits, getOrdersByClient, getBusiness,
     getClientNotifications, markClientNotificationAsRead, getClientStoreRatings, updateStoreRatingById,
-    getUserBusinessAccess, getAllUserQRProgress, getQRCodesByBusiness
+    getUserBusinessAccess, getAllUserQRProgress, getQRCodesByBusiness, updateOrderStatus
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone, getPhoneValidationMessage } from '@/lib/validation'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
@@ -29,6 +29,109 @@ interface UserSidebarProps {
 const USER_SIDEBAR_PANEL_BASE_CLASS = 'absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1)'
 const getUserSidebarPanelStateClass = (isOpen: boolean) =>
     isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-[calc(100%+3rem)] shadow-none'
+
+function getPaymentBadgeConfig(paymentStatus?: string) {
+    switch (paymentStatus) {
+        case 'paid':
+            return { label: 'Pagado', className: 'bg-emerald-50 text-emerald-700 border-emerald-200/80', icon: CheckCircle2 }
+        case 'validating':
+            return { label: 'Validando pago', className: 'bg-amber-50 text-amber-700 border-amber-200/80', icon: Clock }
+        case 'rejected':
+            return { label: 'Pago rechazado', className: 'bg-red-50 text-red-700 border-red-200/80', icon: XCircle }
+        case 'pending':
+        default:
+            return { label: 'Pago pendiente', className: 'bg-orange-50 text-orange-700 border-orange-200/80', icon: AlertCircle }
+    }
+}
+
+function getOrderStatusBadgeConfig(status: string) {
+    switch (status) {
+        case 'pending':
+            return { label: 'Pendiente', className: 'bg-yellow-50 text-yellow-700 border-yellow-200', icon: Clock }
+        case 'borrador':
+            return { label: 'Borrador', className: 'bg-slate-50 text-slate-700 border-slate-200', icon: Edit3 }
+        case 'confirmed':
+            return { label: 'Confirmado', className: 'bg-blue-50 text-blue-700 border-blue-200', icon: CheckCircle2 }
+        case 'preparing':
+            return { label: 'Preparando', className: 'bg-amber-50 text-amber-700 border-amber-200', icon: Flame }
+        case 'ready':
+            return { label: 'Listo', className: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: PackageCheck }
+        case 'on_way':
+            return { label: 'En camino', className: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: Bike }
+        case 'delivered':
+            return { label: 'Entregado', className: 'bg-emerald-100 text-emerald-800 border-emerald-300', icon: CheckCircle2 }
+        case 'cancelled':
+            return { label: 'Cancelado', className: 'bg-red-50 text-red-700 border-red-200', icon: XCircle }
+        default:
+            return { label: status, className: 'bg-gray-50 text-gray-700 border-gray-200', icon: Info }
+    }
+}
+
+const STATUS_STEPS = [
+  { status: 'pending', label: 'Recibido', desc: 'Tu pedido fue recibido y está en espera.', icon: 'bi-clipboard-check' },
+  { status: 'confirmed', label: 'Confirmado', desc: '¡El negocio confirmó tu pedido!', icon: 'bi-check-circle' },
+  { status: 'preparing', label: 'Preparando', desc: 'Estamos preparando tus productos.', icon: 'bi-fire' },
+  { status: 'ready', label: 'Listo', desc: 'Tu pedido está listo.', icon: 'bi-box-seam' },
+  { status: 'on_way', label: 'En Camino', desc: 'Tu pedido va rumbo a tu dirección.', icon: 'bi-bicycle' },
+  { status: 'delivered', label: 'Entregado', desc: '¡Pedido entregado con éxito!', icon: 'bi-house-heart' },
+  { status: 'cancelled', label: 'Cancelado', desc: 'El pedido fue cancelado.', icon: 'bi-x-circle' }
+]
+
+function getDynamicTimelineStepsForOrder(order: any) {
+  if (!order || !order.status) return []
+
+  let currentIndex = STATUS_STEPS.findIndex(step => step.status === order.status)
+  if (currentIndex === -1) {
+    currentIndex = 0
+  }
+
+  const result: any[] = []
+
+  // 1. Estado Actual (activo / destacado)
+  const currentStepDef = STATUS_STEPS[currentIndex]
+  const currentTimestamp = order.statusHistory?.[`${currentStepDef.status}At`] || order.createdAt || null
+
+  result.push({
+    ...currentStepDef,
+    timestamp: currentTimestamp,
+    isCurrent: true,
+    isDone: true
+  })
+
+  // 2. Estado Siguiente (inactivo / en gris)
+  if (currentIndex + 1 < STATUS_STEPS.length) {
+    const nextStepDef = STATUS_STEPS[currentIndex + 1]
+    const nextTimestamp = order.statusHistory?.[`${nextStepDef.status}At`] || null
+
+    result.push({
+      ...nextStepDef,
+      timestamp: nextTimestamp,
+      isCurrent: false,
+      isDone: false
+    })
+  }
+
+  return result
+}
+
+function formatTimelineStepTime(timestamp: any) {
+  if (!timestamp) return ''
+  try {
+    let date: Date
+    if (typeof timestamp === 'object' && 'seconds' in timestamp) {
+      date = new Date(timestamp.seconds * 1000)
+    } else {
+      date = new Date(timestamp)
+    }
+    return date.toLocaleTimeString('es-EC', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    })
+  } catch (e) {
+    return ''
+  }
+}
 
 function CartMenuOption({ onClose }: { onClose: () => void }) {
     const [activeCarts, setActiveCarts] = useState<{ [key: string]: any[] }>({})
@@ -361,7 +464,7 @@ function ClientReviewsSidebar({
     )
 }
 
-function ClientRecommendationsSidebar({
+export function ClientRecommendationsSidebar({
     isOpen,
     onClose,
     referrals,
@@ -1013,6 +1116,20 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [userLocations, setUserLocations] = useState<any[]>([])
     const [activeOrders, setActiveOrders] = useState<any[]>([])
     const [loadingOrders, setLoadingOrders] = useState(false)
+    const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
+
+    const handleMarkAsDelivered = async (e: React.MouseEvent, orderId: string) => {
+        e.stopPropagation()
+        try {
+            setUpdatingOrderId(orderId)
+            await updateOrderStatus(orderId, 'delivered')
+            setActiveOrders(prev => prev.filter(o => o.id !== orderId))
+        } catch (err) {
+            console.error('Error al marcar como entregado:', err)
+        } finally {
+            setUpdatingOrderId(null)
+        }
+    }
 
     const [orderSidebarOpen, setOrderSidebarOpen] = useState(false)
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
@@ -1432,7 +1549,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 getOrdersByClient(user.celular)
                     .then(async (orders) => {
                         const active = orders.filter((o: any) =>
-                            !['delivered', 'cancelled'].includes(o.status)
+                            !['delivered', 'cancelled', 'borrador'].includes(o.status)
                         )
 
                         // Enriquecer con datos básicos del negocio para el logo/nombre
@@ -1874,7 +1991,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                         )}
                     </div>
 
-                    <div className="flex-1 px-6 py-6 space-y-6 overflow-y-auto">
+                    <div className="flex-1 px-6 py-6 space-y-6">
                         {/* Login Section */}
                         {!user ? (
                             <div className="space-y-6">
@@ -2044,6 +2161,169 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                             </div>
                         ) : (
                             <>
+                                {/* Pedidos en Curso */}
+                                {activeOrders.length > 0 && (
+                                    <div className="space-y-3 pb-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-xs font-medium uppercase tracking-wider text-gray-400">PEDIDOS EN CURSO</p>
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700">
+                                                    {activeOrders.length}
+                                                </span>
+                                            </div>
+                                            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {activeOrders.map((order) => {
+                                                const itemsSummary = Array.isArray(order.items) && order.items.length > 0
+                                                    ? order.items.map((i: any) => `${i.quantity || 1}x ${i.name || i.producto || 'Producto'}`).join(', ')
+                                                    : 'Detalle del pedido no disponible'
+
+                                                const paymentBadge = getPaymentBadgeConfig(order.payment?.paymentStatus)
+                                                const statusBadge = getOrderStatusBadgeConfig(order.status)
+                                                const PaymentIcon = paymentBadge.icon
+                                                const StatusIcon = statusBadge.icon
+
+                                                return (
+                                                    <div
+                                                        key={order.id}
+                                                        onClick={() => {
+                                                            setSelectedOrderId(order.id)
+                                                            setOrderSidebarOpen(true)
+                                                        }}
+                                                        className="w-full bg-white p-4 rounded-2xl border border-gray-200 hover:border-gray-900 shadow-sm hover:shadow-md transition-all group cursor-pointer text-left space-y-3"
+                                                    >
+                                                        {/* Header: Logo + Flow (Tienda -> Dirección) + Valor a Pagar / Estado Pago Unificado */}
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                                <div className="w-11 h-11 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                                                                    <img
+                                                                        src={order.businessImage || '/default-restaurant-og.svg'}
+                                                                        alt={order.businessName || 'Tienda'}
+                                                                        className="w-full h-full object-cover"
+                                                                    />
+                                                                </div>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <h4 className="font-black text-gray-900 text-sm tracking-tight leading-tight truncate">
+                                                                        {order.businessName || 'Tienda'}
+                                                                    </h4>
+                                                                    <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                                                                        <ArrowRight size={12} className="text-emerald-500 flex-shrink-0" />
+                                                                        <span
+                                                                            className="text-xs font-medium text-gray-600 truncate"
+                                                                            title={order.delivery?.type === 'pickup' ? 'Retiro en local' : (order.delivery?.references || (order.delivery as any)?.reference || 'Entrega a domicilio')}
+                                                                        >
+                                                                            {order.delivery?.type === 'pickup'
+                                                                                ? 'Retiro en local'
+                                                                                : (order.delivery?.references || (order.delivery as any)?.reference || order.delivery?.sector || 'Entrega a domicilio')}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            {/* Esquina Superior Derecha: Valor y Estado del Pago */}
+                                                            <div className="text-right flex-shrink-0">
+                                                                {order.payment?.paymentStatus === 'paid' ? (
+                                                                    <p className="text-xs font-black text-gray-900">Pagado</p>
+                                                                ) : (
+                                                                    <div>
+                                                                        <p className="text-sm font-black text-gray-900 leading-tight">${(order.total || 0).toFixed(2)}</p>
+                                                                        <p className="text-[10px] font-bold text-gray-700 uppercase tracking-wider mt-0.5">A pagar</p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Línea de Tiempo del Pedido */}
+                                                        {getDynamicTimelineStepsForOrder(order).length > 0 && (
+                                                            <div className="bg-gray-50/90 rounded-[20px] p-4 border border-gray-100">
+                                                                <div className="relative pl-6 space-y-4">
+                                                                    {/* Linea vertical central */}
+                                                                    <div className="absolute left-[9px] top-1.5 bottom-1.5 w-0.5 bg-slate-200"></div>
+
+                                                                    {getDynamicTimelineStepsForOrder(order).map((step) => {
+                                                                        return (
+                                                                            <div key={step.status} className="relative flex gap-3 items-start">
+                                                                                {/* Punto marcador */}
+                                                                                <div
+                                                                                    className={`absolute left-[-23px] top-0.5 w-5 h-5 rounded-full border-4 transition-all flex items-center justify-center z-10 ${
+                                                                                        step.isCurrent
+                                                                                            ? 'bg-slate-900 border-white ring-4 ring-slate-100'
+                                                                                            : step.isDone
+                                                                                            ? 'bg-slate-900 border-white'
+                                                                                            : 'bg-white border-slate-100'
+                                                                                    }`}
+                                                                                >
+                                                                                    {step.isCurrent && (
+                                                                                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
+                                                                                    )}
+                                                                                </div>
+
+                                                                                <div className="flex-1 min-w-0">
+                                                                                    <div className="flex justify-between items-start gap-1">
+                                                                                        <h6
+                                                                                            className={`text-[11px] font-extrabold uppercase tracking-wide truncate ${
+                                                                                                step.isCurrent
+                                                                                                    ? 'text-slate-950 font-black'
+                                                                                                    : step.isDone
+                                                                                                    ? 'text-slate-800'
+                                                                                                    : 'text-slate-400'
+                                                                                            }`}
+                                                                                        >
+                                                                                            {step.label}
+                                                                                        </h6>
+                                                                                        {step.timestamp && (
+                                                                                            <span className="text-[9px] text-slate-400 font-bold bg-white border border-slate-100/50 px-1.5 py-0.5 rounded-md flex-shrink-0">
+                                                                                                {formatTimelineStepTime(step.timestamp)}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <p className={`text-[10px] mt-0.5 leading-tight ${step.isCurrent ? 'text-slate-600 font-medium' : 'text-slate-400'}`}>
+                                                                                        {step.desc}
+                                                                                    </p>
+                                                                                </div>
+                                                                                <i className={`bi ${step.icon} text-xs ${step.isCurrent ? 'text-slate-950 font-bold' : step.isDone ? 'text-slate-600' : 'text-slate-300'} flex-shrink-0 mt-0.5`}></i>
+                                                                            </div>
+                                                                        )
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Detalle del pedido */}
+                                                        <div className="bg-gray-50/90 p-2.5 rounded-xl border border-gray-100">
+                                                            <p className="text-[11px] font-medium text-gray-700 leading-snug line-clamp-2">
+                                                                {itemsSummary}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Botón de Recibido cuando el pedido está Listo o En camino */}
+                                                        {['ready', 'on_way'].includes(order.status) && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => handleMarkAsDelivered(e, order.id)}
+                                                                disabled={updatingOrderId === order.id}
+                                                                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60"
+                                                            >
+                                                                {updatingOrderId === order.id ? (
+                                                                    <>
+                                                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                                        <span>Actualizando...</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <CheckCircle2 size={15} />
+                                                                        <span>Recibido</span>
+                                                                    </>
+                                                                )}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Icon Navigation Grid */}
                                 <div className="grid grid-cols-3 gap-3">
                                     <button
@@ -2076,39 +2356,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                         <span className="text-xs font-medium text-gray-900 text-center">Ayuda</span>
                                     </button>
                                 </div>
-
-                                {/* Pedidos en Curso */}
-                                {activeOrders.length > 0 && (
-                                    <div className="space-y-3 border-t border-gray-100 pt-6">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-xs font-medium uppercase tracking-wider text-gray-400">PEDIDOS EN CURSO</p>
-                                            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {activeOrders.map((order) => (
-                                                <button
-                                                    key={order.id}
-                                                    onClick={() => {
-                                                        setSelectedOrderId(order.id)
-                                                        setOrderSidebarOpen(true)
-                                                    }}
-                                                    className="w-full bg-gradient-to-r from-emerald-50 to-emerald-100 p-3 rounded-xl border border-emerald-200 flex items-center gap-3 hover:border-emerald-400 transition-all group"
-                                                >
-                                                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
-                                                        <img src={order.businessImage || '/default-restaurant-og.svg'} className="w-full h-full object-cover" />
-                                                    </div>
-                                                    <div className="flex-1 text-left min-w-0">
-                                                        <p className="text-xs font-medium text-gray-900 truncate">{order.businessName || 'Tienda'}</p>
-                                                        <p className="text-[10px] text-gray-600 font-medium">${(order.total || 0).toFixed(2)}</p>
-                                                    </div>
-                                                    <div className="flex-shrink-0 text-center">
-                                                        <p className="text-[9px] font-medium px-2 py-1 rounded-full bg-emerald-200 text-emerald-700 uppercase">{order.status}</p>
-                                                    </div>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
 
                                 
                                 {/* Profile Section */}

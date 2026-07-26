@@ -1660,7 +1660,7 @@ function ReferralModal({
             </button>
 
             <button
-              onClick={() => window.location.href = '/profile?tab=recommendations'}
+              onClick={() => window.location.href = '/profile'}
               className="w-full py-4 bg-slate-100 text-slate-600 font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-slate-200 transition-all flex items-center justify-center gap-2 active:scale-95"
             >
               <i className="bi bi-gift-fill"></i> VER MIS RECOMENDACIONES
