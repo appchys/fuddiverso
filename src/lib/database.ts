@@ -6597,6 +6597,150 @@ export async function getOrdersByReferralCode(referralCode: string): Promise<any
 }
 
 /**
+ * Obtiene el total de créditos acumulados de un usuario buscando por múltiples identificadores
+ * (ID de usuario, celular y teléfono normalizado).
+ */
+export async function getUserCreditsFlexible(
+  userIdentifiers: (string | undefined | null)[]
+): Promise<{ available: number; referral: number; manual: number; docs: any[] }> {
+  try {
+    const ids = Array.from(new Set(
+      userIdentifiers
+        .filter(Boolean)
+        .flatMap(id => {
+          const str = String(id).trim()
+          if (!str) return []
+          const norm = normalizeEcuadorianPhone(str)
+          return norm && norm !== str ? [str, norm] : [str]
+        })
+    ))
+
+    if (ids.length === 0) return { available: 0, referral: 0, manual: 0, docs: [] }
+
+    const snapshots = await Promise.all(
+      ids.map(id => getDocs(query(collection(db, 'userCredits'), where('userId', '==', id))))
+    )
+
+    const docMap = new Map<string, any>()
+    snapshots.forEach(snap => {
+      snap.docs.forEach(d => {
+        if (!docMap.has(d.id)) {
+          docMap.set(d.id, { id: d.id, ref: d.ref, ...d.data() })
+        }
+      })
+    })
+
+    const allDocs = Array.from(docMap.values())
+
+    let referral = 0
+    let manual = 0
+
+    allDocs.forEach(d => {
+      referral += (d.availableCredits || 0)
+      manual += (d.balance || 0)
+    })
+
+    return {
+      available: Math.max(0, referral + manual),
+      referral: Math.max(0, referral),
+      manual: Math.max(0, manual),
+      docs: allDocs
+    }
+  } catch (error) {
+    console.error('Error in getUserCreditsFlexible:', error)
+    return { available: 0, referral: 0, manual: 0, docs: [] }
+  }
+}
+
+/**
+ * Deduce créditos de la billetera del usuario buscando en todos los documentos asociados a sus identificadores.
+ */
+export async function useUserCreditsFlexible(
+  userIdentifiers: (string | undefined | null)[],
+  businessId: string,
+  amount: number,
+  orderId: string
+): Promise<void> {
+  try {
+    const ids = Array.from(new Set(
+      userIdentifiers
+        .filter(Boolean)
+        .flatMap(id => {
+          const str = String(id).trim()
+          if (!str) return []
+          const norm = normalizeEcuadorianPhone(str)
+          return norm && norm !== str ? [str, norm] : [str]
+        })
+    ))
+
+    if (ids.length === 0) throw new Error('No se especificaron identificadores de usuario para descontar créditos')
+
+    const snapshots = await Promise.all(
+      ids.map(id => getDocs(query(collection(db, 'userCredits'), where('userId', '==', id))))
+    )
+
+    const docMap = new Map<string, any>()
+    snapshots.forEach(snap => {
+      snap.docs.forEach(d => {
+        if (!docMap.has(d.id)) {
+          docMap.set(d.id, { id: d.id, ref: d.ref, ...d.data() })
+        }
+      })
+    })
+
+    const docsWithBalance = Array.from(docMap.values()).filter(d => (d.availableCredits || 0) > 0 || (d.balance || 0) > 0)
+
+    if (docsWithBalance.length === 0) {
+      throw new Error('No se encontraron créditos disponibles para deducir')
+    }
+
+    let remainingToDeduct = amount
+
+    for (const docItem of docsWithBalance) {
+      if (remainingToDeduct <= 0) break
+
+      const referralAvailable = docItem.availableCredits || 0
+      const balanceAvailable = docItem.balance || 0
+
+      let referralDeduction = 0
+      let balanceDeduction = 0
+
+      if (referralAvailable > 0) {
+        referralDeduction = Math.min(referralAvailable, remainingToDeduct)
+        remainingToDeduct -= referralDeduction
+      }
+
+      if (remainingToDeduct > 0 && balanceAvailable > 0) {
+        balanceDeduction = Math.min(balanceAvailable, remainingToDeduct)
+        remainingToDeduct -= balanceDeduction
+      }
+
+      if (referralDeduction > 0 || balanceDeduction > 0) {
+        await updateDoc(docItem.ref, {
+          availableCredits: firestoreIncrement(-referralDeduction),
+          balance: firestoreIncrement(-balanceDeduction),
+          usedCredits: firestoreIncrement(referralDeduction + balanceDeduction),
+          updatedAt: serverTimestamp()
+        })
+      }
+    }
+
+    await addDoc(collection(db, 'walletTransactions'), {
+      userId: ids[0],
+      businessId,
+      type: 'order_payment',
+      amount: -amount,
+      concept: `Pago de pedido ${orderId}`,
+      referenceId: orderId,
+      createdAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error using user credits flexible:', error)
+    throw error
+  }
+}
+
+/**
  * Obtiene o crea el registro de créditos de un usuario
  */
 export async function getUserCredits(

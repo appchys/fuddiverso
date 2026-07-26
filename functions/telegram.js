@@ -2527,14 +2527,21 @@ function buildWhatsAppTemplateVariables(orderData, businessName) {
     
     // Forma de pago
     const paymentMethod = orderData.payment?.method || 'No especificado';
+    const creditUsed = orderData.creditUsed || 0;
     let paymentDetailsBlock = '';
-    if (paymentMethod === 'cash') {
-        paymentDetailsBlock = `💵 *Cobrar:* $${storeTotal.toFixed(2)}`;
+    const creditLine = creditUsed > 0 ? `🎁 *Crédito aplicado:* -$${creditUsed.toFixed(2)}\n` : '';
+
+    if (creditUsed > 0 && storeTotal <= 0.01) {
+        paymentDetailsBlock = `🎁 *Pedido 100% Cubierto con Créditos ($${creditUsed.toFixed(2)})*`;
+    } else if (paymentMethod === 'cash') {
+        paymentDetailsBlock = `${creditLine}💵 *Cobrar:* $${storeTotal.toFixed(2)}`;
     } else if (paymentMethod === 'transfer') {
-        paymentDetailsBlock = `🏦 *Transferencia: $${storeTotal.toFixed(2)}*`;
+        paymentDetailsBlock = `${creditLine}🏦 *Transferencia: $${storeTotal.toFixed(2)}*`;
     } else if (paymentMethod === 'mixed') {
         const cashAmount = orderData.payment?.cashAmount || 0;
-        paymentDetailsBlock = `💵 *Efectivo: $${cashAmount.toFixed(2)}*\n🏦 *Transferencia: $${(storeTotal - cashAmount).toFixed(2)}*`;
+        paymentDetailsBlock = `${creditLine}💵 *Efectivo: $${cashAmount.toFixed(2)}*\n🏦 *Transferencia: $${(storeTotal - cashAmount).toFixed(2)}*`;
+    } else {
+        paymentDetailsBlock = `${creditLine}💵 *Total a cobrar:* $${storeTotal.toFixed(2)}`;
     }
     
     return {

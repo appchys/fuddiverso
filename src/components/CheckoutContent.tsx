@@ -27,7 +27,9 @@ import {
   getDeliveryForLocation,
   isPointInPolygon,
   getUserCredits,
+  getUserCreditsFlexible,
   useUserCredits,
+  useUserCreditsFlexible,
   getOrdersByClient,
   getProductsByBusiness
 } from '@/lib/database'
@@ -372,6 +374,7 @@ export function CheckoutContent({
   const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
   const [showStoreImageModal, setShowStoreImageModal] = useState(false)
   const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
+  const [creditInputStr, setCreditInputStr] = useState<string>('')
   const [hasPreviousPickup, setHasPreviousPickup] = useState<boolean | null>(null)
   const [isDeliveryAvailableNow, setIsDeliveryAvailableNow] = useState<boolean>(true)
   const [isLocationDeliveryAvailable, setIsLocationDeliveryAvailable] = useState<boolean>(true)
@@ -789,35 +792,36 @@ export function CheckoutContent({
     }
   }, [user])
 
-  // Cargar créditos del usuario para este negocio
+  // Cargar créditos del usuario para este negocio o cuenta global
   useEffect(() => {
     const loadUserCredits = async () => {
-      const effectiveId = user?.id || clientFound?.id
-      const businessId = embeddedBusinessId || business?.id || searchParams?.get('businessId')
+      const identifiers = [
+        user?.id,
+        user?.celular,
+        clientFound?.id,
+        clientFound?.phone,
+        customerData.phone
+      ].filter(Boolean) as string[]
 
-      if (!effectiveId || !businessId) {
+      if (identifiers.length === 0) {
         setUserCredits({ available: 0, referral: 0, manual: 0 })
         return
       }
 
       try {
-        const credits = await getUserCredits(effectiveId, businessId)
-        if (credits) {
-          const referral = credits.availableCredits || 0
-          const manual = credits.balance || 0
-          setUserCredits({
-            available: referral + manual,
-            referral,
-            manual
-          })
-        }
+        const credits = await getUserCreditsFlexible(identifiers)
+        setUserCredits({
+          available: credits.available,
+          referral: credits.referral,
+          manual: credits.manual
+        })
       } catch (error) {
         console.error('Error loading user credits:', error)
       }
     }
 
     void loadUserCredits()
-  }, [user?.id, clientFound?.id, business?.id, embeddedBusinessId, searchParams])
+  }, [user?.id, user?.celular, clientFound?.id, clientFound?.phone, customerData.phone])
 
   // Cargar ubicaciones guardadas del cliente loggeado (funciona tanto embebido como /checkout)
   useEffect(() => {
@@ -1384,8 +1388,10 @@ export function CheckoutContent({
 
   const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
   const deliveryCost = getDeliveryCost()
-  const creditToApply = paymentData.useCredits ? (paymentData.creditsAmount || 0) : 0
-  const total = Math.max(0, subtotal + deliveryCost - creditToApply)
+  const finalDeliveryCost = isFreeDeliveryActive ? 0 : deliveryCost
+  const totalBeforeCredits = subtotal + finalDeliveryCost
+  const creditToApply = paymentData.useCredits ? Math.min(paymentData.creditsAmount || 0, userCredits.available, totalBeforeCredits) : 0
+  const total = Math.max(0, totalBeforeCredits - creditToApply)
 
   // Calcular fecha mínima para programación
   const getMinScheduledDate = () => {
@@ -1954,9 +1960,16 @@ export function CheckoutContent({
       const orderId = await createOrder(orderData);
 
       // Descontar créditos si se usaron
-      if (creditToApply > 0 && effectiveClientId) {
+      if (creditToApply > 0) {
         try {
-          await useUserCredits(effectiveClientId, businessId, creditToApply, orderId)
+          const identifiers = [
+            user?.id,
+            user?.celular,
+            clientFound?.id,
+            clientFound?.phone,
+            customerData.phone
+          ].filter(Boolean) as string[]
+          await useUserCreditsFlexible(identifiers, businessId, creditToApply, orderId)
         } catch (creditError) {
           console.error('Error deducting credits:', creditError)
         }
@@ -2819,63 +2832,177 @@ export function CheckoutContent({
                         </span>
                       )}
                     </div>
-                    {/* Créditos del Usuario */}
-                    {userCredits.available > 0 && (
-                      <>
-                        <div className="flex justify-between items-center text-sm">
-                          <div className="flex items-center gap-2">
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                className="sr-only peer"
-                                checked={!!paymentData.useCredits}
-                                onChange={(e) => {
-                                  const checked = e.target.checked;
-                                  const maxPossible = Math.min(userCredits.available, subtotal + deliveryCost);
-                                  const roundedMaxPossible = Math.round(maxPossible * 100) / 100;
-                                  setPaymentData({
-                                    ...paymentData,
-                                    useCredits: checked,
-                                    creditsAmount: checked ? roundedMaxPossible : 0
-                                  });
-                                }}
-                              />
-                              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-500"></div>
-                            </label>
-                            <div className="flex flex-col">
-                              <span className="text-xs font-bold text-gray-900">Usar Créditos</span>
-                              <span className="text-[10px] text-gray-500">Saldo: {formatPrice(userCredits.available)}</span>
+                    {/* Total a pagar */}
+                    <div className="flex justify-between items-center pt-3 border-t border-gray-300 mt-2">
+                      <span className="text-base font-black text-gray-900 uppercase tracking-tight">
+                        {paymentData.useCredits && creditToApply > 0 ? 'Total del pedido' : 'Total a pagar'}
+                      </span>
+                      <span className={`text-xl font-black ${paymentData.useCredits && creditToApply > 0 ? 'text-gray-400 line-through text-base font-medium' : 'text-red-600'}`}>
+                        {formatPrice(totalBeforeCredits)}
+                      </span>
+                    </div>
+
+                    {/* Opción de Pago con Créditos (Debajo de Total a pagar) */}
+                    {user || clientFound ? (
+                      userCredits.available > 0 ? (
+                        <div className="mt-3 pt-3 border-t border-dashed border-gray-200 space-y-3">
+                          <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-3.5 transition-all shadow-sm">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-bold shadow-xs">
+                                  <i className="bi bi-gift-fill"></i>
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-bold text-gray-900">Pagar con Créditos</span>
+                                  </div>
+                                  <p className="text-[11px] font-medium text-emerald-800">
+                                    Disponible: <span className="font-bold">{formatPrice(userCredits.available)}</span>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="sr-only peer"
+                                  checked={!!paymentData.useCredits}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked
+                                    const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
+                                    const roundedMaxPossible = Math.round(maxPossible * 100) / 100
+                                    setCreditInputStr(checked ? roundedMaxPossible.toString() : '')
+                                    setPaymentData({
+                                      ...paymentData,
+                                      useCredits: checked,
+                                      creditsAmount: checked ? roundedMaxPossible : 0
+                                    })
+                                  }}
+                                />
+                                <div className="w-10 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                              </label>
                             </div>
+
+                            {paymentData.useCredits && (
+                              <div className="mt-3 pt-3 border-t border-emerald-200/60 animate-fadeIn space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-medium text-gray-700">Monto a usar:</span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
+                                        const roundedMax = Math.round(maxPossible * 100) / 100
+                                        setCreditInputStr(roundedMax.toString())
+                                        setPaymentData({
+                                          ...paymentData,
+                                          useCredits: true,
+                                          creditsAmount: roundedMax
+                                        })
+                                      }}
+                                      className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-300 hover:bg-emerald-100 rounded-lg px-2 py-1 transition-colors shadow-xs"
+                                    >
+                                      Usar todo ({formatPrice(Math.min(userCredits.available, totalBeforeCredits))})
+                                    </button>
+
+                                    <div className="flex items-center gap-1 bg-white border border-emerald-300 rounded-lg px-2.5 py-1 shadow-xs focus-within:ring-2 focus-within:ring-emerald-500 transition-all">
+                                      <span className="text-emerald-700 font-bold text-xs">$</span>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={creditInputStr}
+                                        placeholder="0.00"
+                                        onFocus={(e) => e.target.select()}
+                                        onChange={(e) => {
+                                          const raw = e.target.value.replace(',', '.')
+                                          if (raw === '' || /^\d*\.?\d{0,2}$/.test(raw)) {
+                                            setCreditInputStr(raw)
+                                            const parsed = parseFloat(raw)
+                                            const maxAllowed = Math.min(userCredits.available, totalBeforeCredits)
+                                            if (!isNaN(parsed) && parsed > 0) {
+                                              const amount = Math.min(parsed, maxAllowed)
+                                              setPaymentData(prev => ({
+                                                ...prev,
+                                                useCredits: true,
+                                                creditsAmount: amount
+                                              }))
+                                            } else {
+                                              setPaymentData(prev => ({
+                                                ...prev,
+                                                useCredits: true,
+                                                creditsAmount: 0
+                                              }))
+                                            }
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          const parsed = parseFloat(creditInputStr)
+                                          if (!isNaN(parsed) && parsed > 0) {
+                                            const maxAllowed = Math.min(userCredits.available, totalBeforeCredits)
+                                            const amount = Math.min(parsed, maxAllowed)
+                                            setCreditInputStr(amount.toString())
+                                            setPaymentData(prev => ({
+                                              ...prev,
+                                              useCredits: true,
+                                              creditsAmount: amount
+                                            }))
+                                          } else {
+                                            setCreditInputStr('')
+                                            setPaymentData(prev => ({
+                                              ...prev,
+                                              creditsAmount: 0
+                                            }))
+                                          }
+                                        }}
+                                        className="w-20 text-right font-bold text-emerald-900 focus:outline-none text-sm bg-transparent"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
-                          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2 py-1 shadow-sm focus-within:ring-2 focus-within:ring-green-500 transition-all">
-                            <span className="text-gray-400 font-medium text-xs">$</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max={userCredits.available}
-                              value={paymentData.creditsAmount ? paymentData.creditsAmount.toFixed(2) : ''}
-                              placeholder="0.00"
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value) || 0;
-                                const amount = Math.min(val, userCredits.available);
-                                setPaymentData({
-                                  ...paymentData,
-                                  useCredits: amount > 0,
-                                  creditsAmount: amount
-                                });
-                              }}
-                              className="w-16 text-right font-bold text-gray-900 focus:outline-none text-sm [-moz-appearance:_textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
-                            />
+                          {paymentData.useCredits && creditToApply > 0 && (
+                            <div className="bg-white rounded-xl p-3 border border-gray-200 shadow-xs space-y-1.5 text-xs animate-fadeIn">
+                              <div className="flex justify-between text-gray-500">
+                                <span>Total del pedido:</span>
+                                <span>{formatPrice(totalBeforeCredits)}</span>
+                              </div>
+                              <div className="flex justify-between font-bold text-emerald-600">
+                                <span className="flex items-center gap-1">
+                                  <i className="bi bi-dash-circle-fill text-[10px]"></i> Crédito aplicado:
+                                </span>
+                                <span>-{formatPrice(creditToApply)}</span>
+                              </div>
+                              <div className="flex justify-between items-center pt-1.5 border-t border-gray-100 font-black text-sm">
+                                <span className="text-gray-900 uppercase tracking-tight">Saldo a pagar:</span>
+                                <span className={total === 0 ? 'text-emerald-600' : 'text-red-600'}>
+                                  {formatPrice(total)}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                          <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                            <span className="flex items-center gap-1.5 font-medium">
+                              <i className="bi bi-gift text-gray-400 text-sm"></i> Créditos acumulados:
+                            </span>
+                            <span className="font-bold text-gray-700">$0.00</span>
                           </div>
                         </div>
-                      </>
+                      )
+                    ) : (
+                      <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                        <div className="bg-amber-50/70 rounded-xl p-3 border border-amber-100 flex items-center justify-between text-xs text-amber-800">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <i className="bi bi-lock-fill text-amber-600"></i> Inicia sesión en el Paso 1 para usar tus créditos acumulados.
+                          </span>
+                        </div>
+                      </div>
                     )}
-                    <div className="flex justify-between items-center pt-3 border-t border-gray-300 mt-2">
-                      <span className="text-base font-black text-gray-900 uppercase tracking-tight">Total a pagar</span>
-                      <span className="text-xl font-black text-red-600">{formatPrice(isFreeDeliveryActive ? Math.max(0, total - deliveryCost) : total)}</span>
-                    </div>
                   </div>
                 </div>
 

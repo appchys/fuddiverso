@@ -990,11 +990,29 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                       </div>
                     )}
 
+                    {order.creditUsed > 0 && (
+                      <div className="flex justify-between text-xs font-bold uppercase tracking-wide text-emerald-600">
+                        <span className="flex items-center gap-1">
+                          <i className="bi bi-gift-fill text-[11px]"></i> Crédito Aplicado
+                        </span>
+                        <span>-{formatPrice(order.creditUsed)}</span>
+                      </div>
+                    )}
+
                     <div className="pt-3 border-t border-dashed border-slate-100 flex justify-between items-center">
-                      <span className="text-xs font-black text-slate-900 uppercase tracking-widest">Total del Pedido</span>
-                      <span className="text-2xl font-black text-red-500 tracking-tight">
-                        {formatPrice(order.total)}
+                      <span className="text-xs font-black text-slate-900 uppercase tracking-widest">
+                        {order.creditUsed > 0 && order.total > 0 ? 'Saldo a Cobrar' : 'Total del Pedido'}
                       </span>
+                      <div className="text-right">
+                        <span className={`text-2xl font-black tracking-tight ${order.total === 0 && order.creditUsed > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {formatPrice(order.total)}
+                        </span>
+                        {order.total === 0 && order.creditUsed > 0 && (
+                          <span className="block text-[10px] font-bold text-emerald-600 uppercase">
+                            ¡Cubierto 100% con créditos! 🎉
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

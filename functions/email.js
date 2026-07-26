@@ -182,9 +182,10 @@ async function sendOrderCreatedEmail(order, orderId) {
     // Detalles de costo
     const subtotal = order.subtotal || 0;
     const total = order.total || 0;
+    const creditUsed = order.creditUsed || 0;
     let deliveryCost = order.delivery?.deliveryCost;
     if (deliveryCost === undefined) {
-      deliveryCost = Math.max(0, total - subtotal);
+      deliveryCost = Math.max(0, total + creditUsed - subtotal);
     }
 
     // Formatear fecha programada
@@ -312,9 +313,15 @@ async function sendOrderCreatedEmail(order, orderId) {
                     <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #334155;">$${deliveryCost.toFixed(2)}</td>
                   </tr>
                   ` : ''}
+                  ${creditUsed > 0 ? `
+                  <tr>
+                    <td style="padding: 4px 0; color: #059669; font-weight: 600;">🎁 Crédito Aplicado:</td>
+                    <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #059669;">-$${creditUsed.toFixed(2)}</td>
+                  </tr>
+                  ` : ''}
                   <tr style="border-top: 1px dashed #cbd5e1;">
-                    <td style="padding: 10px 0 0 0; font-size: 15px; font-weight: 900; color: #0f172a;">TOTAL:</td>
-                    <td style="padding: 10px 0 0 0; text-align: right; font-size: 20px; font-weight: 900; color: #2563eb;">$${total.toFixed(2)}</td>
+                    <td style="padding: 10px 0 0 0; font-size: 15px; font-weight: 900; color: #0f172a;">${creditUsed > 0 && total > 0 ? 'TOTAL A COBRAR:' : 'TOTAL:'}</td>
+                    <td style="padding: 10px 0 0 0; text-align: right; font-size: 20px; font-weight: 900; color: ${total === 0 && creditUsed > 0 ? '#059669' : '#2563eb'};">$${total.toFixed(2)}</td>
                   </tr>
                 </table>
 
@@ -745,9 +752,10 @@ async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, custom
   // Detalles de costo
   const subtotal = order.subtotal || 0;
   const total = order.total || 0;
+  const creditUsed = order.creditUsed || 0;
   let deliveryCost = order.delivery?.deliveryCost;
   if (deliveryCost === undefined) {
-    deliveryCost = Math.max(0, total - subtotal);
+    deliveryCost = Math.max(0, total + creditUsed - subtotal);
   }
 
   // Formatear fecha y hora de entrega
@@ -874,9 +882,15 @@ async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, custom
               <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${deliveryCost.toFixed(2)}</td>
             </tr>
             ` : ''}
+            ${creditUsed > 0 ? `
             <tr>
-              <td style="padding: 12px 0; font-size: 16px;"><strong>TOTAL A COBRAR:</strong></td>
-              <td style="padding: 12px 0; text-align: right; font-size: 18px; color: #2E7D32;"><strong>$${total.toFixed(2)}</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #059669;"><strong>🎁 Crédito Aplicado:</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; color: #059669;"><strong>-$${creditUsed.toFixed(2)}</strong></td>
+            </tr>
+            ` : ''}
+            <tr>
+              <td style="padding: 12px 0; font-size: 16px;"><strong>${creditUsed > 0 && total > 0 ? 'TOTAL A COBRAR:' : 'TOTAL:'}</strong></td>
+              <td style="padding: 12px 0; text-align: right; font-size: 18px; color: ${total === 0 && creditUsed > 0 ? '#059669' : '#2E7D32'};"><strong>$${total.toFixed(2)}</strong></td>
             </tr>
             <tr>
               <td style="padding: 8px 0; font-size: 12px; color: #666;"><strong>Método de Pago:</strong></td>
