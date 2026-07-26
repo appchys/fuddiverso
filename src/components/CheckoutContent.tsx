@@ -995,8 +995,8 @@ export function CheckoutContent({
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) return
         const fee = await calculateDeliveryFee({ lat, lng })
-        // Normalizar tarifa fuera de cobertura: si fee es 0, usar 1.50
-        const normalizedFee = fee === 0 ? 1.5 : fee
+        // Normalizar tarifa fuera de cobertura: si fee es 0, usar 5.00
+        const normalizedFee = fee === 0 ? 5 : fee
         const updated = { ...selectedLocation, tarifa: normalizedFee.toString() }
         setSelectedLocation(updated)
         setDeliveryData(prev => ({ ...prev, tarifa: normalizedFee.toString() }))
@@ -1224,8 +1224,8 @@ export function CheckoutContent({
         if (!isNaN(lat) && !isNaN(lng)) {
           const calculatedFee = await calculateDeliveryFee({ lat, lng })
 
-          // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 1.50
-          const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+          // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 5.00
+          const normalizedFee = calculatedFee === 0 ? 5 : calculatedFee
 
           const updatedLocation = { ...location, tarifa: normalizedFee.toString() }
           setSelectedLocation(updatedLocation)

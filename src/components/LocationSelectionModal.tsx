@@ -132,7 +132,7 @@ export default function LocationSelectionModal({
                     // Calcular tarifa inicial
                     if (businessId) {
                         const fee = await calculateDeliveryFee({ lat: latitude, lng: longitude })
-                        const normalizedFee = fee === 0 ? 1.5 : fee
+                        const normalizedFee = fee === 0 ? 5 : fee
                         tarifa = normalizedFee.toFixed(2)
                     }
 
@@ -184,7 +184,7 @@ export default function LocationSelectionModal({
         try {
             if (businessId) {
                 const fee = await calculateDeliveryFee({ lat, lng })
-                const normalizedFee = fee === 0 ? 1.5 : fee
+                const normalizedFee = fee === 0 ? 5 : fee
                 tarifa = normalizedFee.toFixed(2)
             }
         } finally {
