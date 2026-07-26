@@ -103,12 +103,7 @@ export function isStoreOpen(business: Business | null): boolean {
         }
     }
 
-    // Si manualStoreStatus es 'open' sin expiración estricta o expiró hoy pero el dueño lo dejó en 'open', dar prioridad a 'open'
-    if (business.manualStoreStatus === 'open' && !business.manualStatusExpiry) {
-        return true
-    }
-
-    // 2. Verificar horario automático si no hay control manual activo
+    // 2. Verificar horario automático (si el control manual expiró o no existe, se usa el horario)
     if (!business.schedule) return false
 
     const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -125,10 +120,6 @@ export function isStoreOpen(business: Business | null): boolean {
     const todaySchedule = todayKey ? business.schedule[todayKey] : null
 
     if (!todaySchedule || !todaySchedule.isOpen || !todaySchedule.open || !todaySchedule.close) {
-        // Si no hay horario de hoy o está cerrado, pero tiene manualStoreStatus === 'open', respetarlo como fallback
-        if (business.manualStoreStatus === 'open') {
-            return true
-        }
         return false
     }
 

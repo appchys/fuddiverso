@@ -924,27 +924,43 @@ export default function TodayOrdersPage() {
         fetchBusiness()
     }, [businessId])
 
-    // Auto-repair effect for missing manualStatusExpiry
+    // Auto-repair & cleanup effect for manual store status
     useEffect(() => {
         if (!business?.id || !business.manualStoreStatus) return
-        if (business.manualStatusExpiry) return
 
-        const repairExpiry = async () => {
-            console.log('🔧 [Auto-repair] Manual status detected without expiry for:', business.name)
-            const expiry = calculateManualStatusExpiry(business)
-            if (expiry) {
-                try {
-                    await updateBusiness(business.id, { manualStatusExpiry: expiry })
-                    console.log('✅ [Auto-repair] Expiry set to:', expiry.toLocaleString('es-EC'))
-                    setBusiness(prev => prev?.id === business.id ? { ...prev, manualStatusExpiry: expiry } : prev)
-                } catch (err) {
-                    console.error('❌ [Auto-repair] Failed to update expiry:', err)
+        const repairOrCleanup = async () => {
+            // Case 1: Manual status exists but has no expiry → calculate and set one
+            if (!business.manualStatusExpiry) {
+                console.log('🔧 [Auto-repair] Manual status detected without expiry for:', business.name)
+                const expiry = calculateManualStatusExpiry(business)
+                if (expiry) {
+                    try {
+                        await updateBusiness(business.id, { manualStatusExpiry: expiry })
+                        console.log('✅ [Auto-repair] Expiry set to:', expiry.toLocaleString('es-EC'))
+                        setBusiness(prev => prev?.id === business.id ? { ...prev, manualStatusExpiry: expiry } : prev)
+                    } catch (err) {
+                        console.error('❌ [Auto-repair] Failed to update expiry:', err)
+                    }
+                } else {
+                    console.warn('⚠️ [Auto-repair] Could not calculate expiry for:', business.name)
                 }
-            } else {
-                console.warn('⚠️ [Auto-repair] Could not calculate expiry for:', business.name)
+                return
+            }
+
+            // Case 2: Manual status has expired → clean up both fields
+            const expiry = toSafeDate(business.manualStatusExpiry)
+            if (expiry && new Date() >= expiry) {
+                console.log('🧹 [Cleanup] Manual status expired for:', business.name, '- clearing...')
+                try {
+                    await updateBusiness(business.id, { manualStoreStatus: null, manualStatusExpiry: null })
+                    console.log('✅ [Cleanup] Manual status cleared for:', business.name)
+                    setBusiness(prev => prev?.id === business.id ? { ...prev, manualStoreStatus: undefined, manualStatusExpiry: undefined } : prev)
+                } catch (err) {
+                    console.error('❌ [Cleanup] Failed to clear expired manual status:', err)
+                }
             }
         }
-        repairExpiry()
+        repairOrCleanup()
     }, [business?.id, business?.manualStoreStatus, !!business?.manualStatusExpiry])
 
     // Load visits count

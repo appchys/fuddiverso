@@ -60,7 +60,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
     const [dragActiveCover, setDragActiveCover] = useState(false)
     const [dragActivePickup, setDragActivePickup] = useState(false)
     const [uploadingPickupPhoto, setUploadingPickupPhoto] = useState(false)
-    const [activeSection, setActiveSection] = useState<'identity' | 'contact' | 'visual' | 'schedule' | 'delivery_pickup'>('identity')
+    const [activeSection, setActiveSection] = useState<'identity' | 'contact' | 'schedule' | 'delivery_pickup'>('identity')
 
     const { location: currentGeoLocation, loading: locating, getCurrentLocation } = useCurrentLocation()
 
@@ -267,81 +267,64 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
     const sectionNav = [
         { key: 'identity', label: 'Identidad', icon: 'bi-shop' },
         { key: 'contact', label: 'Contacto', icon: 'bi-telephone' },
-        { key: 'visual', label: 'Visual', icon: 'bi-image' },
         { key: 'schedule', label: 'Horario', icon: 'bi-clock' },
         { key: 'delivery_pickup', label: 'Entrega', icon: 'bi-box-seam' }
     ]
 
     return (
-        <div className="min-h-screen bg-[#F8F9FA] relative py-8 px-4 overflow-hidden">
-            {/* Círculos decorativos de fondo */}
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] aspect-square bg-red-100/30 rounded-full blur-[120px]"></div>
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] aspect-square bg-orange-100/30 rounded-full blur-[120px]"></div>
-
-            <div className="w-full max-w-3xl mx-auto relative z-10">
-                <div className="bg-white/80 backdrop-blur-2xl rounded-[3rem] shadow-[0_32px_80px_rgba(0,0,0,0.08)] border border-white/50 overflow-hidden">
-
-                    <div className="p-6 sm:p-10">
-                        <header className="text-center mb-8">
-                            <div className="inline-flex items-center justify-center w-16 h-16 bg-red-600 rounded-3xl shadow-xl shadow-red-200 mb-4 transform -rotate-6">
-                                <i className="bi bi-pencil-square text-white text-3xl"></i>
-                            </div>
-                            <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none mb-2">
-                                Editar Perfil
-                            </h1>
-                            <p className="text-gray-500 font-medium">{business.name}</p>
-                        </header>
-
-                        {/* Navegación de Secciones */}
-                        <div className="flex flex-wrap justify-center gap-2 mb-8">
+        <div className="w-full max-w-3xl mx-auto">
+            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 p-4 sm:p-6">
+                {/* Navegación de Secciones (Scrollable en móviles con etiquetas visibles) */}
+                <div className="flex items-center gap-1.5 sm:gap-2 mb-5 sm:mb-6 overflow-x-auto no-scrollbar py-1 px-1 -mx-1 sm:justify-center">
                             {sectionNav.map((section) => (
                                 <button
                                     key={section.key}
+                                    type="button"
                                     onClick={() => setActiveSection(section.key as any)}
-                                    className={`px-4 py-2 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all duration-300 flex items-center gap-2 ${activeSection === section.key
-                                        ? 'bg-red-600 text-white shadow-lg shadow-red-200'
-                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    className={`shrink-0 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl font-black text-[11px] sm:text-xs uppercase tracking-wider transition-all duration-300 flex items-center gap-1.5 sm:gap-2 ${activeSection === section.key
+                                        ? 'bg-red-600 text-white shadow-md shadow-red-200 scale-[1.02]'
+                                        : 'bg-gray-100/90 text-gray-500 hover:bg-gray-200'
                                         }`}
                                 >
-                                    <i className={`bi ${section.icon}`}></i>
-                                    <span className="hidden sm:inline">{section.label}</span>
+                                    <i className={`bi ${section.icon} text-xs sm:text-sm`}></i>
+                                    <span className="inline">{section.label}</span>
                                 </button>
                             ))}
                         </div>
 
-                        {/* Sección: Identidad */}
+                        {/* Sección: Identidad (Unificada con Visual) */}
                         {activeSection === 'identity' && (
-                            <div className="space-y-6 animate-fadeIn">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">1</span>
-                                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Identidad del Negocio</h3>
+                            <div className="space-y-4 sm:space-y-6 animate-fadeIn">
+                                <div className="flex items-center gap-2.5 sm:gap-3 mb-2 sm:mb-4">
+                                    <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">1</span>
+                                    <h3 className="font-black text-gray-900 uppercase tracking-wider text-xs sm:text-sm">Identidad e Imágenes del Negocio</h3>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                                     {/* Nombre */}
-                                    <div className="space-y-2">
+                                    <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Nombre Comercial</label>
                                         <input
                                             type="text"
                                             name="name"
                                             value={formData.name}
                                             onChange={handleChange}
-                                            className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300"
+                                            className="w-full px-4 py-3 sm:px-5 sm:py-4 bg-gray-50 border-2 border-transparent rounded-xl sm:rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-sm text-gray-900 placeholder:text-gray-300"
                                             placeholder="Pizzería Don Mario"
                                         />
                                     </div>
 
                                     {/* Username */}
-                                    <div className="space-y-2">
+                                    <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">ID Único (URL)</label>
                                         <div className="relative group">
-                                            <span className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 font-bold">@</span>
+                                            <span className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-gray-400 font-bold">@</span>
                                             <input
                                                 type="text"
                                                 name="username"
                                                 value={formData.username}
                                                 onChange={handleChange}
-                                                className="w-full pl-10 pr-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300"
+                                                className="w-full pl-9 pr-4 sm:pl-10 sm:pr-5 py-3 sm:py-4 bg-gray-50 border-2 border-transparent rounded-xl sm:rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-sm text-gray-900 placeholder:text-gray-300"
                                                 placeholder="username"
                                             />
                                         </div>
@@ -350,37 +333,37 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                 </div>
 
                                 {/* Tipo de Negocio */}
-                                <div className="space-y-4">
+                                <div className="space-y-2">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Tipo de Negocio</label>
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-2 gap-3 sm:gap-4">
                                         <button
                                             type="button"
                                             onClick={() => setFormData(prev => ({ ...prev, businessType: 'food_store', category: '' }))}
-                                            className={`p-4 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-2 ${formData.businessType === 'food_store'
+                                            className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-1.5 sm:gap-2 ${formData.businessType === 'food_store'
                                                 ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-50'
                                                 : 'border-gray-100 bg-gray-50/50 hover:border-gray-200'
                                                 }`}
                                         >
-                                            <i className={`bi bi-shop text-2xl ${formData.businessType === 'food_store' ? 'text-red-500' : 'text-gray-400'}`}></i>
-                                            <span className={`text-[10px] font-black uppercase tracking-widest ${formData.businessType === 'food_store' ? 'text-red-600' : 'text-gray-500'}`}>Comida Preparada</span>
+                                            <i className={`bi bi-shop text-xl sm:text-2xl ${formData.businessType === 'food_store' ? 'text-red-500' : 'text-gray-400'}`}></i>
+                                            <span className={`text-[10px] font-black uppercase tracking-wider text-center ${formData.businessType === 'food_store' ? 'text-red-600' : 'text-gray-500'}`}>Comida Preparada</span>
                                         </button>
 
                                         <button
                                             type="button"
                                             onClick={() => setFormData(prev => ({ ...prev, businessType: 'distributor', category: '' }))}
-                                            className={`p-4 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-2 ${formData.businessType === 'distributor'
+                                            className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-1.5 sm:gap-2 ${formData.businessType === 'distributor'
                                                 ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-50'
                                                 : 'border-gray-100 bg-gray-50/50 hover:border-gray-200'
                                                 }`}
                                         >
-                                            <i className={`bi bi-box-seam text-2xl ${formData.businessType === 'distributor' ? 'text-red-500' : 'text-gray-400'}`}></i>
-                                            <span className={`text-[10px] font-black uppercase tracking-widest ${formData.businessType === 'distributor' ? 'text-red-600' : 'text-gray-500'}`}>Proveedor</span>
+                                            <i className={`bi bi-box-seam text-xl sm:text-2xl ${formData.businessType === 'distributor' ? 'text-red-500' : 'text-gray-400'}`}></i>
+                                            <span className={`text-[10px] font-black uppercase tracking-wider text-center ${formData.businessType === 'distributor' ? 'text-red-600' : 'text-gray-500'}`}>Proveedor</span>
                                         </button>
                                     </div>
                                 </div>
 
                                 {/* Categoría Dinámica */}
-                                <div className="space-y-2">
+                                <div className="space-y-1.5">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">
                                         {formData.businessType === 'food_store' ? 'Especialidad Gastronómica' : 'Rubro de Suministros'}
                                     </label>
@@ -389,7 +372,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                             name="category"
                                             value={formData.category}
                                             onChange={handleChange}
-                                            className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 appearance-none"
+                                            className="w-full px-4 py-3 sm:px-5 sm:py-4 bg-gray-50 border-2 border-transparent rounded-xl sm:rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-sm text-gray-900 appearance-none"
                                         >
                                             <option value="">Selecciona una opción</option>
                                             {formData.businessType === 'food_store' ? (
@@ -413,78 +396,142 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                             )}
                                             <option value="Otro">✨ Otro</option>
                                         </select>
-                                        <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                        <div className="absolute right-4 sm:right-5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
                                             <i className="bi bi-chevron-down"></i>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Descripción */}
-                                <div className="space-y-2">
+                                <div className="space-y-1.5">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Eslogan o Resumen</label>
                                     <textarea
                                         name="description"
                                         value={formData.description}
                                         onChange={handleChange}
                                         rows={2}
-                                        className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 resize-none"
+                                        className="w-full px-4 py-3 sm:px-5 sm:py-4 bg-gray-50 border-2 border-transparent rounded-xl sm:rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-sm text-gray-900 placeholder:text-gray-300 resize-none"
                                         placeholder="Cuéntanos qué hace especial a tu negocio..."
                                     />
                                 </div>
 
-                                {/* Grupo de Cobertura - Oculto por ser proceso automático interno 
-                                 <div className="space-y-2">
-                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Grupo de Cobertura (Ciudad)</label>
-                                     <div className="relative">
-                                         <select
-                                             name="groupId"
-                                             value={formData.groupId}
-                                             onChange={handleChange}
-                                             className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 appearance-none"
-                                         >
-                                             <option value="">Sin Grupo (Global)</option>
-                                             {coverageGroups.map(group => (
-                                                 <option key={group.id} value={group.id}>
-                                                     {group.name}
-                                                 </option>
-                                             ))}
-                                         </select>
-                                         <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                             <i className="bi bi-chevron-down"></i>
-                                         </div>
-                                     </div>
-                                 </div>
-                                 */}
+                                {/* Imágenes: Logo y Portada */}
+                                <div className="pt-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1 block mb-3">Imágenes del Negocio</label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                                        {/* Logo */}
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-bold text-gray-500 ml-1">Logo</label>
+                                            <div
+                                                onDragEnter={handleDragLogo}
+                                                onDragOver={handleDragLogo}
+                                                onDragLeave={handleDragLogo}
+                                                onDrop={handleDropLogo}
+                                                className={`relative flex flex-col items-center justify-center p-4 rounded-xl sm:rounded-2xl border-2 border-dashed transition-all duration-300 aspect-[4/3] sm:aspect-square ${dragActiveLogo ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50'}`}
+                                            >
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={(e) => e.target.files?.[0] && handleLogoChange(e.target.files[0])}
+                                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                                />
+
+                                                {logoPreview ? (
+                                                    <div className="relative w-full h-full rounded-lg sm:rounded-xl overflow-hidden shadow-md">
+                                                        <img src={logoPreview} className="w-full h-full object-cover" alt="Logo Preview" />
+                                                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                                            <i className="bi bi-pencil-square text-white text-xl"></i>
+                                                        </div>
+                                                        {uploadingLogo && (
+                                                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                                                <div className="w-7 h-7 border-3 border-white/20 border-t-white rounded-full animate-spin"></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400 mb-1.5">
+                                                            <i className="bi bi-image text-lg"></i>
+                                                        </div>
+                                                        <p className="text-gray-900 font-black text-xs">Subir Logo</p>
+                                                        <p className="text-gray-400 text-[8px] font-bold uppercase tracking-wider mt-0.5 text-center">Cuadrado recomendado</p>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Portada */}
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-bold text-gray-500 ml-1">Portada</label>
+                                            <div
+                                                onDragEnter={handleDragCover}
+                                                onDragOver={handleDragCover}
+                                                onDragLeave={handleDragCover}
+                                                onDrop={handleDropCover}
+                                                className={`relative flex flex-col items-center justify-center p-4 rounded-xl sm:rounded-2xl border-2 border-dashed transition-all duration-300 aspect-[4/3] sm:aspect-square ${dragActiveCover ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50'}`}
+                                            >
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={(e) => e.target.files?.[0] && handleCoverChange(e.target.files[0])}
+                                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                                />
+
+                                                {coverPreview ? (
+                                                    <div className="relative w-full h-full rounded-lg sm:rounded-xl overflow-hidden shadow-md">
+                                                        <img src={coverPreview} className="w-full h-full object-cover" alt="Cover Preview" />
+                                                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                                            <i className="bi bi-pencil-square text-white text-xl"></i>
+                                                        </div>
+                                                        {uploadingCover && (
+                                                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                                                <div className="w-7 h-7 border-3 border-white/20 border-t-white rounded-full animate-spin"></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400 mb-1.5">
+                                                            <i className="bi bi-aspect-ratio text-lg"></i>
+                                                        </div>
+                                                        <p className="text-gray-900 font-black text-xs">Subir Portada</p>
+                                                        <p className="text-gray-400 text-[8px] font-bold uppercase tracking-wider mt-0.5 text-center">Horizontal recomendado</p>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 {/* Estado del negocio */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
+                                <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-2">
+                                    <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Estado</label>
                                         <button
                                             type="button"
                                             onClick={() => setFormData(prev => ({ ...prev, isActive: !prev.isActive }))}
-                                            className={`w-full p-4 rounded-2xl border-2 transition-all duration-300 flex items-center justify-center gap-2 ${formData.isActive
+                                            className={`w-full p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all duration-300 flex items-center justify-center gap-2 ${formData.isActive
                                                 ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
                                                 : 'border-gray-200 bg-gray-50 text-gray-500'
                                                 }`}
                                         >
                                             <i className={`bi ${formData.isActive ? 'bi-check-circle-fill' : 'bi-x-circle'}`}></i>
-                                            <span className="font-bold text-sm">{formData.isActive ? 'Activo' : 'Inactivo'}</span>
+                                            <span className="font-bold text-xs sm:text-sm">{formData.isActive ? 'Activo' : 'Inactivo'}</span>
                                         </button>
                                     </div>
 
-                                    <div className="space-y-2">
+                                    <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Visibilidad</label>
                                         <button
                                             type="button"
                                             onClick={() => setFormData(prev => ({ ...prev, isHidden: !prev.isHidden }))}
-                                            className={`w-full p-4 rounded-2xl border-2 transition-all duration-300 flex items-center justify-center gap-2 ${!formData.isHidden
+                                            className={`w-full p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all duration-300 flex flex-row items-center justify-center gap-2 ${!formData.isHidden
                                                 ? 'border-blue-500 bg-blue-50 text-blue-700'
                                                 : 'border-gray-200 bg-gray-50 text-gray-500'
                                                 }`}
                                         >
                                             <i className={`bi ${!formData.isHidden ? 'bi-eye-fill' : 'bi-eye-slash'}`}></i>
-                                            <span className="font-bold text-sm">{!formData.isHidden ? 'Visible' : 'Oculto'}</span>
+                                            <span className="font-bold text-xs sm:text-sm">{!formData.isHidden ? 'Visible' : 'Oculto'}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -493,35 +540,35 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
 
                         {/* Sección: Contacto */}
                         {activeSection === 'contact' && (
-                            <div className="space-y-6 animate-fadeIn">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">2</span>
-                                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Contacto</h3>
+                            <div className="space-y-4 sm:space-y-6 animate-fadeIn">
+                                <div className="flex items-center gap-2.5 sm:gap-3 mb-2 sm:mb-4">
+                                    <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">2</span>
+                                    <h3 className="font-black text-gray-900 uppercase tracking-wider text-xs sm:text-sm">Contacto</h3>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                                     {/* Teléfono */}
-                                    <div className="space-y-2">
+                                    <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">WhatsApp de Pedidos</label>
                                         <input
                                             type="tel"
                                             name="phone"
                                             value={formData.phone}
                                             onChange={handleChange}
-                                            className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300"
+                                            className="w-full px-4 py-3 sm:px-5 sm:py-4 bg-gray-50 border-2 border-transparent rounded-xl sm:rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-sm text-gray-900 placeholder:text-gray-300"
                                             placeholder="09XXXXXXXX"
                                         />
                                     </div>
 
                                     {/* Email */}
-                                    <div className="space-y-2">
+                                    <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Email</label>
                                         <input
                                             type="email"
                                             name="email"
                                             value={formData.email}
                                             onChange={handleChange}
-                                            className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300"
+                                            className="w-full px-4 py-3 sm:px-5 sm:py-4 bg-gray-50 border-2 border-transparent rounded-xl sm:rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-sm text-gray-900 placeholder:text-gray-300"
                                             placeholder="correo@ejemplo.com"
                                         />
                                     </div>
@@ -529,171 +576,79 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                             </div>
                         )}
 
-                        {/* Sección: Visual */}
-                        {activeSection === 'visual' && (
-                            <div className="space-y-6 animate-fadeIn">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">3</span>
-                                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Identidad Visual</h3>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                    {/* Logo */}
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Logo del negocio</label>
-                                        <div
-                                            onDragEnter={handleDragLogo}
-                                            onDragOver={handleDragLogo}
-                                            onDragLeave={handleDragLogo}
-                                            onDrop={handleDropLogo}
-                                            className={`relative flex flex-col items-center justify-center p-6 rounded-[2.5rem] border-2 border-dashed transition-all duration-300 aspect-square ${dragActiveLogo ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50'}`}
-                                        >
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={(e) => e.target.files?.[0] && handleLogoChange(e.target.files[0])}
-                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                            />
-
-                                            {logoPreview ? (
-                                                <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-xl">
-                                                    <img src={logoPreview} className="w-full h-full object-cover" alt="Logo Preview" />
-                                                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                                        <i className="bi bi-pencil-square text-white text-2xl"></i>
-                                                    </div>
-                                                    {uploadingLogo && (
-                                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                                            <div className="w-8 h-8 border-3 border-white/20 border-t-white rounded-full animate-spin"></div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400 mb-2">
-                                                        <i className="bi bi-image text-xl"></i>
-                                                    </div>
-                                                    <p className="text-gray-900 font-black text-xs">Logo</p>
-                                                    <p className="text-gray-400 text-[8px] font-bold uppercase tracking-widest mt-1 text-center">Cuadrado recomendado</p>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Portada */}
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Imagen de Portada</label>
-                                        <div
-                                            onDragEnter={handleDragCover}
-                                            onDragOver={handleDragCover}
-                                            onDragLeave={handleDragCover}
-                                            onDrop={handleDropCover}
-                                            className={`relative flex flex-col items-center justify-center p-6 rounded-[2.5rem] border-2 border-dashed transition-all duration-300 aspect-square ${dragActiveCover ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50'}`}
-                                        >
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={(e) => e.target.files?.[0] && handleCoverChange(e.target.files[0])}
-                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                            />
-
-                                            {coverPreview ? (
-                                                <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-xl">
-                                                    <img src={coverPreview} className="w-full h-full object-cover" alt="Cover Preview" />
-                                                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                                        <i className="bi bi-pencil-square text-white text-2xl"></i>
-                                                    </div>
-                                                    {uploadingCover && (
-                                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                                            <div className="w-8 h-8 border-3 border-white/20 border-t-white rounded-full animate-spin"></div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-gray-400 mb-2">
-                                                        <i className="bi bi-aspect-ratio text-xl"></i>
-                                                    </div>
-                                                    <p className="text-gray-900 font-black text-xs">Portada</p>
-                                                    <p className="text-gray-400 text-[8px] font-bold uppercase tracking-widest mt-1 text-center">Horizontal recomendado</p>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         {/* Sección: Horario */}
                         {activeSection === 'schedule' && (
-                            <div className="space-y-6 animate-fadeIn">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">4</span>
-                                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Horario de Atención</h3>
+                            <div className="space-y-4 sm:space-y-6 animate-fadeIn">
+                                <div className="flex items-center gap-2.5 sm:gap-3 mb-2 sm:mb-4">
+                                    <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">3</span>
+                                    <h3 className="font-black text-gray-900 uppercase tracking-wider text-xs sm:text-sm">Horario de Atención</h3>
                                 </div>
 
-                                <div className="p-6 bg-red-50/50 border-2 border-red-100 rounded-3xl mb-8">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-100">
-                                                <i className="bi bi-clock-history"></i>
+                                {/* Tarjeta de Tiempo de Entrega Optimizada */}
+                                <div className="p-3.5 sm:p-5 bg-gradient-to-r from-red-50/70 to-orange-50/40 border border-red-100/80 rounded-2xl sm:rounded-3xl mb-4 sm:mb-6 shadow-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                                            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-red-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-red-200 shrink-0">
+                                                <i className="bi bi-clock-history text-base sm:text-lg"></i>
                                             </div>
-                                            <div>
-                                                <h4 className="text-sm font-black text-gray-900 uppercase tracking-tight">Tiempo de Entrega</h4>
-                                                <p className="text-[10px] text-gray-500 font-bold">Tiempo estimado en minutos</p>
+                                            <div className="min-w-0">
+                                                <h4 className="text-xs sm:text-sm font-black text-gray-900 uppercase tracking-tight truncate">Tiempo de Entrega</h4>
+                                                <p className="text-[10px] text-gray-500 font-medium truncate">Estimado en minutos</p>
                                             </div>
                                         </div>
-                                        <div className="relative group min-w-[120px]">
+                                        <div className="relative w-28 sm:w-32 shrink-0">
                                             <input
                                                 type="number"
                                                 name="deliveryTime"
                                                 value={formData.deliveryTime}
                                                 onChange={handleChange}
                                                 min="1"
-                                                className="w-full px-5 py-3 bg-white border-2 border-transparent rounded-2xl focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-black text-gray-900 placeholder:text-gray-300"
+                                                className="w-full pl-3 pr-9 py-2 sm:py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all font-black text-gray-900 text-center text-sm shadow-sm"
                                                 placeholder="30"
                                             />
-                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-black text-[10px] uppercase">min</span>
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-black text-[9px] uppercase pointer-events-none">MIN</span>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="space-y-3">
+                                {/* Días de la Semana */}
+                                <div className="space-y-2 sm:space-y-3">
                                     {days.map((day) => {
                                         const daySchedule = schedule[day.key] || { open: '09:00', close: '18:00', isOpen: true }
                                         return (
-                                            <div key={day.key} className={`p-4 rounded-2xl transition-all duration-300 ${daySchedule.isOpen ? 'bg-emerald-50/50 border border-emerald-100' : 'bg-gray-50 border border-gray-100'}`}>
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-3">
+                                            <div key={day.key} className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-200 ${daySchedule.isOpen ? 'bg-emerald-50/40 border border-emerald-100/80' : 'bg-gray-50/60 border border-gray-100'}`}>
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+                                                    <div className="flex items-center gap-2.5">
                                                         <button
                                                             type="button"
                                                             onClick={() => handleScheduleChange(day.key, 'isOpen', !daySchedule.isOpen)}
-                                                            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${daySchedule.isOpen ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'}`}
+                                                            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all ${daySchedule.isOpen ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-200' : 'bg-gray-200 text-gray-400'}`}
                                                         >
-                                                            <i className={`bi ${daySchedule.isOpen ? 'bi-check-lg' : 'bi-x-lg'}`}></i>
+                                                            <i className={`bi ${daySchedule.isOpen ? 'bi-check-lg' : 'bi-x-lg'} text-base`}></i>
                                                         </button>
-                                                        <span className={`font-bold ${daySchedule.isOpen ? 'text-gray-900' : 'text-gray-400'}`}>{day.label}</span>
+                                                        <span className={`font-bold text-xs sm:text-sm ${daySchedule.isOpen ? 'text-gray-900' : 'text-gray-400'}`}>{day.label}</span>
                                                     </div>
 
                                                     {daySchedule.isOpen && (
-                                                        <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-1.5 sm:gap-2 ml-11 sm:ml-0">
                                                             <input
                                                                 type="time"
                                                                 value={daySchedule.open}
                                                                 onChange={(e) => handleScheduleChange(day.key, 'open', e.target.value)}
-                                                                className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-700"
+                                                                className="px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-200 rounded-xl text-xs sm:text-sm font-bold text-gray-800 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none"
                                                             />
-                                                            <span className="text-gray-400 text-sm">a</span>
+                                                            <span className="text-gray-400 text-xs font-bold px-0.5">a</span>
                                                             <input
                                                                 type="time"
                                                                 value={daySchedule.close}
                                                                 onChange={(e) => handleScheduleChange(day.key, 'close', e.target.value)}
-                                                                className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-700"
+                                                                className="px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-200 rounded-xl text-xs sm:text-sm font-bold text-gray-800 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none"
                                                             />
                                                         </div>
                                                     )}
 
                                                     {!daySchedule.isOpen && (
-                                                        <span className="text-gray-400 text-sm font-bold uppercase tracking-widest">Cerrado</span>
+                                                        <span className="text-gray-400 text-xs font-bold uppercase tracking-wider ml-11 sm:ml-0">Cerrado</span>
                                                     )}
                                                 </div>
                                             </div>
@@ -705,27 +660,27 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
 
                         {/* Section: Entrega (Retiro y Repartidor) */}
                         {activeSection === 'delivery_pickup' && (
-                            <div className="space-y-12 animate-fadeIn">
+                            <div className="space-y-8 sm:space-y-12 animate-fadeIn">
                                 {/* Retiro en tienda */}
-                                <div className="space-y-8">
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">5</span>
-                                        <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Retiros en Tienda</h3>
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2.5 sm:gap-3 mb-2 sm:mb-4">
+                                        <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">4</span>
+                                        <h3 className="font-black text-gray-900 uppercase tracking-wider text-xs sm:text-sm">Retiros en Tienda</h3>
                                     </div>
 
                                     {/* Selector de Opción de Retiro */}
-                                    <div className="bg-white rounded-3xl p-6 border-2 border-dashed border-gray-100 space-y-4 hover:border-red-100 transition-colors">
-                                        <div className="flex items-center gap-4">
-                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all ${formData.pickupSettings.enabled ? 'bg-red-600 text-white shadow-lg shadow-red-200' : 'bg-gray-100 text-gray-400'}`}>
+                                    <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 border-2 border-dashed border-gray-100 space-y-3 sm:space-y-4 hover:border-red-100 transition-colors">
+                                        <div className="flex items-center gap-3 sm:gap-4">
+                                            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center text-lg sm:text-xl transition-all shrink-0 ${formData.pickupSettings.enabled ? 'bg-red-600 text-white shadow-md shadow-red-200' : 'bg-gray-100 text-gray-400'}`}>
                                                 <i className="bi bi-shop-window"></i>
                                             </div>
                                             <div>
-                                                <h4 className="font-black text-gray-900 uppercase tracking-widest text-[10px]">Estatus del Servicio de Retiro</h4>
-                                                <p className="text-[11px] font-semibold text-gray-500 leading-snug">Configura cómo tus clientes pueden retirar sus pedidos en tienda</p>
+                                                <h4 className="font-black text-gray-900 uppercase tracking-wider text-[10px] sm:text-xs">Estatus del Servicio de Retiro</h4>
+                                                <p className="text-[10px] sm:text-[11px] font-semibold text-gray-500 leading-snug">Configura cómo tus clientes pueden retirar sus pedidos en tienda</p>
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pt-1 sm:pt-2">
                                             {/* Opción: Desactivado */}
                                             <button
                                                 type="button"
@@ -733,14 +688,14 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                     handlePickupChange('enabled', false)
                                                     handlePickupChange('restrictToPrevious', false)
                                                 }}
-                                                className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                                                className={`p-3 rounded-xl sm:rounded-2xl border-2 text-left transition-all ${
                                                     !formData.pickupSettings.enabled
                                                         ? 'border-red-600 bg-red-50/50 text-red-900 shadow-sm'
                                                         : 'border-gray-100 bg-gray-50/30 text-gray-500 hover:border-gray-200'
                                                 }`}
                                             >
-                                                <div className="font-black text-[10px] uppercase tracking-wider mb-1">Desactivado</div>
-                                                <div className="text-[11px] font-semibold opacity-85 leading-snug">Los clientes no podrán seleccionar retiro.</div>
+                                                <div className="font-black text-[10px] uppercase tracking-wider mb-0.5">Desactivado</div>
+                                                <div className="text-[10px] sm:text-[11px] font-semibold opacity-85 leading-snug">Sin opción de retiro en local.</div>
                                             </button>
 
                                             {/* Opción: Activado (Todos) */}
@@ -750,14 +705,14 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                     handlePickupChange('enabled', true)
                                                     handlePickupChange('restrictToPrevious', false)
                                                 }}
-                                                className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                                                className={`p-3 rounded-xl sm:rounded-2xl border-2 text-left transition-all ${
                                                     formData.pickupSettings.enabled && !formData.pickupSettings.restrictToPrevious
                                                         ? 'border-red-600 bg-red-50/50 text-red-900 shadow-sm'
                                                         : 'border-gray-100 bg-gray-50/30 text-gray-500 hover:border-gray-200'
                                                 }`}
                                             >
-                                                <div className="font-black text-[10px] uppercase tracking-wider mb-1">Activado (Todos)</div>
-                                                <div className="text-[11px] font-semibold opacity-85 leading-snug">Cualquier cliente podrá retirar en tienda.</div>
+                                                <div className="font-black text-[10px] uppercase tracking-wider mb-0.5">Activado (Todos)</div>
+                                                <div className="text-[10px] sm:text-[11px] font-semibold opacity-85 leading-snug">Cualquier cliente puede retirar.</div>
                                             </button>
 
                                             {/* Opción: Solo clientes con retiros previos */}
@@ -767,46 +722,46 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                     handlePickupChange('enabled', true)
                                                     handlePickupChange('restrictToPrevious', true)
                                                 }}
-                                                className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                                                className={`p-3 rounded-xl sm:rounded-2xl border-2 text-left transition-all ${
                                                     formData.pickupSettings.enabled && formData.pickupSettings.restrictToPrevious
                                                         ? 'border-red-600 bg-red-50/50 text-red-900 shadow-sm'
                                                         : 'border-gray-100 bg-gray-50/30 text-gray-500 hover:border-gray-200'
                                                 }`}
                                             >
-                                                <div className="font-black text-[10px] uppercase tracking-wider mb-1">Solo Históricos</div>
-                                                <div className="text-[11px] font-semibold opacity-85 leading-snug">Solo para clientes que ya hayan retirado antes.</div>
+                                                <div className="font-black text-[10px] uppercase tracking-wider mb-0.5">Solo Históricos</div>
+                                                <div className="text-[10px] sm:text-[11px] font-semibold opacity-85 leading-snug">Solo para clientes anteriores.</div>
                                             </button>
                                         </div>
                                     </div>
 
                                     {formData.pickupSettings.enabled && (
-                                        <div className="space-y-8 animate-fadeIn">
+                                        <div className="space-y-6 animate-fadeIn">
                                             {/* Referencias del Local */}
-                                            <div className="space-y-2">
+                                            <div className="space-y-1.5">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Instrucciones de Retiro / Referencias</label>
                                                 <textarea
                                                     value={formData.pickupSettings.references}
                                                     onChange={(e) => handlePickupChange('references', e.target.value)}
-                                                    className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 min-h-[100px]"
+                                                    className="w-full px-4 py-3 sm:px-5 sm:py-4 bg-gray-50 border-2 border-transparent rounded-xl sm:rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-sm text-gray-900 placeholder:text-gray-300 min-h-[90px]"
                                                     placeholder="Ej: Retirar por la ventanilla lateral frente al parque central..."
                                                 />
                                             </div>
 
                                             {/* Mapa de Ubicación */}
-                                            <div className="space-y-4">
+                                            <div className="space-y-3">
                                                 <div className="flex items-center justify-between px-1">
                                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Ubicación en el Mapa</label>
                                                     <button
                                                         type="button"
                                                         onClick={() => getCurrentLocation()}
                                                         disabled={locating}
-                                                        className="flex items-center gap-2 text-[10px] font-black text-red-600 uppercase tracking-widest hover:text-red-700 transition-colors"
+                                                        className="flex items-center gap-1.5 text-[10px] font-black text-red-600 uppercase tracking-wider hover:text-red-700 transition-colors"
                                                     >
                                                         <i className={`bi ${locating ? 'animate-spin bi-arrow-repeat' : 'bi-geo-alt-fill'}`}></i>
-                                                        {locating ? 'Obteniendo...' : 'Usar mi ubicación actual'}
+                                                        {locating ? 'Obteniendo...' : 'Usar mi ubicación'}
                                                     </button>
                                                 </div>
-                                                <div className="rounded-3xl overflow-hidden border-2 border-gray-100 shadow-inner h-[250px] relative">
+                                                <div className="rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-gray-100 shadow-inner h-[200px] sm:h-[250px] relative">
                                                     {(() => {
                                                         const coords = formData.pickupSettings.latlong.split(',').map(c => parseFloat(c.trim()));
                                                         const lat = !isNaN(coords[0]) ? coords[0] : -0.1807;
@@ -822,13 +777,13 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                         );
                                                     })()}
                                                 </div>
-                                                <p className="text-[9px] font-bold text-gray-400 text-center uppercase tracking-widest">Puedes mover el marcador para ajustar la ubicación exacta</p>
+                                                <p className="text-[9px] font-bold text-gray-400 text-center uppercase tracking-wider">Puedes mover el marcador para ajustar la ubicación exacta</p>
                                             </div>
 
                                             {/* Foto del Local */}
-                                            <div className="space-y-4">
+                                            <div className="space-y-3">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Foto para Identificar el Local (Opcional)</label>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                                                     <div
                                                         onDragOver={(e) => { e.preventDefault(); setDragActivePickup(true); }}
                                                         onDragLeave={() => setDragActivePickup(false)}
@@ -837,22 +792,22 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                             setDragActivePickup(false);
                                                             if (e.dataTransfer.files?.[0]) handlePickupPhotoChange(e.dataTransfer.files[0]);
                                                         }}
-                                                        className={`aspect-video rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden group ${dragActivePickup ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-red-200'}`}
+                                                        className={`aspect-video rounded-2xl sm:rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-2 cursor-pointer overflow-hidden group ${dragActivePickup ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-red-200'}`}
                                                         onClick={() => document.getElementById('pickup-photo-input')?.click()}
                                                     >
                                                         {formData.pickupSettings.storePhotoUrl ? (
                                                             <div className="relative w-full h-full">
                                                                 <img src={formData.pickupSettings.storePhotoUrl} alt="Store" className="w-full h-full object-cover" />
                                                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                                                    <i className="bi bi-camera text-white text-2xl"></i>
+                                                                    <i className="bi bi-camera text-white text-xl"></i>
                                                                 </div>
                                                             </div>
                                                         ) : uploadingPickupPhoto ? (
-                                                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+                                                            <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-red-500"></div>
                                                         ) : (
                                                             <>
-                                                                <i className="bi bi-camera text-2xl text-gray-300"></i>
-                                                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subir Foto</span>
+                                                                <i className="bi bi-camera text-xl text-gray-300"></i>
+                                                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Subir Foto</span>
                                                             </>
                                                         )}
                                                         <input
@@ -863,7 +818,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                             onChange={(e) => e.target.files?.[0] && handlePickupPhotoChange(e.target.files[0])}
                                                         />
                                                     </div>
-                                                    <div className="flex flex-col justify-center gap-2">
+                                                    <div className="flex flex-col justify-center gap-1.5">
                                                         <p className="text-xs font-bold text-gray-500 leading-relaxed italic">
                                                             "Una foto nítida de la fachada de tu local ayuda a los clientes a encontrarte más rápido."
                                                         </p>
@@ -871,7 +826,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handlePickupChange('storePhotoUrl', '')}
-                                                                className="text-[10px] font-black text-red-600 uppercase tracking-widest text-left mt-2 hover:text-red-700 transition-colors"
+                                                                className="text-[10px] font-black text-red-600 uppercase tracking-wider text-left mt-1 hover:text-red-700 transition-colors"
                                                             >
                                                                 Eliminar Foto
                                                             </button>
@@ -884,7 +839,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                 </div>
 
                                 {/* Divisor */}
-                                <div className="border-t border-dashed border-gray-200 pt-12">
+                                <div className="border-t border-dashed border-gray-200 pt-8 sm:pt-12">
                                     <DeliveryConfigSection
                                         businessId={business.id}
                                         defaultDeliveryId={formData.defaultDeliveryId}
@@ -894,23 +849,23 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                             </div>
                         )}
 
-                        <div className="pt-8 flex flex-col sm:flex-row items-center gap-4">
+                        <div className="pt-6 sm:pt-8 flex flex-col sm:flex-row items-center gap-3 sm:gap-4">
                             <button
                                 type="button"
                                 onClick={handleSubmit}
                                 disabled={saving || uploadingLogo || uploadingCover}
-                                className="flex-1 w-full bg-red-600 hover:bg-black text-white font-black py-5 px-8 rounded-[2rem] shadow-2xl shadow-red-200 transition-all duration-500 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group overflow-hidden relative"
+                                className="flex-1 w-full bg-red-600 hover:bg-black text-white font-black py-4 sm:py-5 px-6 sm:px-8 rounded-xl sm:rounded-[2rem] shadow-xl shadow-red-200 transition-all duration-300 transform active:scale-[0.98] flex items-center justify-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed group overflow-hidden relative"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
                                 {saving || uploadingLogo || uploadingCover ? (
                                     <>
-                                        <div className="w-5 h-5 border-3 border-white/20 border-t-white rounded-full animate-spin"></div>
-                                        <span className="uppercase tracking-widest text-xs">Guardando...</span>
+                                        <div className="w-4 h-4 sm:w-5 sm:h-5 border-3 border-white/20 border-t-white rounded-full animate-spin"></div>
+                                        <span className="uppercase tracking-wider text-xs">Guardando...</span>
                                     </>
                                 ) : (
                                     <>
-                                        <i className="bi bi-check2-circle text-xl"></i>
-                                        <span className="uppercase tracking-widest text-xs">Guardar Cambios</span>
+                                        <i className="bi bi-check2-circle text-lg sm:text-xl"></i>
+                                        <span className="uppercase tracking-wider text-xs">Guardar Cambios</span>
                                     </>
                                 )}
                             </button>
@@ -918,14 +873,12 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                             <button
                                 type="button"
                                 onClick={onCancel}
-                                className="px-8 py-5 text-gray-400 hover:text-gray-900 font-black uppercase tracking-widest text-[10px] transition-colors"
+                                className="w-full sm:w-auto px-6 py-3 text-gray-400 hover:text-gray-900 font-black uppercase tracking-wider text-[10px] sm:text-[11px] transition-colors text-center"
                             >
                                 Cancelar
                             </button>
                         </div>
                     </div>
-                </div>
-            </div>
 
             <style jsx>{`
         @keyframes fadeIn {
