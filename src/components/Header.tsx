@@ -173,6 +173,66 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const router = useRouter()
   const pathname = usePathname() ?? ''
 
+  // Lógica para ocultar el header tras 2s y mostrarlo al scrollear hacia arriba en [username]
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true)
+  const lastScrollY = useRef(0)
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  const reservedRoutes = [
+    'checkout', 'profile', 'my-orders', 'my-locations',
+    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business', 'tiendas', 'pedidos', 'tma'
+  ]
+  const pathSegments = pathname.split('/').filter(Boolean)
+  const isStorePage = pathSegments.length === 1 && !reservedRoutes.includes(pathSegments[0])
+
+  useEffect(() => {
+    if (!isStorePage) {
+      setIsHeaderVisible(true)
+      return
+    }
+
+    const startHideTimer = () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = setTimeout(() => {
+        setIsHeaderVisible(false)
+      }, 2000)
+    }
+
+    // Inicialmente visible por 2 segundos
+    setIsHeaderVisible(true)
+    startHideTimer()
+
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY
+
+      if (currentScrollY <= 10) {
+        setIsHeaderVisible(true)
+        startHideTimer()
+        lastScrollY.current = currentScrollY
+        return
+      }
+
+      if (currentScrollY < lastScrollY.current) {
+        // Scrolleando hacia arriba -> mostrar header y reiniciar temporizador de 2s
+        setIsHeaderVisible(true)
+        startHideTimer()
+      } else if (currentScrollY > lastScrollY.current + 5) {
+        // Scrolleando hacia abajo -> ocultar header
+        setIsHeaderVisible(false)
+        if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+      }
+
+      lastScrollY.current = currentScrollY
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    }
+  }, [isStorePage, pathname])
+
   // Escuchar notificaciones del cliente en tiempo real
   useEffect(() => {
     if (user?.id) {
@@ -287,7 +347,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
 
   return (
     <>
-      <header className="bg-white border-b fixed top-0 left-0 right-0 z-40">
+      <header className={`bg-white/95 backdrop-blur-md shadow-sm border-b fixed top-0 left-0 right-0 z-40 transition-transform duration-300 ${isStorePage && !isHeaderVisible ? '-translate-y-full' : 'translate-y-0'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}

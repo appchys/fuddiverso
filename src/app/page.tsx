@@ -662,9 +662,12 @@ function HomePageContent() {
   const loadHomeProducts = async (category: string = 'all') => {
     try {
       setLoadingProducts(true)
-      // Cargar una muestra más amplia para ordenar en memoria
-      const selected = await getGlobalProducts(category, 120, showAllRestaurants ? 'ALL' : (groupId || undefined))
-      
+      // Cargar productos y órdenes recientes en PARALELO para máxima velocidad
+      const [selected, recentOrders] = await Promise.all([
+        getGlobalProducts(category, 120, showAllRestaurants ? 'ALL' : (groupId || undefined)),
+        getRecentOrders(100)
+      ])
+
       // 1. Lo más nuevo (ordenar por createdAt desc)
       const sortedByNew = [...selected].sort((a, b) => {
         const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
@@ -673,8 +676,18 @@ function HomePageContent() {
       })
       setNewestProducts(sortedByNew)
 
+      // Actualizar categorías del menú con los productos obtenidos (evita consulta duplicada)
+      if (selected.length > 0) {
+        setCategories(prev => {
+          const currentSet = new Set(prev)
+          selected.forEach(p => {
+            if (p.category) currentSet.add(p.category)
+          })
+          return Array.from(currentSet).sort()
+        })
+      }
+
       // 2. Los más vendidos (obtener órdenes y calcular en memoria)
-      const recentOrders = await getRecentOrders(150)
       const salesMap = new Map<string, number>()
       
       recentOrders.forEach(order => {
@@ -737,23 +750,6 @@ function HomePageContent() {
       })
       const initialCategories = Array.from(uniqueCategories).sort()
       setCategories(['all', ...initialCategories])
-
-      // Cargar categorías de productos en background
-      const businessIds = visibleBusinesses.map(b => b.id)
-      if (businessIds.length > 0) {
-        getGlobalProducts('all', 100, showAllRestaurants ? 'ALL' : (groupId || undefined))
-          .then(products => {
-            const extraCategories = new Set<string>(uniqueCategories)
-            products.forEach(p => {
-              if (p.category) extraCategories.add(p.category)
-            })
-            const shuffled = Array.from(extraCategories).sort()
-            setCategories(['all', ...shuffled])
-          })
-          .catch(error => {
-            console.error('Error loading product categories:', error)
-          })
-      }
     } finally {
       setLoading(false)
     }

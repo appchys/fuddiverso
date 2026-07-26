@@ -451,6 +451,48 @@ export async function getBusinessByOwner(ownerId: string): Promise<Business | nu
 let cachedBusinesses: Business[] | null = null
 let cachedBusinessesTime = 0
 
+// In-Memory Cache Maps para velocidad instantánea
+const businessByUsernameCache = new Map<string, { business: Business; timestamp: number }>()
+const businessByIdCache = new Map<string, { business: Business; timestamp: number }>()
+const productsByBusinessCache = new Map<string, { products: Product[]; timestamp: number }>()
+
+const CACHE_TTL = 3 * 60 * 1000 // 3 minutos de expiración de caché
+
+export function cacheBusiness(business: Business) {
+  if (!business) return
+  const item = { business, timestamp: Date.now() }
+  if (business.username) businessByUsernameCache.set(business.username, item)
+  if (business.id) businessByIdCache.set(business.id, item)
+}
+
+export function getCachedBusinessByUsername(username: string): Business | null {
+  const cached = businessByUsernameCache.get(username)
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+    return cached.business
+  }
+  if (cachedBusinesses) {
+    const found = cachedBusinesses.find(b => b.username === username)
+    if (found) {
+      cacheBusiness(found)
+      return found
+    }
+  }
+  return null
+}
+
+export function cacheProductsByBusiness(businessId: string, products: Product[]) {
+  if (!businessId) return
+  productsByBusinessCache.set(businessId, { products, timestamp: Date.now() })
+}
+
+export function getCachedProductsByBusiness(businessId: string): Product[] | null {
+  const cached = productsByBusinessCache.get(businessId)
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+    return cached.products
+  }
+  return null
+}
+
 export async function getAllBusinesses(): Promise<Business[]> {
   const now = Date.now()
   if (cachedBusinesses && (now - cachedBusinessesTime < 60000)) {
@@ -458,11 +500,15 @@ export async function getAllBusinesses(): Promise<Business[]> {
   }
   try {
     const querySnapshot = await getDocs(collection(db, 'businesses'))
-    const businesses = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: toSafeDate(doc.data().createdAt)
-    })) as Business[]
+    const businesses = querySnapshot.docs.map(doc => {
+      const bData = {
+        id: doc.id,
+        ...doc.data(),
+        createdAt: toSafeDate(doc.data().createdAt)
+      } as Business
+      cacheBusiness(bData)
+      return bData
+    })
     cachedBusinesses = businesses
     cachedBusinessesTime = now
     return businesses
@@ -470,6 +516,54 @@ export async function getAllBusinesses(): Promise<Business[]> {
     console.error('Error getting businesses:', error)
     throw error
   }
+}
+
+export async function getBusinessesByIds(businessIds: string[]): Promise<Business[]> {
+  if (!businessIds || businessIds.length === 0) return []
+  const uniqueIds = Array.from(new Set(businessIds))
+  const results: Business[] = []
+  const missingIds: string[] = []
+
+  for (const id of uniqueIds) {
+    const cached = businessByIdCache.get(id) || (cachedBusinesses ? { business: cachedBusinesses.find(b => b.id === id)!, timestamp: Date.now() } : null)
+    if (cached?.business) {
+      results.push(cached.business)
+    } else {
+      missingIds.push(id)
+    }
+  }
+
+  if (missingIds.length === 0) return results
+
+  const chunks: string[][] = []
+  for (let i = 0; i < missingIds.length; i += 30) {
+    chunks.push(missingIds.slice(i, i + 30))
+  }
+
+  for (const chunk of chunks) {
+    try {
+      const q = query(
+        collection(db, 'businesses'),
+        where('__name__', 'in', chunk)
+      )
+      const querySnapshot = await getDocs(q)
+      querySnapshot.forEach(docSnap => {
+        const businessData = docSnap.data()
+        const business: Business = {
+          id: docSnap.id,
+          ...businessData,
+          createdAt: toSafeDate(businessData.createdAt),
+          updatedAt: toSafeDate(businessData.updatedAt)
+        } as Business
+        cacheBusiness(business)
+        results.push(business)
+      })
+    } catch (e) {
+      console.error('Error fetching businesses by IDs:', e)
+    }
+  }
+
+  return results
 }
 
 export async function updateBusiness(businessId: string, data: Partial<Business>) {
@@ -809,6 +903,11 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
 }
 
 export async function getProductsByBusiness(businessId: string): Promise<Product[]> {
+  const cached = getCachedProductsByBusiness(businessId)
+  if (cached) {
+    return cached
+  }
+
   try {
     const q = query(
       collection(db, 'products'),
@@ -816,7 +915,7 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
       orderBy('createdAt', 'desc')
     )
     const querySnapshot = await getDocs(q)
-    return querySnapshot.docs.map(doc => {
+    const products = querySnapshot.docs.map(doc => {
       const data = doc.data()
       return {
         id: doc.id,
@@ -825,6 +924,8 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
         updatedAt: toSafeDate(data.updatedAt)
       }
     }) as Product[]
+    cacheProductsByBusiness(businessId, products)
+    return products
   } catch (error) {
     console.error('Error getting products:', error)
     throw error
@@ -898,6 +999,18 @@ export async function getProductsByBusinessesBatch(businessIds: string[]): Promi
         } as Product)
       })
     }))
+
+    // Poblar caché de productos por negocio
+    const groupedByBusiness: Record<string, Product[]> = {}
+    allProducts.forEach(p => {
+      if (p.businessId) {
+        if (!groupedByBusiness[p.businessId]) groupedByBusiness[p.businessId] = []
+        groupedByBusiness[p.businessId].push(p)
+      }
+    })
+    Object.entries(groupedByBusiness).forEach(([bId, prods]) => {
+      cacheProductsByBusiness(bId, prods)
+    })
 
     return allProducts
   } catch (error) {
@@ -2045,6 +2158,11 @@ export interface ClientLocation {
 
 // Nueva función para obtener un negocio por su username
 export async function getBusinessByUsername(username: string): Promise<Business | null> {
+  const cached = getCachedBusinessByUsername(username)
+  if (cached) {
+    return cached
+  }
+
   try {
     const q = query(
       collection(db, 'businesses'),
@@ -2063,6 +2181,7 @@ export async function getBusinessByUsername(username: string): Promise<Business 
         updatedAt: toSafeDate(businessData.updatedAt),
         manualStatusExpiry: businessData.manualStatusExpiry ? toSafeDate(businessData.manualStatusExpiry) : undefined
       } as Business;
+      cacheBusiness(business);
       return business;
     }
     return null;
@@ -2581,7 +2700,6 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
 
     const querySnapshot = await getDocs(optimizedQuery);
 
-    // Si encontramos resultados con la query optimizada, retornarlos
     if (!querySnapshot.empty) {
       const businesses: Business[] = [];
       querySnapshot.forEach((doc) => {
@@ -2593,18 +2711,12 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
           updatedAt: toSafeDate(businessData.updatedAt)
         } as Business);
       });
-      console.log(`✅ Found ${businesses.length} businesses using optimized query`);
       return businesses;
     }
 
-    // Fallback: Si no hay resultados, intentar el método legacy
-    // (para negocios que aún no tienen el campo adminEmails)
-    console.log('⚠️ No results with optimized query, falling back to legacy method');
-    return await getBusinessesByAdministratorLegacy(userEmail);
+    return [];
   } catch (error: any) {
-    // Si el error es porque el índice no existe, usar método legacy
     if (error.code === 'failed-precondition' || error.message?.includes('index')) {
-      console.log('⚠️ Index not available, using legacy method');
       return await getBusinessesByAdministratorLegacy(userEmail);
     }
     console.error('❌ Error getting businesses by administrator:', error);
@@ -2612,10 +2724,8 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
   }
 }
 
-// Método legacy: full table scan (mantener para backwards compatibility)
 async function getBusinessesByAdministratorLegacy(userEmail: string): Promise<Business[]> {
   try {
-    console.log('🔍 Using legacy full table scan for administrator lookup');
     const allBusinessesQuery = query(collection(db, 'businesses'));
     const querySnapshot = await getDocs(allBusinessesQuery);
 
@@ -6255,7 +6365,6 @@ export async function generateReferralLink(
  * Obtiene todos los links de referido creados por un usuario
  */
 export async function getUserReferrals(userId: string): Promise<any[]> {
-  console.log('🚀 Debug Referral - Getting referrals for user:', userId)
   try {
     const q = query(
       collection(db, 'referralLinks'),
@@ -6263,7 +6372,6 @@ export async function getUserReferrals(userId: string): Promise<any[]> {
       orderBy('createdAt', 'desc')
     )
     const snapshot = await getDocs(q)
-    console.log(`🚀 Debug Referral - Found ${snapshot.size} referrals`)
     return snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -7288,10 +7396,18 @@ export async function getWhatsAppTemplates(): Promise<Record<string, string>> {
   }
 }
 
+let cachedRecentOrders: any[] | null = null
+let cachedRecentOrdersTime = 0
+
 /**
  * Obtener órdenes recientes globales para cálculo de productos más vendidos
  */
 export async function getRecentOrders(limitCount: number = 100): Promise<any[]> {
+  const now = Date.now()
+  if (cachedRecentOrders && (now - cachedRecentOrdersTime < 3 * 60 * 1000)) {
+    return cachedRecentOrders.slice(0, limitCount)
+  }
+
   try {
     const q = query(
       collection(db, 'orders'),
@@ -7299,7 +7415,7 @@ export async function getRecentOrders(limitCount: number = 100): Promise<any[]> 
       limit(limitCount)
     )
     const snapshot = await getDocs(q)
-    return snapshot.docs.map(doc => {
+    const orders = snapshot.docs.map(doc => {
       const data = doc.data()
       return {
         id: doc.id,
@@ -7307,6 +7423,9 @@ export async function getRecentOrders(limitCount: number = 100): Promise<any[]> 
         createdAt: data.createdAt ? (typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate() : new Date(data.createdAt)) : new Date()
       }
     })
+    cachedRecentOrders = orders
+    cachedRecentOrdersTime = now
+    return orders
   } catch (error) {
     console.error('Error getting recent orders:', error)
     return []

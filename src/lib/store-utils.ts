@@ -84,58 +84,65 @@ export function isStoreOpen(business: Business | null): boolean {
 
     const now = new Date()
 
-    // 1. Verificar si el control manual ha expirado
+    // 1. Control manual (prioridad máxima)
     if (business.manualStoreStatus) {
         if (business.manualStatusExpiry) {
-            // Asegurar que manejamos Timestamp de Firestore o Date
             const expiryTime = business.manualStatusExpiry instanceof Date 
                 ? business.manualStatusExpiry 
                 : (business.manualStatusExpiry as any).seconds 
                     ? new Date((business.manualStatusExpiry as any).seconds * 1000)
                     : new Date(business.manualStatusExpiry)
             
-            if (now >= expiryTime) {
-                // El control manual ha expirado, continuar con lógica automática
-            } else {
-                // El control manual todavía está activo
-                if (business.manualStoreStatus === 'open') {
-                    return true
-                }
-                if (business.manualStoreStatus === 'closed') {
-                    return false
-                }
+            // Si la expiración manual aún está vigente
+            if (now < expiryTime) {
+                return business.manualStoreStatus === 'open'
             }
         } else {
-            // Caso antiguo o sin fecha: control manual sin expiración
-            if (business.manualStoreStatus === 'open') {
-                return true
-            }
-            if (business.manualStoreStatus === 'closed') {
-                return false
-            }
+            // Si no tiene fecha de expiración configurada, respetar el estado manual
+            return business.manualStoreStatus === 'open'
         }
     }
 
-    // 2. Verificar horario automático
-    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-    const currentDay = dayNames[now.getDay()]
-    
-    const todaySchedule = business.schedule?.[currentDay]
+    // Si manualStoreStatus es 'open' sin expiración estricta o expiró hoy pero el dueño lo dejó en 'open', dar prioridad a 'open'
+    if (business.manualStoreStatus === 'open' && !business.manualStatusExpiry) {
+        return true
+    }
 
-    // Si no hay horario definido para hoy o está marcado como cerrado
-    if (!todaySchedule || !todaySchedule.isOpen) {
+    // 2. Verificar horario automático si no hay control manual activo
+    if (!business.schedule) return false
+
+    const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+    const currentDayEn = dayNamesEn[now.getDay()]
+    const currentDayEs = dayNamesEs[now.getDay()]
+
+    const scheduleKeys = Object.keys(business.schedule)
+    const todayKey = scheduleKeys.find(k => {
+        const lower = k.toLowerCase()
+        return lower === currentDayEn || lower === currentDayEs
+    })
+
+    const todaySchedule = todayKey ? business.schedule[todayKey] : null
+
+    if (!todaySchedule || !todaySchedule.isOpen || !todaySchedule.open || !todaySchedule.close) {
+        // Si no hay horario de hoy o está cerrado, pero tiene manualStoreStatus === 'open', respetarlo como fallback
+        if (business.manualStoreStatus === 'open') {
+            return true
+        }
         return false
     }
 
-    // Comparar hora actual con horario de apertura/cierre
     const currentMinutes = now.getHours() * 60 + now.getMinutes()
-    
-    // Normalizar horas para evitar errores de formato (ej: "9:00" -> "09:00")
     const [openH, openM] = normalizeTime(todaySchedule.open).split(':').map(Number)
     const [closeH, closeM] = normalizeTime(todaySchedule.close).split(':').map(Number)
     
     const openMinutes = openH * 60 + openM
     const closeMinutes = closeH * 60 + closeM
+
+    if (closeMinutes < openMinutes) {
+        // Horario nocturno cruzando la medianoche (ej: 18:00 a 02:00)
+        return currentMinutes >= openMinutes || currentMinutes <= closeMinutes
+    }
     
     return currentMinutes >= openMinutes && currentMinutes <= closeMinutes
 }

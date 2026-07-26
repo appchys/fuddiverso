@@ -64,7 +64,7 @@ export default function LayoutWrapper({
   return (
     <>
       {showHeader && <Header />}
-      <main className={`min-h-[calc(100vh+1px)] ${showHeader ? 'pt-16' : ''}`}>
+      <main className={`min-h-[calc(100vh+1px)] ${showHeader && !isStoreHomePage ? 'pt-16' : ''}`}>
         {children}
       </main>
       <BottomNavigation />

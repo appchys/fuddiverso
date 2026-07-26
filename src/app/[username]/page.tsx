@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, getProductsByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { Flame } from 'lucide-react'
@@ -339,20 +339,18 @@ function RestaurantContent() {
 
         setBusiness(businessData)
         
-        // Handle visit increment
+        // Handle visit increment (Non-blocking background call)
         try {
           const sessionKey = `visited:${businessData.id}`
           if (!sessionStorage.getItem(sessionKey)) {
             sessionStorage.setItem(sessionKey, '1')
-            try {
-              await incrementVisitFirestore(businessData.id)
-            } catch (e) {
+            incrementVisitFirestore(businessData.id).catch(e => {
               const pendingRaw = localStorage.getItem('pendingVisits')
               const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
               pending[businessData.id] = (pending[businessData.id] || 0) + 1
               localStorage.setItem('pendingVisits', JSON.stringify(pending))
               console.warn('Failed to increment visit in Firestore, stored pendingVisits locally')
-            }
+            })
           }
         } catch (e) {
           console.error('Error handling visit increment:', e)
@@ -362,15 +360,16 @@ function RestaurantContent() {
         const productsData = await getProductsByBusiness(businessData.id)
         let availableProducts = productsData.filter(product => product.isAvailable)
 
-        // Cargar productos compartidos por referencia
+        // Cargar productos compartidos por referencia (Optimizado sin descargar todas las tiendas)
         if (businessData.sharedProductIds && businessData.sharedProductIds.length > 0) {
           try {
             const sharedProducts = await getProductsByIds(businessData.sharedProductIds)
-            const allBizs = await getAllBusinesses()
+            const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
+            const ownerBizs = await getBusinessesByIds(ownerIds)
             const availableShared = sharedProducts
               .filter(p => p.isAvailable)
               .map(p => {
-                const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
                 return {
                   ...p,
                   category: 'Compartidos', // Forzar categoría Compartidos
@@ -458,7 +457,6 @@ function RestaurantContent() {
         } as Business
         
         setBusiness(updatedBusiness)
-        console.log(' Business data updated in real-time:', updatedBusiness.manualStoreStatus)
       }
     }, (error) => {
       console.error('Error listening to business updates:', error)
@@ -1155,16 +1153,6 @@ function RestaurantContent() {
               )}
 
               <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-                {(() => {
-                    console.log('🌐 Public page checking store status:', {
-                        manualStoreStatus: business.manualStoreStatus,
-                        schedule: business.schedule,
-                        businessName: business.name
-                    })
-                    const storeOpen = isStoreOpen(business)
-                    console.log('🌐 Public page store status result:', storeOpen)
-                    return storeOpen
-                })()}
                 <span className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm transition-all ${isStoreOpen(business)
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                   : 'bg-rose-50 text-rose-700 border border-rose-100'
@@ -1237,49 +1225,6 @@ function RestaurantContent() {
             </h2>
 
             <div className="space-y-8">
-              {clientPhone && qrProgress && qrCodes.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Tarjetas y Premios</h3>
-                  <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
-                    {(() => {
-                      const redeemed = qrProgress.redeemedPrizeCodes || []
-                      const eligible = qrCodes
-                        .filter(c => qrProgress.scannedCodes.includes(c.id))
-                        .filter(c => !!c.prize?.trim())
-                        .filter(c => !redeemed.includes(c.id))
-
-                      if (eligible.length === 0) {
-                        return (
-                          <p className="text-gray-500 text-sm">
-                            No tienes premios disponibles por canjear.
-                          </p>
-                        )
-                      }
-
-                      return (
-                        <div className="space-y-3">
-                          {eligible.map((code) => (
-                            <div key={code.id} className="flex items-center justify-between gap-4 bg-white rounded-xl p-4 border border-gray-100">
-                              <div className="min-w-0">
-                                <p className="font-bold text-gray-900 truncate">🎫 {code.name}</p>
-                                <p className="text-sm text-gray-600 truncate">Premio: {code.prize}</p>
-                              </div>
-                              <button
-                                onClick={() => addQrPrizeToCart(code)}
-                                disabled={redeemingQrId === code.id}
-                                className="px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-black uppercase hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                              >
-                                {redeemingQrId === code.id ? 'Agregando...' : 'Agregar al carrito'}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    })()}
-                  </div>
-                </div>
-              )}
-
               {business.description && (
                 <div>
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Descripción</h3>
