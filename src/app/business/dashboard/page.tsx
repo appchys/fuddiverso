@@ -952,7 +952,7 @@ export default function TodayOrdersPage() {
             if (expiry && new Date() >= expiry) {
                 console.log('🧹 [Cleanup] Manual status expired for:', business.name, '- clearing...')
                 try {
-                    await updateBusiness(business.id, { manualStoreStatus: null, manualStatusExpiry: null })
+                    await updateBusiness(business.id, { manualStoreStatus: null as any, manualStatusExpiry: null as any })
                     console.log('✅ [Cleanup] Manual status cleared for:', business.name)
                     setBusiness(prev => prev?.id === business.id ? { ...prev, manualStoreStatus: undefined, manualStatusExpiry: undefined } : prev)
                 } catch (err) {
@@ -1933,7 +1933,7 @@ export default function TodayOrdersPage() {
                     {/* Main Content Area: Conditional Rendering */}
                     {activeTab === 'stats' ? (
                         <div className="p-4 sm:p-6">
-                            <StatisticsView key={business?.id} orders={[...orders, ...historicalOrders]} />
+                            <StatisticsView key={business?.id} orders={[...orders, ...historicalOrders]} businessId={business?.id} />
                         </div>
                     ) : activeTab === 'wallet' ? (
                         <div className="p-4 sm:p-6">
