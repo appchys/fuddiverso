@@ -837,6 +837,51 @@ export function CheckoutContent({
         const locations = await getClientLocations(user.id)
         setClientLocations(locations)
 
+        if (locations && locations.length > 0) {
+          let matched: ClientLocation | null = null
+
+          // 1. Intentar por userSelectedLocationId
+          const savedId = localStorage.getItem('userSelectedLocationId')
+          if (savedId) {
+            matched = locations.find(l => l.id === savedId) || null
+          }
+
+          // 2. Intentar por userSelectedLocation (JSON)
+          if (!matched) {
+            const savedLocStr = localStorage.getItem('userSelectedLocation')
+            if (savedLocStr) {
+              try {
+                const savedLoc = JSON.parse(savedLocStr)
+                matched = locations.find(l => l.id === savedLoc.id || (l.referencia === savedLoc.referencia && l.latlong === savedLoc.latlong)) || null
+              } catch (e) {}
+            }
+          }
+
+          // 3. Intentar coincidencia de coordenadas (userCoordinates)
+          if (!matched) {
+            const storedCoordsStr = localStorage.getItem('userCoordinates')
+            if (storedCoordsStr) {
+              try {
+                const stored = JSON.parse(storedCoordsStr)
+                matched = locations.find(l => {
+                  if (!l.latlong) return false
+                  const [lat, lng] = l.latlong.split(',').map((n: string) => parseFloat(n.trim()))
+                  return Math.abs(lat - stored.lat) < 0.0001 && Math.abs(lng - stored.lng) < 0.0001
+                }) || null
+              } catch (e) {}
+            }
+          }
+
+          // 4. Fallback a la primera ubicación guardada
+          if (!matched && locations.length > 0) {
+            matched = locations[0]
+          }
+
+          if (matched && !selectedLocation) {
+            handleLocationSelect(matched)
+          }
+        }
+
       } catch (error) {
         console.error('Error loading user locations:', error)
         setClientLocations([])
@@ -847,6 +892,27 @@ export function CheckoutContent({
 
     void loadUserLocations()
   }, [user?.id, deliveryData.type])
+
+  // Escuchar cambios de ubicación globales (ej. desde UserSidebar)
+  useEffect(() => {
+    const handleLocationChanged = async () => {
+      if (!user?.id) return
+      try {
+        const locations = await getClientLocations(user.id)
+        setClientLocations(locations)
+        const savedId = localStorage.getItem('userSelectedLocationId')
+        const matched = locations.find(l => l.id === savedId)
+        if (matched) {
+          handleLocationSelect(matched)
+        }
+      } catch (e) {
+        console.error('Error handling location-changed in checkout:', e)
+      }
+    }
+
+    window.addEventListener('location-changed', handleLocationChanged)
+    return () => window.removeEventListener('location-changed', handleLocationChanged)
+  }, [user?.id])
 
   // Helper para calcular tarifa usando la función compartida en lib/database
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
@@ -1220,6 +1286,21 @@ export function CheckoutContent({
 
   // Función unificada para seleccionar una ubicación del cliente
   const handleLocationSelect = async (location: ClientLocation) => {
+    try {
+      if (location.id) {
+        localStorage.setItem('userSelectedLocationId', location.id)
+      }
+      localStorage.setItem('userSelectedLocation', JSON.stringify(location))
+      if (location.latlong) {
+        const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
+        if (!isNaN(lat) && !isNaN(lng)) {
+          localStorage.setItem('userCoordinates', JSON.stringify({ lat, lng }))
+        }
+      }
+    } catch (e) {
+      console.warn('Error persisting selected location in checkout:', e)
+    }
+
     // Si hay coordenadas, calcular la tarifa automáticamente para asegurar que sea fresca
     if (location.latlong) {
       setCalculatingTariff(true)
@@ -2531,7 +2612,9 @@ export function CheckoutContent({
                       }
                       setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
 
-                      openLocationModal();
+                      if (!selectedLocation) {
+                        openLocationModal();
+                      }
                     }}
                     disabled={deliveryDisabled}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryDisabled
@@ -3017,12 +3100,19 @@ export function CheckoutContent({
                         const canRedeem = !!code.prize?.trim() && !redeemed && !isBeingRedeemedInThisOrder
                         const dark = isDarkColor(code.color)
                         return (
-                          <div key={code.id} className="min-w-[140px] rounded-xl p-3 border border-black/5 flex flex-col justify-between" style={{ backgroundColor: isBeingRedeemedInThisOrder ? '#F1F5F9' : (code.color || '#F8FAFC') }}>
+                          <div key={code.id} className="min-w-[150px] rounded-xl p-3 border border-black/5 flex flex-col justify-between" style={{ backgroundColor: isBeingRedeemedInThisOrder ? '#F1F5F9' : (code.color || '#F8FAFC') }}>
                             <div className="flex items-start gap-2">
                               <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/80 border border-white/20 flex-shrink-0">
                                 <img src={code.image || business?.image} alt={code.name} className="w-full h-full object-cover" />
                               </div>
-                              <p className={`text-[10px] font-bold leading-tight ${dark && !isBeingRedeemedInThisOrder ? 'text-white' : 'text-gray-900'}`}>{code.name}</p>
+                              <div className="min-w-0 flex-1">
+                                <p className={`text-[10px] font-bold leading-tight ${dark && !isBeingRedeemedInThisOrder ? 'text-white' : 'text-gray-900'}`}>{code.name}</p>
+                                {code.prize && (
+                                  <p className={`text-[9px] font-medium leading-tight mt-1 ${dark && !isBeingRedeemedInThisOrder ? 'text-white/80' : 'text-gray-500'}`}>
+                                    {code.prize}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                             <button
                               onClick={() => handleRedeemQrPrize(code)}

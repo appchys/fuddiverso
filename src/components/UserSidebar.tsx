@@ -1616,8 +1616,12 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             setSavedLocation(newLocation)
             // Guardar en localStorage para persistencia
             localStorage.setItem('userCoordinates', JSON.stringify({ lat, lng }))
+            localStorage.setItem('userSelectedLocation', JSON.stringify(loc))
+            if (loc.id) {
+                localStorage.setItem('userSelectedLocationId', loc.id)
+            }
 
-            // Notificar a HomePage del cambio de ubicación
+            // Notificar a la aplicación del cambio de ubicación
             window.dispatchEvent(new Event('location-changed'))
 
             // Close modal if open
@@ -2451,6 +2455,11 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 clientId={user?.id || ''}
                 initialAddingState={isAddingNewLocation}
                 onLocationDeleted={(id) => {
+                    const savedId = localStorage.getItem('userSelectedLocationId');
+                    if (savedId === id) {
+                        localStorage.removeItem('userSelectedLocationId');
+                        localStorage.removeItem('userSelectedLocation');
+                    }
                     setUserLocations(prev => {
                         const deleting = prev.find(l => l.id === id);
                         if (deleting && savedLocation?.referencia === deleting.referencia) {
