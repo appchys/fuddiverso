@@ -793,9 +793,21 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
               <span className="text-sm font-bold text-gray-900">${order.delivery?.deliveryCost?.toFixed(2)}</span>
             </div>
           )}
+          {order.creditUsed > 0 && (
+            <div className="flex justify-between items-center text-green-600">
+              <span className="text-xs font-bold uppercase tracking-tighter flex items-center gap-1">
+                <i className="bi bi-gift-fill text-[11px]"></i> Crédito Aplicado
+              </span>
+              <span className="text-sm font-bold">-${order.creditUsed.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between items-center pt-3 border-t-2 border-dashed border-gray-100">
-            <span className="text-xs font-black text-gray-900 uppercase tracking-widest">Total</span>
-            <span className="text-xl font-black text-red-600">${order.total?.toFixed(2)}</span>
+            <span className="text-xs font-black text-gray-900 uppercase tracking-widest">
+              {order.creditUsed > 0 && effectiveTotal > 0 ? 'Saldo a Cobrar' : 'Total'}
+            </span>
+            <span className={`text-xl font-black ${effectiveTotal === 0 && order.creditUsed > 0 ? 'text-green-600' : 'text-red-600'}`}>
+              ${effectiveTotal?.toFixed(2)}
+            </span>
           </div>
 
           {/* Método de Pago Styling */}
@@ -860,6 +872,21 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
   )
 
   const statusColors = getStatusColor(order.status)
+
+  const getEffectiveTotal = (orderData: any) => {
+    if (!orderData) return 0
+    const subtotal = orderData.subtotal ?? 0
+    const deliveryCost = orderData.delivery?.deliveryCost ?? 0
+    const creditUsed = orderData.creditUsed ?? 0
+    const grossTotal = subtotal + deliveryCost
+
+    if (creditUsed > 0 && Math.abs((orderData.total ?? 0) - grossTotal) < 0.02) {
+      return Math.max(0, (orderData.total ?? 0) - creditUsed)
+    }
+    return orderData.total ?? 0
+  }
+
+  const effectiveTotal = getEffectiveTotal(order)
 
   // Función para obtener el mensaje de estado con emoji
   const getStatusMessage = (status: string) => {
@@ -998,7 +1025,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
                 <div>
                   <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">Restante a pagar</p>
                   <p className="text-2xl font-black text-white">
-                    ${(order.total - (order.payment?.transferAmount || 0)).toFixed(2)}
+                    ${(effectiveTotal - (order.payment?.transferAmount || 0)).toFixed(2)}
                   </p>
                 </div>
                 <div className="text-right">
@@ -1007,10 +1034,14 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
                 </div>
               </div>
             ) : (
-              // Efectivo: mostrar total normal
+              // Efectivo: mostrar total normal o saldo a pagar
               <div className="text-center">
-                <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">Total a pagar</p>
-                <p className="text-3xl font-black text-white">${order.total?.toFixed(2)}</p>
+                <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">
+                  {order.creditUsed > 0 && effectiveTotal > 0 ? 'Saldo a Pagar' : 'Total a pagar'}
+                </p>
+                <p className="text-3xl font-black text-white">
+                  {effectiveTotal === 0 && order.creditUsed > 0 ? '¡Cubierto 100%! 🎉' : `$${effectiveTotal?.toFixed(2)}`}
+                </p>
               </div>
             )}
           </div>
@@ -1204,8 +1235,12 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
               </div>
             )}
             <div className="flex justify-between items-center pt-3 border-t border-dashed border-gray-200 mt-2">
-              <span className="text-base font-black text-gray-900">Total</span>
-              <span className="text-xl font-black text-red-600">${order.total?.toFixed(2)}</span>
+              <span className="text-base font-black text-gray-900">
+                {order.creditUsed > 0 && effectiveTotal > 0 ? 'Saldo a Cobrar' : 'Total'}
+              </span>
+              <span className={`text-xl font-black ${effectiveTotal === 0 && order.creditUsed > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                ${effectiveTotal?.toFixed(2)}
+              </span>
             </div>
           </div>
         </div>

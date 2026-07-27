@@ -185,15 +185,25 @@ export const sendWhatsAppToDelivery = async (
     const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : ''
     const productsList = buildProductsList(order)
     const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
-    const subtotal = order.total - deliveryCost
+    const creditUsed = order.creditUsed || 0
+    const subtotalVal = order.subtotal || Math.max(0, (order.total || 0) - deliveryCost)
+    const grossTotalVal = subtotalVal + deliveryCost
+    const effectiveTotal = Math.max(
+        0,
+        creditUsed > 0 && Math.abs((order.total || 0) - grossTotalVal) < 0.02
+            ? (order.total || 0) - creditUsed
+            : (order.total || 0)
+    )
     const orderType = formatScheduledDate(order.timing)
+
+    const creditsLine = creditUsed > 0 ? `Créditos: -$${creditUsed.toFixed(2)}\n` : ''
 
     let paymentDetailsBlock = ''
     if (order.payment?.method === 'mixed') {
         const payment = order.payment as any
         paymentDetailsBlock = `🏦 Transferencia: $${(payment.transferAmount || 0).toFixed(2)}\n💵 *Cobrar:* $${(payment.cashAmount || 0).toFixed(2)}`
     } else if (order.payment?.method === 'cash') {
-        paymentDetailsBlock = `💵 *Cobrar:* $${order.total.toFixed(2)}`
+        paymentDetailsBlock = `💵 *Cobrar:* $${effectiveTotal.toFixed(2)}`
     } else if (order.payment?.method === 'transfer') {
         paymentDetailsBlock = '🏦 Transferencia'
     }
@@ -218,10 +228,11 @@ export const sendWhatsAppToDelivery = async (
         references,
         locationLine,
         productsList,
-        subtotal: subtotal.toFixed(2),
-        deliveryCostLine: order.delivery.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '',
+        subtotal: `$${subtotalVal.toFixed(2)}`,
+        deliveryCostLine: (order.delivery.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '') + creditsLine,
+        creditsLine: '',
         paymentDetailsBlock,
-        total: (order.total || 0).toFixed(2)
+        total: effectiveTotal.toFixed(2)
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(phone)}&text=${encodeURIComponent(message)}`
@@ -371,15 +382,30 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
     const locationLink = buildLocationLink(order)
     const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : ''
     
+    const creditUsed = order.creditUsed || 0
+    const subtotalVal = order.subtotal || 0
+    const deliveryFeeVal = order.delivery?.deliveryCost || 0
+    const grossTotalVal = subtotalVal + deliveryFeeVal
+    const effectiveTotal = Math.max(
+        0,
+        creditUsed > 0 && Math.abs((order.total || 0) - grossTotalVal) < 0.02
+            ? (order.total || 0) - creditUsed
+            : (order.total || 0)
+    )
+
     // Calcular detalles de pago
     let paymentDetailsBlock = ''
     if (order.payment?.method === 'mixed') {
         const payment = order.payment as any
         paymentDetailsBlock = `🏦 Transferencia: $${(payment.transferAmount || 0).toFixed(2)}\n💵 *Cobrar:* $${(payment.cashAmount || 0).toFixed(2)}`
     } else if (order.payment?.method === 'cash') {
-        paymentDetailsBlock = `💵 *Cobrar:* $${order.total.toFixed(2)}`
+        paymentDetailsBlock = `💵 *Cobrar:* $${effectiveTotal.toFixed(2)}`
     } else if (order.payment?.method === 'transfer') {
         paymentDetailsBlock = '🏦 Transferencia'
+    }
+
+    if (creditUsed > 0) {
+        paymentDetailsBlock += `\n🎁 *Créditos aplicados:* -$${creditUsed.toFixed(2)}`
     }
     
     const total = storeReceives.toFixed(2)

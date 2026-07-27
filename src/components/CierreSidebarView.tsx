@@ -69,6 +69,19 @@ const formatWhatsAppPhone = (phone: string): string => {
     return cleaned
 }
 
+export const getEffectiveOrderTotal = (o: any) => {
+    if (!o) return 0
+    const subtotal = o.subtotal ?? 0
+    const deliveryFee = o.delivery?.deliveryCost ?? 0
+    const creditUsed = o.creditUsed ?? 0
+    const grossTotal = subtotal + deliveryFee
+
+    if (creditUsed > 0 && Math.abs((o.total ?? 0) - grossTotal) < 0.02) {
+        return Math.max(0, (o.total ?? 0) - creditUsed)
+    }
+    return o.total ?? 0
+}
+
 // Helper para formatear montos: entero si no tiene decimales (20, 10), 2 decimales si tiene fracción (3.75)
 const formatMoney = (val: number): string => {
     const absVal = Math.abs(val)
@@ -179,7 +192,7 @@ function calculateDeliveryAccounts(
         const effectiveSettlementStatus = (settlementOverrides && settlementOverrides[o.id]) || o.deliverySettlementStatus
         const isSettled = effectiveSettlementStatus === 'settled'
         const method = o.payment?.method || 'cash'
-        const total = o.total || 0
+        const total = getEffectiveOrderTotal(o)
         const deliveryFee = o.delivery?.deliveryCost || 0
 
         let orderCash = 0
@@ -466,7 +479,7 @@ export default function CierreSidebarView({
 
         const totalCash = pendingOrders.reduce((sum, o) => {
             const method = o.payment?.method || 'cash'
-            if (method === 'cash') return sum + (o.total || 0)
+            if (method === 'cash') return sum + getEffectiveOrderTotal(o)
             if (method === 'mixed') return sum + (o.payment?.cashAmount || 0)
             return sum
         }, 0)
@@ -511,7 +524,7 @@ export default function CierreSidebarView({
 
         const totalCash = pendingOrders.reduce((sum, o) => {
             const method = o.payment?.method || 'cash'
-            if (method === 'cash') return sum + (o.total || 0)
+            if (method === 'cash') return sum + getEffectiveOrderTotal(o)
             if (method === 'mixed') return sum + (o.payment?.cashAmount || 0)
             return sum
         }, 0)
@@ -795,7 +808,7 @@ export default function CierreSidebarView({
 
         activeOrdersList.forEach((o: Order) => {
             const method = o.payment?.method || 'cash'
-            const total = o.total || 0
+            const total = getEffectiveOrderTotal(o)
             const deliveryCost = o.delivery?.deliveryCost || 0
             feeEarned += deliveryCost
 
@@ -2033,7 +2046,7 @@ export default function CierreSidebarView({
                                                                         <path className="text-amber-600 transition-all duration-300" strokeDasharray={`${(day.settledDriversCount / day.totalDriversCount) * 100}, 100`} strokeWidth="6" strokeLinecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                                                                     </svg>
                                                                 </div>
-                                                                <span>Faltan {day.pendingDriversCount}/{day.totalDriversCount}</span>
+                                                                <span>{day.settledDriversCount}/{day.totalDriversCount}</span>
                                                             </span>
                                                         )}
                                                         <i className={`bi bi-chevron-${isDayExpanded ? 'up' : 'down'} text-slate-400 text-xs ml-1`}></i>
@@ -2165,7 +2178,7 @@ export default function CierreSidebarView({
 
                                                                                             <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600 text-xs">
                                                                                                 <div className="flex items-center gap-3">
-                                                                                                    <span>Cobro: <strong className="text-slate-900">${(order.total || 0).toFixed(2)}</strong></span>
+                                                                                                    <span>Cobro: <strong className="text-slate-900">${getEffectiveOrderTotal(order).toFixed(2)}</strong></span>
                                                                                                     <span className="text-slate-400">Delivery: <strong className="text-emerald-600">${deliveryCost.toFixed(2)}</strong></span>
                                                                                                 </div>
 

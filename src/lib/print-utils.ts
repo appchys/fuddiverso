@@ -37,8 +37,18 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
       // Formatear Fecha y Hora de creación
       const createdAtDate = order.createdAt instanceof Timestamp ? order.createdAt.toDate() : new Date(order.createdAt);
 
-      // Calcular subtotal
-      const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0);
+      // Calcular subtotal, envío y créditos
+      const deliveryCost = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0;
+      const subtotal = order.subtotal ?? (order.total - deliveryCost);
+      const creditUsed = (order as any).creditUsed || 0;
+      const grossTotal = subtotal + deliveryCost;
+
+      const effectiveTotal = Math.max(
+        0,
+        creditUsed > 0 && Math.abs((order.total ?? 0) - grossTotal) < 0.02
+          ? (order.total ?? 0) - creditUsed
+          : (order.total ?? 0)
+      );
       
       // Forma de pago
       const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : 
@@ -49,7 +59,7 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
       // Valor pendiente de cobrar
       let pendingAmount = 0;
       if (order.payment?.method === 'cash') {
-          pendingAmount = order.total;
+          pendingAmount = effectiveTotal;
       } else if (order.payment?.method === 'mixed') {
           pendingAmount = (order.payment as any)?.cashAmount || 0;
       }
@@ -239,9 +249,15 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
                 <span class="text-bold">$${(order.delivery?.deliveryCost || 0).toFixed(2)}</span>
               </div>
             ` : ''}
+            ${creditUsed > 0 ? `
+              <div class="total-line" style="color: #059669;">
+                <span>Creditos:</span>
+                <span class="text-bold">-$${creditUsed.toFixed(2)}</span>
+              </div>
+            ` : ''}
             <div class="total-line text-large">
               <span>TOTAL:</span>
-              <span class="text-bold">$${order.total.toFixed(2)}</span>
+              <span class="text-bold">$${effectiveTotal.toFixed(2)}</span>
             </div>
           </div>
 

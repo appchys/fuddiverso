@@ -683,13 +683,27 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
         addLine('.'.repeat(32));
 
         // Totals
-        const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0);
+        const deliveryCost = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0;
+        const subtotal = order.subtotal ?? (order.total - deliveryCost);
+        const creditUsed = (order as any).creditUsed || 0;
+        const grossTotal = subtotal + deliveryCost;
+
+        const effectiveTotal = Math.max(
+            0,
+            creditUsed > 0 && Math.abs((order.total ?? 0) - grossTotal) < 0.02
+                ? (order.total ?? 0) - creditUsed
+                : (order.total ?? 0)
+        );
+
         addLine(`Subtotal:      $${subtotal.toFixed(2).padStart(8)}`);
         if (order.delivery?.type === 'delivery') {
-            addLine(`Envio:         $${(order.delivery?.deliveryCost || 0).toFixed(2).padStart(8)}`);
+            addLine(`Envio:         $${deliveryCost.toFixed(2).padStart(8)}`);
+        }
+        if (creditUsed > 0) {
+            addLine(`Creditos:     -$${creditUsed.toFixed(2).padStart(8)}`);
         }
         commands.push(...ESC_POS.TEXT_BOLD_ON);
-        addLine(`TOTAL:         $${order.total.toFixed(2).padStart(8)}`);
+        addLine(`TOTAL:         $${effectiveTotal.toFixed(2).padStart(8)}`);
         commands.push(...ESC_POS.TEXT_BOLD_OFF);
         
         const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : 
@@ -701,11 +715,10 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
         // Valor pendiente de cobrar
         let pendingAmount = 0;
         if (order.payment?.method === 'cash') {
-            pendingAmount = order.total;
+            pendingAmount = effectiveTotal;
         } else if (order.payment?.method === 'mixed') {
             pendingAmount = (order.payment as any)?.cashAmount || 0;
         }
-        // Si es transferencia, pendingAmount = 0
         
         if (pendingAmount > 0) {
             addLine(`Pendiente de cobro`);

@@ -31,6 +31,7 @@ import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
 import CierreSidebarView from '@/components/CierreSidebarView'
 import ReportesSidebarView from '@/components/ReportesSidebarView'
+import TransferenciasSidebarView from '@/components/TransferenciasSidebarView'
 
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -273,7 +274,94 @@ export default function AdminPedidosPage() {
 
     // Menu Sidebar states
     const [isMenuSidebarOpen, setIsMenuSidebarOpen] = useState(false)
-    const [activeSidebarTab, setActiveSidebarTab] = useState<'menu' | 'cierre' | 'reportes'>('menu')
+    const [activeSidebarTab, setActiveSidebarTab] = useState<'menu' | 'cierre' | 'reportes' | 'transferencias'>('menu')
+    const [pendingTransfersCount, setPendingTransfersCount] = useState<number>(0)
+
+    // Escuchar la cantidad de transferencias pendientes
+    useEffect(() => {
+        if (!isAuthenticated) return
+
+        const now = new Date()
+        const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30, 0, 0, 0)
+
+        const q = (selectedBusinessId === 'all' || !selectedBusinessId)
+            ? query(
+                collection(db, 'orders'),
+                where('createdAt', '>=', Timestamp.fromDate(startDate))
+              )
+            : query(
+                collection(db, 'orders'),
+                where('businessId', '==', selectedBusinessId),
+                where('createdAt', '>=', Timestamp.fromDate(startDate))
+              )
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            let count = 0
+            snapshot.docs.forEach(docSnap => {
+                const o = docSnap.data() as Order
+                if (o.status === 'cancelled' || o.status === 'borrador') return
+                const isTransfer = o.payment?.method === 'transfer' || 
+                    (o.payment?.method === 'mixed' && (o.payment.transferAmount || 0) > 0)
+                if (isTransfer && o.payment?.paymentStatus !== 'paid') {
+                    count++
+                }
+            })
+            setPendingTransfersCount(count)
+        }, (err) => {
+            console.error("Error al contar transferencias pendientes:", err)
+        })
+
+        return () => unsubscribe()
+    }, [selectedBusinessId, isAuthenticated])
+
+    const [pendingCierreCount, setPendingCierreCount] = useState<number>(0)
+
+    // Escuchar la cantidad de cierres pendientes (Restaurantes + Delivery sumados)
+    useEffect(() => {
+        if (!isAuthenticated) return
+
+        const now = new Date()
+        const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30, 0, 0, 0)
+
+        const q = (selectedBusinessId === 'all' || !selectedBusinessId)
+            ? query(
+                collection(db, 'orders'),
+                where('createdAt', '>=', Timestamp.fromDate(startDate))
+              )
+            : query(
+                collection(db, 'orders'),
+                where('businessId', '==', selectedBusinessId),
+                where('createdAt', '>=', Timestamp.fromDate(startDate))
+              )
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const pendingStores = new Set<string>()
+            const pendingDeliveryDays = new Set<string>()
+
+            snapshot.docs.forEach(docSnap => {
+                const o = docSnap.data() as Order
+                if (o.status === 'cancelled' || o.status === 'borrador') return
+
+                // Restaurantes pendientes
+                if (o.settlementStatus !== 'settled') {
+                    if (o.businessId) pendingStores.add(o.businessId)
+                }
+
+                // Delivery pendientes
+                if (o.delivery?.type === 'delivery' && o.deliverySettlementStatus !== 'settled') {
+                    const refDate = toSafeDate(o.timing?.scheduledDate || o.createdAt)
+                    const dateStr = toLocalDateInputValue(refDate)
+                    pendingDeliveryDays.add(dateStr)
+                }
+            })
+
+            setPendingCierreCount(pendingStores.size + pendingDeliveryDays.size)
+        }, (err) => {
+            console.error("Error al contar cierres pendientes:", err)
+        })
+
+        return () => unsubscribe()
+    }, [selectedBusinessId, isAuthenticated])
 
     const mergedHistoryOrders = useMemo(() => {
         const seen = new Set<string>()
@@ -1777,10 +1865,31 @@ export default function AdminPedidosPage() {
                             <div className="flex-1 overflow-y-auto p-4 space-y-2">
                                 <button
                                     onClick={() => setActiveSidebarTab('cierre')}
-                                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
+                                    className="w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
                                 >
-                                    <i className="bi bi-calculator-fill text-lg text-red-500"></i>
-                                    <span>Cierre de Caja</span>
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <i className="bi bi-calculator-fill text-lg text-red-500 shrink-0"></i>
+                                        <span className="truncate">Cierre de Caja</span>
+                                    </div>
+                                    {pendingCierreCount > 0 && (
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-black bg-amber-500 text-white shadow-2xs shrink-0">
+                                            {pendingCierreCount}
+                                        </span>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => setActiveSidebarTab('transferencias')}
+                                    className="w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <i className="bi bi-bank text-lg text-red-500 shrink-0"></i>
+                                        <span className="truncate">Revisión de Transferencias</span>
+                                    </div>
+                                    {pendingTransfersCount > 0 && (
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-black bg-amber-500 text-white shadow-2xs shrink-0">
+                                            {pendingTransfersCount}
+                                        </span>
+                                    )}
                                 </button>
                                 <button
                                     onClick={() => setActiveSidebarTab('reportes')}
@@ -1818,6 +1927,15 @@ export default function AdminPedidosPage() {
                                 onClose={() => setIsMenuSidebarOpen(false)}
                                 selectedBusinessId={selectedBusinessId}
                                 businesses={businesses}
+                            />
+                        ) : activeSidebarTab === 'transferencias' ? (
+                            /* Transferencias view inside the sidebar */
+                            <TransferenciasSidebarView
+                                onBack={() => setActiveSidebarTab('menu')}
+                                onClose={() => setIsMenuSidebarOpen(false)}
+                                selectedBusinessId={selectedBusinessId}
+                                businesses={businesses}
+                                onManagePayment={handlePaymentClick}
                             />
                         ) : null}
                     </div>

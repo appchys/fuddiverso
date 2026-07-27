@@ -22,8 +22,8 @@ Celular: {{customerPhone}}
 {{productsList}}
 
 *Detalles del pago*
-Valor del pedido: \${{subtotal}}
-{{deliveryCostLine}}
+Pedido: {{subtotal}}
+{{deliveryCostLine}}{{creditsLine}}
 {{paymentDetailsBlock}}`
   },
   {
@@ -144,6 +144,7 @@ export const WHATSAPP_TEMPLATE_VARIABLES: Array<{ key: string; label: string; ex
   { key: 'productsList', label: 'Listado de productos', example: '(2) Hamburguesa doble\n\n(1) Cola 500ml' },
   { key: 'subtotal', label: 'Subtotal', example: '12.50' },
   { key: 'deliveryCostLine', label: 'Linea de envio', example: 'Envío: $2.00\n' },
+  { key: 'creditsLine', label: 'Linea de creditos aplicados', example: 'Créditos: -$1.00\n' },
   { key: 'paymentDetailsBlock', label: 'Bloque de pago', example: '💵 *Cobrar:* $14.50' },
   { key: 'initialMessage', label: 'Mensaje inicial al cliente', example: 'Tu pedido está en preparación!' },
   { key: 'deliveryInfo', label: 'Direccion o retiro', example: 'Retiro en tienda' },

@@ -1001,17 +1001,30 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
 
                     <div className="pt-3 border-t border-dashed border-slate-100 flex justify-between items-center">
                       <span className="text-xs font-black text-slate-900 uppercase tracking-widest">
-                        {order.creditUsed > 0 && order.total > 0 ? 'Saldo a Cobrar' : 'Total del Pedido'}
+                        {order.creditUsed > 0 && Math.max(0, (order.creditUsed > 0 && Math.abs((order.total ?? 0) - ((order.subtotal ?? 0) + (order.delivery?.deliveryCost ?? 0))) < 0.02 ? (order.total ?? 0) - order.creditUsed : (order.total ?? 0))) > 0 ? 'Saldo a Cobrar' : 'Total del Pedido'}
                       </span>
                       <div className="text-right">
-                        <span className={`text-2xl font-black tracking-tight ${order.total === 0 && order.creditUsed > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {formatPrice(order.total)}
-                        </span>
-                        {order.total === 0 && order.creditUsed > 0 && (
-                          <span className="block text-[10px] font-bold text-emerald-600 uppercase">
-                            ¡Cubierto 100% con créditos! 🎉
-                          </span>
-                        )}
+                        {(() => {
+                          const grossTotal = (order.subtotal ?? 0) + (order.delivery?.deliveryCost ?? 0)
+                          const effectiveTotal = Math.max(
+                            0,
+                            order.creditUsed > 0 && Math.abs((order.total ?? 0) - grossTotal) < 0.02
+                              ? (order.total ?? 0) - order.creditUsed
+                              : (order.total ?? 0)
+                          )
+                          return (
+                            <>
+                              <span className={`text-2xl font-black tracking-tight ${effectiveTotal === 0 && order.creditUsed > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatPrice(effectiveTotal)}
+                              </span>
+                              {effectiveTotal === 0 && order.creditUsed > 0 && (
+                                <span className="block text-[10px] font-bold text-emerald-600 uppercase">
+                                  ¡Cubierto 100% con créditos! 🎉
+                                </span>
+                              )}
+                            </>
+                          )
+                        })()}
                       </div>
                     </div>
                   </div>

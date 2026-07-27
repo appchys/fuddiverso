@@ -325,6 +325,7 @@ export interface Order {
   payment: PaymentInfo
   total: number
   subtotal?: number
+  creditUsed?: number
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled' | 'borrador'
   createdAt: Date
   updatedAt: Date
