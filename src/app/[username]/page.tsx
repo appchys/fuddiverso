@@ -201,7 +201,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Desde</span>
               )}
               <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                {formatPrice(hasVariants
+                {formatPrice(hasVariants && publicPrice <= 0
                   ? Math.min(...product.variants.filter((v: any) => v.isAvailable !== false).map((v: any) => getProductPublicPrice(v)))
                   : publicPrice)}
               </span>

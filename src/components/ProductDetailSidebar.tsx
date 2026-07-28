@@ -943,7 +943,9 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
                         const cartItemsCount = cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0)
                         const totalComboSelected = product.isCombo ? Object.values(comboSelection).reduce((a, b) => a + b, 0) : 0;
-                        const isComboComplete = !product.isCombo || totalComboSelected >= (product.minComboItems || 1);
+                        const minComboItems = product.minComboItems || 1;
+                        const isComboComplete = !product.isCombo || totalComboSelected >= minComboItems;
+                        const comboProgressPercent = Math.min(100, Math.round((totalComboSelected / minComboItems) * 100));
                         const selectedVariantsStr = Object.entries(comboSelection)
                             .filter(([_, q]) => q > 0)
                             .map(([name, q]) => `${q}x ${name}`)
@@ -1048,10 +1050,34 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                 onOpenCart?.();
                                             }}
                                             disabled={!isComboComplete}
-                                            className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                            className={`relative overflow-hidden flex-1 h-14 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border shadow-sm active:scale-95 disabled:cursor-not-allowed flex items-center justify-between px-5 ${
+                                                isComboComplete
+                                                    ? 'bg-red-600 border-red-600 text-white shadow-red-500/20 shadow-lg'
+                                                    : 'bg-gray-100 border-gray-200 text-gray-700'
+                                            }`}
                                         >
-                                            <i className={`bi ${isComboComplete ? 'bi-bag-plus-fill' : 'bi-info-circle'}`}></i>
-                                            {isComboComplete ? 'Agregar Combo' : `Arma tu combo (${totalComboSelected}/${product.minComboItems})`}
+                                            {/* Barra de progreso animada de fondo */}
+                                            <div 
+                                                className="absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out bg-gradient-to-r from-red-600 to-red-500"
+                                                style={{ width: `${comboProgressPercent}%` }}
+                                            />
+
+                                            {/* Contenido sobrepuesto con capas Z */}
+                                            <div className="relative z-10 flex items-center justify-between w-full">
+                                                <div className="flex items-center gap-2.5">
+                                                    <i className={`bi ${isComboComplete ? 'bi-bag-plus-fill text-base text-white' : 'bi-stars text-base text-gray-900'}`}></i>
+                                                    <span className={`font-black text-xs uppercase tracking-wider ${isComboComplete ? 'text-white' : 'text-gray-900'}`}>
+                                                        {isComboComplete ? 'Agregar Combo' : 'Arma tu combo'}
+                                                    </span>
+                                                </div>
+                                                <span className={`text-[11px] font-black tracking-tight px-2.5 py-0.5 rounded-full border transition-all ${
+                                                    isComboComplete 
+                                                        ? 'bg-white/20 border-white/30 text-white shadow-sm' 
+                                                        : 'bg-white border-gray-200/80 text-gray-800 shadow-sm'
+                                                }`}>
+                                                    {totalComboSelected}/{minComboItems}
+                                                </span>
+                                            </div>
                                         </button>
                                     ) : (
                                         <button

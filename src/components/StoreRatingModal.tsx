@@ -17,6 +17,7 @@ import {
   updateClient,
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
+import { formatRelativeTime } from '@/lib/date-utils'
 import { Business } from '@/types'
 
 export default function StoreRatingModal({
@@ -131,7 +132,6 @@ export default function StoreRatingModal({
       }
     }
   }
-
   const handleDeleteReply = async (ratingId: string, replyId: string) => {
     try {
       await deleteStoreRatingReply(business.id, ratingId, replyId, activePhone || '', businessOwnerId || undefined)
@@ -145,6 +145,11 @@ export default function StoreRatingModal({
   useEffect(() => {
     if (clientPhone || clientUser?.celular) {
       setActivePhone(resolveClientPhone(clientPhone || clientUser?.celular || null))
+    } else {
+      const storedPhone = typeof window !== 'undefined' ? localStorage.getItem('loginPhone') : null
+      if (storedPhone) {
+        setActivePhone(resolveClientPhone(storedPhone))
+      }
     }
   }, [clientPhone, clientUser])
 
@@ -468,199 +473,6 @@ export default function StoreRatingModal({
     loadPreviousData()
   }
 
-  // Si no hay cliente logueado, mostrar login UI
-  if (!activePhone) {
-    return (
-      <div className="fixed inset-0 z-[200] overflow-hidden">
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
-
-        <div className="flex items-end sm:items-center justify-center min-h-screen p-0 sm:p-4">
-          <div className="relative w-full max-w-md bg-gray-50 rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-[0_32px_80px_rgba(15,23,42,0.22)] overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col max-h-[90svh] border border-white/70">
-            
-            <div className="px-6 pt-8 pb-6 text-center border-b border-gray-100 flex-shrink-0 bg-white">
-              <button
-                onClick={onClose}
-                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
-              >
-                <i className="bi bi-x-lg"></i>
-              </button>
-              <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-sm border border-red-100">
-                ⭐
-              </div>
-              <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">Inicia sesión para calificar</h3>
-              <p className="text-sm text-gray-500 mt-2 leading-relaxed">Tu opinión ayuda mucho a {business.name}</p>
-            </div>
-
-            <div className="p-6 pb-32 sm:pb-6 overflow-y-auto flex-1 no-scrollbar bg-gray-50">
-              <div className="space-y-4">
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Número de celular</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                      <i className="bi bi-phone"></i>
-                    </span>
-                    <input
-                      type="tel"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={customerData.phone}
-                      onChange={(e) => {
-                        const phone = e.target.value
-                        setCustomerData({ ...customerData, phone })
-                        handlePhoneSearch(phone)
-                      }}
-                      onBlur={(e) => {
-                        const phone = e.target.value
-                        const normalizedPhone = normalizeEcuadorianPhone(phone)
-                        if (validateEcuadorianPhone(normalizedPhone)) {
-                          setCustomerData({ ...customerData, phone: normalizedPhone })
-                        }
-                      }}
-                      className={`w-full pl-10 pr-4 py-3.5 bg-white border rounded-2xl text-sm text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400 transition-all ${phoneError ? 'ring-2 ring-red-100 border-red-300' : 'border-gray-100 hover:border-red-100'}`}
-                      placeholder="0999999999"
-                      maxLength={10}
-                      disabled={clientSearching}
-                    />
-                  </div>
-                  {clientFound && (
-                    <button
-                      onClick={() => {
-                        setClientFound(null)
-                        setCustomerData({ name: '', phone: '' })
-                        setShowNameField(false)
-                        setPhoneError('')
-                        setPhoneConfirmation('')
-                      }}
-                      className="px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-2xl transition-colors"
-                      title="Cambiar número"
-                    >
-                      Cambiar
-                    </button>
-                  )}
-                </div>
-                {phoneError && <p className="text-red-500 text-xs mt-2 ml-1 font-medium">{phoneError}</p>}
-
-                {/* Searching indicator */}
-                {clientSearching && (
-                  <div className="mt-3 flex items-center gap-2 text-red-500 animate-fadeIn text-sm font-medium">
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-red-200 border-t-red-500"></div>
-                    <p className="text-sm">Buscando cliente...</p>
-                  </div>
-                )}
-
-                {/* Cliente encontrado - mostrar confirmación */}
-                {!clientSearching && clientFound && (
-                  <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
-                    <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-4 shadow-sm">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center border border-red-100">
-                          <i className="bi bi-person-check-fill text-red-500 text-xl"></i>
-                        </div>
-                        <div>
-                          <p className="text-lg font-black text-gray-900 tracking-tight">¿Eres {clientFound.nombres}?</p>
-                          <p className="text-sm text-gray-500">Encontramos una cuenta con este número</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={handleConfirmLogin}
-                        className="w-full py-3.5 bg-gray-900 text-white font-black rounded-2xl hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-[0_12px_30px_rgba(17,24,39,0.15)]"
-                      >
-                        <i className="bi bi-check-circle"></i>
-                        Continuar como {clientFound.nombres}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setClientFound(null)
-                          setCustomerData({ name: '', phone: '' })
-                          setShowNameField(false)
-                          setPhoneError('')
-                          setPhoneConfirmation('')
-                        }}
-                        className="w-full mt-2 py-2 text-sm text-gray-500 hover:text-gray-800 transition-colors font-medium"
-                      >
-                        No, soy otra persona
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Cliente no encontrado - pedir nombre para registrar */}
-                {!clientSearching && !clientFound && showNameField && customerData.phone.trim() && validateEcuadorianPhone(normalizeEcuadorianPhone(customerData.phone)) && (
-                  <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
-                    <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-4 shadow-sm">
-                      <p className="text-sm text-gray-600 leading-relaxed">
-                        <i className="bi bi-info-circle mr-2"></i>
-                        Número no registrado. Por favor ingresa tus datos para continuar.
-                      </p>
-                    </div>
-
-                    {/* Campo de confirmación de teléfono */}
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Confirmar celular *</label>
-                    <div className="relative mb-4">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                        <i className="bi bi-phone-fill"></i>
-                      </span>
-                      <input
-                        type="tel"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={phoneConfirmation}
-                        onChange={(e) => setPhoneConfirmation(e.target.value)}
-                        className={`w-full pl-10 pr-12 py-3.5 bg-white border rounded-2xl text-sm shadow-sm focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
-                          ? 'border-emerald-300 ring-2 ring-emerald-100 focus:ring-emerald-500/20'
-                          : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
-                            ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-500/20'
-                            : 'border-gray-100 hover:border-red-100 focus:ring-red-500/20'
-                          }`}
-                        placeholder="Vuelve a escribir tu celular"
-                        maxLength={10}
-                      />
-                      {/* Ícono de validación */}
-                      {phoneConfirmation.trim() && (
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                          {phoneConfirmation === customerData.phone ? (
-                            <i className="bi bi-check-circle-fill text-green-500 text-xl"></i>
-                          ) : (
-                            <i className="bi bi-x-circle-fill text-red-500 text-xl"></i>
-                          )}
-                        </span>
-                      )}
-                    </div>
-
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Nombre completo *</label>
-                    <input
-                      type="text"
-                      required
-                      value={customerData.name}
-                      onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
-                      className={`w-full px-4 py-3.5 bg-white border rounded-2xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 transition-all ${nameError ? 'border-red-300 ring-red-100' : 'border-gray-100 hover:border-red-100'}`}
-                      placeholder="Juan Pérez"
-                    />
-                    {nameError && <p className="text-red-500 text-sm mt-1 font-medium">{nameError}</p>}
-
-                    <button
-                      onClick={handleCreateClient}
-                      disabled={!customerData.name.trim() || !phoneConfirmation.trim() || phoneConfirmation !== customerData.phone || isSubmitting}
-                      className="w-full mt-3 px-4 py-3.5 bg-gray-900 text-white rounded-2xl hover:bg-black transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed font-black shadow-[0_12px_30px_rgba(17,24,39,0.15)]"
-                    >
-                      {isSubmitting ? (
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                          <span>Creando cuenta...</span>
-                        </div>
-                      ) : 'Continuar'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Si hay cliente logueado, mostrar rating UI normal
   return (
     <div className="fixed inset-0 z-[200] sm:overflow-hidden">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
@@ -680,21 +492,193 @@ export default function StoreRatingModal({
               <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-sm border border-red-100">
                 ⭐
               </div>
-              <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">¿Qué tal tu experiencia?</h3>
-              <p className="text-sm text-gray-500 mt-2 leading-relaxed">Tu opinión ayuda mucho a {business.name}</p>
+              <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">Opiniones de la tienda</h3>
+              <p className="text-sm text-gray-500 mt-2 leading-relaxed">Conoce las calificaciones de {business.name}</p>
             </div>
 
-            {loadingInitial ? (
-              <div className="py-12 flex flex-col items-center justify-center gap-3">
-                <div className="w-8 h-8 border-3 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Cargando...</p>
+            {!activePhone ? (
+              <div className="bg-white border border-gray-100 rounded-[1.75rem] p-5 shadow-sm mb-6 animate-fadeIn">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center text-xl flex-shrink-0 shadow-sm border border-red-100">
+                    ⭐
+                  </div>
+                  <div>
+                    <h4 className="text-base font-black text-gray-900 tracking-tight leading-tight">Inicia sesión para calificar</h4>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Ingresa tu celular para calificar u opinar</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Número de celular</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                        <i className="bi bi-phone"></i>
+                      </span>
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={customerData.phone}
+                        onChange={(e) => {
+                          const phone = e.target.value
+                          setCustomerData({ ...customerData, phone })
+                          handlePhoneSearch(phone)
+                        }}
+                        onBlur={(e) => {
+                          const phone = e.target.value
+                          const normalizedPhone = normalizeEcuadorianPhone(phone)
+                          if (validateEcuadorianPhone(normalizedPhone)) {
+                            setCustomerData({ ...customerData, phone: normalizedPhone })
+                          }
+                        }}
+                        className={`w-full pl-10 pr-4 py-3.5 bg-white border rounded-2xl text-sm text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400 transition-all ${phoneError ? 'ring-2 ring-red-100 border-red-300' : 'border-gray-100 hover:border-red-100'}`}
+                        placeholder="0999999999"
+                        maxLength={10}
+                        disabled={clientSearching}
+                      />
+                    </div>
+                    {clientFound && (
+                      <button
+                        onClick={() => {
+                          setClientFound(null)
+                          setCustomerData({ name: '', phone: '' })
+                          setShowNameField(false)
+                          setPhoneError('')
+                          setPhoneConfirmation('')
+                        }}
+                        className="px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-2xl transition-colors"
+                        title="Cambiar número"
+                      >
+                        Cambiar
+                      </button>
+                    )}
+                  </div>
+                  {phoneError && <p className="text-red-500 text-xs mt-2 ml-1 font-medium">{phoneError}</p>}
+
+                  {/* Searching indicator */}
+                  {clientSearching && (
+                    <div className="mt-3 flex items-center gap-2 text-red-500 animate-fadeIn text-sm font-medium">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-red-200 border-t-red-500"></div>
+                      <p className="text-sm">Buscando cliente...</p>
+                    </div>
+                  )}
+
+                  {/* Cliente encontrado - mostrar confirmación */}
+                  {!clientSearching && clientFound && (
+                    <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
+                      <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 mb-4 shadow-sm">
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="w-10 h-10 bg-red-50 rounded-2xl flex items-center justify-center border border-red-100 flex-shrink-0">
+                            <i className="bi bi-person-check-fill text-red-500 text-lg"></i>
+                          </div>
+                          <div>
+                            <p className="text-base font-black text-gray-900 tracking-tight">¿Eres {clientFound.nombres}?</p>
+                            <p className="text-xs text-gray-500">Encontramos una cuenta con este número</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={handleConfirmLogin}
+                          className="w-full py-3 bg-gray-900 text-white text-sm font-black rounded-2xl hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-[0_12px_30px_rgba(17,24,39,0.15)]"
+                        >
+                          <i className="bi bi-check-circle"></i>
+                          Continuar como {clientFound.nombres}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setClientFound(null)
+                            setCustomerData({ name: '', phone: '' })
+                            setShowNameField(false)
+                            setPhoneError('')
+                            setPhoneConfirmation('')
+                          }}
+                          className="w-full mt-2 py-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors font-medium"
+                        >
+                          No, soy otra persona
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cliente no encontrado - pedir nombre para registrar */}
+                  {!clientSearching && !clientFound && showNameField && customerData.phone.trim() && validateEcuadorianPhone(normalizeEcuadorianPhone(customerData.phone)) && (
+                    <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
+                      <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 mb-4 shadow-sm">
+                        <p className="text-xs text-gray-600 leading-relaxed">
+                          <i className="bi bi-info-circle mr-1.5 text-red-500"></i>
+                          Número no registrado. Por favor ingresa tus datos para continuar.
+                        </p>
+                      </div>
+
+                      {/* Campo de confirmación de teléfono */}
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Confirmar celular *</label>
+                      <div className="relative mb-4">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                          <i className="bi bi-phone-fill"></i>
+                        </span>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={phoneConfirmation}
+                          onChange={(e) => setPhoneConfirmation(e.target.value)}
+                          className={`w-full pl-10 pr-12 py-3.5 bg-white border rounded-2xl text-sm shadow-sm focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
+                            ? 'border-emerald-300 ring-2 ring-emerald-100 focus:ring-emerald-500/20'
+                            : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
+                              ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-500/20'
+                              : 'border-gray-100 hover:border-red-100 focus:ring-red-500/20'
+                            }`}
+                          placeholder="Vuelve a escribir tu celular"
+                          maxLength={10}
+                        />
+                        {/* Ícono de validación */}
+                        {phoneConfirmation.trim() && (
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                            {phoneConfirmation === customerData.phone ? (
+                              <i className="bi bi-check-circle-fill text-green-500 text-xl"></i>
+                            ) : (
+                              <i className="bi bi-x-circle-fill text-red-500 text-xl"></i>
+                            )}
+                          </span>
+                        )}
+                      </div>
+
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Nombre completo *</label>
+                      <input
+                        type="text"
+                        required
+                        value={customerData.name}
+                        onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
+                        className={`w-full px-4 py-3.5 bg-white border rounded-2xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 transition-all ${nameError ? 'border-red-300 ring-red-100' : 'border-gray-100 hover:border-red-100'}`}
+                        placeholder="Juan Pérez"
+                      />
+                      {nameError && <p className="text-red-500 text-sm mt-1 font-medium">{nameError}</p>}
+
+                      <button
+                        onClick={handleCreateClient}
+                        disabled={!customerData.name.trim() || !phoneConfirmation.trim() || phoneConfirmation !== customerData.phone || isSubmitting}
+                        className="w-full mt-3 px-4 py-3.5 bg-gray-900 text-white rounded-2xl hover:bg-black transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed font-black shadow-[0_12px_30px_rgba(17,24,39,0.15)] text-sm"
+                      >
+                        {isSubmitting ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                            <span>Creando cuenta...</span>
+                          </div>
+                        ) : 'Continuar'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : loadingInitial ? (
+              <div className="py-8 flex justify-center">
+                <div className="w-5 h-5 border-2 border-gray-100 border-t-red-500 rounded-full animate-spin"></div>
               </div>
             ) : (() => {
               const displayName = clientUser?.nombres || clientFound?.nombres || 'Cliente'
               return (
                 <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-[1.75rem] p-4 shadow-sm mb-6">
                   <div className="flex gap-3">
-                    {/* Avatar Compacto */}
                     <div className="flex-shrink-0">
                       {clientUser?.photoURL ? (
                         <img src={clientUser.photoURL} alt={displayName} className="w-11 h-11 rounded-2xl object-cover border border-gray-100 shadow-sm" />
@@ -896,14 +880,13 @@ export default function StoreRatingModal({
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-black text-gray-300 uppercase tracking-[0.18em]">
-                              {r.createdAt ? new Date(r.createdAt.seconds * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short' }) : ''}
+                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-wider">
+                              {formatRelativeTime(r.createdAt)}
                             </span>
                             {r.clientPhone === activePhone && (
                               <button
                                 onClick={() => r.id && handleDelete(r.id)}
                                 className="w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                                title="Eliminar mi calificación"
                               >
                                 <i className="bi bi-trash3 text-xs"></i>
                               </button>

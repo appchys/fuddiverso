@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { getProductRatings, ProductRatingItem } from '@/lib/database'
 import { Product } from '@/types'
 import StarRating from '@/components/StarRating'
+import { formatRelativeTime } from '@/lib/date-utils'
 
 interface ProductRatingModalProps {
   isOpen: boolean
@@ -128,23 +129,19 @@ export default function ProductRatingModal({
                         <p className="text-xs font-bold text-gray-900 leading-none">
                           {item.clientName || 'Cliente'}
                         </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          Calificó en pedido
+                        <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
+                          {item.createdAt ? formatRelativeTime(item.createdAt) : 'Calificó en pedido'}
                         </p>
                       </div>
                     </div>
                     <StarRating rating={item.rating} size="sm" />
                   </div>
 
-                  {item.comment ? (
+                  {item.comment && item.comment.trim() ? (
                     <p className="text-xs text-gray-700 font-medium leading-relaxed bg-gray-50/80 p-3 rounded-xl border border-gray-100/80">
                       "{item.comment}"
                     </p>
-                  ) : (
-                    <p className="text-[11px] text-gray-400 italic">
-                      Sin comentario escrito
-                    </p>
-                  )}
+                  ) : null}
                 </div>
               ))
             ) : (

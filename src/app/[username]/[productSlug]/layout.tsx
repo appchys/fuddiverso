@@ -36,8 +36,9 @@ export async function generateMetadata({ params }: ProductPageParams): Promise<M
     // Format description based on variants
     let descriptionPrefix = ''
     if (product.variants && product.variants.length > 0) {
-      const minPrice = Math.min(...product.variants.map(v => getProductPublicPrice(v)))
-      descriptionPrefix = `Desde ${formatPrice(minPrice)} - `
+      const basePrice = getProductPublicPrice(product)
+      const displayPrice = basePrice > 0 ? basePrice : Math.min(...product.variants.map(v => getProductPublicPrice(v)))
+      descriptionPrefix = `Desde ${formatPrice(displayPrice)} - `
     } else {
       descriptionPrefix = `${formatPrice(getProductPublicPrice(product))} - `
     }

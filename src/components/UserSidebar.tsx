@@ -19,6 +19,7 @@ import LocationSelectionModal from '@/components/LocationSelectionModal'
 import OrderSidebar from '@/components/OrderSidebar'
 import ReferralModal from '@/components/ReferralModal'
 import { ClientLocation } from '@/lib/database'
+import { formatRelativeTime } from '@/lib/date-utils'
 
 interface UserSidebarProps {
     isOpen: boolean
@@ -391,8 +392,8 @@ function ClientReviewsSidebar({
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <span className="text-[9px] font-bold text-gray-300 uppercase whitespace-nowrap">
-                                                        {formatDate(review.createdAt)}
+                                                    <span className="text-[9px] font-bold text-gray-400 uppercase whitespace-nowrap">
+                                                        {formatRelativeTime(review.createdAt)}
                                                     </span>
                                                 </div>
 
