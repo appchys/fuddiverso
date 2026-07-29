@@ -107,7 +107,6 @@ function AdminLayoutContent({
   const navLinks = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: 'bi-grid-1x2-fill' },
     { href: '/admin/confirmations', label: 'Origen Confirmaciones', icon: 'bi-check-all' },
-    { href: '/admin/dashboard?tab=transfers', label: 'Revisar Transferencias', icon: 'bi-bank' },
     { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
     { href: '/admin/stores', label: 'Configuración Tiendas', icon: 'bi-shop' },

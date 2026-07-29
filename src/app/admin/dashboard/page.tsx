@@ -8,7 +8,6 @@ const WhatsAppTemplateEditor = lazy(() => import('@/components/WhatsAppTemplateE
 const CustomerBroadcastPanel = lazy(() => import('@/components/CustomerBroadcastPanel'))
 const ProductsList = lazy(() => import('@/components/ProductsList'))
 const RecommendersTab = lazy(() => import('@/components/admin/RecommendersTab'))
-const TransferReviewPanel = lazy(() => import('@/components/TransferReviewPanel'))
 const PaymentManagementModals = lazy(() => import('@/components/PaymentManagementModals'))
 import {
   getAllOrders,
@@ -52,7 +51,7 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders' | 'transfers'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders'>('home')
   const [activeTemplateTab, setActiveTemplateTab] = useState<'whatsapp' | 'telegram' | 'broadcast'>('whatsapp')
   const [coverageGroups, setCoverageGroups] = useState<any[]>([])
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
@@ -63,7 +62,6 @@ export default function AdminDashboard() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Order | null>(null)
   const [validatingPaymentOrderId, setValidatingPaymentOrderId] = useState<string | null>(null)
-  const [isValidatingAllTransfers, setIsValidatingAllTransfers] = useState(false)
 
   // Estados para filtros del historial de órdenes
   const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
@@ -104,11 +102,7 @@ export default function AdminDashboard() {
   }, [])
 
   useEffect(() => {
-    if (searchParams?.get('tab') === 'transfers') {
-      setActiveTab('transfers')
-    } else {
-      setActiveTab('home')
-    }
+    setActiveTab('home')
   }, [searchParams])
 
   useEffect(() => {
@@ -715,59 +709,6 @@ export default function AdminDashboard() {
     }
   }
 
-  const handleValidateAllTransfers = async (ordersToValidate: Order[]) => {
-    if (ordersToValidate.length === 0) return
-
-    setIsValidatingAllTransfers(true)
-    try {
-      const promises = ordersToValidate.map(async (order) => {
-        const updatedPayment = {
-          ...order.payment,
-          paymentStatus: 'paid' as const
-        }
-        await updateOrder(order.id, { payment: updatedPayment } as any)
-        return { id: order.id, payment: updatedPayment }
-      })
-
-      const results = await Promise.all(promises)
-
-      setOrders(prevOrders =>
-        prevOrders.map(currentOrder => {
-          const match = results.find(r => r.id === currentOrder.id)
-          if (match) {
-            return {
-              ...currentOrder,
-              payment: {
-                ...currentOrder.payment,
-                ...match.payment
-              }
-            }
-          }
-          return currentOrder
-        })
-      )
-
-      if (selectedOrderForPayment) {
-        const match = results.find(r => r.id === selectedOrderForPayment.id)
-        if (match) {
-          setSelectedOrderForPayment({
-            ...selectedOrderForPayment,
-            payment: {
-              ...selectedOrderForPayment.payment,
-              ...match.payment
-            }
-          })
-        }
-      }
-
-      alert('Se confirmaron todas las transferencias seleccionadas exitosamente')
-    } catch (error) {
-      console.error('Error validating all transfer payments:', error)
-      alert('Hubo un error al validar algunas transferencias')
-    } finally {
-      setIsValidatingAllTransfers(false)
-    }
-  }
 
   const renderOrdersHistoryTab = () => {
     // Aplicar filtros a las órdenes
@@ -1077,13 +1018,6 @@ export default function AdminDashboard() {
           >
             <i className="bi bi-receipt md:hidden me-1.5"></i>
             Historial
-          </button>
-          <button
-            onClick={() => setActiveTab('transfers')}
-            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'transfers' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <i className="bi bi-bank md:hidden me-1.5"></i>
-            Transferencias
           </button>
         </div>
       </div>
@@ -1675,27 +1609,6 @@ export default function AdminDashboard() {
       ) : activeTab === 'products' ? (
         <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
           <ProductsList />
-        </Suspense>
-      ) : activeTab === 'transfers' ? (
-        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
-          <TransferReviewPanel
-            orders={orders}
-            businesses={businesses}
-            onPaymentEdit={handlePaymentClick}
-            onPaymentValidate={handleValidateTransferPayment}
-            validatingOrderId={validatingPaymentOrderId}
-            onValidateAllPayments={handleValidateAllTransfers}
-            isValidatingAll={isValidatingAllTransfers}
-          />
-          <PaymentManagementModals
-            isOpen={paymentModalOpen}
-            onClose={() => {
-              setPaymentModalOpen(false)
-              setSelectedOrderForPayment(null)
-            }}
-            order={selectedOrderForPayment}
-            onOrderUpdated={handleOrderUpdatedFromPaymentModal}
-          />
         </Suspense>
       ) : activeTab === 'orders' ? (
         renderOrdersHistoryTab()
