@@ -891,7 +891,7 @@ export function CheckoutContent({
     }
 
     void loadUserLocations()
-  }, [user?.id, deliveryData.type])
+  }, [user?.id])
 
   // Escuchar cambios de ubicación globales (ej. desde UserSidebar)
   useEffect(() => {
@@ -1319,7 +1319,7 @@ export function CheckoutContent({
             ...prev,
             address: location.referencia,
             references: `${location.sector} - ${location.latlong}`,
-            tarifa: normalizedFee.toString()
+            tarifa: prev.type === 'pickup' ? '0' : normalizedFee.toString()
           }))
 
           closeLocationModal()
@@ -1338,7 +1338,7 @@ export function CheckoutContent({
       ...prev,
       address: location.referencia,
       references: `${location.sector} - ${location.latlong}`,
-      tarifa: location.tarifa
+      tarifa: prev.type === 'pickup' ? '0' : (location.tarifa || '0')
     }))
     closeLocationModal()
   }
@@ -1951,7 +1951,7 @@ export function CheckoutContent({
 
       // Calcular todos los valores necesarios primero
       const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-      const deliveryCost = selectedLocation?.tarifa ? parseFloat(selectedLocation.tarifa) : 0;
+      const deliveryCost = getDeliveryCost();
       const creditToApply = paymentData.useCredits ? (paymentData.creditsAmount || 0) : 0;
       // Si la campaña de delivery gratis aplica, el cliente no paga el costo de envío
       const clientDeliveryCost = isFreeDeliveryActive ? 0 : deliveryCost;
@@ -2610,9 +2610,22 @@ export function CheckoutContent({
                         }
                         return;
                       }
-                      setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
 
-                      if (!selectedLocation) {
+                      const savedId = typeof window !== 'undefined' ? localStorage.getItem('userSelectedLocationId') : null;
+                      const matched = clientLocations.find(l => l.id === savedId) || clientLocations[0];
+                      const targetLoc = selectedLocation || matched;
+
+                      setDeliveryData(prev => ({
+                        ...prev,
+                        type: 'delivery',
+                        address: targetLoc?.referencia || prev.address,
+                        references: targetLoc ? `${targetLoc.sector || ''} - ${targetLoc.latlong || ''}` : prev.references,
+                        tarifa: targetLoc?.tarifa || '0'
+                      }));
+
+                      if (!selectedLocation && matched) {
+                        handleLocationSelect(matched);
+                      } else if (!selectedLocation && !matched) {
                         openLocationModal();
                       }
                     }}
@@ -2664,7 +2677,6 @@ export function CheckoutContent({
                         type="button"
                         onClick={() => {
                           if (isDisabled) return;
-                          setSelectedLocation(null);
                           setDeliveryData(prev => ({ ...prev, type: 'pickup', address: '', references: '', tarifa: '0' }));
                         }}
                         disabled={isDisabled}
@@ -3421,7 +3433,7 @@ export function CheckoutContent({
         />
 
         {/* Modal para ver la foto del local a pantalla completa */}
-        {showStoreImageModal && business?.locationImage && (
+        {showStoreImageModal && (business?.pickupSettings?.storePhotoUrl || business?.locationImage) && (
           <div
             className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 animate-fadeIn"
             onClick={() => setShowStoreImageModal(false)}
@@ -3434,7 +3446,7 @@ export function CheckoutContent({
                 <i className="bi bi-x-lg"></i>
               </button>
               <img
-                src={business.locationImage}
+                src={business.pickupSettings?.storePhotoUrl || business.locationImage}
                 alt="Foto del local"
                 className="w-full h-auto max-h-[80vh] object-contain rounded-xl shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
