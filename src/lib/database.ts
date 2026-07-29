@@ -2860,12 +2860,20 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
 
 let cachedGlobalZones: CoverageZone[] | null = null
 let cachedGlobalZonesTime = 0
+const cachedBusinessZones = new Map<string, { zones: CoverageZone[]; time: number }>()
 
 // Funciones para Zonas de Cobertura
 export async function getCoverageZones(businessId?: string): Promise<CoverageZone[]> {
   try {
     let q;
     if (businessId) {
+      // Verificar caché por negocio (TTL 60s)
+      const cached = cachedBusinessZones.get(businessId)
+      const now = Date.now()
+      if (cached && (now - cached.time < 60000)) {
+        return cached.zones
+      }
+
       // Obtener zonas específicas del negocio
       q = query(
         collection(db, 'coverageZones'),
@@ -2899,6 +2907,7 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
         });
       });
 
+      cachedBusinessZones.set(businessId, { zones, time: now })
       return zones;
     } else {
       // Obtener zonas globales (para admin) - Caching

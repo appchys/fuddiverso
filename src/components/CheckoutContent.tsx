@@ -378,7 +378,7 @@ export function CheckoutContent({
   const [hasPreviousPickup, setHasPreviousPickup] = useState<boolean | null>(null)
   const [isDeliveryAvailableNow, setIsDeliveryAvailableNow] = useState<boolean>(true)
   const [isLocationDeliveryAvailable, setIsLocationDeliveryAvailable] = useState<boolean>(true)
-  const [locationDeliveryUnavailableReason, setLocationDeliveryUnavailableReason] = useState<'out_of_coverage' | 'no_deliveries_in_zone' | null>(null)
+  const [locationDeliveryUnavailableReason, setLocationDeliveryUnavailableReason] = useState<'out_of_coverage' | 'inactive_zone' | 'no_deliveries_in_zone' | null>(null)
 
   // Verificar disponibilidad de delivery y repartidores por zona para la ubicación seleccionada
   useEffect(() => {
@@ -397,13 +397,26 @@ export function CheckoutContent({
           return
         }
 
-        // 1. Verificar si la ubicación está dentro de alguna zona de cobertura activa
-        const zones = await getCoverageZones(business?.id)
+        // 1. Cargar zonas del negocio y globales en paralelo
+        const [zones, globalZones] = await Promise.all([
+          getCoverageZones(business?.id),
+          business?.id ? getCoverageZones() : Promise.resolve([])
+        ])
+
         let matchingZone = zones.find(z => z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
+        let anyZone = zones.find(z => isPointInPolygon({ lat, lng }, z.polygon))
 
         if (!matchingZone && business?.id) {
-          const globalZones = await getCoverageZones()
           matchingZone = globalZones.find(z => !z.businessId && z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
+          if (!anyZone) {
+            anyZone = globalZones.find(z => !z.businessId && isPointInPolygon({ lat, lng }, z.polygon))
+          }
+        }
+
+        if (anyZone && !anyZone.isActive) {
+          setIsLocationDeliveryAvailable(false)
+          setLocationDeliveryUnavailableReason('inactive_zone')
+          return
         }
 
         const isOutsideCoverage = !matchingZone || selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0
@@ -551,10 +564,10 @@ export function CheckoutContent({
     if (stepId === 'step-4') {
       const step3Complete = deliveryData.type && (
         (deliveryData.type === 'pickup') ||
-        (deliveryData.type === 'delivery' && selectedLocation)
+        (deliveryData.type === 'delivery' && selectedLocation && isLocationDeliveryAvailable && Number(selectedLocation.tarifa || '0') > 0)
       )
       if (!step3Complete) {
-        return // No hacer nada si el paso 3 no está completo
+        return // No hacer nada si el paso 3 no está completo o si la ubicación no es válida
       }
     }
     
@@ -943,8 +956,28 @@ export function CheckoutContent({
         ...prev,
         [`step-${maxStep}`]: false
       }));
+    } else if (maxStep < currentStep) {
+      // Si el paso máximo retrocedió (ej: ubicación sin cobertura), colapsar pasos posteriores
+      setCurrentStep(maxStep);
+      setCollapsedSections(prev => {
+        const updated = { ...prev };
+        for (let i = maxStep + 1; i <= 4; i++) {
+          updated[`step-${i}`] = true;
+        }
+        return updated;
+      });
     }
   }, [customerData, deliveryData, paymentData, timingData, user, showNameField, selectedLocation, cartAvailability]);
+
+  // Effect separado: colapsar paso 4 cuando la ubicación pierde cobertura
+  useEffect(() => {
+    if (!isLocationDeliveryAvailable && deliveryData.type === 'delivery') {
+      setCollapsedSections(prev => ({
+        ...prev,
+        'step-4': true
+      }));
+    }
+  }, [isLocationDeliveryAvailable, deliveryData.type]);
 
   // Sincronizar estado del checkout en Firestore para monitoreo en tiempo real
   useEffect(() => {
@@ -1632,8 +1665,12 @@ export function CheckoutContent({
 
     // Paso 3: Validar datos de entrega
     if (maxStep >= 3 && deliveryData.type) {
-      if (deliveryData.type === 'pickup' || (deliveryData.type === 'delivery' && (deliveryData.address.trim() || selectedLocation))) {
+      if (deliveryData.type === 'pickup') {
         maxStep = 4;
+      } else if (deliveryData.type === 'delivery' && (deliveryData.address.trim() || selectedLocation)) {
+        if (isLocationDeliveryAvailable && (!selectedLocation || Number(selectedLocation.tarifa || '0') > 0)) {
+          maxStep = 4;
+        }
       }
     }
 
@@ -1672,7 +1709,10 @@ export function CheckoutContent({
     if (!deliveryData.type) return false;
     if (deliveryData.type === 'pickup') return true;
     if (deliveryData.type === 'delivery') {
-      return Boolean(selectedLocation || deliveryData.address.trim());
+      if (!isLocationDeliveryAvailable) return false;
+      if (!selectedLocation && !deliveryData.address.trim()) return false;
+      if (selectedLocation && (!selectedLocation.tarifa || Number(selectedLocation.tarifa) <= 0)) return false;
+      return true;
     }
     return false;
   })();
@@ -1726,6 +1766,7 @@ export function CheckoutContent({
     // Paso 3: entrega
     if (!deliveryData.type) return false;
     if (deliveryData.type === 'delivery') {
+      if (!isLocationDeliveryAvailable) return false;
       // Si la ubicación seleccionada está fuera de cobertura, no permitir confirmar
       if (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0)) return false;
     }
@@ -1756,7 +1797,7 @@ export function CheckoutContent({
     }
 
     // Paso 3: entrega
-    if (!deliveryData.type || (deliveryData.type === 'delivery' && (!deliveryData.address.trim() && !selectedLocation)) || (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0))) {
+    if (!deliveryData.type || (deliveryData.type === 'delivery' && (!deliveryData.address.trim() && !selectedLocation)) || (deliveryData.type === 'delivery' && (!isLocationDeliveryAvailable || (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0))))) {
       return 'step-3';
     }
 
@@ -2712,29 +2753,52 @@ export function CheckoutContent({
                   <div className="animate-fadeIn space-y-4">
 
                     {selectedLocation ? (
-                      <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3 relative group">
-                        <div className="flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
-                          {selectedLocation.latlong ? (
-                            <LocationMap latlong={selectedLocation.latlong} height="100%" />
-                          ) : (
-                            <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400">
-                              <i className="bi bi-geo-alt-fill text-2xl"></i>
+                      <>
+                        <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-center justify-between gap-3 relative group">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900">{selectedLocation.referencia}</p>
+                            <p className="text-xs text-gray-500 mt-1 truncate">
+                              Tarifa: {formatPrice(Number(selectedLocation.tarifa || '0'))}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                            <div className="w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                              {selectedLocation.latlong ? (
+                                <LocationMap latlong={selectedLocation.latlong} height="100%" />
+                              ) : (
+                                <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400">
+                                  <i className="bi bi-geo-alt-fill text-2xl"></i>
+                                </div>
+                              )}
                             </div>
-                          )}
+                            <button
+                              onClick={openLocationModal}
+                              className="w-full px-3 py-1 text-xs font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm text-center"
+                            >
+                              Cambiar
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900">{selectedLocation.referencia}</p>
-                          <p className="text-xs text-gray-500 mt-1 truncate">
-                            Tarifa: {formatPrice(Number(selectedLocation.tarifa || '0'))}
-                          </p>
-                        </div>
-                        <button
-                          onClick={openLocationModal}
-                          className="px-3 py-1 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
-                        >
-                          Cambiar
-                        </button>
-                      </div>
+
+                        {/* Banner de advertencia de cobertura / zona inactiva */}
+                        {(!isLocationDeliveryAvailable || selectedLocationOutsideCoverage) && (
+                          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3 text-red-800 shadow-sm animate-fadeIn">
+                            <i className="bi bi-exclamation-triangle-fill text-xl text-red-500 flex-shrink-0 mt-0.5" />
+                            <div className="text-sm space-y-1">
+                              <p className="font-bold text-red-900">
+                                {locationDeliveryUnavailableReason === 'no_deliveries_in_zone'
+                                  ? 'Sin repartidores disponibles'
+                                  : 'Ubicación sin cobertura'}
+                              </p>
+                              <p className="text-red-700 text-xs leading-relaxed">
+                                {locationDeliveryUnavailableReason === 'no_deliveries_in_zone'
+                                  ? 'No hay repartidores disponibles para esta zona en este momento. Por favor intenta más tarde o selecciona Retiro en Tienda.'
+                                  : 'Por favor selecciona otra dirección o elige la opción de Retiro en Tienda.'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <button
                         onClick={openLocationModal}
