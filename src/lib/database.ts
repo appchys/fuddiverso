@@ -6865,6 +6865,22 @@ export async function creditReferral(
       })
     }
 
+    // Registrar la transacción de la billetera para auditoría e historial
+    try {
+      await addDoc(collection(db, 'walletTransactions'), {
+        userId: referral.createdBy,
+        businessId,
+        type: 'referral_bonus',
+        amount: 0.25,
+        concept: `Bono por recomendación (Pedido ${orderId.slice(0, 8)})`,
+        referenceId: orderId,
+        createdBy: 'Sistema (Referidos)',
+        createdAt: serverTimestamp()
+      })
+    } catch (txErr) {
+      console.error('Error recording wallet transaction for referral:', txErr)
+    }
+
     // Actualizar contador de conversiones en el link
     const linkQuery = query(
       collection(db, 'referralLinks'),
@@ -6917,7 +6933,7 @@ export async function addWalletBalance(
     await addDoc(collection(db, 'walletTransactions'), {
       userId,
       businessId,
-      type: 'balance_credit',
+      type: amount >= 0 ? 'balance_credit' : 'balance_debit',
       amount,
       concept,
       referenceId: referenceId || null,
@@ -6937,14 +6953,14 @@ export async function addWalletBalance(
     if (!snapshot.empty) {
       await updateDoc(snapshot.docs[0].ref, {
         balance: firestoreIncrement(amount),
-        totalCredits: firestoreIncrement(amount),
+        ...(amount > 0 ? { totalCredits: firestoreIncrement(amount) } : {}),
         updatedAt: serverTimestamp()
       })
     } else {
       await addDoc(collection(db, 'userCredits'), {
         userId,
         businessId,
-        totalCredits: amount,
+        totalCredits: Math.max(0, amount),
         availableCredits: 0,
         usedCredits: 0,
         balance: amount,
@@ -7057,6 +7073,24 @@ export async function getWalletTransactions(
     })
   } catch (error) {
     console.error('Error getting wallet transactions:', error)
+    return []
+  }
+}
+
+/**
+ * Obtiene el historial global de transacciones de billeteras en el sistema (Administrativo).
+ */
+export async function getAllWalletTransactionsGlobal(limitCount: number = 100): Promise<any[]> {
+  try {
+    const q = query(
+      collection(db, 'walletTransactions'),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any))
+  } catch (error) {
+    console.error('Error getting global wallet transactions:', error)
     return []
   }
 }
