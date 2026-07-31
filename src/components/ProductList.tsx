@@ -35,6 +35,7 @@ export default function ProductList({
     commissionType: 'fuddi_assumed_by_customer' as CommissionType,
     isCombo: false,
     minComboItems: 1,
+    countComboUnits: false,
     imagePosition: 'center 50%'
   })
   const [variants, setVariants] = useState<ProductVariant[]>([])
@@ -259,6 +260,7 @@ export default function ProductList({
       commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
       isCombo: false,
       minComboItems: 1,
+      countComboUnits: false,
       imagePosition: 'center 50%'
     })
     setVariants([])
@@ -322,6 +324,7 @@ export default function ProductList({
       commissionType: (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
       isCombo: product.isCombo || false,
       minComboItems: product.minComboItems || 1,
+      countComboUnits: product.countComboUnits || false,
       imagePosition: product.imagePosition || 'center 50%'
     })
     setVariants(product.variants?.map(v => ({ ...v, price: v.basePrice || v.price })) || [])
@@ -390,6 +393,7 @@ export default function ProductList({
       commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
       isCombo: false,
       minComboItems: 1,
+      countComboUnits: false,
       imagePosition: 'center 50%'
     })
     setVariants([])
@@ -993,6 +997,7 @@ export default function ProductList({
           : undefined,
         isCombo: formData.isCombo,
         minComboItems: formData.isCombo ? Number(formData.minComboItems) : 1,
+        countComboUnits: formData.isCombo ? !!formData.countComboUnits : false,
         optionGroups: optionGroups.length > 0 ? optionGroups : undefined,
         imagePosition: formData.imagePosition,
         businessId: business.id,
@@ -2371,7 +2376,7 @@ export default function ProductList({
                                 const newHasVariants = !hasVariants;
                                 setHasVariants(newHasVariants);
                                 if (!newHasVariants) {
-                                  setFormData(prev => ({ ...prev, isCombo: false }));
+                                  setFormData(prev => ({ ...prev, isCombo: false, countComboUnits: false }));
                                 }
                               }}
                               className="sr-only peer"
@@ -2402,20 +2407,43 @@ export default function ProductList({
                               </div>
                             </label>
 
-                            {/* Combo cantidad de opciones */}
+                            {/* Combo cantidad de opciones y Conteo de unidades */}
                             {formData.isCombo && (
-                              <div className="p-4 bg-orange-50/10 rounded-xl border border-orange-100/80 space-y-2 animate-in fade-in zoom-in-95 duration-200">
-                                <label className="block text-[9px] font-black text-orange-700 uppercase tracking-widest ml-0.5">Cantidad de Opciones a Elegir</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={formData.minComboItems}
-                                  onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
-                                  className="w-full sm:w-1/2 px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-orange-500 font-bold text-xs bg-white text-slate-800"
-                                />
-                                <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
-                                  El cliente deberá seleccionar exactamente esta cantidad de variantes para poder ordenar el combo.
-                                </p>
+                              <div className="space-y-3 animate-in fade-in zoom-in-95 duration-200">
+                                <div className="p-4 bg-orange-50/10 rounded-xl border border-orange-100/80 space-y-2">
+                                  <label className="block text-[9px] font-black text-orange-700 uppercase tracking-widest ml-0.5">Cantidad de Opciones a Elegir</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={formData.minComboItems}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
+                                    className="w-full sm:w-1/2 px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-orange-500 font-bold text-xs bg-white text-slate-800"
+                                  />
+                                  <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
+                                    El cliente deberá seleccionar exactamente esta cantidad de variantes para poder ordenar el combo.
+                                  </p>
+                                </div>
+
+                                {/* Toggle Conteo de Unidades */}
+                                <label className="flex items-center justify-between p-3.5 bg-orange-50/30 hover:bg-orange-50/50 rounded-xl cursor-pointer transition-all border border-orange-100/50 group">
+                                  <div>
+                                    <span className="font-bold text-slate-800 text-xs block">Hacer conteo de unidades</span>
+                                    <span className="text-[9px] text-slate-500 font-medium block mt-0.5">
+                                      Multiplica las cantidades por los ingredientes de cada variante (ej. 2x 5 wantancitos → 10 wantancitos)
+                                    </span>
+                                  </div>
+                                  <div className="relative inline-flex items-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!formData.countComboUnits}
+                                      onChange={() => {
+                                        setFormData(prev => ({ ...prev, countComboUnits: !prev.countComboUnits }));
+                                      }}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-9 h-5 bg-slate-200 peer-checked:bg-orange-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                                  </div>
+                                </label>
                               </div>
                             )}
 

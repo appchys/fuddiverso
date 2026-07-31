@@ -236,6 +236,7 @@ export interface Product {
   scheduleAvailability?: ProductScheduleAvailability // Disponibilidad por horarios/días
   isCombo?: boolean // Si el producto es un combo que requiere seleccionar múltiples variantes
   minComboItems?: number // Cantidad mínima de variantes a seleccionar para el combo
+  countComboUnits?: boolean // Si es true, desglosa y multiplica la cantidad de ingredientes/unidades al armar el combo
   optionGroups?: ProductOptionGroup[] // Modificadores/Opciones del producto
   createdAt: Date
   updatedAt: Date

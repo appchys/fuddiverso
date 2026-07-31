@@ -8,6 +8,7 @@ import { normalizeEcuadorianPhone } from '@/lib/validation'
 import { unredeemQRCodePrize, getProductsByBusiness, getProductRatings } from '@/lib/database'
 import dynamic from 'next/dynamic'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
+import { formatComboVariantSelection } from '@/lib/combo-utils'
 import { Flame, Star } from 'lucide-react'
 
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
@@ -946,10 +947,11 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         const minComboItems = product.minComboItems || 1;
                         const isComboComplete = !product.isCombo || totalComboSelected >= minComboItems;
                         const comboProgressPercent = Math.min(100, Math.round((totalComboSelected / minComboItems) * 100));
-                        const selectedVariantsStr = Object.entries(comboSelection)
-                            .filter(([_, q]) => q > 0)
-                            .map(([name, q]) => `${q}x ${name}`)
-                            .join(', ');
+                        const selectedVariantsStr = formatComboVariantSelection(
+                            comboSelection,
+                            availableVariants,
+                            product.countComboUnits
+                        );
 
                         const cartButton = cartItemsCount > 0 && (
                             <button

@@ -6,6 +6,7 @@ import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
+import { formatComboVariantSelection } from '@/lib/combo-utils'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -1945,10 +1946,11 @@ export default function ManualOrderSidebar({
         return acc;
       }, 0);
 
-      const selectedVariantsStr = Object.entries(comboSelection)
-        .filter(([_, q]) => q > 0)
-        .map(([name, q]) => `${q}x ${name}`)
-        .join(', ');
+      const selectedVariantsStr = formatComboVariantSelection(
+        comboSelection,
+        product.variants,
+        product.countComboUnits
+      );
       variantNameStr = `Combo: ${selectedVariantsStr}`;
 
     } else {
