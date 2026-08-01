@@ -97,6 +97,27 @@ export default function AdminStoresDeliveryPage() {
     }
   }
 
+  // Modificar Check-in Diario obligatorio
+  const handleToggleDailyCheckIn = async (businessId: string, currentValue: boolean) => {
+    setUpdatingStoreId(businessId)
+    const newValue = !currentValue
+    try {
+      await updateBusiness(businessId, { requireDailyCheckIn: newValue })
+      
+      // Actualizar estado local
+      setBusinesses(prev => prev.map(b => 
+        b.id === businessId ? { ...b, requireDailyCheckIn: newValue } : b
+      ))
+      
+      showToast(newValue ? 'Check-in diario activado para esta tienda' : 'Check-in diario desactivado (Apertura automática)', 'success')
+    } catch (error) {
+      console.error('Error al actualizar configuración de check-in:', error)
+      showToast('No se pudo actualizar el check-in diario', 'error')
+    } finally {
+      setUpdatingStoreId(null)
+    }
+  }
+
   // Filtrar y buscar tiendas
   const filteredBusinesses = useMemo(() => {
     return businesses.filter(b => {
@@ -115,7 +136,8 @@ export default function AdminStoresDeliveryPage() {
     const total = businesses.length
     const fuddi = businesses.filter(b => (b.deliveryServiceType ?? 'fuddi') === 'fuddi').length
     const self = total - fuddi
-    return { total, fuddi, self }
+    const checkInRequired = businesses.filter(b => !!b.requireDailyCheckIn).length
+    return { total, fuddi, self, checkInRequired }
   }, [businesses])
 
   return (
@@ -135,8 +157,8 @@ export default function AdminStoresDeliveryPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Gestión de Deliveries por Tienda</h1>
-          <p className="text-gray-500 text-sm mt-1">Configura el tipo de entrega y el repartidor predeterminado para cada tienda.</p>
+          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Gestión de Deliveries y Check-in</h1>
+          <p className="text-gray-500 text-sm mt-1">Configura el tipo de entrega, repartidor predeterminado y Check-in Diario para cada tienda.</p>
         </div>
         <button 
           onClick={loadData}
@@ -149,34 +171,44 @@ export default function AdminStoresDeliveryPage() {
       </div>
 
       {/* Stats Panel */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-xl">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-3.5">
+          <div className="w-11 h-11 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-xl shrink-0">
             <i className="bi bi-shop"></i>
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Total Tiendas</p>
-            <p className="text-2xl font-black text-gray-900 mt-0.5">{stats.total}</p>
+            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Total Tiendas</p>
+            <p className="text-xl font-black text-gray-900 mt-0.5">{stats.total}</p>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-xl">
+        <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-3.5">
+          <div className="w-11 h-11 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-xl shrink-0">
             <i className="bi bi-rocket-takeoff-fill"></i>
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Delivery Fuddi</p>
-            <p className="text-2xl font-black text-gray-900 mt-0.5">{stats.fuddi}</p>
+            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Delivery Fuddi</p>
+            <p className="text-xl font-black text-gray-900 mt-0.5">{stats.fuddi}</p>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center text-xl">
+        <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-3.5">
+          <div className="w-11 h-11 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center text-xl shrink-0">
             <i className="bi bi-person-fill-gear"></i>
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Autogestión (Self)</p>
-            <p className="text-2xl font-black text-gray-900 mt-0.5">{stats.self}</p>
+            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Autogestión</p>
+            <p className="text-xl font-black text-gray-900 mt-0.5">{stats.self}</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-3.5">
+          <div className="w-11 h-11 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center text-xl shrink-0">
+            <i className="bi bi-calendar-check-fill"></i>
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Check-in Diario</p>
+            <p className="text-xl font-black text-gray-900 mt-0.5">{stats.checkInRequired}</p>
           </div>
         </div>
       </div>
@@ -247,6 +279,7 @@ export default function AdminStoresDeliveryPage() {
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Tienda</th>
+                  <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Check-in Diario</th>
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Tipo de Delivery</th>
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Delivery Predeterminado</th>
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400 text-right">Acción</th>
@@ -289,6 +322,38 @@ export default function AdminStoresDeliveryPage() {
                               </Link>
                             </div>
                           </div>
+                        </div>
+                      </td>
+
+                      {/* Toggle Check-in Diario */}
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-3">
+                          <button
+                            disabled={isUpdating}
+                            onClick={() => handleToggleDailyCheckIn(store.id, !!store.requireDailyCheckIn)}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              store.requireDailyCheckIn ? 'bg-emerald-500' : 'bg-gray-200'
+                            } ${isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            role="switch"
+                            aria-checked={!!store.requireDailyCheckIn}
+                            title={store.requireDailyCheckIn ? 'Requiere confirmación diaria para abrir' : 'Apertura automática por horario'}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                store.requireDailyCheckIn ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                          <span className="text-xs font-bold">
+                            {store.requireDailyCheckIn ? (
+                              <span className="text-emerald-600 flex items-center gap-1">
+                                <i className="bi bi-shield-check"></i> Requerido
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">Automático</span>
+                            )}
+                          </span>
                         </div>
                       </td>
 

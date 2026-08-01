@@ -48,6 +48,13 @@ export interface Business {
   }
   manualStoreStatus?: 'open' | 'closed' | null // Control manual: open/closed override, null = usar horario
   manualStatusExpiry?: Date // Cuándo expira el control manual y vuelve a automático
+  requireDailyCheckIn?: boolean // Control si la tienda requiere confirmación diaria (Check-in) para abrir
+  dailyCheckInState?: {
+    date: string // YYYY-MM-DD
+    status: 'open' | 'closed' | 'pending'
+    respondedAt?: any
+    lastNotificationSentDate?: string
+  } | null
   isHidden?: boolean // Ocultar la tienda del público
   category?: string // Categoría del negocio (restaurante, cafetería, etc.)
   businessType?: 'food_store' | 'distributor' // Tipo de negocio

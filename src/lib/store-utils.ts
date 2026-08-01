@@ -79,6 +79,26 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
   return expiryDate
 }
 
+/**
+ * Obtiene la fecha de hoy formateada como YYYY-MM-DD en zona horaria local (Ecuador)
+ */
+export function getTodayDateString(d: Date = new Date()): string {
+    try {
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Guayaquil',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        })
+        return formatter.format(d)
+    } catch {
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${y}-${m}-${day}`
+    }
+}
+
 export function isStoreOpen(business: Business | null): boolean {
     if (!business) return false
 
@@ -130,18 +150,34 @@ export function isStoreOpen(business: Business | null): boolean {
     const openMinutes = openH * 60 + openM
     const closeMinutes = closeH * 60 + closeM
 
+    let isWithinSchedule = false
     if (closeMinutes < openMinutes) {
         // Horario nocturno cruzando la medianoche (ej: 18:00 a 02:00)
-        return currentMinutes >= openMinutes || currentMinutes <= closeMinutes
+        isWithinSchedule = currentMinutes >= openMinutes || currentMinutes <= closeMinutes
+    } else {
+        isWithinSchedule = currentMinutes >= openMinutes && currentMinutes <= closeMinutes
     }
-    
-    return currentMinutes >= openMinutes && currentMinutes <= closeMinutes
+
+    if (!isWithinSchedule) return false
+
+    // 3. Verificar si la tienda requiere Check-in Diario para abrir
+    if (business.requireDailyCheckIn) {
+        const todayStr = getTodayDateString(now)
+        const checkIn = business.dailyCheckInState
+        // Solo abre si el check-in es para hoy y el estado fue confirmado como 'open'
+        if (checkIn && checkIn.date === todayStr && checkIn.status === 'open') {
+            return true
+        }
+        return false
+    }
+
+    return true
 }
 
 /**
  * Obtiene una descripción del estado actual de la tienda
  * @param business - Objeto de negocio
- * @returns Descripción del estado (ej: "Abierto (Manual)", "Cerrado (Horario)")
+ * @returns Descripción del estado (ej: "Abierto (Manual)", "Cerrado (Horario)", "Cerrado (Pendiente Check-in)")
  */
 export function getStoreStatusDescription(business: Business | null): string {
     if (!business) return 'Desconocido'
@@ -167,8 +203,18 @@ export function getStoreStatusDescription(business: Business | null): string {
         if (!isExpired) {
             return business.manualStoreStatus === 'open' ? 'Abierto (Manual)' : 'Cerrado (Manual)'
         }
-        // Si caducó, mostramos el estado de horario pero con una nota? 
-        // Por ahora solo el estado de horario para que sea consistente
+    }
+
+    if (business.requireDailyCheckIn) {
+        const todayStr = getTodayDateString(now)
+        const checkIn = business.dailyCheckInState
+        if (isOpen) {
+            return 'Abierto (Check-in)'
+        }
+        if (checkIn && checkIn.date === todayStr && checkIn.status === 'closed') {
+            return 'Cerrado (Check-in)'
+        }
+        return 'Cerrado (Pendiente Check-in)'
     }
 
     return isOpen ? 'Abierto (Horario)' : 'Cerrado (Horario)'
