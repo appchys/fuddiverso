@@ -32,6 +32,7 @@ import NotificationsBell from '@/components/NotificationsBell'
 import CierreSidebarView from '@/components/CierreSidebarView'
 import ReportesSidebarView from '@/components/ReportesSidebarView'
 import TransferenciasSidebarView from '@/components/TransferenciasSidebarView'
+import DailyCheckInBanner from '@/components/DailyCheckInBanner'
 
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -1586,6 +1587,16 @@ export default function AdminPedidosPage() {
                     </div>
                 ) : (
                     <>
+                        {/* Daily Check-in Banner */}
+                        {business && business.requireDailyCheckIn && (
+                            <DailyCheckInBanner
+                                business={business}
+                                onBusinessUpdate={(updated) => {
+                                    setBusiness(prev => prev ? { ...prev, ...updated } : prev)
+                                }}
+                            />
+                        )}
+
                         {loading ? (
                             <div className="flex justify-center items-center py-24">
                                 <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-600"></div>

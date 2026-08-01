@@ -36,6 +36,7 @@ import {
 import { isStoreOpen, getNextOpeningMessage, calculateManualStatusExpiry } from '@/lib/store-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
+import DailyCheckInBanner from '@/components/DailyCheckInBanner'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -2087,6 +2088,16 @@ export default function TodayOrdersPage() {
                             ) : (
                                 <>
                                     <div className="p-4 space-y-6">
+                                        {/* Daily Check-in Banner */}
+                                        {business && business.requireDailyCheckIn && (
+                                            <DailyCheckInBanner
+                                                business={business}
+                                                onBusinessUpdate={(updated) => {
+                                                    setBusiness(prev => prev ? { ...prev, ...updated } : prev)
+                                                }}
+                                            />
+                                        )}
+
                                         {orders.length === 0 ? (
                                             <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
                                                 <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
