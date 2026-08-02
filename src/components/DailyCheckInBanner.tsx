@@ -17,8 +17,8 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
   const checkInState = business.dailyCheckInState
   const currentStatus = checkInState?.date === todayStr ? checkInState.status : 'pending'
 
-  // Si ya se realizó el check-in el día de hoy (sea 'open' o 'closed'), no se muestra el banner
-  if (currentStatus !== 'pending') {
+  // Si marcó que SÍ va a abrir hoy ('open'), el banner no debe mostrarse
+  if (currentStatus === 'open') {
     return null
   }
 
@@ -54,6 +54,37 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
     }
   }
 
+  // Si marcó que NO va a abrir hoy ('closed'), muestra recordatorio de que puede abrir en cualquier momento
+  if (currentStatus === 'closed') {
+    return (
+      <div className="bg-rose-50/90 border border-rose-200/90 rounded-2xl p-4 sm:p-5 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm animate-fadeIn">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 bg-rose-500/10 text-rose-700 rounded-xl flex items-center justify-center text-xl shrink-0">
+            <i className="bi bi-door-closed-fill"></i>
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              <h4 className="font-black text-sm text-rose-950 tracking-tight leading-tight">Tienda confirmada como Cerrada</h4>
+            </div>
+            <p className="text-xs text-rose-800/90 mt-0.5 font-medium leading-relaxed">
+              Indicaste que no abrirás hoy, pero <strong>puedes abrir tu tienda en cualquier momento</strong> cuando estés listo para recibir pedidos.
+            </p>
+          </div>
+        </div>
+        <button
+          disabled={updating}
+          onClick={() => handleSetStatus('open')}
+          className="self-end md:self-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all disabled:opacity-50 active:scale-95 text-center flex items-center justify-center gap-1.5 shrink-0"
+        >
+          <i className="bi bi-shop"></i>
+          {updating ? 'Abriendo...' : '🟢 Abrir Tienda Ahora'}
+        </button>
+      </div>
+    )
+  }
+
+  // Estado pendiente ('pending')
   return (
     <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 sm:p-5 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm animate-fadeIn">
       <div className="flex items-center gap-3.5">
