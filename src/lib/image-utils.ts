@@ -38,77 +38,127 @@ export async function optimizeImage(
     }
 
     return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        // Nota: en iPhone algunas fotos llegan como HEIC/HEIF; convertir a JPEG antes de cargar en <img>
         convertHeicToJpegIfNeeded(file)
             .then((convertedFile) => {
-                reader.readAsDataURL(convertedFile);
-            })
-            .catch(reject);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target?.result as string;
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                let width = img.width;
-                let height = img.height;
-
-                // Redimensionar si es más grande que el máximo permitido
-                if (width > maxWidth) {
-                    height = Math.round((height * maxWidth) / width);
-                    width = maxWidth;
+                let objectUrl: string | null = null;
+                try {
+                    objectUrl = URL.createObjectURL(convertedFile);
+                } catch (e) {
+                    console.warn('URL.createObjectURL falló, usando FileReader fallback:', e);
                 }
 
-                canvas.width = width;
-                canvas.height = height;
+                const img = new Image();
 
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    reject(new Error('No se pudo obtener el contexto del canvas'));
-                    return;
-                }
+                const cleanup = () => {
+                    if (objectUrl) {
+                        try {
+                            URL.revokeObjectURL(objectUrl);
+                        } catch (e) {}
+                    }
+                };
 
-                ctx.drawImage(img, 0, 0, width, height);
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
 
-                const tryEncode = (
-                    type: 'image/webp' | 'image/jpeg' | 'image/png',
-                    onDone: (blob: Blob | null) => void
-                ) => {
-                    canvas.toBlob(
-                        (blob) => onDone(blob),
-                        type,
-                        quality
-                    );
-                }
+                    // Redimensionar si es más grande que el máximo permitido
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
 
-                // Convertir a blob (por defecto WebP; fallback a JPEG si WebP no está soportado)
-                tryEncode(mimeType, (blob) => {
-                    if (blob && blob.type) {
-                        resolve(blob);
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        cleanup();
+                        reject(new Error('No se pudo obtener el contexto del canvas'));
                         return;
                     }
 
-                    if (mimeType === 'image/webp') {
-                        tryEncode('image/jpeg', (jpegBlob) => {
-                            if (jpegBlob) {
-                                resolve(jpegBlob);
-                            } else {
-                                reject(new Error('Error al comprimir la imagen'));
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const tryEncode = (
+                        type: 'image/webp' | 'image/jpeg' | 'image/png',
+                        onDone: (blob: Blob | null) => void
+                    ) => {
+                        if (canvas.toBlob) {
+                            canvas.toBlob(
+                                (blob) => onDone(blob),
+                                type,
+                                quality
+                            );
+                        } else {
+                            // Fallback para WebViews legacy sin HTMLCanvasElement.toBlob
+                            try {
+                                const dataUrl = canvas.toDataURL(type, quality);
+                                const arr = dataUrl.split(',');
+                                const mimeMatch = arr[0].match(/:(.*?);/);
+                                const mime = mimeMatch ? mimeMatch[1] : type;
+                                const bstr = atob(arr[1]);
+                                let n = bstr.length;
+                                const u8arr = new Uint8Array(n);
+                                while (n--) {
+                                    u8arr[n] = bstr.charCodeAt(n);
+                                }
+                                onDone(new Blob([u8arr], { type: mime }));
+                            } catch (err) {
+                                onDone(null);
                             }
-                        })
-                        return
-                    }
+                        }
+                    };
 
-                    if (blob) {
-                        resolve(blob)
-                        return
-                    }
+                    // Convertir a blob (por defecto WebP; fallback a JPEG si WebP no está soportado)
+                    tryEncode(mimeType, (blob) => {
+                        if (blob && blob.type) {
+                            cleanup();
+                            resolve(blob);
+                            return;
+                        }
 
-                    reject(new Error('Error al comprimir la imagen'));
-                })
-            };
-            img.onerror = (err) => reject(err);
-        };
-        reader.onerror = (err) => reject(err);
+                        if (mimeType === 'image/webp') {
+                            tryEncode('image/jpeg', (jpegBlob) => {
+                                cleanup();
+                                if (jpegBlob) {
+                                    resolve(jpegBlob);
+                                } else {
+                                    reject(new Error('Error al comprimir la imagen'));
+                                }
+                            });
+                            return;
+                        }
+
+                        cleanup();
+                        if (blob) {
+                            resolve(blob);
+                            return;
+                        }
+
+                        reject(new Error('Error al comprimir la imagen'));
+                    });
+                };
+
+                img.onerror = (err) => {
+                    cleanup();
+                    reject(err);
+                };
+
+                if (objectUrl) {
+                    img.src = objectUrl;
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        img.src = e.target?.result as string;
+                    };
+                    reader.onerror = (err) => {
+                        cleanup();
+                        reject(err);
+                    };
+                    reader.readAsDataURL(convertedFile);
+                }
+            })
+            .catch(reject);
     });
 }

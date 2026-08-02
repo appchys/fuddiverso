@@ -59,6 +59,8 @@ function TransferReceiptUploader({
 }) {
   const [dragActive, setDragActive] = useState(false)
   const [previewImage, setPreviewImage] = useState<string | null>(uploadedImageUrl)
+  const [localUploading, setLocalUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<string>('')
   const [error, setError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -67,16 +69,23 @@ function TransferReceiptUploader({
   }, [uploadedImageUrl])
 
   const validateFile = (file: File): boolean => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-    const maxSize = 5 * 1024 * 1024 // 5MB
-
-    if (!allowedTypes.includes(file.type)) {
-      setError('Solo se permiten archivos de imagen (JPG, PNG, WEBP)')
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/pjpeg', 'image/x-png']
+    const ext = '.' + (file.name.split('.').pop() || '').toLowerCase()
+    
+    // Verificar si el tipo MIME es de imagen o si coincide la extensión
+    const isValidType = allowedTypes.includes(file.type?.toLowerCase()) || (file.type && file.type.startsWith('image/'))
+    const isValidExt = allowedExtensions.includes(ext)
+    
+    if (!isValidType && !isValidExt && file.type !== '') {
+      setError('Solo se permiten archivos de imagen (JPG, PNG, WEBP, HEIC)')
       return false
     }
 
+    // Permitir archivos hasta 25MB (se comprimirán localmente a ~50KB antes de subir)
+    const maxSize = 25 * 1024 * 1024
     if (file.size > maxSize) {
-      setError('El archivo debe ser menor a 5MB')
+      setError('El archivo es demasiado grande (máximo 25MB)')
       return false
     }
 
@@ -87,38 +96,64 @@ function TransferReceiptUploader({
   const handleFileUpload = async (file: File) => {
     if (!validateFile(file)) return
 
+    setLocalUploading(true)
+    setError('')
+    setUploadStatus('Optimizando comprobante...')
+
+    // Previsualización inmediata local usando URL.createObjectURL
+    let localPreviewUrl: string | null = null
     try {
-      // Optimizar imagen antes de subir (maxWidth=1200 por defecto para comprobantes, calidad 0.7)
-      const optimizedBlob = await optimizeImage(file, 1200, 0.7)
+      localPreviewUrl = URL.createObjectURL(file)
+      setPreviewImage(localPreviewUrl)
+    } catch (e) {
+      console.warn('No se pudo crear vista previa local:', e)
+    }
 
-      // Crear un nuevo archivo WebP a partir del blob
-      const optimizedFile = new File(
-        [optimizedBlob],
-        file.name.replace(/\.[^/.]+$/, "") + ".webp",
-        { type: 'image/webp' }
-      )
+    try {
+      let uploadBlob: Blob | File = file
 
-      // Crear preview local con la imagen optimizada
-      const previewUrl = URL.createObjectURL(optimizedFile)
-      setPreviewImage(previewUrl)
+      // Optimización ultrarrápida (maxWidth: 900, quality: 0.65 produce archivos de 40-80KB NÍTI DOS)
+      try {
+        const optimizedBlob = await optimizeImage(file, 900, 0.65)
+        uploadBlob = new File(
+          [optimizedBlob],
+          file.name.replace(/\.[^/.]+$/, "") + ".webp",
+          { type: 'image/webp' }
+        )
+      } catch (optError) {
+        console.warn('Optimización falló, usando fallback de archivo original:', optError)
+        // Fallback: si la imagen original es menor a 3MB se sube directamente
+        if (file.size > 3 * 1024 * 1024) {
+          throw new Error('No se pudo procesar la imagen de alta resolución. Por favor intenta con otra foto.')
+        }
+      }
 
-      // Subir a Firebase Storage siguiendo la estructura: comprobantes/{clientId}/{timestamp}_{filename}
+      setUploadStatus('Subiendo comprobante...')
       const timestamp = Date.now()
-      const fileName = `comprobantes/${clientId}/${timestamp}_${optimizedFile.name}`
+      const rawName = (uploadBlob as File).name || 'comprobante.webp'
+      const sanitizedName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const fileName = `comprobantes/${clientId}/${timestamp}_${sanitizedName}`
       const storageRef = ref(storage, fileName)
 
-      await uploadBytes(storageRef, optimizedFile)
+      await uploadBytes(storageRef, uploadBlob)
       const downloadUrl = await getDownloadURL(storageRef)
 
-      // Limpiar preview local y usar URL de Firebase
-      URL.revokeObjectURL(previewUrl)
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl)
+      }
       setPreviewImage(downloadUrl)
       onReceiptUpload(downloadUrl)
-
-    } catch (error) {
-      console.error('Error uploading image:', error)
-      setError('Error al subir la imagen. Intenta nuevamente.')
+    } catch (err: any) {
+      console.error('Error al subir comprobante:', err)
+      setError(err?.message || 'Error al subir la imagen. Por favor intenta nuevamente.')
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl)
+      }
       setPreviewImage(null)
+      onReceiptUpload('')
+    } finally {
+      setLocalUploading(false)
+      setUploadStatus('')
     }
   }
 
@@ -158,98 +193,127 @@ function TransferReceiptUploader({
     }
   }
 
+  const isBusy = localUploading || isUploading
+
   return (
     <div className="mt-4">
-      <label className="block text-sm font-medium text-gray-700 mb-2">
-        Comprobante de Transferencia *
+      <label className="block text-sm font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center justify-between">
+        <span>Comprobante de Transferencia <span className="text-red-500">*</span></span>
+        <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 flex items-center gap-1">
+          <i className="bi bi-lightning-charge-fill"></i> Subida rápida
+        </span>
       </label>
 
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileSelect}
-        accept="image/jpeg, image/png, image/webp"
+        accept="image/*,.heic,.heif"
         className="hidden"
       />
-      {!previewImage ? (
+
+      {!previewImage && !isBusy ? (
         <div
-          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${dragActive ? 'border-red-500 bg-red-50' : 'border-gray-300 hover:border-gray-400'
-            }`}
+          className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
+            dragActive ? 'border-red-500 bg-red-50/60 shadow-inner scale-[0.99]' : 'border-gray-300 hover:border-gray-400 bg-gray-50/50'
+          }`}
           onDragEnter={handleDrag}
           onDragOver={handleDrag}
           onDragLeave={handleDrag}
           onDrop={handleDrop}
         >
           <div className="flex flex-col items-center">
-            <svg className="w-12 h-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <p className="text-sm text-gray-600 mb-2">Arrastra aquí tu comprobante</p>
-            <p className="text-xs text-gray-500 mb-4">o haz clic para seleccionar</p>
+            <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mb-3 shadow-xs border border-red-100">
+              <i className="bi bi-cloud-arrow-up text-3xl"></i>
+            </div>
+            <p className="text-sm font-bold text-gray-800 mb-1 tracking-tight">Arrastra aquí tu comprobante</p>
+            <p className="text-xs font-medium text-gray-500 mb-4 leading-relaxed">o selecciona una foto desde tu galería o cámara</p>
             <button
               type="button"
               onClick={(e) => {
                 e.preventDefault();
                 fileInputRef.current?.click();
               }}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
+              className="px-5 py-2.5 bg-red-500 text-white rounded-xl hover:bg-red-600 active:scale-95 transition-all text-sm font-bold shadow-md flex items-center gap-2"
             >
-              <i className="bi bi-upload mr-2"></i>
-              Seleccionar Archivo
+              <i className="bi bi-image text-base"></i>
+              Seleccionar Foto / Captura
             </button>
-            <p className="text-xs text-gray-400 mt-3">JPG, PNG o WEBP (máx. 5MB)</p>
+            <p className="text-[11px] font-medium text-gray-400 mt-3">JPG, PNG, WEBP o HEIC (optimizado para consumo bajo de datos)</p>
           </div>
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Vista previa de la imagen */}
-          <div className="relative rounded-lg overflow-hidden border-2 border-green-500 bg-green-50">
-            <img
-              src={previewImage}
-              alt="Comprobante de pago"
-              className="w-full h-48 object-contain bg-white"
-            />
-            <div className="absolute top-2 right-2 flex gap-2">
-              <button
-                type="button"
-                onClick={() => window.open(previewImage, '_blank')}
-                className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
-                title="Ver imagen completa"
-              >
-                <i className="bi bi-arrows-fullscreen text-gray-700"></i>
-              </button>
-              <button
-                type="button"
-                onClick={removeImage}
-                className="p-2 bg-white rounded-full shadow-lg hover:bg-red-50 transition-colors"
-                title="Eliminar imagen"
-              >
-                <i className="bi bi-trash text-red-600"></i>
-              </button>
-            </div>
+          {/* Vista previa de la imagen con overlay si está cargando */}
+          <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-500/40 bg-emerald-50/30 shadow-sm">
+            {previewImage && (
+              <img
+                src={previewImage}
+                alt="Comprobante de pago"
+                className="w-full h-48 object-contain bg-white"
+              />
+            )}
+
+            {isBusy ? (
+              <div className="absolute inset-0 bg-white/85 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center">
+                <div className="w-9 h-9 border-3 border-red-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                <p className="text-xs font-bold text-gray-800 animate-pulse">{uploadStatus || 'Procesando comprobante...'}</p>
+                <p className="text-[10px] font-medium text-gray-500 mt-1">Comprimiendo sin perder calidad para subida ultra rápida...</p>
+              </div>
+            ) : (
+              <div className="absolute top-2 right-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => previewImage && window.open(previewImage, '_blank')}
+                  className="p-2 bg-white/90 backdrop-blur-md rounded-full shadow hover:bg-white transition-colors"
+                  title="Ver imagen completa"
+                >
+                  <i className="bi bi-arrows-fullscreen text-gray-700"></i>
+                </button>
+                <button
+                  type="button"
+                  onClick={removeImage}
+                  className="p-2 bg-white/90 backdrop-blur-md rounded-full shadow hover:bg-red-50 transition-colors"
+                  title="Eliminar imagen"
+                >
+                  <i className="bi bi-trash text-red-600"></i>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Información del comprobante */}
-          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
-            <div className="flex items-center gap-2">
-              <i className="bi bi-check-circle-fill text-green-600 text-lg"></i>
-              <span className="text-sm font-medium text-green-800">Comprobante cargado exitosamente</span>
+          {!isBusy && previewImage && (
+            <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl p-3 shadow-xs">
+              <div className="flex items-center gap-2">
+                <i className="bi bi-check-circle-fill text-emerald-600 text-lg"></i>
+                <span className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Comprobante cargado exitosamente</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs text-emerald-700 underline font-medium hover:text-emerald-900"
+              >
+                Cambiar foto
+              </button>
             </div>
-          </div>
+          )}
         </div>
       )}
 
       {error && (
-        <p className="text-red-500 text-xs mt-2 flex items-center">
-          <i className="bi bi-exclamation-triangle mr-1"></i>
-          {error}
-        </p>
-      )}
-
-      {isUploading && (
-        <div className="mt-3 flex items-center text-sm text-gray-600">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500 mr-2"></div>
-          Subiendo comprobante...
+        <div className="mt-2.5 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between">
+          <p className="text-red-600 text-xs font-medium flex items-center gap-1.5">
+            <i className="bi bi-exclamation-triangle-fill text-sm text-red-500"></i>
+            {error}
+          </p>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="text-xs font-bold text-red-700 underline ml-2 whitespace-nowrap"
+          >
+            Reintentar
+          </button>
         </div>
       )}
     </div>
