@@ -799,6 +799,198 @@ exports.sendDailyOrderSummary = onSchedule({
   }
 });
 
+/**
+ * Cloud Function: Recordatorio de Check-in Diario para Negocios
+ * Se ejecuta cada 5 minutos para verificar qué negocios deben recibir la confirmación de apertura hoy.
+ */
+exports.sendDailyCheckInReminders = onSchedule({
+  schedule: "*/5 * * * *",
+  timeZone: "America/Guayaquil",
+  retryCount: 0
+}, async (event) => {
+  console.log('☀️ [CRON] Verificando Check-in Diario para negocios...');
+  try {
+    const nowUtc = new Date();
+    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
+    
+    const year = nowEcuador.getUTCFullYear();
+    const month = String(nowEcuador.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(nowEcuador.getUTCDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const currentDayEn = dayNamesEn[nowEcuador.getUTCDay()];
+    const currentDayEs = dayNamesEs[nowEcuador.getUTCDay()];
+
+    const snapshot = await admin.firestore()
+      .collection('businesses')
+      .where('requireDailyCheckIn', '==', true)
+      .get();
+
+    if (snapshot.empty) {
+      console.log('ℹ️ [Check-in] No hay negocios configurados con requireDailyCheckIn');
+      return;
+    }
+
+    let appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://fuddi.app';
+    try {
+      const settingsDoc = await admin.firestore().collection('settings').doc('general').get();
+      if (settingsDoc.exists && settingsDoc.data().appUrl) {
+        appUrl = settingsDoc.data().appUrl;
+      }
+    } catch (e) {}
+
+    const cleanAppUrl = appUrl.replace(/\/$/, '');
+
+    for (const doc of snapshot.docs) {
+      const business = doc.data();
+      const businessId = doc.id;
+
+      if (business.isActive === false) continue;
+
+      const checkInState = business.dailyCheckInState;
+      if (checkInState?.lastNotificationSentDate === dateStr) {
+        continue;
+      }
+
+      const scheduleKeys = Object.keys(business.schedule || {});
+      const todayKey = scheduleKeys.find(k => {
+        const lower = k.toLowerCase();
+        return lower === currentDayEn || lower === currentDayEs;
+      });
+
+      const todaySchedule = todayKey ? business.schedule[todayKey] : null;
+      if (!todaySchedule || !todaySchedule.isOpen || !todaySchedule.open) {
+        continue;
+      }
+
+      const openTimeClean = String(todaySchedule.open).trim();
+      const parts = openTimeClean.split(':');
+      if (parts.length < 2) continue;
+
+      const openH = parseInt(parts[0], 10);
+      const openM = parseInt(parts[1], 10);
+      if (isNaN(openH) || isNaN(openM)) continue;
+
+      const openMinutes = openH * 60 + openM;
+      const currentMinutes = nowEcuador.getUTCHours() * 60 + nowEcuador.getUTCMinutes();
+      const minsUntilOpening = openMinutes - currentMinutes;
+
+      if (minsUntilOpening > 15) {
+        continue;
+      }
+
+      console.log(`🚀 [Check-in] Enviando notificación a: ${business.name || businessId} (Hora apertura: ${todaySchedule.open})`);
+
+      const openPayload = `${businessId}:${dateStr}:open`;
+      const closePayload = `${businessId}:${dateStr}:close`;
+      const openToken = Buffer.from(openPayload).toString('base64url');
+      const closeToken = Buffer.from(closePayload).toString('base64url');
+
+      const openUrl = `${cleanAppUrl}/api/store/check-in?businessId=${businessId}&action=open&date=${dateStr}&token=${openToken}`;
+      const closeUrl = `${cleanAppUrl}/api/store/check-in?businessId=${businessId}&action=close&date=${dateStr}&token=${closeToken}`;
+
+      const openingTime = todaySchedule.open;
+      const timeLabel = openingTime ? `a las *${openingTime}*` : 'hoy';
+
+      // 1. Enviar Telegram
+      const chatIds = new Set();
+      if (business.telegramChatIds && Array.isArray(business.telegramChatIds)) {
+        business.telegramChatIds.forEach(id => id && chatIds.add(id));
+      }
+      if (business.telegramChatId) {
+        chatIds.add(business.telegramChatId);
+      }
+
+      if (chatIds.size > 0) {
+        const messageText = `☀️ *¿Listo para abrir? Confirma para empezar a recibir pedidos en ${business.name || 'tu tienda'}*\n\n¡Abres en 15 minutos! 👋 (${timeLabel})\nEs momento de confirmar la apertura de tu tienda para el día de hoy (*${dateStr}*).`;
+        const replyMarkup = {
+          inline_keyboard: [
+            [
+              { text: '🟢 Abrir Tienda', url: openUrl },
+              { text: '🔴 Mantener Cerrada', url: closeUrl }
+            ]
+          ]
+        };
+
+        for (const chatId of Array.from(chatIds)) {
+          try {
+            await telegramServices.sendStoreTelegramMessage(chatId, messageText, replyMarkup);
+            console.log(`✅ [Check-in Telegram] Enviado exitosamente a chat ${chatId}`);
+          } catch (telErr) {
+            console.error(`❌ [Check-in Telegram] Error al enviar a chat ${chatId}:`, telErr);
+          }
+        }
+      } else {
+        console.log(`ℹ️ [Check-in Telegram] Negocio ${business.name || businessId} no tiene chats de Telegram vinculados.`);
+      }
+
+      // 2. Enviar Email
+      const emails = new Set();
+      if (business.email) emails.add(business.email.trim().toLowerCase());
+      const adminEmails = await getBusinessAdminEmails(businessId);
+      adminEmails.forEach(e => e && emails.add(e.trim().toLowerCase()));
+
+      const recipientList = Array.from(emails).filter(Boolean);
+      if (recipientList.length > 0) {
+        try {
+          const subject = `¿Listo para abrir? Confirma para empezar a recibir pedidos en ${business.name || 'tu tienda'}`;
+          const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"></head>
+            <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f6f9; color: #1e293b; margin: 0; padding: 20px;">
+              <div style="max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 20px; padding: 32px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                <div style="display: inline-block; background: #e0e7ff; color: #3730a3; font-weight: bold; font-size: 12px; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; margin-bottom: 16px;">Check-in Diario • ${dateStr}</div>
+                <h1 style="font-size: 24px; font-weight: 900; margin: 0 0 8px 0; color: #0f172a;">⏰ ¡Abres en 15 minutos, ${business.name || 'tienda'}!</h1>
+                <p style="font-size: 15px; color: #64748b; line-height: 1.6; margin: 0 0 24px 0;">Tu tienda está programada para abrir ${openingTime ? `a las ${openingTime}` : 'hoy'}. Por favor confirma si abrirás hoy para comenzar a recibir pedidos:</p>
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 20px 0;">
+                  <tr>
+                    <td align="center" style="padding-right: 8px;">
+                      <a href="${openUrl}" style="background:#10b981; color:#ffffff; padding:14px 24px; border-radius:12px; font-weight:bold; text-decoration:none; display:inline-block; width:80%;">🟢 Abrir Tienda</a>
+                    </td>
+                    <td align="center" style="padding-left: 8px;">
+                      <a href="${closeUrl}" style="background:#ef4444; color:#ffffff; padding:14px 24px; border-radius:12px; font-weight:bold; text-decoration:none; display:inline-block; width:80%;">🔴 Mantener Cerrada</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="font-size:13px; color:#94a3b8;">Si no confirmas la apertura, tu tienda permanecerá cerrada para proteger la atención a tus clientes.</p>
+                <div style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 16px;">Fuddi • Sistema de Check-in Diario para Negocios</div>
+              </div>
+            </body>
+            </html>
+          `;
+
+          await emailServices.transporter.sendMail({
+            from: 'notificaciones@fuddi.shop',
+            to: recipientList.join(', '),
+            subject: subject,
+            html: htmlContent
+          });
+          console.log(`✅ [Check-in Email] Enviado exitosamente a ${recipientList.join(', ')}`);
+        } catch (emailErr) {
+          console.error(`❌ [Check-in Email] Error al enviar email para ${businessId}:`, emailErr);
+        }
+      }
+
+      const newCheckInState = {
+        date: dateStr,
+        status: (checkInState?.date === dateStr ? checkInState.status : 'pending'),
+        lastNotificationSentDate: dateStr,
+        updatedAt: new Date().toISOString()
+      };
+
+      await doc.ref.update({
+        dailyCheckInState: newCheckInState,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error en sendDailyCheckInReminders:', error);
+  }
+});
+
 // Exports para Telegram y Hooks
 exports.telegramWebhook = onRequest(telegramServices.handleStoreWebhook);
 exports.telegramDeliveryWebhook = onRequest(telegramServices.handleDeliveryWebhook);

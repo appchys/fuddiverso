@@ -73,11 +73,13 @@ async function processSingleBusinessCheckIn(adminDb: any, business: Business, da
     }
   }
 
-  const now = new Date()
+  const nowUtc = new Date()
+  const now = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000))
+
   const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
   const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
-  const currentDayEn = dayNamesEn[now.getDay()]
-  const currentDayEs = dayNamesEs[now.getDay()]
+  const currentDayEn = dayNamesEn[now.getUTCDay()]
+  const currentDayEs = dayNamesEs[now.getUTCDay()]
 
   const scheduleKeys = Object.keys(business.schedule || {})
   const todayKey = scheduleKeys.find(k => {
@@ -107,7 +109,7 @@ async function processSingleBusinessCheckIn(adminDb: any, business: Business, da
       
       if (!isNaN(openH) && !isNaN(openM)) {
         const openMinutes = openH * 60 + openM
-        const currentMinutes = now.getHours() * 60 + now.getMinutes()
+        const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes()
         const minsUntilOpening = openMinutes - currentMinutes
 
         // Enviar 15 minutos antes de abrir (o más tarde si el cron corrió durante la jornada)
