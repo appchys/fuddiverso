@@ -2363,6 +2363,7 @@ export default function ManualOrderSidebar({
         total: manualOrderData.total,
         status: finalStatus as any,
         createdByAdmin: true,
+        paymentCollector: 'store',
         createdAt: new Date(),
         updatedAt: new Date(),
         notas: manualOrderData.notas,

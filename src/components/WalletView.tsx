@@ -148,9 +148,8 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
             orderSubtotal = order.subtotal || Math.max(0, (order.total || 0) - deliveryFee)
         }
 
-        const isPickup = order.delivery?.type === 'pickup'
-        const isCash = order.payment?.method === 'cash'
-        const isStoreMoney = order.paymentCollector ? (order.paymentCollector === 'store') : (isPickup && isCash)
+        const collector = order.paymentCollector || ((order.createdByAdmin || order.delivery?.type === 'pickup') ? 'store' : 'fuddi')
+        const isStoreMoney = collector === 'store'
 
         const cashCollected = isStoreMoney ? orderSubtotal : 0
         const digitalCollected = isStoreMoney ? 0 : orderSubtotal

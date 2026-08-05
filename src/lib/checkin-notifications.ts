@@ -72,8 +72,8 @@ export async function sendTelegramCheckIn(
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🟢 Abrir Tienda', url: openUrl },
-                { text: '🔴 Mantener Cerrada', url: closeUrl }
+                { text: '🟢 Abrir Tienda', callback_data: `checkin_open|${business.id}|${date}` },
+                { text: '🔴 Mantener Cerrada', callback_data: `checkin_close|${business.id}|${date}` }
               ]
             ]
           }

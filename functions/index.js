@@ -284,6 +284,12 @@ async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
   try {
     console.log(`📨 [Telegram Admin] Preparando notificación para Admin de orden ${orderId}...`);
     
+    // Solo notificar si la orden fue realizada por el cliente (createdByAdmin es false/falsy)
+    if (orderData.createdByAdmin) {
+      console.log(`ℹ️ Orden ${orderId} fue creada por la propia tienda (createdByAdmin: true), omitiendo notificación a Admin.`);
+      return;
+    }
+
     // Obtener datos del negocio
     let businessData = {};
     if (orderData.businessId) {
@@ -908,8 +914,8 @@ exports.sendDailyCheckInReminders = onSchedule({
         const replyMarkup = {
           inline_keyboard: [
             [
-              { text: '🟢 Abrir Tienda', url: openUrl },
-              { text: '🔴 Mantener Cerrada', url: closeUrl }
+              { text: '🟢 Abrir Tienda', callback_data: `checkin_open|${businessId}|${dateStr}` },
+              { text: '🔴 Mantener Cerrada', callback_data: `checkin_close|${businessId}|${dateStr}` }
             ]
           ]
         };

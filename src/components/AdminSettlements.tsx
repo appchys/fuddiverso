@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { createDeliverySettlement, createSettlement, updateOrderSettlementStatus } from '@/lib/database'
 import { Business, Delivery, Order, Settlement } from '@/types'
+import { getEffectiveOrderCollector } from './CierreSidebarView'
 
 type Props = {
   orders: Order[]
@@ -160,7 +161,7 @@ export default function AdminSettlementsTab({
           }
         }
 
-        const collector = (order.paymentCollector || 'fuddi') as 'fuddi' | 'store'
+        const collector = getEffectiveOrderCollector(order)
         if (ordersReviewFilters.collector !== 'all' && collector !== ordersReviewFilters.collector) return false
         return true
       })
@@ -338,8 +339,8 @@ export default function AdminSettlementsTab({
                     .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
                     .map((order) => {
                       const business = businesses.find(b => b.id === order.businessId)
-                      const isStoreCollector = order.paymentCollector === 'store'
-                      const collector = order.paymentCollector || 'fuddi'
+                      const collector = getEffectiveOrderCollector(order)
+                      const isStoreCollector = collector === 'store'
                       const isPickup = order.delivery?.type === 'pickup'
                       const orderTypeLabel = isPickup ? 'Retiro en tienda' : 'Delivery'
                       const info = getSettlementOrderInfo(order)
@@ -803,7 +804,7 @@ export default function AdminSettlementsTab({
         {(() => {
           const summary = selectedData.orders.reduce((acc: any, order: Order) => {
             const info = getSettlementOrderInfo(order)
-            const isStoreCollector = order.paymentCollector === 'store'
+            const isStoreCollector = getEffectiveOrderCollector(order) === 'store'
 
             acc.totalOrders++
             acc.totalAmount += (order.total || 0)
@@ -830,8 +831,8 @@ export default function AdminSettlementsTab({
 
           const netSettlement = summary.storeReceives - summary.fuddiReceives
 
-          const storeOrders = selectedData.orders.filter((o: Order) => o.paymentCollector === 'store')
-          const fuddiOrders = selectedData.orders.filter((o: Order) => o.paymentCollector !== 'store')
+          const storeOrders = selectedData.orders.filter((o: Order) => getEffectiveOrderCollector(o) === 'store')
+          const fuddiOrders = selectedData.orders.filter((o: Order) => getEffectiveOrderCollector(o) !== 'store')
 
           return (
             <div className="space-y-6">
@@ -963,12 +964,12 @@ export default function AdminSettlementsTab({
                                   <td className="px-6 py-3 whitespace-nowrap text-center">
                                     <button
                                       onClick={() => handleToggleCollector(order)}
-                                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${order.paymentCollector === 'store'
+                                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${getEffectiveOrderCollector(order) === 'store'
                                         ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
                                         : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                                         }`}
                                     >
-                                      {order.paymentCollector === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
+                                      {getEffectiveOrderCollector(order) === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
                                     </button>
                                   </td>
                                   <td className="px-6 py-3 whitespace-nowrap text-center">
@@ -1116,12 +1117,12 @@ export default function AdminSettlementsTab({
                                   <td className="px-6 py-3 whitespace-nowrap text-center">
                                     <button
                                       onClick={() => handleToggleCollector(order)}
-                                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${order.paymentCollector === 'store'
+                                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${getEffectiveOrderCollector(order) === 'store'
                                         ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
                                         : 'bg-green-100 text-green-700 hover:bg-green-200'
                                         }`}
                                     >
-                                      {order.paymentCollector === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
+                                      {getEffectiveOrderCollector(order) === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
                                     </button>
                                   </td>
                                   <td className="px-6 py-3 whitespace-nowrap text-center">

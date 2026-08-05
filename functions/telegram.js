@@ -775,6 +775,104 @@ async function sendAdminTelegramMessage(text, replyMarkup = null, linkPreviewOpt
 }
 
 /**
+ * Manejador de callbacks de Check-in Diario en Telegram
+ */
+async function handleTelegramCheckInCallback(callbackQuery, actionType, businessId, dateStr) {
+    const callbackId = callbackQuery.id;
+    const chatId = callbackQuery.message?.chat?.id;
+    const messageId = callbackQuery.message?.message_id;
+
+    if (!businessId || !dateStr) {
+        console.warn('⚠️ [Check-in Webhook] Datos incompletos en callback_data');
+        return;
+    }
+
+    try {
+        const businessRef = admin.firestore().collection('businesses').doc(businessId);
+        const docSnap = await businessRef.get();
+
+        if (!docSnap.exists) {
+            console.warn(`⚠️ [Check-in Webhook] Negocio ${businessId} no encontrado`);
+            return;
+        }
+
+        const businessData = docSnap.data();
+        const storeName = businessData.name || 'Tu tienda';
+        const isOpening = actionType === 'checkin_open';
+        const targetStatus = isOpening ? 'open' : 'closed';
+
+        // Actualizar Firestore
+        const updatePayload = {
+            dailyCheckInState: {
+                ...businessData.dailyCheckInState,
+                date: dateStr,
+                status: targetStatus,
+                respondedAt: new Date().toISOString()
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        if (isOpening && businessData.manualStoreStatus === 'closed') {
+            updatePayload.manualStoreStatus = null;
+            updatePayload.manualStatusExpiry = null;
+        }
+
+        await businessRef.update(updatePayload);
+
+        // Notificación nativa emergente en Telegram (banner sin abrir navegador)
+        const alertText = isOpening
+            ? `🟢 ${storeName} confirmada como ABIERTA`
+            : `🔴 ${storeName} confirmada como CERRADA`;
+
+        try {
+            const answerUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/answerCallbackQuery`;
+            await axios.post(answerUrl, {
+                callback_query_id: callbackId,
+                text: alertText,
+                show_alert: false
+            });
+        } catch (e) {
+            console.error('Error enviando answerCallbackQuery para check-in:', e.message);
+        }
+
+        // Editar el mensaje en Telegram
+        let text = '';
+        let replyMarkup = { inline_keyboard: [] };
+
+        if (isOpening) {
+            text = `🟢 <b>Tienda Confirmada como ABIERTA</b>\n\n¡Excelente! Tu tienda <b>${storeName}</b> ha sido habilitada y está lista para recibir pedidos hoy (<b>${dateStr}</b>). 🚀`;
+        } else {
+            text = `🔴 <b>Tienda Confirmada como CERRADA</b>\n\nTu tienda <b>${storeName}</b> se mantendrá cerrada por el día de hoy (<b>${dateStr}</b>).`;
+            replyMarkup = {
+                inline_keyboard: [
+                    [
+                        { text: '🟢 Abrir Tienda Ahora', callback_data: `checkin_open|${businessId}|${dateStr}` }
+                    ]
+                ]
+            };
+        }
+
+        if (chatId && messageId && STORE_BOT_TOKEN) {
+            try {
+                const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
+                await axios.post(editUrl, {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    text: text,
+                    parse_mode: 'HTML',
+                    reply_markup: replyMarkup
+                });
+                console.log(`✅ [Check-in Webhook] Mensaje editado exitosamente en chat ${chatId}`);
+            } catch (editErr) {
+                console.error(`❌ [Check-in Webhook] Error editando mensaje de check-in:`, editErr.response?.data || editErr.message);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error en handleTelegramCheckInCallback:', error);
+    }
+}
+
+/**
  * Webhook para el bot de TIENDA
  */
 async function handleStoreWebhook(req, res) {
@@ -815,7 +913,14 @@ async function handleStoreWebhook(req, res) {
             const chatId = callbackQuery.message.chat.id;
             const messageId = callbackQuery.message.message_id;
 
-            const [actionType, token] = data.split('|');
+            const [actionType, param1, param2] = data.split('|');
+
+            if (actionType === 'checkin_open' || actionType === 'checkin_close') {
+                console.log(`☀️ [Store Webhook] Procesando check-in callback: ${actionType} para negocio ${param1}`);
+                await handleTelegramCheckInCallback(callbackQuery, actionType, param1, param2);
+                return res.status(200).send('OK');
+            }
+
             // Store Bot maneja confirmaciones, descartes y preparando de negocio
             if (actionType.startsWith('biz_') || actionType === 'store_preparing') {
                 const action = actionType; // biz_confirm, biz_discard, store_preparing
@@ -2844,6 +2949,11 @@ async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {
  */
 async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
     console.log(`🔍 [sendAdminNewOrderNotification] Iniciando para orden ${orderId}`);
+
+    if (orderData?.createdByAdmin) {
+        console.log(`ℹ️ [sendAdminNewOrderNotification] Orden ${orderId} fue creada por la propia tienda (createdByAdmin: true), omitiendo notificación.`);
+        return false;
+    }
 
     if (!businessData) {
         console.warn(`⚠️ [Telegram] No se encontró datos del negocio para orden ${orderId}`);

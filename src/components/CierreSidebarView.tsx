@@ -231,6 +231,17 @@ function calculateDeliveryAccounts(
     return list
 }
 
+// Helper para determinar el cobrador de un pedido (Fuddi o Tienda)
+export function getEffectiveOrderCollector(
+    order: Partial<Order>,
+    collectorOverrides?: Record<string, 'fuddi' | 'store'>
+): 'fuddi' | 'store' {
+    if (order.id && collectorOverrides?.[order.id]) {
+        return collectorOverrides[order.id]
+    }
+    return order.paymentCollector || ((order.createdByAdmin || order.delivery?.type === 'pickup') ? 'store' : 'fuddi')
+}
+
 // Función helper para calcular el resumen de cuentas por Restaurantes
 function calculateStoreAccounts(
     ordersList: Order[],
@@ -302,10 +313,7 @@ function calculateStoreAccounts(
 
         const effectiveSettlementStatus = (settlementOverrides && settlementOverrides[o.id]) || o.settlementStatus
         const isSettled = effectiveSettlementStatus === 'settled'
-        const isPickup = o.delivery?.type === 'pickup'
-        const isCash = o.payment?.method === 'cash'
-        const effectiveCollector = (collectorOverrides && collectorOverrides[o.id])
-            || (o.paymentCollector ? o.paymentCollector : (isPickup && isCash ? 'store' : 'fuddi'))
+        const effectiveCollector = getEffectiveOrderCollector(o, collectorOverrides)
         const isStoreMoney = effectiveCollector === 'store'
 
         // Excluir el costo del delivery del valor de la tienda (el envío pertenece al repartidor)
@@ -387,7 +395,16 @@ export default function CierreSidebarView({
     const [deliverySubTab, setDeliverySubTab] = useState<'pending' | 'history'>('pending')
     const [expandedDeliveryDays, setExpandedDeliveryDays] = useState<Record<string, boolean>>({})
     const [expandedDayDeliveries, setExpandedDayDeliveries] = useState<Record<string, boolean>>({})
+    const [expandedDriverStores, setExpandedDriverStores] = useState<Record<string, boolean>>({})
     const [localDeliverySettlementOverrides, setLocalDeliverySettlementOverrides] = useState<Record<string, 'settled' | 'pending'>>({})
+
+    const toggleDriverStoreExpand = (driverKey: string, storeId: string) => {
+        const key = `${driverKey}_${storeId}`
+        setExpandedDriverStores(prev => ({
+            ...prev,
+            [key]: prev[key] !== undefined ? !prev[key] : false
+        }))
+    }
 
     const toggleRestaurantExpand = (businessId: string) => {
         setExpandedRestaurants(prev => ({
@@ -750,11 +767,7 @@ export default function CierreSidebarView({
 
     // Alternar suavemente quién recibió el dinero (Fuddi <-> Tienda) sin alertas y con actualización optimista visual inmediata
     const handleTogglePaymentCollector = async (order: Order) => {
-        const isPickup = order.delivery?.type === 'pickup'
-        const isCash = order.payment?.method === 'cash'
-        const currentCollector = localCollectorOverrides[order.id]
-            || (order.paymentCollector ? order.paymentCollector : (isPickup && isCash ? 'store' : 'fuddi'))
-
+        const currentCollector = getEffectiveOrderCollector(order, localCollectorOverrides)
         const newCollector: 'fuddi' | 'store' = currentCollector === 'store' ? 'fuddi' : 'store'
 
         // 1. Actualización optimista visual inmediata
@@ -1563,11 +1576,9 @@ export default function CierreSidebarView({
 
                                             <div className="space-y-2">
                                                 {day.storeAccount.ordersList.map((order: Order) => {
-                                                    const isPickup = order.delivery?.type === 'pickup'
-                                                    const isCash = order.payment?.method === 'cash'
-                                                    const effectiveCollector = localCollectorOverrides[order.id]
-                                                        || (order.paymentCollector ? order.paymentCollector : (isPickup && isCash ? 'store' : 'fuddi'))
+                                                    const effectiveCollector = getEffectiveOrderCollector(order, localCollectorOverrides)
                                                     const isStoreMoney = effectiveCollector === 'store'
+                                                    const isCash = order.payment?.method === 'cash'
                                                     const isSettled = (localSettlementStatusOverrides[order.id] ? localSettlementStatusOverrides[order.id] === 'settled' : order.settlementStatus === 'settled')
                                                     const orderTotal = order.total || 0
 
@@ -1586,7 +1597,7 @@ export default function CierreSidebarView({
                                                             <div className="flex items-center justify-between gap-2">
                                                                 <div className="min-w-0 flex items-center gap-2 flex-wrap">
                                                                     <span className="font-bold text-slate-900">{order.customer?.name || 'Cliente'}</span>
-                                                                    <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {isCash ? 'Efectivo' : 'Transferencia'})</span>
+                                                                    <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {order.payment?.method === 'cash' ? 'Efectivo' : (order.payment?.method === 'mixed' ? 'Mixto' : 'Transferencia')})</span>
                                                                 </div>
 
                                                                 <div className="flex items-center gap-1.5 shrink-0">
@@ -1794,10 +1805,7 @@ export default function CierreSidebarView({
                                     <div className="space-y-2">
                                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Órdenes</h4>
                                         {selectedStoreAccount.ordersList.map(order => {
-                                            const isPickup = order.delivery?.type === 'pickup'
-                                            const isCash = order.payment?.method === 'cash'
-                                            const effectiveCollector = localCollectorOverrides[order.id]
-                                                || (order.paymentCollector ? order.paymentCollector : (isPickup && isCash ? 'store' : 'fuddi'))
+                                            const effectiveCollector = getEffectiveOrderCollector(order, localCollectorOverrides)
                                             const isStoreMoney = effectiveCollector === 'store'
                                             const isSettled = order.settlementStatus === 'settled'
                                             const orderTotal = order.total || 0
@@ -1817,7 +1825,7 @@ export default function CierreSidebarView({
                                                     <div className="flex items-center justify-between gap-2">
                                                         <div className="min-w-0 flex items-center gap-2 flex-wrap">
                                                             <span className="font-bold text-slate-900 text-sm">{order.customer?.name || 'Cliente'}</span>
-                                                            <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {isCash ? 'Efectivo' : 'Transferencia'})</span>
+                                                            <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'})</span>
                                                         </div>
 
                                                         <div className="flex items-center gap-1.5 shrink-0">
@@ -2143,61 +2151,140 @@ export default function CierreSidebarView({
                                                                                 </div>
                                                                             </div>
 
-                                                                            {/* Lista de Pedidos del Repartidor en este día */}
-                                                                            <div className="space-y-2">
-                                                                                {driver.ordersList.map(order => {
-                                                                                    const effectiveSettlement = localDeliverySettlementOverrides[order.id] || order.deliverySettlementStatus
-                                                                                    const isSettled = effectiveSettlement === 'settled'
-                                                                                    const isCash = order.payment?.method === 'cash'
-                                                                                    const deliveryCost = order.delivery?.deliveryCost || 0
+                                                                            {/* Lista de Pedidos del Repartidor en este día, agrupados por Tienda */}
+                                                                            {(() => {
+                                                                                const storeGroupsMap = new Map<string, {
+                                                                                    businessId: string
+                                                                                    businessName: string
+                                                                                    businessLogo?: string
+                                                                                    orders: Order[]
+                                                                                    totalFee: number
+                                                                                }>()
 
-                                                                                    return (
-                                                                                        <div key={order.id} className="bg-white p-3 rounded-lg border border-slate-200/80 shadow-2xs space-y-2 text-xs">
-                                                                                            <div className="flex items-center justify-between gap-2">
-                                                                                                <div className="min-w-0 flex items-center gap-2 flex-wrap">
-                                                                                                    <span className="font-bold text-slate-900">{order.customer?.name || 'Cliente'}</span>
-                                                                                                    <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {isCash ? 'Efectivo' : 'Transferencia'})</span>
+                                                                                driver.ordersList.forEach(order => {
+                                                                                    const bizId = order.businessId || 'unknown'
+                                                                                    const biz = businesses.find(b => b.id === bizId)
+                                                                                    const bizName = biz?.name || (order as any).businessName || `Tienda ${bizId.substring(0, 6)}`
+                                                                                    const bizLogo = biz?.image || (order as any).businessImage || (order as any).originalBusinessImage || ''
+
+                                                                                    if (!storeGroupsMap.has(bizId)) {
+                                                                                        storeGroupsMap.set(bizId, {
+                                                                                            businessId: bizId,
+                                                                                            businessName: bizName,
+                                                                                            businessLogo: bizLogo,
+                                                                                            orders: [],
+                                                                                            totalFee: 0
+                                                                                        })
+                                                                                    }
+
+                                                                                    const group = storeGroupsMap.get(bizId)!
+                                                                                    group.orders.push(order)
+                                                                                    group.totalFee += (order.delivery?.deliveryCost || 0)
+                                                                                })
+
+                                                                                const driverStoreGroups = Array.from(storeGroupsMap.values())
+
+                                                                                return (
+                                                                                    <div className="space-y-2.5">
+                                                                                        {driverStoreGroups.map(storeGroup => {
+                                                                                            const storeKey = `${driverKey}_${storeGroup.businessId}`
+                                                                                            const isStoreGroupExpanded = expandedDriverStores[storeKey] ?? true
+
+                                                                                            return (
+                                                                                                <div key={storeGroup.businessId} className="border border-slate-200/80 rounded-xl bg-white overflow-hidden shadow-2xs">
+                                                                                                    {/* Cabecera del Grupo de Tienda */}
+                                                                                                    <div
+                                                                                                        onClick={() => toggleDriverStoreExpand(driverKey, storeGroup.businessId)}
+                                                                                                        className="p-2.5 bg-slate-50/80 hover:bg-slate-100/80 transition-colors cursor-pointer flex items-center justify-between gap-2 select-none border-b border-slate-100"
+                                                                                                    >
+                                                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                                                            {storeGroup.businessLogo ? (
+                                                                                                                <img
+                                                                                                                    src={storeGroup.businessLogo}
+                                                                                                                    alt={storeGroup.businessName}
+                                                                                                                    className="w-5 h-5 rounded-full object-cover border border-slate-200/80 shrink-0"
+                                                                                                                />
+                                                                                                            ) : (
+                                                                                                                <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] shrink-0 font-bold">
+                                                                                                                    <i className="bi bi-shop"></i>
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                            <span className="font-bold text-xs text-slate-800 truncate">{storeGroup.businessName}</span>
+                                                                                                            <span className="text-[10px] text-slate-400 font-medium shrink-0">
+                                                                                                                ({storeGroup.orders.length} {storeGroup.orders.length === 1 ? 'pedido' : 'pedidos'})
+                                                                                                            </span>
+                                                                                                        </div>
+
+                                                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                                                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60">
+                                                                                                                ${storeGroup.totalFee.toFixed(2)}
+                                                                                                            </span>
+                                                                                                            <i className={`bi bi-chevron-${isStoreGroupExpanded ? 'up' : 'down'} text-slate-400 text-xs`}></i>
+                                                                                                        </div>
+                                                                                                    </div>
+
+                                                                                                    {/* Lista de Pedidos de esta Tienda */}
+                                                                                                    {isStoreGroupExpanded && (
+                                                                                                        <div className="p-2 space-y-2 bg-slate-50/20">
+                                                                                                            {storeGroup.orders.map(order => {
+                                                                                                                const effectiveSettlement = localDeliverySettlementOverrides[order.id] || order.deliverySettlementStatus
+                                                                                                                const isSettled = effectiveSettlement === 'settled'
+                                                                                                                const deliveryCost = order.delivery?.deliveryCost || 0
+
+                                                                                                                return (
+                                                                                                                    <div key={order.id} className="bg-white p-3 rounded-lg border border-slate-200/80 shadow-2xs space-y-2 text-xs">
+                                                                                                                        <div className="flex items-center justify-between gap-2">
+                                                                                                                            <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                                                                                                                                <span className="font-bold text-slate-900">{order.customer?.name || 'Cliente'}</span>
+                                                                                                                                <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {order.payment?.method === 'cash' ? 'Efectivo' : (order.payment?.method === 'mixed' ? 'Mixto' : 'Transferencia')})</span>
+                                                                                                                            </div>
+
+                                                                                                                            <button
+                                                                                                                                type="button"
+                                                                                                                                onClick={(e) => {
+                                                                                                                                    e.stopPropagation()
+                                                                                                                                    handleSettleDriverOrder(order)
+                                                                                                                                }}
+                                                                                                                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer border ${
+                                                                                                                                    isSettled
+                                                                                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                                                                                                                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent'
+                                                                                                                                }`}
+                                                                                                                            >
+                                                                                                                                <i className={`bi ${isSettled ? 'bi-check-circle-fill' : 'bi-check2'} text-[10px]`}></i>
+                                                                                                                                <span>{isSettled ? 'Liquidado' : 'Liquidar'}</span>
+                                                                                                                            </button>
+                                                                                                                        </div>
+
+                                                                                                                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600 text-xs">
+                                                                                                                            <div className="flex items-center gap-3">
+                                                                                                                                <span>Cobro: <strong className="text-slate-900">${getEffectiveOrderTotal(order).toFixed(2)}</strong></span>
+                                                                                                                                <span className="text-slate-400">Delivery: <strong className="text-emerald-600">${deliveryCost.toFixed(2)}</strong></span>
+                                                                                                                            </div>
+
+                                                                                                                            <button
+                                                                                                                                type="button"
+                                                                                                                                onClick={(e) => {
+                                                                                                                                    e.stopPropagation()
+                                                                                                                                    onManagePayment(order)
+                                                                                                                                }}
+                                                                                                                                className="px-2 py-0.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
+                                                                                                                            >
+                                                                                                                                <i className="bi bi-pencil text-[10px]"></i>
+                                                                                                                                <span>Gestionar</span>
+                                                                                                                            </button>
+                                                                                                                        </div>
+                                                                                                                    </div>
+                                                                                                                )
+                                                                                                            })}
+                                                                                                        </div>
+                                                                                                    )}
                                                                                                 </div>
-
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    onClick={(e) => {
-                                                                                                        e.stopPropagation()
-                                                                                                        handleSettleDriverOrder(order)
-                                                                                                    }}
-                                                                                                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer border ${
-                                                                                                        isSettled
-                                                                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-                                                                                                            : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent'
-                                                                                                    }`}
-                                                                                                >
-                                                                                                    <i className={`bi ${isSettled ? 'bi-check-circle-fill' : 'bi-check2'} text-[10px]`}></i>
-                                                                                                    <span>{isSettled ? 'Liquidado' : 'Liquidar'}</span>
-                                                                                                </button>
-                                                                                            </div>
-
-                                                                                            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600 text-xs">
-                                                                                                <div className="flex items-center gap-3">
-                                                                                                    <span>Cobro: <strong className="text-slate-900">${getEffectiveOrderTotal(order).toFixed(2)}</strong></span>
-                                                                                                    <span className="text-slate-400">Delivery: <strong className="text-emerald-600">${deliveryCost.toFixed(2)}</strong></span>
-                                                                                                </div>
-
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    onClick={(e) => {
-                                                                                                        e.stopPropagation()
-                                                                                                        onManagePayment(order)
-                                                                                                    }}
-                                                                                                    className="px-2 py-0.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
-                                                                                                >
-                                                                                                    <i className="bi bi-pencil text-[10px]"></i>
-                                                                                                    <span>Gestionar</span>
-                                                                                                </button>
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    )
-                                                                                })}
-                                                                            </div>
+                                                                                            )
+                                                                                        })}
+                                                                                    </div>
+                                                                                )
+                                                                            })()}
                                                                         </div>
                                                                     )}
                                                                 </div>
