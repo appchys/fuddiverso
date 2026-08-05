@@ -202,6 +202,25 @@ export async function deleteExpense(expenseId: string): Promise<void> {
   }
 }
 
+/**
+ * Actualizar un egreso por id
+ */
+export async function updateExpense(
+  expenseId: string,
+  data: Partial<Omit<ExpenseEntry, 'id' | 'createdAt'>>
+): Promise<void> {
+  try {
+    const expenseRef = doc(db, 'expenses', expenseId)
+    await updateDoc(expenseRef, {
+      ...data,
+      updatedAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error updating expense:', error)
+    throw error
+  }
+}
+
 // Helper function para convertir timestamps de Firebase a Date de manera segura
 function toSafeDate(timestamp: any): Date {
   if (!timestamp) return new Date()
@@ -2209,7 +2228,9 @@ export async function getClientById(clientId: string): Promise<FirestoreClient |
         email: data.email || '',
         photoURL: data.photoURL || '',
         fecha_de_registro: data.fecha_de_registro || '',
-        pinHash: data.pinHash || null
+        pinHash: data.pinHash || null,
+        notas: data.notas || '',
+        telegramChatId: data.telegramChatId || undefined
       } as FirestoreClient
     }
     return null
@@ -2315,7 +2336,8 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
           photoURL: clientData.photoURL || '',
           fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
           pinHash: clientData.pinHash || null,
-          notas: clientData.notas || ''
+          notas: clientData.notas || '',
+          telegramChatId: clientData.telegramChatId || undefined
         };
         console.log('[Database] Cliente encontrado con variante:', phoneVariant, client)
         return client;

@@ -2675,6 +2675,12 @@ function OrderCard({
                         <div className="flex flex-col">
                             <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
                                 {order.customer?.name || "Cliente"}
+                                {Boolean(order.customer?.telegramChatId || (order as any).telegramChatId) && (
+                                    <i 
+                                        className="bi bi-patch-check-fill text-[#229ED9] text-sm shrink-0" 
+                                        title="Cliente con Telegram vinculado"
+                                    ></i>
+                                )}
                                 {order.customer?.phone && clientsWithNotes && clientsWithNotes[order.customer.phone] && (
                                     <i 
                                         className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" 

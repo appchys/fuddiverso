@@ -63,13 +63,13 @@ async function handleCronDailyCheckIn(request: NextRequest) {
 async function processSingleBusinessCheckIn(adminDb: any, business: Business, dateStr: string, force: boolean) {
   const checkInState = business.dailyCheckInState
 
-  // Verificar si ya se envió la notificación hoy (para evitar envíos repetidos en ejecuciones frecuentes)
-  if (!force && checkInState?.lastNotificationSentDate === dateStr) {
+  // Verificar si ya se envió la notificación hoy o si la tienda ya respondió
+  if (!force && checkInState?.date === dateStr && (checkInState?.lastNotificationSentDate === dateStr || checkInState?.status === 'open' || checkInState?.status === 'closed')) {
     return {
       businessId: business.id,
       name: business.name,
       status: 'skipped',
-      reason: 'Notificación de check-in ya enviada el día de hoy'
+      reason: 'Notificación de check-in ya enviada o procesada el día de hoy'
     }
   }
 

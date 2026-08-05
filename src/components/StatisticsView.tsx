@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Order } from '@/types';
-import { getOrdersByBusinessComplete } from '@/lib/database';
+import { Order, Delivery } from '@/types';
+import { getOrdersByBusinessComplete, getExpensesByBusiness, ExpenseEntry, getDeliveriesByStatus } from '@/lib/database';
 import {
     BarChart,
     Bar,
@@ -72,13 +72,82 @@ const getPaymentMethodLabel = (order: Order): string => {
     return rawMethod;
 };
 
+// Helper para limpiar y normalizar texto de conceptos (elimina espacios extras, tildes, minúsculas)
+const cleanConceptKey = (str: string): string => {
+    if (!str) return '';
+    return str
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+};
+
+// Algoritmo de distancia Levenshtein para tolerancia a errores de tipeo (ej. Distrisabores vs Distrisavores)
+const levenshteinDistance = (a: string, b: string): number => {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    const matrix: number[][] = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+};
+
+// Determina si dos conceptos son idénticos o variaciones por tipeo
+const areConceptsSimilar = (norm1: string, norm2: string): boolean => {
+    if (norm1 === norm2) return true;
+
+    const maxLen = Math.max(norm1.length, norm2.length);
+    const minLen = Math.min(norm1.length, norm2.length);
+
+    // Solo aplicar tolerancia a errores de tipeo si la palabra tiene al menos 4 caracteres
+    if (minLen >= 4 && Math.abs(norm1.length - norm2.length) <= 2) {
+        const dist = levenshteinDistance(norm1, norm2);
+        if (maxLen >= 8 && dist <= 2) return true; // ej. Distrisabores vs Distrisavores
+        if (maxLen >= 5 && dist <= 1) return true; // ej. Aceites vs Aceite
+    }
+
+    return false;
+};
+
+// Formatea el concepto para mostrar con mayúscula inicial en cada palabra
+const formatConceptDisplay = (str: string): string => {
+    const trimmed = str.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return 'Otros Gastos';
+    return trimmed
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+};
+
 export default function StatisticsView({ orders = [], businessId }: StatisticsViewProps) {
     const [dateFilter, setDateFilter] = useState<DateFilter>('today');
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
 
     const [fetchedOrders, setFetchedOrders] = useState<Order[]>([]);
-    const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+    const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+    const [deliveriesList, setDeliveriesList] = useState<Delivery[]>([]);
+    const [loadingData, setLoadingData] = useState<boolean>(false);
 
     const [isMounted, setIsMounted] = useState<boolean>(false);
 
@@ -86,31 +155,57 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
         setIsMounted(true);
     }, []);
 
-    // Cargar historial de órdenes completo de Firebase cuando existe businessId
+    // Cargar repartidores / deliveries activos e inactivos para mapear nombres
+    useEffect(() => {
+        let isCurrent = true;
+        const fetchDeliveries = async () => {
+            try {
+                const [activos, inactivos] = await Promise.all([
+                    getDeliveriesByStatus('activo'),
+                    getDeliveriesByStatus('inactivo')
+                ]);
+                if (isCurrent) {
+                    setDeliveriesList([...(activos || []), ...(inactivos || [])]);
+                }
+            } catch (e) {
+                console.error('Error cargando deliveries en Estadísticas:', e);
+            }
+        };
+        fetchDeliveries();
+        return () => {
+            isCurrent = false;
+        };
+    }, []);
+
+    // Cargar historial de órdenes y egresos completo de Firebase cuando existe businessId
     useEffect(() => {
         if (!businessId) return;
-        let isMounted = true;
+        let isCurrent = true;
 
-        const fetchHistory = async () => {
-            setLoadingHistory(true);
+        const fetchData = async () => {
+            setLoadingData(true);
             try {
-                const history = await getOrdersByBusinessComplete(businessId);
-                if (isMounted) {
+                const [history, expensesData] = await Promise.all([
+                    getOrdersByBusinessComplete(businessId),
+                    getExpensesByBusiness(businessId)
+                ]);
+                if (isCurrent) {
                     setFetchedOrders(history || []);
+                    setExpenses(expensesData || []);
                 }
             } catch (error) {
-                console.error('Error cargando historial completo en Estadísticas:', error);
+                console.error('Error cargando historial u egresos en Estadísticas:', error);
             } finally {
-                if (isMounted) {
-                    setLoadingHistory(false);
+                if (isCurrent) {
+                    setLoadingData(false);
                 }
             }
         };
 
-        fetchHistory();
+        fetchData();
 
         return () => {
-            isMounted = false;
+            isCurrent = false;
         };
     }, [businessId]);
 
@@ -178,6 +273,53 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
         });
     }, [allOrdersCombined, dateFilter, startDate, endDate]);
 
+    const filteredExpenses = useMemo(() => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
+
+        return (expenses || []).filter(expense => {
+            if (!expense || !expense.date) return false;
+            const expDateStr = String(expense.date).substring(0, 10);
+
+            switch (dateFilter) {
+                case 'today':
+                    return expDateStr === todayStr;
+
+                case 'yesterday': {
+                    const y = new Date(now);
+                    y.setDate(y.getDate() - 1);
+                    const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+                    return expDateStr === yStr;
+                }
+
+                case '7days': {
+                    const d7 = new Date(now);
+                    d7.setDate(d7.getDate() - 6);
+                    const d7Str = `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`;
+                    return expDateStr >= d7Str && expDateStr <= todayStr;
+                }
+
+                case '30days': {
+                    const d30 = new Date(now);
+                    d30.setDate(d30.getDate() - 29);
+                    const d30Str = `${d30.getFullYear()}-${String(d30.getMonth() + 1).padStart(2, '0')}-${String(d30.getMonth()).padStart(2, '0')}`;
+                    return expDateStr >= d30Str && expDateStr <= todayStr;
+                }
+
+                case 'custom': {
+                    if (!startDate || !endDate) return true;
+                    return expDateStr >= startDate && expDateStr <= endDate;
+                }
+
+                default:
+                    return true;
+            }
+        });
+    }, [expenses, dateFilter, startDate, endDate]);
+
     const stats = useMemo(() => {
         // 1. Montos de venta
         const totalPublicSales = filteredOrders.reduce((sum, order) => sum + (order.total || 0), 0);
@@ -190,25 +332,113 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
             return sum + (calculatedStoreTotal || getOrderSubtotal(order));
         }, 0);
 
-        // 2. Cantidad de órdenes y ticket promedio
+        // 2. Gastos Totales y Utilidad Neta
+        const totalExpensesAmount = filteredExpenses.reduce((sum, e) => sum + (Number.isFinite(e.amount) ? e.amount : 0), 0);
+        const netProfit = totalStoreSales - totalExpensesAmount;
+
+        // Desglose de Gastos por Concepto (Unificado con Limpieza y Tolerancia a Errores de Tipeo)
+        const expenseConceptGroups: Array<{
+            normKey: string;
+            displayConcept: string;
+            total: number;
+            count: number;
+        }> = [];
+
+        filteredExpenses.forEach((e) => {
+            const rawConcept = e.concept || 'Otros Gastos';
+            const normKey = cleanConceptKey(rawConcept);
+
+            if (!normKey) return;
+
+            // Buscar si ya existe un grupo equivalente o similar por error de tipeo
+            const existingGroup = expenseConceptGroups.find(g => areConceptsSimilar(g.normKey, normKey));
+
+            if (existingGroup) {
+                existingGroup.total += e.amount || 0;
+                existingGroup.count += 1;
+            } else {
+                expenseConceptGroups.push({
+                    normKey,
+                    displayConcept: formatConceptDisplay(rawConcept),
+                    total: e.amount || 0,
+                    count: 1
+                });
+            }
+        });
+
+        const expensesByConceptList = expenseConceptGroups
+            .map(g => ({
+                concept: g.displayConcept,
+                total: g.total,
+                count: g.count
+            }))
+            .sort((a, b) => b.total - a.total);
+
+        // 3. Map de deliveries por ID
+        const deliveriesMap: Record<string, Delivery> = {};
+        (deliveriesList || []).forEach(d => {
+            if (d?.id) deliveriesMap[d.id] = d;
+        });
+
+        // 4. Desglose y Ganancias por Delivery
+        const deliveryMap: Record<string, {
+            id: string;
+            name: string;
+            ordersCount: number;
+            totalSales: number;
+            totalDeliveryCost: number;
+            netStoreSales: number;
+        }> = {};
+
+        let totalDeliveryOrdersCount = 0;
+
+        filteredOrders.forEach((order) => {
+            const assignedId = order.delivery?.assignedDelivery || (order as any).deliveryId;
+            if (!assignedId) return;
+
+            totalDeliveryOrdersCount += 1;
+            const driverName = deliveriesMap[assignedId]?.nombres || (order.delivery as any)?.driverName || (order.delivery as any)?.nombre || `Repartidor (${assignedId.slice(0, 5)})`;
+            const deliveryCost = order.delivery?.deliveryCost || 0;
+            const orderTotal = order.total || getOrderSubtotal(order);
+
+            if (!deliveryMap[assignedId]) {
+                deliveryMap[assignedId] = {
+                    id: assignedId,
+                    name: driverName,
+                    ordersCount: 0,
+                    totalSales: 0,
+                    totalDeliveryCost: 0,
+                    netStoreSales: 0
+                };
+            }
+
+            deliveryMap[assignedId].ordersCount += 1;
+            deliveryMap[assignedId].totalSales += orderTotal;
+            deliveryMap[assignedId].totalDeliveryCost += deliveryCost;
+            deliveryMap[assignedId].netStoreSales += Math.max(0, orderTotal - deliveryCost);
+        });
+
+        const deliveryStatsList = Object.values(deliveryMap).sort((a, b) => b.ordersCount - a.ordersCount);
+
+        // 5. Cantidad de órdenes y ticket promedio
         const totalOrdersCount = filteredOrders.length;
         const averageTicket = totalOrdersCount > 0 ? (totalStoreSales / totalOrdersCount) : 0;
 
-        // 3. Productos más vendidos (Top 5) y cantidad total de items
+        // 6. Productos más vendidos (Top 5) y cantidad total de items
         let totalItemsSold = 0;
         const productSales: Record<string, { name: string; quantity: number }> = {};
 
-        // 4. Métodos de Pago
+        // 7. Métodos de Pago
         const paymentMap: Record<string, { label: string; count: number; total: number }> = {};
 
-        // 5. Ventas por fecha / hora
+        // 8. Ventas por fecha / hora
         const salesMap = new Map<string, { label: string; timestamp: number; amount: number }>();
         const hourlySales = new Array(24).fill(0).map((_, i) => ({
             hour: `${String(i).padStart(2, '0')}:00`,
             amount: 0
         }));
 
-        // 6. Horas pico
+        // 9. Horas pico
         const ordersByHour = new Array(24).fill(0).map((_, i) => ({
             hour: `${String(i).padStart(2, '0')}:00`,
             count: 0
@@ -312,16 +542,21 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
             totalPublicSales,
             totalProductSubtotal,
             totalStoreSales,
+            totalExpensesAmount,
+            netProfit,
             totalOrdersCount,
             averageTicket,
             totalItemsSold,
             topProducts,
             paymentMethodsList,
+            expensesByConceptList,
+            deliveryStatsList,
+            totalDeliveryOrdersCount,
             chartData,
             ordersByHour,
             isSingleDay
         };
-    }, [filteredOrders, dateFilter]);
+    }, [filteredOrders, filteredExpenses, deliveriesList, dateFilter]);
 
     return (
         <div className="space-y-6 animate-fade-in pb-8">
@@ -333,7 +568,7 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                         Estadísticas de Negocio
                     </h2>
                     <p className="text-sm font-medium text-gray-500 leading-relaxed mt-1">
-                        Resumen de rendimiento, ventas y métricas clave de tus pedidos.
+                        Resumen de rendimiento, ventas, gastos y entregas por delivery.
                     </p>
                 </div>
 
@@ -411,88 +646,145 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                 </div>
             )}
 
-            {/* Indicador de carga de historial */}
-            {loadingHistory && (
+            {/* Indicador de carga */}
+            {loadingData && (
                 <div className="flex items-center justify-between bg-blue-50/80 border border-blue-200 px-4 py-3 rounded-xl text-blue-800 text-xs font-medium animate-pulse">
                     <div className="flex items-center gap-2">
                         <span className="material-symbols-rounded text-base animate-spin">sync</span>
-                        Cargando historial de pedidos completo de la base de datos...
+                        Cargando estadísticas y datos de gastos...
                     </div>
                 </div>
             )}
 
-            {/* Tarjetas Principales de Métricas */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                {/* Ventas Totales */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ventas Totales</span>
+            {/* Tarjeta Unificada: Balance Financiero (Ventas, Gastos y Ganancia) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                            <span className="material-symbols-rounded">payments</span>
+                            <span className="material-symbols-rounded text-2xl">account_balance</span>
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-gray-900 tracking-tight leading-none">Resumen Financiero</h3>
+                            <p className="text-xs font-medium text-gray-500 mt-1">Balance de Ingresos, Egresos y Resultado Neto</p>
                         </div>
                     </div>
-                    <div className="text-3xl font-black text-emerald-600 tracking-tight leading-tight">
-                        ${stats.totalStoreSales.toFixed(2)}
-                    </div>
-                    <div className="text-[11px] font-semibold text-gray-500 mt-1">
-                        Público (Total Cliente): <span className="font-bold text-gray-800">${stats.totalPublicSales.toFixed(2)}</span>
-                    </div>
-                    <p className="text-xs font-medium text-gray-500 leading-relaxed mt-2">
-                        Ingreso neto asignado al negocio
-                    </p>
+                    <span className="text-xs font-bold text-gray-400">
+                        {dateFilter === 'today' ? 'Hoy' : dateFilter === 'yesterday' ? 'Ayer' : dateFilter === '7days' ? 'Últimos 7 Días' : dateFilter === '30days' ? 'Últimos 30 Días' : 'Personalizado'}
+                    </span>
                 </div>
 
-                {/* Total Pedidos */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Pedidos</span>
-                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                            <span className="material-symbols-rounded">receipt_long</span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+                    {/* Ventas Totales */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:pr-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ventas Totales</span>
+                        </div>
+                        <div className="text-3xl font-black text-emerald-600 tracking-tight leading-tight">
+                            ${stats.totalStoreSales.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2 flex justify-between items-center">
+                            <span>Público (Cliente):</span>
+                            <span className="font-bold text-gray-800">${stats.totalPublicSales.toFixed(2)}</span>
                         </div>
                     </div>
-                    <div className="text-3xl font-black text-blue-600 tracking-tight leading-tight">
-                        {stats.totalOrdersCount}
-                    </div>
-                    <p className="text-xs font-medium text-gray-500 leading-relaxed mt-2">
-                        Pedidos procesados en el periodo
-                    </p>
-                </div>
 
-                {/* Ticket Promedio */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ticket Promedio</span>
-                        <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                            <span className="material-symbols-rounded">query_stats</span>
+                    {/* Total Gastos */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:px-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Gastos</span>
+                        </div>
+                        <div className="text-3xl font-black text-rose-600 tracking-tight leading-tight">
+                            ${stats.totalExpensesAmount.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2 flex justify-between items-center">
+                            <span>Egresos Registrados:</span>
+                            <span className="font-bold text-gray-800">{filteredExpenses.length} registros</span>
                         </div>
                     </div>
-                    <div className="text-3xl font-black text-purple-600 tracking-tight leading-tight">
-                        ${stats.averageTicket.toFixed(2)}
-                    </div>
-                    <p className="text-xs font-medium text-gray-500 leading-relaxed mt-2">
-                        Promedio gastado por cada pedido
-                    </p>
-                </div>
 
-                {/* Items Vendidos */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Productos Vendidos</span>
-                        <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                            <span className="material-symbols-rounded">inventory_2</span>
+                    {/* Ganancia Estimada */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:pl-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${stats.netProfit >= 0 ? 'bg-indigo-500' : 'bg-red-500'}`}></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ganancia Neta</span>
+                        </div>
+                        <div className={`text-3xl font-black tracking-tight leading-tight ${stats.netProfit >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
+                            ${stats.netProfit.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2 flex justify-between items-center">
+                            <span>Resultado:</span>
+                            <span className="font-bold text-gray-800">Ventas - Gastos</span>
                         </div>
                     </div>
-                    <div className="text-3xl font-black text-amber-600 tracking-tight leading-tight">
-                        {stats.totalItemsSold}
-                    </div>
-                    <p className="text-xs font-medium text-gray-500 leading-relaxed mt-2">
-                        Unidades totales en el periodo
-                    </p>
                 </div>
             </div>
 
-            {/* Fila Central: Top Productos & Métodos de Pago */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Tarjeta Unificada: Resumen Operativo (Total Pedidos, Productos Vendidos y Ticket Promedio) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                            <span className="material-symbols-rounded text-2xl">orders</span>
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-gray-900 tracking-tight leading-none">Resumen Operativo</h3>
+                            <p className="text-xs font-medium text-gray-500 mt-1">Métricas clave de volumen y rendimiento de pedidos</p>
+                        </div>
+                    </div>
+                    <span className="text-xs font-bold text-gray-400">
+                        {stats.totalOrdersCount} {stats.totalOrdersCount === 1 ? 'pedido' : 'pedidos'}
+                    </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+                    {/* Total Pedidos */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:pr-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Pedidos</span>
+                        </div>
+                        <div className="text-3xl font-black text-blue-600 tracking-tight leading-tight">
+                            {stats.totalOrdersCount}
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2">
+                            Pedidos procesados en el periodo
+                        </div>
+                    </div>
+
+                    {/* Productos Vendidos */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:px-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Productos Vendidos</span>
+                        </div>
+                        <div className="text-3xl font-black text-amber-600 tracking-tight leading-tight">
+                            {stats.totalItemsSold}
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2">
+                            Unidades totales entregadas
+                        </div>
+                    </div>
+
+                    {/* Ticket Promedio */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:pl-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ticket Promedio</span>
+                        </div>
+                        <div className="text-3xl font-black text-purple-600 tracking-tight leading-tight">
+                            ${stats.averageTicket.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2">
+                            Promedio gastado por cada pedido
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Fila Central: Top Productos, Métodos de Pago & Desglose de Gastos */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {/* Top 5 Más Vendidos */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-between">
                     <div>
@@ -583,6 +875,129 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                         </div>
                     </div>
                 </div>
+
+                {/* Desglose de Gastos por Concepto */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-between md:col-span-2 lg:col-span-1">
+                    <div>
+                        <div className="flex items-center justify-between mb-5">
+                            <div>
+                                <h3 className="text-lg font-black text-gray-900 tracking-tight leading-tight">Gastos por Concepto</h3>
+                                <p className="text-xs font-medium text-gray-500 leading-relaxed">Categorías de egresos en este periodo</p>
+                            </div>
+                            <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl">
+                                <span className="material-symbols-rounded text-xl">shopping_bag</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3.5">
+                            {stats.expensesByConceptList.length > 0 ? (
+                                stats.expensesByConceptList.map((item, index) => {
+                                    const percentage = stats.totalExpensesAmount > 0
+                                        ? Math.round((item.total / stats.totalExpensesAmount) * 100)
+                                        : 0;
+                                    return (
+                                        <div key={index} className="p-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+                                            <div className="flex justify-between items-center mb-1.5">
+                                                <span className="text-sm font-bold text-gray-900 truncate max-w-[160px]" title={item.concept}>
+                                                    {item.concept}
+                                                </span>
+                                                <div className="text-right">
+                                                    <span className="text-xs font-black text-rose-600">${item.total.toFixed(2)}</span>
+                                                    <span className="text-[11px] font-semibold text-gray-500 ml-2">({percentage}%)</span>
+                                                </div>
+                                            </div>
+                                            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                                                <div
+                                                    className="bg-rose-500 h-full rounded-full transition-all duration-500"
+                                                    style={{ width: `${percentage}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="text-center py-8 text-gray-400 text-sm font-medium">
+                                    No hay egresos registrados en este periodo
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Resumen de Ganancias y Entregas por Delivery */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-100">
+                    <div>
+                        <h3 className="text-xl font-black text-gray-900 tracking-tight leading-tight flex items-center gap-2">
+                            <span className="material-symbols-rounded text-sky-600">local_shipping</span>
+                            Resumen y Ganancias por Delivery
+                        </h3>
+                        <p className="text-xs font-medium text-gray-500 leading-relaxed mt-0.5">
+                            Rendimiento de entregas, costo de envío acumulado y ventas por repartidor
+                        </p>
+                    </div>
+                    {stats.totalDeliveryOrdersCount > 0 && (
+                        <span className="px-3 py-1 bg-sky-50 text-sky-700 font-bold text-xs rounded-full border border-sky-200">
+                            {stats.totalDeliveryOrdersCount} {stats.totalDeliveryOrdersCount === 1 ? 'entrega' : 'entregas'} en total
+                        </span>
+                    )}
+                </div>
+
+                {stats.deliveryStatsList.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {stats.deliveryStatsList.map((driver, index) => {
+                            const pct = stats.totalDeliveryOrdersCount > 0
+                                ? Math.round((driver.ordersCount / stats.totalDeliveryOrdersCount) * 100)
+                                : 0;
+                            return (
+                                <div key={driver.id || index} className="p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-sky-200 hover:shadow-sm transition-all space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                            <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold shrink-0 text-sm">
+                                                <span className="material-symbols-rounded text-base">directions_bike</span>
+                                            </div>
+                                            <span className="font-bold text-gray-900 text-sm truncate" title={driver.name}>
+                                                {driver.name}
+                                            </span>
+                                        </div>
+                                        <span className="px-2.5 py-0.5 bg-sky-100 text-sky-800 text-xs font-black rounded-md">
+                                            {driver.ordersCount} {driver.ordersCount === 1 ? 'ped.' : 'peds.'}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200/60">
+                                        <div>
+                                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider block">Costo Envío</span>
+                                            <span className="text-sm font-black text-sky-600">${driver.totalDeliveryCost.toFixed(2)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider block">Ventas Pedidos</span>
+                                            <span className="text-sm font-black text-gray-900">${driver.totalSales.toFixed(2)}</span>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex justify-between items-center text-[11px] font-semibold text-gray-500 mb-1">
+                                            <span>Participación</span>
+                                            <span className="font-bold text-sky-700">{pct}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                                            <div
+                                                className="bg-sky-500 h-full rounded-full transition-all duration-500"
+                                                style={{ width: `${pct}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-gray-400 text-sm font-medium">
+                        No hay entregas asignadas a repartidores en este período
+                    </div>
+                )}
             </div>
 
             {/* Gráfico de Ventas (por Hora si es Hoy/Ayer, por Fecha si son múltiples días) */}

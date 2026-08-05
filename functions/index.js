@@ -39,6 +39,16 @@ async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
   // Notificar al cliente por Telegram
   await telegramServices.sendCustomerTelegramNotification(afterData, orderId);
 
+  // Actualizar mensaje de la Tienda (Store) si existe la referencia
+  if (afterData.telegramBusinessMessages && afterData.telegramBusinessMessages.length > 0) {
+    try {
+      await telegramServices.updateBusinessTelegramMessage(afterData, orderId, false);
+      console.log(`✅ [Telegram] Mensaje de tienda actualizado por cambio de estado a ${afterData.status} para orden ${orderId}`);
+    } catch (err) {
+      console.error(`❌ [Telegram] Error actualizando mensaje de tienda por cambio de estado para orden ${orderId}:`, err);
+    }
+  }
+
   // Actualizar mensaje del Administrador si existe la referencia
   if (afterData.telegramAdminMessage) {
     try {
@@ -856,6 +866,9 @@ exports.sendDailyCheckInReminders = onSchedule({
       if (business.isActive === false) continue;
 
       const checkInState = business.dailyCheckInState;
+      if (checkInState?.date === dateStr && (checkInState?.lastNotificationSentDate === dateStr || checkInState?.status === 'open' || checkInState?.status === 'closed')) {
+        continue;
+      }
       if (checkInState?.lastNotificationSentDate === dateStr) {
         continue;
       }
@@ -898,7 +911,22 @@ exports.sendDailyCheckInReminders = onSchedule({
       const closeUrl = `${cleanAppUrl}/api/store/check-in?businessId=${businessId}&action=close&date=${dateStr}&token=${closeToken}`;
 
       const openingTime = todaySchedule.open;
-      const timeLabel = openingTime ? `a las *${openingTime}*` : 'hoy';
+      const storeName = business.name || 'tu tienda';
+
+      let formattedDateStr = `Hoy ${dateStr}`;
+      if (dateStr) {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+          const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+          formattedDateStr = `Hoy ${days[dObj.getDay()]} ${dObj.getDate()} de ${months[dObj.getMonth()]}`;
+        }
+      }
+
+      const openingLabel = openingTime ? `abres de las ${openingTime}` : 'abres hoy';
+      const subject = `☀️ ${storeName}, ¿Listo para abrir?`;
+      const bodyText = `${formattedDateStr} ${openingLabel}, confirma tu apertura para empezar a recibir pedidos!`;
 
       // 1. Enviar Telegram
       const chatIds = new Set();
@@ -910,7 +938,7 @@ exports.sendDailyCheckInReminders = onSchedule({
       }
 
       if (chatIds.size > 0) {
-        const messageText = `☀️ *¿Listo para abrir? Confirma para empezar a recibir pedidos en ${business.name || 'tu tienda'}*\n\n¡Abres en 15 minutos! 👋 (${timeLabel})\nEs momento de confirmar la apertura de tu tienda para el día de hoy (*${dateStr}*).`;
+        const messageText = `☀️ *${storeName}, ¿Listo para abrir?*\n\n${bodyText}`;
         const replyMarkup = {
           inline_keyboard: [
             [
@@ -941,7 +969,6 @@ exports.sendDailyCheckInReminders = onSchedule({
       const recipientList = Array.from(emails).filter(Boolean);
       if (recipientList.length > 0) {
         try {
-          const subject = `¿Listo para abrir? Confirma para empezar a recibir pedidos en ${business.name || 'tu tienda'}`;
           const htmlContent = `
             <!DOCTYPE html>
             <html>
@@ -949,9 +976,9 @@ exports.sendDailyCheckInReminders = onSchedule({
             <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f6f9; color: #1e293b; margin: 0; padding: 20px;">
               <div style="max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 20px; padding: 32px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
                 <div style="display: inline-block; background: #e0e7ff; color: #3730a3; font-weight: bold; font-size: 12px; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; margin-bottom: 16px;">Check-in Diario • ${dateStr}</div>
-                <h1 style="font-size: 24px; font-weight: 900; margin: 0 0 8px 0; color: #0f172a;">⏰ ¡Abres en 15 minutos, ${business.name || 'tienda'}!</h1>
-                <p style="font-size: 15px; color: #64748b; line-height: 1.6; margin: 0 0 24px 0;">Tu tienda está programada para abrir ${openingTime ? `a las ${openingTime}` : 'hoy'}. Por favor confirma si abrirás hoy para comenzar a recibir pedidos:</p>
-                <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 20px 0;">
+                <h1 style="font-size: 24px; font-weight: 900; margin: 0 0 12px 0; color: #0f172a;">☀️ ${storeName}, ¿Listo para abrir?</h1>
+                <p style="font-size: 15px; color: #475569; line-height: 1.6; margin: 0 0 24px 0;">${bodyText}</p>
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 24px 0;">
                   <tr>
                     <td align="center" style="padding-right: 8px;">
                       <a href="${openUrl}" style="background:#10b981; color:#ffffff; padding:14px 24px; border-radius:12px; font-weight:bold; text-decoration:none; display:inline-block; width:80%;">🟢 Abrir Tienda</a>

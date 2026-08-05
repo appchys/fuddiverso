@@ -56,6 +56,7 @@ interface ManualOrderData {
   customerId: string
   customerPhone: string
   customerName: string
+  customerTelegramChatId?: string
   customerNotes?: string
   selectedProducts: OrderItem[]
   deliveryType: '' | 'delivery' | 'pickup'
@@ -115,6 +116,7 @@ export default function ManualOrderSidebar({
     customerId: '',
     customerPhone: '',
     customerName: '',
+    customerTelegramChatId: '',
     customerNotes: '',
     selectedProducts: [],
     deliveryType: '',
@@ -452,6 +454,7 @@ export default function ManualOrderSidebar({
         ...prev,
         customerPhone: eo.customer?.phone || '',
         customerName: eo.customer?.name || '',
+        customerTelegramChatId: eo.customer?.telegramChatId || (eo as any).telegramChatId || '',
         selectedProducts,
         deliveryType: deliveryType,
         selectedLocation: selectedLocation,
@@ -485,7 +488,7 @@ export default function ManualOrderSidebar({
               const client = await searchClientByPhone(phoneToLoad)
               if (client) {
                 const locations = await getClientLocations(client.id)
-                setManualOrderData(prev => ({ ...prev, customerId: client.id, customerLocations: locations }))
+                setManualOrderData(prev => ({ ...prev, customerId: client.id, customerTelegramChatId: client.telegramChatId || prev.customerTelegramChatId || '', customerLocations: locations }))
               }
             } catch (e) {
               console.error('Error loading client locations for edit:', e)
@@ -786,6 +789,7 @@ export default function ManualOrderSidebar({
       customerId: selectedClient.id,
       customerPhone: normalizedPhone,
       customerName: selectedClient.nombres,
+      customerTelegramChatId: selectedClient.telegramChatId || '',
       customerNotes: selectedClient.notas || ''
     }))
 
@@ -2282,7 +2286,8 @@ export default function ManualOrderSidebar({
         }),
         customer: {
           name: manualOrderData.customerName,
-          phone: manualOrderData.customerPhone
+          phone: manualOrderData.customerPhone,
+          ...(manualOrderData.customerTelegramChatId ? { telegramChatId: manualOrderData.customerTelegramChatId } : {})
         },
         delivery: {
           ...editOrder?.delivery,
@@ -2665,6 +2670,9 @@ export default function ManualOrderSidebar({
                               >
                                 <p className="font-medium text-gray-900 flex items-center gap-1.5">
                                   {client.nombres}
+                                  {client.telegramChatId && (
+                                    <i className="bi bi-patch-check-fill text-[#229ED9] text-xs shrink-0" title="Cliente con Telegram vinculado"></i>
+                                  )}
                                   {client.notas && (
                                     <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse" title={`Nota: ${client.notas}`}></i>
                                   )}
@@ -2759,6 +2767,9 @@ export default function ManualOrderSidebar({
                   <div>
                     <p className="text-sm text-gray-800 flex items-center gap-1.5">
                       <span className="font-medium">{manualOrderData.customerName}</span>
+                      {Boolean(manualOrderData.customerTelegramChatId) && (
+                        <i className="bi bi-patch-check-fill text-[#229ED9] text-xs shrink-0" title="Cliente con Telegram vinculado"></i>
+                      )}
                       {manualOrderData.customerNotes && (
                         <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" title={`Nota: ${manualOrderData.customerNotes}`}></i>
                       )}
@@ -4758,7 +4769,12 @@ export default function ManualOrderSidebar({
                 ) : (
                   <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
                     <div className="text-gray-500">Nombre:</div>
-                    <div className="font-medium text-gray-900 break-words">{manualOrderData.customerName}</div>
+                    <div className="font-medium text-gray-900 break-words flex items-center gap-1.5">
+                      <span>{manualOrderData.customerName}</span>
+                      {Boolean(manualOrderData.customerTelegramChatId) && (
+                        <i className="bi bi-patch-check-fill text-[#229ED9] text-xs shrink-0" title="Cliente con Telegram vinculado"></i>
+                      )}
+                    </div>
                     
                     <div className="text-gray-500">Teléfono:</div>
                     <div className="font-medium text-gray-900 font-mono">{manualOrderData.customerPhone}</div>

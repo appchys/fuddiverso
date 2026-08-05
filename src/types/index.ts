@@ -282,6 +282,8 @@ export interface CartItem {
 export interface Customer {
   name: string
   phone: string // Formato ecuatoriano: 09XXXXXXXX (10 dígitos)
+  id?: string
+  telegramChatId?: string
 }
 
 export interface DeliveryInfo {

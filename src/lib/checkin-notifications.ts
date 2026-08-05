@@ -25,6 +25,24 @@ export function getCheckInUrls(businessId: string, date: string, baseUrl?: strin
   return { openUrl, closeUrl }
 }
 
+function formatSpanishDate(dateStr?: string): string {
+  let dateObj = new Date()
+  if (dateStr) {
+    const parts = dateStr.split('-')
+    if (parts.length === 3) {
+      dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+    }
+  }
+  const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  
+  const dayName = days[dateObj.getDay()]
+  const dayNum = dateObj.getDate()
+  const monthName = months[dateObj.getMonth()]
+
+  return `Hoy ${dayName} ${dayNum} de ${monthName}`
+}
+
 /**
  * Envía la notificación de Check-in por Telegram
  */
@@ -55,8 +73,10 @@ export async function sendTelegramCheckIn(
     return { success: false, sentCount: 0 }
   }
 
-  const timeLabel = openingTime ? `a las *${openingTime}*` : 'hoy'
-  const messageText = `☀️ *¿Listo para abrir? Confirma para empezar a recibir pedidos en ${business.name}*\n\n¡Abres en 15 minutos! 👋 (${timeLabel})\nEs momento de confirmar la apertura de tu tienda para el día de hoy (*${date}*).`
+  const storeName = business.name || 'tu tienda'
+  const formattedDate = formatSpanishDate(date)
+  const openingLabel = openingTime ? `abres de las ${openingTime}` : 'abres hoy'
+  const messageText = `☀️ *${storeName}, ¿Listo para abrir?*\n\n${formattedDate} ${openingLabel}, confirma tu apertura para empezar a recibir pedidos!`
 
   let successCount = 0
 
@@ -123,8 +143,12 @@ export async function sendEmailCheckIn(
     return { success: false }
   }
 
-  const openingLabel = openingTime ? `a las ${openingTime}` : 'hoy'
-  const subject = `¿Listo para abrir? Confirma para empezar a recibir pedidos en ${business.name}`
+  const storeName = business.name || 'tu tienda'
+  const formattedDate = formatSpanishDate(date)
+  const openingLabel = openingTime ? `abres de las ${openingTime}` : 'abres hoy'
+  const subject = `☀️ ${storeName}, ¿Listo para abrir?`
+  const bodyText = `${formattedDate} ${openingLabel}, confirma tu apertura para empezar a recibir pedidos!`
+
   const htmlContent = `
     <!DOCTYPE html>
     <html>
@@ -134,8 +158,8 @@ export async function sendEmailCheckIn(
         body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f6f9; color: #1e293b; margin: 0; padding: 20px; }
         .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 20px; padding: 32px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .badge { display: inline-block; background: #e0e7ff; color: #3730a3; font-weight: bold; font-size: 12px; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; margin-bottom: 16px; }
-        h1 { font-size: 24px; font-weight: 900; margin: 0 0 8px 0; color: #0f172a; }
-        p { font-size: 15px; color: #64748b; line-height: 1.6; margin: 0 0 24px 0; }
+        h1 { font-size: 24px; font-weight: 900; margin: 0 0 12px 0; color: #0f172a; }
+        p { font-size: 15px; color: #475569; line-height: 1.6; margin: 0 0 24px 0; }
         .button-group { display: flex; gap: 12px; margin-top: 24px; margin-bottom: 24px; }
         .btn { flex: 1; text-align: center; padding: 14px 20px; border-radius: 14px; font-weight: bold; text-decoration: none; font-size: 15px; display: inline-block; }
         .btn-open { background-color: #10b981; color: #ffffff; }
@@ -146,10 +170,10 @@ export async function sendEmailCheckIn(
     <body>
       <div class="container">
         <div class="badge">Check-in Diario • ${date}</div>
-        <h1>⏰ ¡Abres en 15 minutos, ${business.name}!</h1>
-        <p>Tu tienda está programada para abrir ${openingLabel}. Por favor confirma si abrirás hoy para comenzar a recibir pedidos:</p>
+        <h1>☀️ ${storeName}, ¿Listo para abrir?</h1>
+        <p>${bodyText}</p>
         
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 20px 0;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 24px 0;">
           <tr>
             <td align="center" style="padding-right: 8px;">
               <a href="${openUrl}" class="btn btn-open" style="background:#10b981; color:#ffffff; padding:14px 24px; border-radius:12px; font-weight:bold; text-decoration:none; display:inline-block; width:80%;">🟢 Abrir Tienda</a>

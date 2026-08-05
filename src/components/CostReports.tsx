@@ -9,7 +9,7 @@ interface CostReportsProps {
   initialReportType?: ReportType
 }
 
-type ReportType = 'costs' | 'deliveries' | 'general'
+type ReportType = 'costs' | 'general'
 
 interface DeliveryEarnings {
   name: string;
@@ -149,7 +149,7 @@ export default function CostReports({ business, initialReportType = 'general' }:
         ])
         setReport(reportData)
         setExpenses(expensesData)
-      } else if (reportType === 'deliveries' || reportType === 'general') {
+      } else if (reportType === 'general') {
         // Cargar órdenes y deliveries
         const [ordersData, deliveriesData] = await Promise.all([
           getOrdersByBusiness(business.id),
@@ -275,8 +275,18 @@ export default function CostReports({ business, initialReportType = 'general' }:
   }, [expenses, dateRange, customStartDate, customEndDate]);
 
   const expenseConcepts = useMemo(() => {
-    const uniqueConcepts = new Set(expenses.map(expense => expense.concept));
-    return Array.from(uniqueConcepts);
+    const conceptMap = new Map<string, string>();
+    (expenses || []).forEach(e => {
+      if (!e?.concept) return;
+      const trimmed = e.concept.trim().replace(/\s+/g, ' ');
+      if (!trimmed) return;
+      const normKey = trimmed.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (!conceptMap.has(normKey)) {
+        const formatted = trimmed.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        conceptMap.set(normKey, formatted);
+      }
+    });
+    return Array.from(conceptMap.values()).sort((a, b) => a.localeCompare(b, 'es'));
   }, [expenses]);
 
   return (
@@ -377,27 +387,6 @@ export default function CostReports({ business, initialReportType = 'general' }:
         )}
       </div>
 
-      {/* Filtro por delivery (solo visible en reporte de deliveries) */}
-      {reportType === 'deliveries' && deliveries.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Filtrar por Delivery
-          </label>
-          <select
-            value={selectedDelivery}
-            onChange={(e) => setSelectedDelivery(e.target.value)}
-            className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-          >
-            <option value="all">Todos los deliveries</option>
-            {deliveries.map(delivery => (
-              <option key={delivery.id} value={delivery.id}>
-                {delivery.nombres}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
       {loading ? (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
@@ -405,10 +394,6 @@ export default function CostReports({ business, initialReportType = 'general' }:
         </div>
       ) : reportType === 'general' ? (
         <GeneralReport orders={orders} />
-      ) : reportType === 'deliveries' ? (
-        <DeliveryReportsView
-          reports={deliveryReports.filter(r => selectedDelivery === 'all' || r.deliveryId === selectedDelivery)}
-        />
       ) : report ? (
         <>
           {/* Resumen General */}

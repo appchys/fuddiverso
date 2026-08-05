@@ -11,8 +11,8 @@ interface DashboardSidebarProps {
 
     profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'
     setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
-    reportsSubTab: 'general' | 'deliveries' | 'costs'
-    setReportsSubTab: (tab: 'general' | 'deliveries' | 'costs') => void
+    reportsSubTab: 'general' | 'costs'
+    setReportsSubTab: (tab: 'general' | 'costs') => void
     isTiendaMenuOpen: boolean
     setIsTiendaMenuOpen: (open: boolean) => void
     isReportsMenuOpen: boolean
@@ -242,7 +242,6 @@ export default function DashboardSidebar({
                                 <div className="ml-9 mt-1 space-y-1">
                                     {[
                                         { id: 'general', label: 'General', icon: 'monitoring' },
-                                        { id: 'deliveries', label: 'Por delivery', icon: 'local_shipping' },
                                         { id: 'costs', label: 'Costos e ingredientes', icon: 'shopping_basket' }
                                     ].map((sub) => (
                                         <button

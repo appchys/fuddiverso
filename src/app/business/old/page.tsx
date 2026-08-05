@@ -103,7 +103,7 @@ export default function BusinessDashboard() {
 
   const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
   const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
-  const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
+  const [reportsSubTab, setReportsSubTab] = useState<'general' | 'costs'>('general')
   const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
   const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Cerrado por defecto
   const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto

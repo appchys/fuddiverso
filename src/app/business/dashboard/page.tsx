@@ -269,7 +269,7 @@ export default function TodayOrdersPage() {
     // Sidebar State
     const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses' | 'finance'>('orders')
     const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
-    const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
+    const [reportsSubTab, setReportsSubTab] = useState<'general' | 'costs'>('general')
     const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
     const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
     const [summaryExpanded, setSummaryExpanded] = useState(false)
@@ -3355,6 +3355,12 @@ function OrderCard({
                         <div className="flex flex-col">
                             <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
                                 {order.customer?.name || "Cliente"}
+                                {Boolean(order.customer?.telegramChatId || (order as any).telegramChatId) && (
+                                    <i 
+                                        className="bi bi-patch-check-fill text-[#229ED9] text-sm shrink-0" 
+                                        title="Cliente con Telegram vinculado"
+                                    ></i>
+                                )}
                                 {order.customer?.phone && clientsWithNotes && clientsWithNotes[order.customer.phone] && (
                                     <i 
                                         className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" 

@@ -1181,7 +1181,13 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
         const businessName = orderData.businessName || 'Tienda';
         const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
-        const handlerName = orderData.confirmedBy || 'Tienda';
+        let handlerName = orderData.confirmedBy;
+        if (!handlerName) {
+            if (orderData.confirmationSource === 'email') handlerName = 'Correo';
+            else if (orderData.confirmationSource === 'app') handlerName = 'Dashboard';
+            else if (orderData.confirmationSource === 'telegram_bot') handlerName = 'Telegram';
+            else handlerName = 'Tienda';
+        }
         let finalStatusText = '';
 
         // Reconstruir el estado
@@ -1212,7 +1218,7 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
                 finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
             }
         } else {
-            finalStatusText = `\n\n❌ <b>Pedido Cancelado</b>`;
+            finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
         }
 
         let syncText = telegramText + finalStatusText;
@@ -1224,6 +1230,17 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
         const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
         console.log(`🔗 [updateBusinessTelegramMessage] URL de edición: ${editUrl.substring(0, 50)}...`);
 
+        // Botonera actualizada: remueve botones de acción (Aceptar/Descartar) y deja botón de Mini App
+        const appUrl = await getAppUrl();
+        const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+        const replyMarkup = {
+            inline_keyboard: [
+                [
+                    { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                ]
+            ]
+        };
+
         const updatePromises = businessMessages.map(msg => {
             console.log(`📤 [updateBusinessTelegramMessage] Editando mensaje en chat ${msg.chatId}, messageId ${msg.messageId}`);
             return axios.post(editUrl, {
@@ -1231,6 +1248,7 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
                 message_id: msg.messageId,
                 text: syncText,
                 parse_mode: 'HTML',
+                reply_markup: replyMarkup,
                 link_preview_options: { is_disabled: true }
             }).then(response => {
                 console.log(`✅ [updateBusinessTelegramMessage] Mensaje actualizado en chat ${msg.chatId}: ${response.data.ok}`);
@@ -1244,6 +1262,7 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
                             chat_id: msg.chatId,
                             message_id: msg.messageId,
                             text: syncText.replace(/<[^>]+>/g, ''),
+                            reply_markup: replyMarkup,
                             link_preview_options: { is_disabled: true }
                         });
                     } catch (retryErr) {
