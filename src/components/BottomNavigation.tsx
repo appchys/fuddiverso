@@ -57,9 +57,10 @@ export default function BottomNavigation() {
   const isCheckoutRoute = pathname === '/checkout'
   const isAdminRoute = pathname.startsWith('/admin')
   const isOrderRoute = pathname.startsWith('/o/')
-  const isPedidosRoute = pathname === '/pedidos'
+  const isPedidosRoute = pathname.startsWith('/pedidos')
+  const isTmaRoute = pathname.startsWith('/tma')
 
-  const showNav = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isAdminRoute && !isOrderRoute && !isPedidosRoute
+  const showNav = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isAdminRoute && !isOrderRoute && !isPedidosRoute && !isTmaRoute
 
   const [activeUrl, setActiveUrl] = useState('')
   const [showOrdersSheet, setShowOrdersSheet] = useState(false)

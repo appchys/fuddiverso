@@ -207,6 +207,43 @@ function getFormattedScheduledTime(orderData) {
 }
 
 /**
+ * Obtener el nombre real de la tienda (negocio) desde orderData o Firestore
+ */
+async function resolveBusinessName(orderData, defaultName = 'Tienda') {
+    if (!orderData) return defaultName;
+    if (orderData.businessName && typeof orderData.businessName === 'string' && orderData.businessName.trim().length > 0 && orderData.businessName !== 'Tienda' && orderData.businessName !== 'Negocio') {
+        return orderData.businessName;
+    }
+    if (orderData.businessId) {
+        try {
+            const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+            if (businessDoc.exists && businessDoc.data()?.name) {
+                return businessDoc.data().name;
+            }
+        } catch (e) {
+            console.error('Error al resolver el nombre de la tienda:', e);
+        }
+    }
+    if (orderData.businessName && typeof orderData.businessName === 'string' && orderData.businessName.trim().length > 0) {
+        return orderData.businessName;
+    }
+    return defaultName;
+}
+
+/**
+ * Obtener el texto formateado del método de pago con icono
+ */
+function getPaymentMethodText(orderData) {
+    const paymentMethod = (orderData?.payment?.method || '').toLowerCase();
+    if (paymentMethod === 'cash' || paymentMethod === 'efectivo') return '💵 Efectivo';
+    if (paymentMethod === 'transfer' || paymentMethod === 'transferencia') return '🏦 Transferencia';
+    if (paymentMethod === 'mixed' || paymentMethod === 'mixto') return '💳 Mixto';
+    if (paymentMethod === 'card' || paymentMethod === 'tarjeta') return '💳 Tarjeta';
+    return orderData?.payment?.method ? `💳 ${orderData.payment.method}` : '💳 No especificado';
+}
+
+
+/**
  * Construir mapa de variables a partir de una orden
  */
 function buildTemplateVariables(orderData, businessName, options = {}) {
@@ -938,31 +975,43 @@ async function handleStoreWebhook(req, res) {
                         console.log(`📋 [Store Webhook] Orden recuperada. telegramBusinessMessages: ${JSON.stringify(orderData.telegramBusinessMessages)}`);
 
                         // ACCIÓN SINCRONIZADA PARA LA TIENDA
-                        const businessName = orderData.businessName || 'Tienda';
-                        const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+                        const businessName = await resolveBusinessName(orderData, 'Tienda');
+                        let syncText = '';
 
-                        const handlerName = callbackQuery.from.first_name || 'Alguien';
-                        let finalStatusText = '';
-
-                        if (action === 'biz_confirm') {
-                            // Guardar quién confirmó y el origen telegram_bot
-                            await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName, confirmationSource: 'telegram_bot' });
-                            console.log(`✍️ [Store Webhook] Guardado confirmedBy: ${handlerName}`);
-
-                            const deliveryName = result.assignedDeliveryName;
-                            finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
-                            if (deliveryName) {
-                                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
-                            } else if (orderData.delivery?.type === 'delivery') {
-                                finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
-                            }
-                        } else if (action === 'store_preparing') {
-                            finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
+                        if (orderData.status === 'ready') {
+                            const customerName = orderData.customer?.name || 'Cliente';
+                            const total = orderData.total || 0;
+                            const paymentMethodText = getPaymentMethodText(orderData);
+                            syncText = `<b>${businessName}</b> • ${customerName}\n` +
+                                       `Total de pedido: $${total.toFixed(2)}\n` +
+                                       `${paymentMethodText}\n\n` +
+                                       `✅ <b>Listo</b>`;
                         } else {
-                            finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
-                        }
+                            const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
-                        const syncText = telegramText + finalStatusText;
+                            const handlerName = callbackQuery.from.first_name || 'Alguien';
+                            let finalStatusText = '';
+
+                            if (action === 'biz_confirm') {
+                                // Guardar quién confirmó y el origen telegram_bot
+                                await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName, confirmationSource: 'telegram_bot' });
+                                console.log(`✍️ [Store Webhook] Guardado confirmedBy: ${handlerName}`);
+
+                                const deliveryName = result.assignedDeliveryName;
+                                finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
+                                if (deliveryName) {
+                                    finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
+                                } else if (orderData.delivery?.type === 'delivery') {
+                                    finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
+                                }
+                            } else if (action === 'store_preparing') {
+                                finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
+                            } else {
+                                finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+                            }
+
+                            syncText = telegramText + finalStatusText;
+                        }
                         const businessMessages = orderData.telegramBusinessMessages || [];
                         console.log(`📝 [Store Webhook] Mensajes a editar: ${businessMessages.length}`);
 
@@ -1178,52 +1227,65 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
             return;
         }
 
-        const businessName = orderData.businessName || 'Tienda';
-        const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+        const businessName = await resolveBusinessName(orderData, 'Tienda');
+        let syncText = '';
 
-        let handlerName = orderData.confirmedBy;
-        if (!handlerName) {
-            if (orderData.confirmationSource === 'email') handlerName = 'Correo';
-            else if (orderData.confirmationSource === 'app') handlerName = 'Dashboard';
-            else if (orderData.confirmationSource === 'telegram_bot') handlerName = 'Telegram';
-            else handlerName = 'Tienda';
-        }
-        let finalStatusText = '';
+        if (orderData.status === 'ready') {
+            const customerName = orderData.customer?.name || 'Cliente';
+            const total = orderData.total || 0;
+            const paymentMethodText = getPaymentMethodText(orderData);
 
-        // Reconstruir el estado
-        if (orderData.status !== 'cancelled') {
-            finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
-
-            if (orderData.delivery?.assignedDelivery) {
-                // Necesitamos el nombre del delivery
-                let deliveryName = 'Repartidor';
-                try {
-                    const deliveryDoc = await admin.firestore().collection('deliveries').doc(orderData.delivery.assignedDelivery).get();
-                    if (deliveryDoc.exists) {
-                        deliveryName = deliveryDoc.data().nombres;
-                    }
-                } catch (e) {
-                    console.error('Error fetching delivery name for update:', e);
-                }
-
-                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
-
-                // Estado de aceptación del delivery
-                if (orderData.delivery.acceptanceStatus === 'accepted') {
-                    finalStatusText += ` ✅ Confirmado`;
-                } else {
-                    finalStatusText += ` <i>.. Esperando confirmación</i>`;
-                }
-            } else if (orderData.delivery?.type === 'delivery') {
-                finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
-            }
+            syncText = `<b>${businessName}</b> • ${customerName}\n` +
+                       `Total de pedido: $${total.toFixed(2)}\n` +
+                       `${paymentMethodText}\n\n` +
+                       `✅ <b>Listo</b>`;
         } else {
-            finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
-        }
+            const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
-        let syncText = telegramText + finalStatusText;
-        if (hasBeenUpdated) {
-            syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
+            let handlerName = orderData.confirmedBy;
+            if (!handlerName) {
+                if (orderData.confirmationSource === 'email') handlerName = 'Correo';
+                else if (orderData.confirmationSource === 'app') handlerName = 'Dashboard';
+                else if (orderData.confirmationSource === 'telegram_bot') handlerName = 'Telegram';
+                else handlerName = 'Tienda';
+            }
+            let finalStatusText = '';
+
+            // Reconstruir el estado
+            if (orderData.status !== 'cancelled') {
+                finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
+
+                if (orderData.delivery?.assignedDelivery) {
+                    // Necesitamos el nombre del delivery
+                    let deliveryName = 'Repartidor';
+                    try {
+                        const deliveryDoc = await admin.firestore().collection('deliveries').doc(orderData.delivery.assignedDelivery).get();
+                        if (deliveryDoc.exists) {
+                            deliveryName = deliveryDoc.data().nombres;
+                        }
+                    } catch (e) {
+                        console.error('Error fetching delivery name for update:', e);
+                    }
+
+                    finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
+
+                    // Estado de aceptación del delivery
+                    if (orderData.delivery.acceptanceStatus === 'accepted') {
+                        finalStatusText += ` ✅ Confirmado`;
+                    } else {
+                        finalStatusText += ` <i>.. Esperando confirmación</i>`;
+                    }
+                } else if (orderData.delivery?.type === 'delivery') {
+                    finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
+                }
+            } else {
+                finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+            }
+
+            syncText = telegramText + finalStatusText;
+            if (hasBeenUpdated) {
+                syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
+            }
         }
         console.log(`📝 [updateBusinessTelegramMessage] Texto preparado. Longitud: ${syncText.length}`);
 
@@ -1489,28 +1551,40 @@ async function handleDeliveryWebhook(req, res) {
                         try {
                             const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
                             const orderData = orderDoc.data();
-                            const businessName = orderData.businessName || 'Tienda';
-                            const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+                            const businessName = await resolveBusinessName(orderData, 'Tienda');
+                            let syncText = '';
 
-                            const handlerName = callbackQuery.from.first_name || 'Alguien';
-                            let finalStatusText = '';
-
-                            if (action === 'biz_confirm') {
-                                await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName, confirmationSource: 'telegram_bot' });
-                                const deliveryName = result.assignedDeliveryName;
-                                finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
-                                if (deliveryName) {
-                                    finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
-                                } else if (orderData.delivery?.type === 'delivery') {
-                                    finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
-                                }
-                            } else if (action === 'store_preparing') {
-                                finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
+                            if (orderData.status === 'ready') {
+                                const customerName = orderData.customer?.name || 'Cliente';
+                                const total = orderData.total || 0;
+                                const paymentMethodText = getPaymentMethodText(orderData);
+                                syncText = `<b>${businessName}</b> • ${customerName}\n` +
+                                           `Total de pedido: $${total.toFixed(2)}\n` +
+                                           `${paymentMethodText}\n\n` +
+                                           `✅ <b>Listo</b>`;
                             } else {
-                                finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
-                            }
+                                const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
-                            const syncText = telegramText + finalStatusText;
+                                const handlerName = callbackQuery.from.first_name || 'Alguien';
+                                let finalStatusText = '';
+
+                                if (action === 'biz_confirm') {
+                                    await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName, confirmationSource: 'telegram_bot' });
+                                    const deliveryName = result.assignedDeliveryName;
+                                    finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
+                                    if (deliveryName) {
+                                        finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
+                                    } else if (orderData.delivery?.type === 'delivery') {
+                                        finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
+                                    }
+                                } else if (action === 'store_preparing') {
+                                    finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
+                                } else {
+                                    finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+                                }
+
+                                syncText = telegramText + finalStatusText;
+                            }
                             const businessMessages = orderData.telegramBusinessMessages || [];
 
                             // Editar usando el token de este bot (DELIVERY_BOT_TOKEN)
@@ -2303,7 +2377,7 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     const appUrl = await getAppUrl();
     const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
 
-    const businessName = businessData.name || 'Tienda';
+    const businessName = businessData.name || await resolveBusinessName(orderData, 'Tienda');
     const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey);
     const linkPreviewOptions = { is_disabled: true };
 

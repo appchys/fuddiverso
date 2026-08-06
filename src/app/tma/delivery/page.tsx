@@ -83,6 +83,7 @@ function TMADeliveryContent() {
 
   // UI state
   const [activeTab, setActiveTab] = useState<'today' | 'history'>('today')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
   const [activeStoreMenuId, setActiveStoreMenuId] = useState<string | null>(null)
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['EntregadosHoy', 'Historial']))
@@ -234,13 +235,7 @@ function TMADeliveryContent() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order))
       
-      const filtered = allOrders.filter(o => {
-        const isAssignedToMe = o.delivery?.assignedDelivery === rider.id
-        const isAvailable = !o.delivery?.assignedDelivery && ['pending', 'preparing', 'ready', 'confirmed'].includes(o.status)
-        const isNotRejectedByMe = !o.delivery?.rejectedBy?.includes(rider.id)
-        
-        return isAssignedToMe || (isAvailable && isNotRejectedByMe)
-      })
+      const filtered = allOrders.filter(o => o.delivery?.assignedDelivery === rider.id)
 
       filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       
@@ -387,7 +382,6 @@ function TMADeliveryContent() {
   // Grouping & Statistics calculations
   const grouped = useMemo(() => {
     const list = {
-      Disponibles: [] as Order[],
       Activos: [] as Order[],
       EntregadosHoy: [] as Order[],
       Historial: [] as Order[]
@@ -405,8 +399,6 @@ function TMADeliveryContent() {
         }
       } else if (o.delivery?.assignedDelivery === rider.id) {
         list.Activos.push(o)
-      } else if (!o.delivery?.assignedDelivery) {
-        list.Disponibles.push(o)
       }
     })
 
@@ -502,8 +494,12 @@ function TMADeliveryContent() {
       
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-2">
-          <button className="w-8 h-8 flex items-center justify-center text-gray-500 rounded-lg hover:bg-gray-50">
-            <i className="bi bi-list text-xl"></i>
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="w-9 h-9 flex items-center justify-center text-gray-700 rounded-xl bg-gray-50 hover:bg-gray-100 border border-gray-100 transition-colors"
+            title="Abrir menú"
+          >
+            <i className="bi bi-list text-2xl"></i>
           </button>
           <span className="text-xl sm:text-2xl font-poetsen text-[#ab1919]">Fuddi</span>
         </div>
@@ -573,35 +569,21 @@ function TMADeliveryContent() {
           </div>
         </div>
 
-        {/* Tabs UI */}
-        <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200/65 shadow-sm">
-          <button
-            onClick={() => setActiveTab('today')}
-            className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-200 flex items-center justify-center gap-2 ${
-              activeTab === 'today'
-                ? 'bg-white text-red-600 shadow-sm border border-gray-100'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <i className="bi bi-calendar-event"></i>
-            Pedidos de Hoy
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-200 flex items-center justify-center gap-2 ${
-              activeTab === 'history'
-                ? 'bg-white text-red-600 shadow-sm border border-gray-100'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <i className="bi bi-clock-history"></i>
-            Historial ({grouped.Historial.length})
-          </button>
+        {/* Active Section Header */}
+        <div className="flex items-center justify-between px-1 pt-1">
+          <div className="flex items-center gap-2">
+            <div className={`w-2.5 h-2.5 rounded-full ${activeTab === 'today' ? 'bg-red-600' : 'bg-gray-500'}`}></div>
+            <h2 className="font-black text-gray-900 text-sm tracking-tight uppercase">
+              {activeTab === 'today' ? 'Pedidos de Hoy' : 'Historial de Entregas'}
+            </h2>
+          </div>
+          <span className="text-[10px] font-bold text-gray-500 bg-white px-2.5 py-1 rounded-full border border-gray-100 shadow-2xs">
+            {activeTab === 'today' ? `${stats.entregadosHoy} entregados` : `${grouped.Historial.length} guardados`}
+          </span>
         </div>
 
         {(activeTab === 'today'
           ? ([
-              { id: 'Disponibles', label: 'Disponibles', orders: grouped.Disponibles, color: 'bg-emerald-500' },
               { id: 'Activos', label: 'Activos', orders: grouped.Activos, color: 'bg-cyan-500' },
               { id: 'EntregadosHoy', label: 'Entregados Hoy', orders: grouped.EntregadosHoy, color: 'bg-gray-400' }
             ] as const)
@@ -658,8 +640,23 @@ function TMADeliveryContent() {
                             className="p-4 cursor-pointer flex items-center justify-between"
                           >
                             <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                {business?.image ? (
+                                  <img
+                                    src={business.image}
+                                    alt={business.name}
+                                    className="w-4 h-4 rounded-full object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <i className="bi bi-shop text-xs text-gray-900 shrink-0"></i>
+                                )}
+                                <span className="text-[11px] font-black text-gray-900 tracking-tight leading-tight truncate font-jakarta">
+                                  {business?.name || (order as any).businessName || 'Fuddi Store'}
+                                </span>
+                              </div>
+
                               <div className="flex items-center gap-2">
-                                <h4 className="font-black text-gray-900 text-sm truncate">
+                                <h4 className="font-black text-gray-900 text-sm truncate font-jakarta">
                                   {order.customer?.name || 'Cliente'}
                                 </h4>
                                 <i className={`bi ${isExpanded ? 'bi-chevron-up' : 'bi-chevron-down'} text-xs text-gray-400`}></i>
@@ -671,95 +668,71 @@ function TMADeliveryContent() {
                                 
                                 {order.status === 'ready' && (
                                   <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
-                                    ¿Listo?
+                                    Listo
                                   </span>
                                 )}
                               </div>
 
-                              <div className="text-sm font-bold text-gray-500 mt-2 truncate">
-                                {itemsText}
-                              </div>
-
-                              <div className="mt-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold border border-emerald-100">
-                                {business?.name || 'Fuddi Store'}
+                              <div className="text-xs font-medium text-gray-600 mt-2 truncate flex items-center gap-1.5">
+                                <i className="bi bi-geo-alt text-red-500 shrink-0 text-xs"></i>
+                                <span className="truncate">{order.delivery?.references || 'Sin referencias'}</span>
                               </div>
                             </div>
 
                             <div className="flex flex-col items-end gap-2.5">
-                              <span className="font-black text-red-600 text-sm">${order.total.toFixed(2)}</span>
+                              {order.payment?.method === 'transfer' ? (
+                                <span className="font-black text-blue-600 text-xs flex items-center gap-1">
+                                  <i className="bi bi-bank"></i> Transferencia
+                                </span>
+                              ) : order.payment?.method === 'mixed' ? (
+                                <span className="font-black text-red-600 text-sm">
+                                  ${((order.payment as any)?.cashAmount ?? order.total).toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="font-black text-red-600 text-sm">
+                                  ${order.total.toFixed(2)}
+                                </span>
+                              )}
                               
-                              {!order.delivery?.assignedDelivery ? (
+                              <div className="flex items-center gap-1.5">
+                                {order.status !== 'delivered' && order.status !== 'on_way' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleUpdateStatus(order.id, 'on_way')
+                                    }}
+                                    className="px-3 py-1.5 bg-cyan-600 text-white rounded-xl text-[10px] font-black shadow-md shadow-cyan-600/10 uppercase"
+                                  >
+                                    🛵 En camino
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                {order.status !== 'delivered' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleUpdateStatus(order.id, 'delivered')
+                                    }}
+                                    className="px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black shadow-md shadow-emerald-600/10 hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-1 uppercase tracking-wider"
+                                    title="Marcar como entregado"
+                                  >
+                                    <i className="bi bi-check2-circle text-xs"></i>
+                                    <span>Marcar Entregado</span>
+                                  </button>
+                                )}
+
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    handleTakeOrder(order.id)
+                                    setActiveStoreMenuId(activeStoreMenuId === order.id ? null : order.id)
                                   }}
-                                  className="px-3 py-1.5 bg-red-600 text-white rounded-xl text-[10px] font-black shadow-md shadow-red-600/10 uppercase tracking-wider"
+                                  className="w-7 h-7 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-100"
                                 >
-                                  Tomar
+                                  <i className="bi bi-three-dots"></i>
                                 </button>
-                              ) : (
-                                <div className="flex items-center gap-1.5">
-                                  {order.delivery.acceptanceStatus === 'pending' && (
-                                    <>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleAcceptOrder(order.id)
-                                        }}
-                                        className="px-2 py-1 bg-emerald-600 text-white rounded-xl text-[10px] font-black"
-                                      >
-                                        Aceptar
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleRejectOrder(order.id)
-                                        }}
-                                        className="px-2 py-1 bg-rose-50 text-rose-700 rounded-xl text-[10px] font-black border border-rose-200"
-                                      >
-                                        Rechazar
-                                      </button>
-                                    </>
-                                  )}
-
-                                  {order.delivery.acceptanceStatus === 'accepted' && order.status !== 'delivered' && (
-                                    <>
-                                      {order.status !== 'on_way' ? (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            handleUpdateStatus(order.id, 'on_way')
-                                          }}
-                                          className="px-3 py-1.5 bg-cyan-600 text-white rounded-xl text-[10px] font-black shadow-md shadow-cyan-600/10 uppercase"
-                                        >
-                                          🛵 En camino
-                                        </button>
-                                      ) : (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            handleUpdateStatus(order.id, 'delivered')
-                                          }}
-                                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black shadow-md shadow-emerald-600/10 uppercase"
-                                        >
-                                          🏁 Entregar
-                                        </button>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                              )}
-
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setActiveStoreMenuId(activeStoreMenuId === order.id ? null : order.id)
-                                }}
-                                className="w-7 h-7 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-100"
-                              >
-                                <i className="bi bi-three-dots"></i>
-                              </button>
+                              </div>
                             </div>
                           </div>
 
@@ -768,6 +741,17 @@ function TMADeliveryContent() {
                               <div className="fixed inset-0 z-40" onClick={() => setActiveStoreMenuId(null)}></div>
                               <div className="absolute right-4 bottom-12 z-50 bg-white rounded-2xl shadow-xl border border-gray-100 w-44 overflow-hidden animate-fadeIn">
                                 <div className="p-1.5 space-y-0.5">
+                                  {order.status !== 'delivered' && (
+                                    <button
+                                      onClick={() => {
+                                        handleUpdateStatus(order.id, 'delivered')
+                                        setActiveStoreMenuId(null)
+                                      }}
+                                      className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold"
+                                    >
+                                      <i className="bi bi-check-circle-fill text-emerald-600"></i> Marcar Entregado
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => {
                                       sendOnWayWhatsApp(order)
@@ -953,6 +937,112 @@ function TMADeliveryContent() {
                 Asignar y Abrir
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sidebar Navigation Drawer */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-50 flex animate-fadeIn">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+            onClick={() => setIsSidebarOpen(false)}
+          ></div>
+
+          {/* Drawer content */}
+          <div className="relative w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col z-10 border-r border-gray-100">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-br from-red-600 to-red-700 text-white flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-poetsen text-2xl tracking-wide">Fuddi</span>
+                <button
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+                >
+                  <i className="bi bi-x-lg text-sm"></i>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {rider?.fotoUrl ? (
+                  <img src={rider.fotoUrl} alt={rider.nombres} className="w-12 h-12 rounded-full object-cover border-2 border-white/40 shadow-sm" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-white text-red-600 flex items-center justify-center font-black text-base shadow-sm">
+                    {rider?.nombres.substring(0, 1)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <h3 className="font-black text-sm truncate">{rider?.nombres}</h3>
+                  <span className="text-[10px] text-red-100 uppercase tracking-widest font-bold block">Repartidor Activo</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Menu Items */}
+            <div className="p-4 space-y-2 flex-1 overflow-y-auto">
+              <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-3 py-1">
+                Menú Principal
+              </div>
+
+              <button
+                onClick={() => {
+                  setActiveTab('today')
+                  setIsSidebarOpen(false)
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl font-bold text-sm transition-all ${
+                  activeTab === 'today'
+                    ? 'bg-red-50 text-red-600 border border-red-100 shadow-xs'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-base ${activeTab === 'today' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    <i className="bi bi-calendar-event"></i>
+                  </div>
+                  <span>Pedidos de hoy</span>
+                </div>
+                <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${activeTab === 'today' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                  {grouped.Activos.length + grouped.EntregadosHoy.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('history')
+                  setIsSidebarOpen(false)
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl font-bold text-sm transition-all ${
+                  activeTab === 'history'
+                    ? 'bg-red-50 text-red-600 border border-red-100 shadow-xs'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-base ${activeTab === 'history' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    <i className="bi bi-clock-history"></i>
+                  </div>
+                  <span>Historial</span>
+                </div>
+                <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${activeTab === 'history' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                  {grouped.Historial.length}
+                </span>
+              </button>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50">
+              <button
+                onClick={() => {
+                  setIsSidebarOpen(false)
+                  handleLogout()
+                }}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-rose-200 text-rose-600 rounded-xl font-black text-xs uppercase tracking-wider shadow-xs hover:bg-rose-50 transition-colors"
+              >
+                <i className="bi bi-box-arrow-right text-base"></i>
+                Cerrar Sesión
+              </button>
+            </div>
           </div>
         </div>
       )}
