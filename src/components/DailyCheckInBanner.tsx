@@ -49,18 +49,19 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
     }
   }, [showActivatedBanner])
 
-  const handleSetStatus = async (status: 'open' | 'closed') => {
+  const handleSetStatus = async (status: 'open' | 'closed' | 'desconfirm') => {
     setUpdating(true)
     try {
+      const targetStatus: 'open' | 'closed' | 'pending' = status === 'desconfirm' ? 'pending' : status
       const newState = {
         date: todayStr,
-        status,
-        respondedAt: new Date().toISOString(),
+        status: targetStatus,
+        respondedAt: status === 'desconfirm' ? null : new Date().toISOString(),
         lastNotificationSentDate: checkInState?.lastNotificationSentDate || todayStr
       }
 
       const updateData: Partial<Business> = {
-        dailyCheckInState: newState
+        dailyCheckInState: newState as any
       }
 
       // Si abren manualmente la tienda vía check-in, limpiar cualquier manualStoreStatus que la mantuviera cerrada
@@ -77,6 +78,28 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
 
       if (status === 'open') {
         setShowActivatedBanner(true)
+      } else {
+        setShowActivatedBanner(false)
+      }
+
+      // Notificar al Admin por Telegram vía API en segundo plano
+      try {
+        const actionParam = status === 'closed' ? 'close' : status
+        fetch('/api/store/check-in', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            businessId: business.id,
+            action: actionParam,
+            date: todayStr,
+            source: 'Dashboard'
+          })
+        }).catch(err => console.error('Error al notificar check-in a admin:', err))
+      } catch (e) {
+        console.error('Error enviando notificación de admin:', e)
       }
     } catch (err) {
       console.error('Error al actualizar check-in desde el banner:', err)
@@ -113,10 +136,10 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
     )
   }
 
-  // Si la tienda fue activada ('open') y tenemos activo el estado showActivatedBanner, mostrar notificación que se oculta a los 6s
+  // Si la tienda fue activada ('open') y tenemos activo el estado showActivatedBanner
   if (showActivatedBanner) {
     return (
-      <div className="bg-emerald-50/95 border border-emerald-200 rounded-2xl p-4 sm:p-5 mb-6 flex items-center justify-between gap-4 shadow-sm animate-fadeIn">
+      <div className="bg-emerald-50/95 border border-emerald-200 rounded-2xl p-4 sm:p-5 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm animate-fadeIn">
         <div className="flex items-center gap-3.5">
           <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-xl flex items-center justify-center text-xl shrink-0">
             <i className="bi bi-shop"></i>
@@ -131,20 +154,51 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setShowActivatedBanner(false)}
-          className="text-emerald-600 hover:text-emerald-800 text-xs font-bold px-2 py-1.5 rounded-lg hover:bg-emerald-100/50 transition-colors shrink-0"
-          title="Cerrar notificación"
-        >
-          <i className="bi bi-x-lg"></i>
-        </button>
+        <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+          <button
+            disabled={updating}
+            onClick={() => handleSetStatus('desconfirm')}
+            className="px-3 py-1.5 bg-white/80 hover:bg-emerald-100/60 text-emerald-900 border border-emerald-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 active:scale-95"
+            title="Desconfirmar respuesta de check-in"
+          >
+            <i className="bi bi-arrow-counterclockwise mr-1"></i>
+            Desconfirmar
+          </button>
+          <button
+            onClick={() => setShowActivatedBanner(false)}
+            className="text-emerald-600 hover:text-emerald-800 text-xs font-bold px-2 py-1.5 rounded-lg hover:bg-emerald-100/50 transition-colors"
+            title="Cerrar notificación"
+          >
+            <i className="bi bi-x-lg"></i>
+          </button>
+        </div>
       </div>
     )
   }
 
-  // Si la tienda ya está abierta y no hay banner de confirmación activo, no renderizar nada
+  // Si la tienda ya está abierta
   if (currentStatus === 'open') {
-    return null
+    return (
+      <div className="bg-emerald-50/60 border border-emerald-200/60 rounded-2xl p-3 sm:p-4 mb-6 flex items-center justify-between gap-4 shadow-sm animate-fadeIn">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center text-lg shrink-0">
+            <i className="bi bi-check-circle-fill"></i>
+          </div>
+          <div>
+            <h4 className="font-black text-xs text-emerald-950 tracking-tight leading-tight">Check-in Diario Completado (Abierto)</h4>
+            <p className="text-[11px] text-emerald-800/80 font-medium">Confirmaste tu apertura para el día de hoy.</p>
+          </div>
+        </div>
+        <button
+          disabled={updating}
+          onClick={() => handleSetStatus('desconfirm')}
+          className="px-3 py-1.5 bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 active:scale-95 shrink-0 flex items-center gap-1"
+        >
+          <i className="bi bi-arrow-counterclockwise"></i>
+          {updating ? 'Procesando...' : 'Desconfirmar'}
+        </button>
+      </div>
+    )
   }
 
   // Si confirmó como cerrada
@@ -165,14 +219,24 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
             </p>
           </div>
         </div>
-        <button
-          disabled={updating}
-          onClick={() => handleSetStatus('open')}
-          className="self-end md:self-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all disabled:opacity-50 active:scale-95 text-center flex items-center justify-center gap-1.5 shrink-0"
-        >
-          <i className="bi bi-shop"></i>
-          {updating ? 'Abriendo...' : '🟢 Abrir Tienda Ahora'}
-        </button>
+        <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+          <button
+            disabled={updating}
+            onClick={() => handleSetStatus('desconfirm')}
+            className="px-3 py-2 bg-white hover:bg-rose-100/50 text-rose-800 border border-rose-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 active:scale-95"
+          >
+            <i className="bi bi-arrow-counterclockwise mr-1"></i>
+            Desconfirmar
+          </button>
+          <button
+            disabled={updating}
+            onClick={() => handleSetStatus('open')}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all disabled:opacity-50 active:scale-95 text-center flex items-center justify-center gap-1.5"
+          >
+            <i className="bi bi-shop"></i>
+            {updating ? 'Abriendo...' : '🟢 Abrir Tienda Ahora'}
+          </button>
+        </div>
       </div>
     )
   }

@@ -811,6 +811,68 @@ async function sendAdminTelegramMessage(text, replyMarkup = null, linkPreviewOpt
     }
 }
 
+function formatCheckInAdminDate(dateStr) {
+    let dateObj = new Date();
+    if (dateStr) {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+            dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        }
+    }
+    const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+    const dayName = days[dateObj.getDay()];
+    const dayNum = dateObj.getDate();
+    const monthName = months[dateObj.getMonth()];
+
+    return `hoy ${dayName} ${dayNum} de ${monthName}`;
+}
+
+async function sendAdminCheckInNotificationFunction(storeName, dateStr, source = 'Telegram', action = 'open') {
+    try {
+        const token = ADMIN_BOT_TOKEN || STORE_BOT_TOKEN;
+        if (!token) {
+            console.warn('⚠️ [Admin Check-in Telegram] No se encontró bot token de Telegram.');
+            return;
+        }
+
+        let adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID;
+        if (!adminChatId) {
+            const docSnap = await admin.firestore().collection('settings').doc('admin_telegram').get();
+            if (docSnap.exists) {
+                adminChatId = docSnap.data().chatId;
+            }
+        }
+
+        if (!adminChatId) {
+            console.warn('⚠️ [Admin Check-in Telegram] No se encontró Chat ID de Admin.');
+            return;
+        }
+
+        const formattedDate = formatCheckInAdminDate(dateStr);
+        let text = '';
+        if (action === 'open') {
+            text = `🟢 *${storeName}* ha hecho check-in (Abierto) para ${formattedDate} desde ${source}`;
+        } else if (action === 'closed' || action === 'close') {
+            text = `🔴 *${storeName}* ha confirmado MANTENER CERRADA la tienda para ${formattedDate} desde ${source}`;
+        } else if (action === 'desconfirm') {
+            text = `🔄 *${storeName}* ha DESCONFIRMADO su check-in para ${formattedDate} desde ${source}`;
+        } else {
+            text = `ℹ️ *${storeName}* ha actualizado su estado de check-in para ${formattedDate} desde ${source}`;
+        }
+
+        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+            chat_id: adminChatId,
+            text: text,
+            parse_mode: 'Markdown'
+        });
+        console.log(`✅ [Check-in Webhook] Notificación a admin enviada: ${text}`);
+    } catch (err) {
+        console.error('❌ Error enviando notificación a admin de check-in:', err.message);
+    }
+}
+
 /**
  * Manejador de callbacks de Check-in Diario en Telegram
  */
@@ -855,6 +917,10 @@ async function handleTelegramCheckInCallback(callbackQuery, actionType, business
         }
 
         await businessRef.update(updatePayload);
+
+        // Notificar al Admin por Telegram en todas las respuestas
+        const adminAction = isOpening ? 'open' : 'closed';
+        await sendAdminCheckInNotificationFunction(storeName, dateStr, 'Telegram', adminAction);
 
         // Notificación nativa emergente en Telegram (banner sin abrir navegador)
         const alertText = isOpening

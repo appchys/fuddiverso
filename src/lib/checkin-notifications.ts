@@ -19,8 +19,8 @@ export function getCheckInUrls(businessId: string, date: string, baseUrl?: strin
   const openToken = generateCheckInToken(businessId, date, 'open')
   const closeToken = generateCheckInToken(businessId, date, 'close')
 
-  const openUrl = `${cleanHost}/api/store/check-in?businessId=${businessId}&action=open&date=${date}&token=${openToken}`
-  const closeUrl = `${cleanHost}/api/store/check-in?businessId=${businessId}&action=close&date=${date}&token=${closeToken}`
+  const openUrl = `${cleanHost}/api/store/check-in?businessId=${businessId}&action=open&date=${date}&token=${openToken}&source=Correo`
+  const closeUrl = `${cleanHost}/api/store/check-in?businessId=${businessId}&action=close&date=${date}&token=${closeToken}&source=Correo`
 
   return { openUrl, closeUrl }
 }
@@ -41,6 +41,103 @@ function formatSpanishDate(dateStr?: string): string {
   const monthName = months[dateObj.getMonth()]
 
   return `Hoy ${dayName} ${dayNum} de ${monthName}`
+}
+
+/**
+ * Formatea la fecha para la notificación del Administrador (ej: "hoy viernes 7 de agosto")
+ */
+export function formatCheckInAdminDate(dateStr?: string): string {
+  let dateObj = new Date()
+  if (dateStr) {
+    const parts = dateStr.split('-')
+    if (parts.length === 3) {
+      dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+    }
+  }
+  const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+
+  const dayName = days[dateObj.getDay()]
+  const dayNum = dateObj.getDate()
+  const monthName = months[dateObj.getMonth()]
+
+  return `hoy ${dayName} ${dayNum} de ${monthName}`
+}
+
+/**
+ * Envía la notificación de estado de check-in al Admin por Telegram
+ */
+export async function sendAdminCheckInNotification(
+  storeName: string,
+  dateStr: string,
+  source: string = 'Telegram',
+  action: 'open' | 'closed' | 'desconfirm' = 'open'
+): Promise<{ success: boolean }> {
+  const botToken = process.env.ADMIN_BOT_TOKEN || process.env.STORE_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN
+  if (!botToken) {
+    console.warn('[Admin Check-in Notification] No hay token de bot de Telegram configurado.')
+    return { success: false }
+  }
+
+  let adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID
+
+  // Si no está en env, intentar obtenerlo de Firestore settings/admin_telegram
+  if (!adminChatId) {
+    try {
+      const { ensureAdminDb } = await import('@/lib/firebase-admin')
+      const adminDb = ensureAdminDb()
+      if (adminDb) {
+        const docSnap = await adminDb.collection('settings').doc('admin_telegram').get()
+        if (docSnap.exists) {
+          adminChatId = docSnap.data()?.chatId
+        }
+      }
+    } catch (err) {
+      console.warn('[Admin Check-in Notification] Error obteniendo admin_telegram de Firestore:', err)
+    }
+  }
+
+  if (!adminChatId) {
+    console.warn('[Admin Check-in Notification] No se encontró Chat ID de Admin para enviar la notificación.')
+    return { success: false }
+  }
+
+  const formattedDate = formatCheckInAdminDate(dateStr)
+  let messageText = ''
+
+  if (action === 'open') {
+    messageText = `🟢 *${storeName}* ha hecho check-in (Abierto) para ${formattedDate} desde ${source}`
+  } else if (action === 'closed') {
+    messageText = `🔴 *${storeName}* ha confirmado MANTENER CERRADA la tienda para ${formattedDate} desde ${source}`
+  } else if (action === 'desconfirm') {
+    messageText = `🔄 *${storeName}* ha DESCONFIRMADO su check-in para ${formattedDate} desde ${source}`
+  } else {
+    messageText = `ℹ️ *${storeName}* ha actualizado su estado de check-in (${action}) para ${formattedDate} desde ${source}`
+  }
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: adminChatId,
+        text: messageText,
+        parse_mode: 'Markdown'
+      })
+    })
+
+    if (res.ok) {
+      console.log(`[Admin Check-in Notification] Notificación enviada a Admin (${adminChatId}): ${messageText}`)
+      return { success: true }
+    } else {
+      const errJson = await res.json().catch(() => ({}))
+      console.error('[Admin Check-in Notification] Error de la API de Telegram:', errJson)
+      return { success: false }
+    }
+  } catch (err) {
+    console.error('[Admin Check-in Notification] Excepción al enviar notificación a Admin:', err)
+    return { success: false }
+  }
 }
 
 /**
@@ -92,8 +189,8 @@ export async function sendTelegramCheckIn(
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🟢 Abrir Tienda', callback_data: `checkin_open|${business.id}|${date}` },
-                { text: '🔴 Mantener Cerrada', callback_data: `checkin_close|${business.id}|${date}` }
+                { text: '🟢 Abrir Tienda', url: openUrl },
+                { text: '🔴 Mantener Cerrada', url: closeUrl }
               ]
             ]
           }
@@ -218,3 +315,133 @@ export async function sendEmailCheckIn(
 
   return { success: false }
 }
+
+/**
+ * Envía el resumen diario por Telegram al Admin a las 7:00 PM con los negocios que:
+ * 1. Hicieron check-in (abiertos)
+ * 2. NO hicieron check-in (cerrados o pendientes)
+ * 3. Tienen activado check-in automático (no requieren confirmación manual)
+ */
+export async function sendDailyCheckInSummaryReport(
+  dateStr?: string
+): Promise<{ success: boolean; summaryText?: string }> {
+  const targetDate = dateStr || getTodayDateString(new Date())
+  
+  const botToken = process.env.ADMIN_BOT_TOKEN || process.env.STORE_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN
+  if (!botToken) {
+    console.warn('[Check-in Summary] No hay bot token configurado.')
+    return { success: false }
+  }
+
+  let adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID
+
+  const { ensureAdminDb } = await import('@/lib/firebase-admin')
+  const adminDb = ensureAdminDb()
+
+  if (!adminDb) {
+    console.error('[Check-in Summary] No se pudo obtener la instancia de Firebase Admin.')
+    return { success: false }
+  }
+
+  if (!adminChatId) {
+    try {
+      const docSnap = await adminDb.collection('settings').doc('admin_telegram').get()
+      if (docSnap.exists) {
+        adminChatId = docSnap.data()?.chatId
+      }
+    } catch (err) {
+      console.warn('[Check-in Summary] Error leyendo admin_telegram settings:', err)
+    }
+  }
+
+  if (!adminChatId) {
+    console.warn('[Check-in Summary] No hay Chat ID de Admin para enviar el resumen.')
+    return { success: false }
+  }
+
+  try {
+    const snapshot = await adminDb.collection('businesses').get()
+    
+    const checkedIn: string[] = []
+    const notCheckedIn: { name: string; reason: string }[] = []
+    const automaticCheckIn: string[] = []
+
+    snapshot.docs.forEach(doc => {
+      const biz = doc.data()
+      if (biz.isActive === false) return
+
+      const name = biz.name || doc.id
+      const requiresManual = biz.requireDailyCheckIn === true
+
+      if (!requiresManual) {
+        automaticCheckIn.push(name)
+      } else {
+        const state = biz.dailyCheckInState
+        if (state?.date === targetDate && state?.status === 'open') {
+          checkedIn.push(name)
+        } else if (state?.date === targetDate && state?.status === 'closed') {
+          notCheckedIn.push({ name, reason: 'Confirmó Cerrada' })
+        } else {
+          notCheckedIn.push({ name, reason: 'Sin respuesta' })
+        }
+      }
+    })
+
+    const formattedDate = formatCheckInAdminDate(targetDate)
+    
+    let text = `📋 *Resumen de Check-in Diario - ${formattedDate}*\n\n`
+
+    text += `🟢 *Hicieron Check-in (${checkedIn.length})*:\n`
+    if (checkedIn.length > 0) {
+      checkedIn.forEach(name => {
+        text += `• ${name}\n`
+      })
+    } else {
+      text += `_(Ninguno)_\n`
+    }
+    text += `\n`
+
+    text += `🔴 *NO hicieron Check-in (${notCheckedIn.length})*:\n`
+    if (notCheckedIn.length > 0) {
+      notCheckedIn.forEach(item => {
+        text += `• ${item.name} _(${item.reason})_\n`
+      })
+    } else {
+      text += `_(Ninguno)_\n`
+    }
+    text += `\n`
+
+    text += `⚡ *Check-in Automático Activado (${automaticCheckIn.length})*:\n`
+    if (automaticCheckIn.length > 0) {
+      automaticCheckIn.forEach(name => {
+        text += `• ${name}\n`
+      })
+    } else {
+      text += `_(Ninguno)_\n`
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: adminChatId,
+        text,
+        parse_mode: 'Markdown'
+      })
+    })
+
+    if (res.ok) {
+      console.log(`[Check-in Summary] Resumen diario enviado exitosamente a Admin (${adminChatId})`)
+      return { success: true, summaryText: text }
+    } else {
+      const errJson = await res.json().catch(() => ({}))
+      console.error('[Check-in Summary] Error enviando reporte por Telegram:', errJson)
+      return { success: false }
+    }
+
+  } catch (error) {
+    console.error('[Check-in Summary] Excepción al generar resumen diario:', error)
+    return { success: false }
+  }
+}
+

@@ -1155,5 +1155,125 @@ exports.processScheduledBroadcasts = onSchedule("every 5 minutes", async (event)
   }
 });
 
+/**
+ * Cloud Function: Resumen diario de Check-in a las 7:00 PM (19:00 UTC-5)
+ * Envía un Telegram al Admin clasificando las tiendas en:
+ * - Hicieron check-in
+ * - NO hicieron check-in
+ * - Check-in automático activado
+ */
+exports.sendDailyCheckInSummaryReport = onSchedule({
+  schedule: "0 19 * * *",
+  timeZone: "America/Guayaquil",
+  retryCount: 0
+}, async (event) => {
+  console.log('📋 [CRON 7:00 PM] Generando resumen diario de Check-in para Admin...');
+  try {
+    const nowUtc = new Date();
+    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
+    
+    const year = nowEcuador.getUTCFullYear();
+    const month = String(nowEcuador.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(nowEcuador.getUTCDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+    const dayName = days[nowEcuador.getUTCDay()];
+    const dayNum = nowEcuador.getUTCDate();
+    const monthName = months[nowEcuador.getUTCMonth()];
+    const formattedDate = `hoy ${dayName} ${dayNum} de ${monthName}`;
+
+    const snapshot = await admin.firestore().collection('businesses').get();
+
+    const checkedIn = [];
+    const notCheckedIn = [];
+    const automaticCheckIn = [];
+
+    snapshot.docs.forEach(doc => {
+      const biz = doc.data();
+      if (biz.isActive === false) return;
+
+      const name = biz.name || doc.id;
+      const requiresManual = biz.requireDailyCheckIn === true;
+
+      if (!requiresManual) {
+        automaticCheckIn.push(name);
+      } else {
+        const state = biz.dailyCheckInState;
+        if (state?.date === dateStr && state?.status === 'open') {
+          checkedIn.push(name);
+        } else if (state?.date === dateStr && state?.status === 'closed') {
+          notCheckedIn.push({ name, reason: 'Confirmó Cerrada' });
+        } else {
+          notCheckedIn.push({ name, reason: 'Sin respuesta' });
+        }
+      }
+    });
+
+    let text = `📋 *Resumen de Check-in Diario - ${formattedDate}*\n\n`;
+
+    text += `🟢 *Hicieron Check-in (${checkedIn.length})*:\n`;
+    if (checkedIn.length > 0) {
+      checkedIn.forEach(name => {
+        text += `• ${name}\n`;
+      });
+    } else {
+      text += `_(Ninguno)_\n`;
+    }
+    text += `\n`;
+
+    text += `🔴 *NO hicieron Check-in (${notCheckedIn.length})*:\n`;
+    if (notCheckedIn.length > 0) {
+      notCheckedIn.forEach(item => {
+        text += `• ${item.name} _(${item.reason})_\n`;
+      });
+    } else {
+      text += `_(Ninguno)_\n`;
+    }
+    text += `\n`;
+
+    text += `⚡ *Check-in Automático Activado (${automaticCheckIn.length})*:\n`;
+    if (automaticCheckIn.length > 0) {
+      automaticCheckIn.forEach(name => {
+        text += `• ${name}\n`;
+      });
+    } else {
+      text += `_(Ninguno)_\n`;
+    }
+
+    let adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID;
+    if (!adminChatId) {
+      const docSnap = await admin.firestore().collection('settings').doc('admin_telegram').get();
+      if (docSnap.exists) {
+        adminChatId = docSnap.data().chatId;
+      }
+    }
+
+    if (!adminChatId) {
+      console.warn('⚠️ [CRON 7:00 PM] No se encontró Chat ID de Admin para enviar el resumen.');
+      return;
+    }
+
+    const token = process.env.ADMIN_BOT_TOKEN || process.env.STORE_BOT_TOKEN;
+    if (!token) {
+      console.warn('⚠️ [CRON 7:00 PM] No hay token de Telegram para enviar mensaje.');
+      return;
+    }
+
+    const axios = require('axios');
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: adminChatId,
+      text: text,
+      parse_mode: 'Markdown'
+    });
+
+    console.log(`✅ [CRON 7:00 PM] Resumen de Check-in enviado exitosamente a Admin (${adminChatId})`);
+  } catch (error) {
+    console.error('❌ [CRON 7:00 PM] Error enviando resumen diario de Check-in:', error);
+  }
+});
+
 
 
