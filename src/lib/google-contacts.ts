@@ -268,7 +268,7 @@ export async function createGoogleContact(contactData: { name: string; phone: st
     ]
   }
 
-  const response = await fetch('https://people.googleapis.com/v1/people:createContact', {
+  let response = await fetch('https://people.googleapis.com/v1/people:createContact', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -276,6 +276,19 @@ export async function createGoogleContact(contactData: { name: string; phone: st
     },
     body: JSON.stringify(payload)
   })
+
+  // Si Google responde con límite de tasa (429/403), hacer una pausa de 2.5s y reintentar
+  if (response.status === 429 || response.status === 403) {
+    await new Promise(resolve => setTimeout(resolve, 2500))
+    response = await fetch('https://people.googleapis.com/v1/people:createContact', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+  }
 
   const data = await response.json()
 

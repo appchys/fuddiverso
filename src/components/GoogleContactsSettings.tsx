@@ -147,6 +147,9 @@ export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSetting
           totalFailed += batch.length
           allErrors.push(err.message || 'Error de conexión durante el lote')
         }
+
+        // Pequeña pausa preventiva entre lotes para no sobrepasar los límites de tasa de Google People API
+        await new Promise(resolve => setTimeout(resolve, 400))
       }
 
       setSyncResult({
