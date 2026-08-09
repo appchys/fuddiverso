@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { FieldValue } from 'firebase-admin/firestore'
 import { createGoogleContact, getContactsConnection } from '@/lib/google-contacts'
+import { ensureAdminDb } from '@/lib/firebase-admin'
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,12 +34,28 @@ export async function POST(request: NextRequest) {
           throw new Error('Faltan datos de teléfono o nombre')
         }
 
-        return await createGoogleContact({
+        const res = await createGoogleContact({
           name: nombres || celular || 'Cliente',
           phone: celular || '',
           email: item.email,
           notes: item.notas || 'Cliente de Fuddiverso'
         })
+
+        if (item.id) {
+          try {
+            const adminDb = ensureAdminDb()
+            if (adminDb) {
+              await adminDb.collection('clients').doc(item.id).update({
+                googleContactSynced: true,
+                googleContactSyncedAt: FieldValue.serverTimestamp()
+              })
+            }
+          } catch (e) {
+            // Silenciar posible error si el doc ID es diferente
+          }
+        }
+
+        return res
       })
     )
 
