@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const items: Array<{ nombres?: string; name?: string; celular?: string; phone?: string; email?: string; notas?: string }> = body.items || []
+    const items: Array<{ id?: string; nombres?: string; name?: string; celular?: string; phone?: string; email?: string; notas?: string }> = body.items || []
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({
