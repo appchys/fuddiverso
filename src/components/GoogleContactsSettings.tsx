@@ -71,18 +71,18 @@ export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSetting
   }
 
   const handleSyncAll = async () => {
-    if (!confirm('¿Deseas sincronizar todos los clientes de la base de datos a tu cuenta de Google Contacts?')) {
+    if (!confirm('¿Deseas sincronizar los clientes pendientes a tu cuenta de Google Contacts?')) {
       return
     }
 
     try {
       setSyncingAll(true)
       setSyncResult(null)
-      setProgressText('Obteniendo lista de clientes de la base de datos...')
+      setProgressText('Obteniendo lista de clientes...')
 
-      const clients = await getAllClientsGlobal()
+      const allClients = await getAllClientsGlobal()
 
-      if (!clients || clients.length === 0) {
+      if (!allClients || allClients.length === 0) {
         setSyncResult({
           success: true,
           total: 0,
@@ -92,17 +92,30 @@ export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSetting
         return
       }
 
+      // Filtrar únicamente los clientes que aún NO han sido sincronizados
+      const pendingClients = allClients.filter(c => !c.googleContactSynced)
+
+      if (pendingClients.length === 0) {
+        setSyncResult({
+          success: true,
+          total: allClients.length,
+          syncedCount: 0,
+          message: `¡Excelente! Los ${allClients.length} clientes registrados ya están sincronizados en Google Contacts.`
+        })
+        return
+      }
+
       const BATCH_SIZE = 10
       let totalSynced = 0
       let totalFailed = 0
       const allErrors: string[] = []
 
-      for (let i = 0; i < clients.length; i += BATCH_SIZE) {
-        const batch = clients.slice(i, i + BATCH_SIZE)
-        const currentCount = Math.min(i + batch.length, clients.length)
-        const percent = Math.round((currentCount / clients.length) * 100)
+      for (let i = 0; i < pendingClients.length; i += BATCH_SIZE) {
+        const batch = pendingClients.slice(i, i + BATCH_SIZE)
+        const currentCount = Math.min(i + batch.length, pendingClients.length)
+        const percent = Math.round((currentCount / pendingClients.length) * 100)
         
-        setProgressText(`Sincronizando: ${currentCount} de ${clients.length} clientes (${percent}%)...`)
+        setProgressText(`Sincronizando pendientes: ${currentCount} de ${pendingClients.length} clientes (${percent}%)...`)
 
         try {
           const res = await fetch('/api/google-contacts/sync-batch', {
@@ -138,11 +151,11 @@ export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSetting
 
       setSyncResult({
         success: totalSynced > 0 || totalFailed === 0,
-        total: clients.length,
+        total: pendingClients.length,
         syncedCount: totalSynced,
         failedCount: totalFailed,
         errors: allErrors.slice(0, 5),
-        message: `Sincronización masiva completada: ${totalSynced} de ${clients.length} clientes guardados en tu cuenta de Google Contacts.`
+        message: `Sincronización completada: ${totalSynced} de ${pendingClients.length} clientes pendientes fueron guardados exitosamente en tu cuenta de Google Contacts.`
       })
       onSyncComplete?.()
     } catch (error: any) {
