@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Users, CheckCircle2, AlertCircle, RefreshCw, ExternalLink, ShieldCheck, UserCheck } from 'lucide-react'
+import { getAllClientsGlobal } from '@/lib/database'
 
 interface ContactsStatus {
   configured: boolean
@@ -15,6 +16,7 @@ export function GoogleContactsSettings() {
   const [status, setStatus] = useState<ContactsStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncingAll, setSyncingAll] = useState(false)
+  const [progressText, setProgressText] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<{
     success: boolean
     total?: number
@@ -72,33 +74,81 @@ export function GoogleContactsSettings() {
     try {
       setSyncingAll(true)
       setSyncResult(null)
-      const res = await fetch('/api/google-contacts/sync-all', {
-        method: 'POST'
-      })
-      const data = await res.json()
+      setProgressText('Obteniendo lista de clientes de la base de datos...')
 
-      if (res.ok && data.success) {
+      const clients = await getAllClientsGlobal()
+
+      if (!clients || clients.length === 0) {
         setSyncResult({
           success: true,
-          total: data.total,
-          syncedCount: data.syncedCount,
-          failedCount: data.failedCount,
-          errors: data.errors,
-          message: `Sincronización completada: ${data.syncedCount} de ${data.total} clientes agregados a Google Contacts.`
+          total: 0,
+          syncedCount: 0,
+          message: 'No hay clientes registrados en la base de datos para sincronizar.'
         })
-      } else {
-        setSyncResult({
-          success: false,
-          message: data.message || data.error || 'Error al ejecutar la sincronización masiva.'
-        })
+        return
       }
+
+      const BATCH_SIZE = 10
+      let totalSynced = 0
+      let totalFailed = 0
+      const allErrors: string[] = []
+
+      for (let i = 0; i < clients.length; i += BATCH_SIZE) {
+        const batch = clients.slice(i, i + BATCH_SIZE)
+        const currentCount = Math.min(i + batch.length, clients.length)
+        const percent = Math.round((currentCount / clients.length) * 100)
+        
+        setProgressText(`Sincronizando: ${currentCount} de ${clients.length} clientes (${percent}%)...`)
+
+        try {
+          const res = await fetch('/api/google-contacts/sync-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: batch })
+          })
+
+          if (!res.ok) {
+            const errorText = await res.text().catch(() => '')
+            totalFailed += batch.length
+            allErrors.push(`Error en servidor (${res.status}): ${errorText.substring(0, 100)}`)
+            continue
+          }
+
+          const data = await res.json()
+
+          if (data.success) {
+            totalSynced += data.syncedCount || 0
+            totalFailed += data.failedCount || 0
+            if (Array.isArray(data.errors) && data.errors.length > 0) {
+              allErrors.push(...data.errors)
+            }
+          } else {
+            totalFailed += batch.length
+            allErrors.push(data.message || data.error || 'Error al procesar lote')
+          }
+        } catch (err: any) {
+          totalFailed += batch.length
+          allErrors.push(err.message || 'Error de conexión durante el lote')
+        }
+      }
+
+      setSyncResult({
+        success: totalSynced > 0 || totalFailed === 0,
+        total: clients.length,
+        syncedCount: totalSynced,
+        failedCount: totalFailed,
+        errors: allErrors.slice(0, 5),
+        message: `Sincronización masiva completada: ${totalSynced} de ${clients.length} clientes guardados en tu cuenta de Google Contacts.`
+      })
     } catch (error: any) {
+      console.error('Error al sincronizar clientes:', error)
       setSyncResult({
         success: false,
-        message: error.message || 'Error de conexión al sincronizar.'
+        message: error.message || 'Error al ejecutar la sincronización masiva.'
       })
     } finally {
       setSyncingAll(false)
+      setProgressText(null)
     }
   }
 
@@ -122,7 +172,7 @@ export function GoogleContactsSettings() {
           </div>
           <button
             onClick={fetchStatus}
-            disabled={loading}
+            disabled={loading || syncingAll}
             className="p-2 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all"
             title="Recargar estado"
           >
@@ -160,6 +210,16 @@ export function GoogleContactsSettings() {
           </div>
         )}
 
+        {/* Progreso activo durante la sincronización */}
+        {syncingAll && progressText && (
+          <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+            <div className="flex items-center gap-2 text-blue-900 font-bold text-xs">
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+              <span>{progressText}</span>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-8 text-gray-400 gap-2 text-xs font-medium">
             <RefreshCw className="w-4 h-4 animate-spin" />
@@ -187,7 +247,8 @@ export function GoogleContactsSettings() {
               </div>
               <button
                 onClick={handleConnect}
-                className="text-xs font-bold text-gray-500 hover:text-gray-800 underline decoration-gray-300 transition-all"
+                disabled={syncingAll}
+                className="text-xs font-bold text-gray-500 hover:text-gray-800 underline decoration-gray-300 transition-all disabled:opacity-50"
               >
                 Reconectar
               </button>
