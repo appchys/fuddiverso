@@ -2436,6 +2436,26 @@ export async function createClient(clientData: { celular: string; nombres: strin
 
     // Ensure the document has the correct id field
     await updateDoc(doc(db, 'clients', clientRef.id), { id: clientRef.id });
+
+    // Sincronizar automáticamente el nuevo cliente con Google Contacts (cuenta central)
+    try {
+      if (typeof window !== 'undefined' || typeof fetch !== 'undefined') {
+        fetch('/api/google-contacts/sync-client', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nombres: clientData.nombres,
+            celular: clientData.celular,
+            notas: clientData.notas
+          })
+        }).catch(err => {
+          console.warn('⚠️ No se pudo sincronizar automáticamente el cliente con Google Contacts:', err);
+        });
+      }
+    } catch (e) {
+      console.warn('⚠️ Excepción silenciada en sincronización de Google Contacts:', e);
+    }
+
     return {
       id: clientRef.id,
       celular: clientData.celular,

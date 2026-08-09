@@ -9,6 +9,7 @@ const CustomerBroadcastPanel = lazy(() => import('@/components/CustomerBroadcast
 const ProductsList = lazy(() => import('@/components/ProductsList'))
 const RecommendersTab = lazy(() => import('@/components/admin/RecommendersTab'))
 const PaymentManagementModals = lazy(() => import('@/components/PaymentManagementModals'))
+const GoogleContactsSettings = lazy(() => import('@/components/GoogleContactsSettings').then(m => ({ default: m.GoogleContactsSettings })))
 import {
   getAllOrders,
   getAllBusinesses,
@@ -635,34 +636,44 @@ export default function AdminDashboard() {
 
   const renderCustomersTab = () => {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900">Base de Clientes</h3>
-          <p className="text-sm text-gray-500">Total: {customers.length} clientes únicos</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Órdenes</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Gastado Acum.</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Última Compra</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {customers.map((c, idx) => (
-                <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{c.name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-500">{c.phone}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center text-gray-900 font-semibold">{c.totalOrders}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center text-red-600 font-bold">${c.spent.toFixed(2)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-500">{new Date(c.lastOrder).toLocaleDateString()}</td>
+      <div className="space-y-6">
+        <Suspense fallback={
+          <div className="p-6 bg-white rounded-2xl border border-gray-100 shadow-sm text-center text-xs text-gray-400 font-medium animate-pulse">
+            Cargando tarjeta de integración de Google Contacts...
+          </div>
+        }>
+          <GoogleContactsSettings />
+        </Suspense>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="p-6 border-b border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-900">Base de Clientes</h3>
+            <p className="text-sm text-gray-500">Total: {customers.length} clientes únicos</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Órdenes</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Gastado Acum.</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Última Compra</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {customers.map((c, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{c.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-500">{c.phone}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-gray-900 font-semibold">{c.totalOrders}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-red-600 font-bold">${c.spent.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-500">{new Date(c.lastOrder).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     );
