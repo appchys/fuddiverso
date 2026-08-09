@@ -10,9 +10,12 @@ export const contactsScopes = [
 export const TARGET_CENTRAL_EMAIL = 'munchys.ec@gmail.com'
 
 export function getContactsOAuthConfig() {
-  const clientId = process.env.GOOGLE_CONTACTS_CLIENT_ID || process.env.GOOGLE_GMAIL_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_CONTACTS_CLIENT_SECRET || process.env.GOOGLE_GMAIL_CLIENT_SECRET
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000'
+  const rawClientId = process.env.GOOGLE_CONTACTS_CLIENT_ID || process.env.GOOGLE_GMAIL_CLIENT_ID || ''
+  const rawClientSecret = process.env.GOOGLE_CONTACTS_CLIENT_SECRET || process.env.GOOGLE_GMAIL_CLIENT_SECRET || ''
+
+  const clientId = rawClientId.trim().replace(/^["']|["']$/g, '')
+  const clientSecret = rawClientSecret.trim().replace(/^["']|["']$/g, '')
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000').trim().replace(/^["']|["']$/g, '')
 
   const cleanAppUrl = appUrl.replace(/\/$/, '')
 
