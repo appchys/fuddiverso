@@ -62,27 +62,36 @@ export function parseContactsOAuthState(state: string): any | null {
   return parsed
 }
 
-export function buildGoogleContactsAuthUrl(stateData: any = {}) {
+export function buildGoogleContactsAuthUrl(stateData: any = {}, customRedirectUri?: string) {
   const config = getContactsOAuthConfig()
+  const redirectUri = customRedirectUri || stateData.redirectUri || config.redirectUri
+
   const missing = getMissingContactsOAuthConfig()
-  if (missing.length > 0 || !config.clientId || !config.redirectUri) {
+  if (missing.length > 0 || !config.clientId || !redirectUri) {
     throw new Error(`Faltan variables de entorno: ${missing.join(', ')}`)
+  }
+
+  const statePayload = {
+    ...stateData,
+    redirectUri
   }
 
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
   url.searchParams.set('client_id', config.clientId)
-  url.searchParams.set('redirect_uri', config.redirectUri)
+  url.searchParams.set('redirect_uri', redirectUri)
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('scope', contactsScopes.join(' '))
   url.searchParams.set('access_type', 'offline')
   url.searchParams.set('prompt', 'consent')
-  url.searchParams.set('state', createContactsOAuthState(stateData))
+  url.searchParams.set('state', createContactsOAuthState(statePayload))
   return url.toString()
 }
 
-export async function exchangeCodeForContactsTokens(code: string) {
+export async function exchangeCodeForContactsTokens(code: string, customRedirectUri?: string) {
   const config = getContactsOAuthConfig()
-  if (!config.clientId || !config.clientSecret || !config.redirectUri) {
+  const redirectUri = customRedirectUri || config.redirectUri
+
+  if (!config.clientId || !config.clientSecret || !redirectUri) {
     throw new Error('OAuth de Google Contacts no esta configurado.')
   }
 
@@ -93,7 +102,7 @@ export async function exchangeCodeForContactsTokens(code: string) {
       code,
       client_id: config.clientId,
       client_secret: config.clientSecret,
-      redirect_uri: config.redirectUri,
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code'
     })
   })

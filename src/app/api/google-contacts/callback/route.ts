@@ -32,7 +32,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(targetUrl)
     }
 
-    const tokens = await exchangeCodeForContactsTokens(code)
+    const usedRedirectUri = stateData.redirectUri
+
+    const tokens = await exchangeCodeForContactsTokens(code, usedRedirectUri)
     if (!tokens.refresh_token) {
       const targetUrl = new URL(redirectBase)
       targetUrl.searchParams.set('contacts', 'error')
@@ -43,7 +45,8 @@ export async function GET(request: NextRequest) {
     // Save token for Google Contacts
     await saveContactsConnection(tokens.refresh_token, tokens.userEmail || TARGET_CENTRAL_EMAIL)
 
-    const targetUrl = new URL(redirectBase)
+    const finalBase = usedRedirectUri ? usedRedirectUri.replace('/api/google-contacts/callback', '/admin/dashboard') : redirectBase
+    const targetUrl = new URL(finalBase)
     targetUrl.searchParams.set('contacts', 'connected')
     return NextResponse.redirect(targetUrl)
   } catch (error: any) {
