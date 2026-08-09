@@ -69,7 +69,7 @@ const BusinessProfileDashboard = dynamic(() => import('@/components/BusinessProf
 const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfileEditor'), { ssr: false })
 const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), { ssr: false })
 const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: false })
-const FinanceView = dynamic(() => import('@/components/FinanceView'), { ssr: false })
+
 
 // Auto-assign logic
 const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: string): Promise<string | undefined> => {
@@ -267,7 +267,7 @@ export default function TodayOrdersPage() {
     } = pushNotifications || {} as any
 
     // Sidebar State
-    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses' | 'finance'>('orders')
+    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'>('orders')
     const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
     const [reportsSubTab, setReportsSubTab] = useState<'general' | 'costs'>('general')
     const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
@@ -1944,10 +1944,7 @@ export default function TodayOrdersPage() {
                         <div className="p-4 sm:p-6">
                             <ExpensesView business={business} user={user} />
                         </div>
-                    ) : activeTab === 'finance' ? (
-                        <div className="p-4 sm:p-6">
-                            <FinanceView business={business} user={user} />
-                        </div>
+
                     ) : activeTab === 'inventory' ? (
                         <div className="p-4 sm:p-6">
                             <IngredientStockManagement business={business} />

@@ -24,6 +24,7 @@ import {
 import {
     sendWhatsAppToDelivery,
     sendWhatsAppToCustomer,
+    sendOrderToStore,
     getNextStatus
 } from '@/components/WhatsAppUtils'
 import { isStoreOpen, calculateManualStatusExpiry } from '@/lib/store-utils'
@@ -1195,6 +1196,20 @@ export default function AdminPedidosPage() {
         }
     }
 
+    const handleSendWhatsAppToStore = async (order: Order) => {
+        try {
+            const orderBusiness = businesses.find(b => b.id === order.businessId) || business
+            if (!orderBusiness) {
+                alert("No se encontró la información de la tienda")
+                return
+            }
+            await sendOrderToStore(order, orderBusiness)
+        } catch (e) {
+            console.error("Error sending WhatsApp to store", e)
+            alert("Error al enviar WhatsApp a la tienda")
+        }
+    }
+
     const handleDeleteOrder = async (orderId: string) => {
         if (!window.confirm('¿Estás seguro de que deseas eliminar este pedido? (Acción de administrador)')) return
 
@@ -1659,6 +1674,7 @@ export default function AdminPedidosPage() {
                                             handleDeliveryAssignment={handleDeliveryAssignment}
                                             handlePaymentClick={handlePaymentClick}
                                             handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                            handleSendWhatsAppToStore={handleSendWhatsAppToStore}
                                             handlePrint={handlePrint}
                                             setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
                                             setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
@@ -1689,6 +1705,7 @@ export default function AdminPedidosPage() {
                                             handleDeliveryAssignment={handleDeliveryAssignment}
                                             handlePaymentClick={handlePaymentClick}
                                             handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                            handleSendWhatsAppToStore={handleSendWhatsAppToStore}
                                             handlePrint={handlePrint}
                                             setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
                                             setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
@@ -1748,6 +1765,7 @@ export default function AdminPedidosPage() {
                                             handleDeliveryAssignment={handleDeliveryAssignment}
                                             handlePaymentClick={handlePaymentClick}
                                             handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                            handleSendWhatsAppToStore={handleSendWhatsAppToStore}
                                             handlePrint={handlePrint}
                                             setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
                                             setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
@@ -2284,6 +2302,7 @@ function OrderStatusColumn({
     handleDeliveryAssignment,
     handlePaymentClick,
     handleSendWhatsAppToDelivery,
+    handleSendWhatsAppToStore,
     handlePrint,
     setSelectedOrderForStatusModal,
     setDeliveryStatusModalOpen,
@@ -2342,6 +2361,7 @@ function OrderStatusColumn({
                                     onDeliveryAssign={handleDeliveryAssignment}
                                     onPaymentEdit={() => handlePaymentClick(order)}
                                     onWhatsAppDelivery={() => handleSendWhatsAppToDelivery(order)}
+                                    onWhatsAppStore={() => handleSendWhatsAppToStore(order)}
                                     onPrint={(silent?: boolean) => handlePrint(order, silent)}
                                     onDeliveryStatusClick={(o: any) => {
                                         setSelectedOrderForStatusModal(o)
@@ -2434,6 +2454,7 @@ function OrderCard({
     onDeliveryAssign,
     onPaymentEdit,
     onWhatsAppDelivery,
+    onWhatsAppStore,
     onPrint,
     onDeliveryStatusClick,
     onEdit,
@@ -2454,6 +2475,7 @@ function OrderCard({
     onDeliveryAssign: (id: string, deliveryId: string) => void,
     onPaymentEdit: () => void,
     onWhatsAppDelivery: () => void,
+    onWhatsAppStore?: () => void,
     onPrint: (silent?: boolean) => void,
     onDeliveryStatusClick: (order: Order) => void,
     onEdit: () => void,
@@ -2865,6 +2887,17 @@ function OrderCard({
                                                 >
                                                     <i className="bi bi-bicycle text-indigo-500 text-base"></i>
                                                     Delivery
+                                                </button>
+
+                                                <button
+                                                    onClick={() => {
+                                                        if (onWhatsAppStore) onWhatsAppStore()
+                                                        setStatusMenuOpen(false)
+                                                    }}
+                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-red-700 transition-colors flex items-center gap-2.5 font-medium"
+                                                >
+                                                    <i className="bi bi-shop text-red-500 text-base"></i>
+                                                    Tienda
                                                 </button>
                                             </div>
                                         )}

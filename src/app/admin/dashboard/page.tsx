@@ -190,7 +190,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const fetchTelegramData = async () => {
       try {
-        const clients = await getAllClientsGlobal();
+        const clients = globalClients.length > 0 ? globalClients : await getAllClientsGlobal();
 
         // Filter clients with Telegram link
         const filteredLinkedClients = clients.filter(c => c.lastTelegramLinkDate);
@@ -285,7 +285,7 @@ export default function AdminDashboard() {
       fetchTelegramData();
       processCommissionData();
     }
-  }, [activeTab, orders, dateRange]);
+  }, [activeTab, orders, dateRange, globalClients]);
 
   // Effect to process commission data
   const processCommissionData = () => {
@@ -341,47 +341,22 @@ export default function AdminDashboard() {
     try {
       setLoading(true)
 
-      // Cargar todos los pedidos y negocios con manejo de errores mejorado
-      const allBusinesses = await getAllBusinesses()
-      // Filtrar negocios válidos y calcular estado real
+      // Cargar datos prioritarios para renderizado inicial rápido
+      const [allBusinesses, allOrders, allGroups, allZones] = await Promise.all([
+        getAllBusinesses(),
+        getAllOrders(),
+        getCoverageGroups(),
+        getCoverageZones()
+      ])
+
       const validBusinesses = allBusinesses
         .filter(business => business && business.id && business.name)
         .map(b => ({
           ...b,
-          isOpen: isStoreOpen(b) // Calcular estado real basado en horario/manual
+          isOpen: isStoreOpen(b)
         }))
       setBusinesses(validBusinesses)
 
-      // Cargar visitas desde Firestore para cada business (paralelo)
-      try {
-        const visitPromises = validBusinesses.map(b => getTodayVisitsForBusiness(b.id))
-        const visitResults = await Promise.all(visitPromises)
-        const map: Record<string, number> = {}
-        const chartDataPoints: any[] = []
-
-        validBusinesses.forEach((b, idx) => {
-          const visits = visitResults[idx] || 0
-          map[b.id] = visits
-          if (visits > 0) {
-            chartDataPoints.push({
-              name: b.name,
-              visits: visits
-            })
-          }
-        })
-
-        // Ordenar por visitas (desc) y tomar los top 10
-        const top10Visits = chartDataPoints
-          .sort((a, b) => b.visits - a.visits)
-          .slice(0, 10)
-        
-        setTodayVisitsChartData(top10Visits)
-        setVisitsMap(map)
-      } catch (e) {
-        console.error('Error loading visits for businesses:', e)
-      }
-      const allOrders = await getAllOrders()
-      // Filtrar pedidos válidos
       const validOrders = allOrders.filter(order =>
         order &&
         order.id &&
@@ -392,7 +367,10 @@ export default function AdminDashboard() {
       )
       setOrders(validOrders)
 
-      // Calcular estadísticas
+      setCoverageGroups(allGroups)
+      setCoverageZones(allZones)
+
+      // Calcular estadísticas primarias
       const today = new Date()
       today.setHours(0, 0, 0, 0)
 
@@ -406,13 +384,8 @@ export default function AdminDashboard() {
         }
       })
 
-      const revenueToday = ordersToday.reduce((sum: number, order: Order) => {
-        return sum + (order?.total || 0)
-      }, 0)
-
-      const totalRevenue = validOrders.reduce((sum: number, order: Order) => {
-        return sum + (order?.total || 0)
-      }, 0)
+      const revenueToday = ordersToday.reduce((sum: number, order: Order) => sum + (order?.total || 0), 0)
+      const totalRevenue = validOrders.reduce((sum: number, order: Order) => sum + (order?.total || 0), 0)
 
       setStats({
         totalOrdersToday: ordersToday.length,
@@ -422,10 +395,86 @@ export default function AdminDashboard() {
         totalRevenue
       })
 
-      // Procesar Clientes Únicos
+      // Liberar la pantalla de carga para renderizado visual inmediato
+      setLoading(false)
+
+      // Cargar visitas y datos secundarios de forma asíncrona en segundo plano
+      loadVisitsAsync(validBusinesses)
+      loadSecondaryDataAsync(validOrders)
+
+    } catch (error) {
+      console.error('Error loading admin data:', error)
+      setStats({
+        totalOrdersToday: 0,
+        revenueToday: 0,
+        activeStores: 0,
+        totalOrders: 0,
+        totalRevenue: 0
+      })
+      setLoading(false)
+    }
+  }
+
+  const loadVisitsAsync = async (validBusinesses: Business[]) => {
+    try {
+      const visitPromises = validBusinesses.map(b => getTodayVisitsForBusiness(b.id))
+      const visitResults = await Promise.all(visitPromises)
+      const map: Record<string, number> = {}
+      const chartDataPoints: any[] = []
+
+      validBusinesses.forEach((b, idx) => {
+        const visits = visitResults[idx] || 0
+        map[b.id] = visits
+        if (visits > 0) {
+          chartDataPoints.push({
+            name: b.name,
+            visits: visits
+          })
+        }
+      })
+
+      const top10Visits = chartDataPoints
+        .sort((a, b) => b.visits - a.visits)
+        .slice(0, 10)
+
+      setTodayVisitsChartData(top10Visits)
+      setVisitsMap(map)
+    } catch (e) {
+      console.error('Error loading visits for businesses:', e)
+    }
+  }
+
+  const loadSecondaryDataAsync = async (validOrders: Order[]) => {
+    try {
+      const [allCredits, allLinks, allGlobalClients, allDeliveries] = await Promise.all([
+        getAllUserCreditsGlobal(),
+        getAllReferralLinksGlobal(),
+        getAllClientsGlobal(),
+        getAllDeliveries()
+      ])
+
+      setDeliveries(allDeliveries)
+      setGlobalClients(allGlobalClients)
+
+      // Indexar clientes globales por teléfono normalizado, teléfono crudo e ID (O(1))
+      const clientByNormPhone = new Map<string, any>()
+      const clientById = new Map<string, any>()
+
+      allGlobalClients.forEach(gc => {
+        if (gc.id) clientById.set(gc.id, gc)
+        const phone = gc.celular || (gc as any).phone
+        if (phone) {
+          const norm = normalizeEcuadorianPhone(phone)
+          if (norm) clientByNormPhone.set(norm, gc)
+          clientByNormPhone.set(phone, gc)
+        }
+      })
+
+      // Procesar órdenes para construir customerMap
       const customerMap = new Map<string, any>()
       validOrders.forEach(order => {
         const phone = order.customer.phone
+        if (!phone) return
         if (!customerMap.has(phone)) {
           customerMap.set(phone, {
             name: order.customer.name,
@@ -442,48 +491,29 @@ export default function AdminDashboard() {
           c.lastOrder = order.createdAt
         }
       })
-      // Cargar Datos de Recomendadores y Clientes (Paralelo)
-      const [allCredits, allLinks, allGlobalClients, allDeliveries, allGroups, allZones] = await Promise.all([
-        getAllUserCreditsGlobal(),
-        getAllReferralLinksGlobal(),
-        getAllClientsGlobal(),
-        getAllDeliveries(),
-        getCoverageGroups(),
-        getCoverageZones()
-      ])
-      setDeliveries(allDeliveries)
-      setGlobalClients(allGlobalClients)
-      setCoverageGroups(allGroups)
-      setCoverageZones(allZones)
 
-      // Procesar lista completa de clientes agregando el estado de sincronización con Google Contacts
-      const processedCustomers = Array.from(customerMap.values()).map(cust => {
-        const globalClient = allGlobalClients.find(c => {
-          const cPhone = c.celular || (c as any).phone
-          if (!cPhone || !cust.phone) return false
-          const norm1 = normalizeEcuadorianPhone(cPhone)
-          const norm2 = normalizeEcuadorianPhone(cust.phone)
-          return norm1 === norm2 || cPhone === cust.phone
-        })
+      const processedCustomersPhoneSet = new Set<string>()
+      const processedCustomers: any[] = []
 
-        return {
+      customerMap.forEach(cust => {
+        const norm = normalizeEcuadorianPhone(cust.phone)
+        if (norm) processedCustomersPhoneSet.add(norm)
+        processedCustomersPhoneSet.add(cust.phone)
+
+        const globalClient = clientByNormPhone.get(norm) || clientByNormPhone.get(cust.phone)
+        processedCustomers.push({
           ...cust,
           googleContactSynced: globalClient ? Boolean(globalClient.googleContactSynced) : false
-        }
+        })
       })
 
-      // Incluir también clientes registrados en la colección 'clients' que aún no tienen órdenes
       allGlobalClients.forEach(gc => {
         const phone = gc.celular || (gc as any).phone
         if (!phone) return
-
-        const exists = processedCustomers.some(c => {
-          const norm1 = normalizeEcuadorianPhone(c.phone)
-          const norm2 = normalizeEcuadorianPhone(phone)
-          return norm1 === norm2 || c.phone === phone
-        })
-
-        if (!exists) {
+        const norm = normalizeEcuadorianPhone(phone)
+        if (!processedCustomersPhoneSet.has(phone) && (!norm || !processedCustomersPhoneSet.has(norm))) {
+          processedCustomersPhoneSet.add(phone)
+          if (norm) processedCustomersPhoneSet.add(norm)
           processedCustomers.push({
             name: gc.nombres || (gc as any).name || phone,
             phone: phone,
@@ -498,72 +528,63 @@ export default function AdminDashboard() {
       processedCustomers.sort((a, b) => b.spent - a.spent)
       setCustomers(processedCustomers)
 
-      // Procesar Recomendadores
+      // Indexar recomendadores y links (O(1))
+      const linksByCreatedBy = new Map<string, any[]>()
+      allLinks.forEach(l => {
+        if (!l.createdBy) return
+        if (!linksByCreatedBy.has(l.createdBy)) {
+          linksByCreatedBy.set(l.createdBy, [])
+        }
+        linksByCreatedBy.get(l.createdBy)!.push(l)
+      })
+
+      const customerByPhone = new Map<string, any>()
+      processedCustomers.forEach(c => {
+        customerByPhone.set(c.phone, c)
+        const norm = normalizeEcuadorianPhone(c.phone)
+        if (norm) customerByPhone.set(norm, c)
+      })
+
       const recommenderMap = new Map<string, any>()
-      
-      allCredits
-        .filter(credit => {
-          // Filtrar para incluir solo usuarios que han creado al menos un link
-          const userLinks = allLinks.filter(l => l.createdBy === credit.userId)
-          return userLinks.length > 0
-        })
-        .forEach(credit => {
-          const userId = credit.userId
-          
-          // Si ya existe este usuario, sumamos sus datos
-          if (recommenderMap.has(userId)) {
-            const existing = recommenderMap.get(userId)
-            existing.totalCredits += credit.totalCredits || 0
-            existing.credits += credit.availableCredits || 0
-          } else {
-            // Si no existe, creamos el registro
-            const userLinks = allLinks.filter(l => l.createdBy === userId)
-            const totalClicks = userLinks.reduce((sum, l) => sum + (l.clicks || 0), 0)
-            const totalConversions = userLinks.reduce((sum, l) => sum + (l.conversions || 0), 0)
 
-            // Buscar en clientes de órdenes o en clientes globales registrados
-            const customerFromOrders = processedCustomers.find(c => c.phone === userId)
-            const globalClient = allGlobalClients.find(c => c.celular === userId)
-            
-            // Buscar también por ID de Firebase
-            const globalClientById = allGlobalClients.find(c => c.id === userId)
-            
-            // Buscar también en clientes globales con teléfono normalizado
-            const normalizedGlobalClient = allGlobalClients.find(c => {
-              const normalizedPhone = normalizeEcuadorianPhone(c.celular || '')
-              const normalizedUserId = normalizeEcuadorianPhone(userId)
-              return normalizedPhone === normalizedUserId
-            })
+      allCredits.forEach(credit => {
+        const userId = credit.userId
+        if (!userId) return
+        const userLinks = linksByCreatedBy.get(userId) || []
+        if (userLinks.length === 0) return
 
-            recommenderMap.set(userId, {
-              id: credit.id,
-              phone: userId,
-              name: customerFromOrders?.name || globalClient?.nombres || globalClientById?.nombres || normalizedGlobalClient?.nombres || userId,
-              image: globalClient?.photoURL || globalClientById?.photoURL || normalizedGlobalClient?.photoURL || null,
-              credits: credit.availableCredits || 0,
-              totalCredits: credit.totalCredits || 0,
-              linksCount: userLinks.length,
-              clicks: totalClicks,
-              conversions: totalConversions
-            })
-          }
-        })
+        if (recommenderMap.has(userId)) {
+          const existing = recommenderMap.get(userId)
+          existing.totalCredits += credit.totalCredits || 0
+          existing.credits += credit.availableCredits || 0
+        } else {
+          const totalClicks = userLinks.reduce((sum, l) => sum + (l.clicks || 0), 0)
+          const totalConversions = userLinks.reduce((sum, l) => sum + (l.conversions || 0), 0)
+
+          const normUserId = normalizeEcuadorianPhone(userId)
+          const customerFromOrders = customerByPhone.get(userId) || (normUserId ? customerByPhone.get(normUserId) : null)
+          const globalClient = clientByNormPhone.get(userId) || (normUserId ? clientByNormPhone.get(normUserId) : null)
+          const globalClientById = clientById.get(userId)
+
+          recommenderMap.set(userId, {
+            id: credit.id,
+            phone: userId,
+            name: customerFromOrders?.name || globalClient?.nombres || globalClientById?.nombres || userId,
+            image: globalClient?.photoURL || globalClientById?.photoURL || null,
+            credits: credit.availableCredits || 0,
+            totalCredits: credit.totalCredits || 0,
+            linksCount: userLinks.length,
+            clicks: totalClicks,
+            conversions: totalConversions
+          })
+        }
+      })
 
       const recommenderData = Array.from(recommenderMap.values()).sort((a, b) => b.totalCredits - a.totalCredits)
       setRecommenders(recommenderData)
 
     } catch (error) {
-      console.error('Error loading admin data:', error)
-      // Mostrar datos de fallback
-      setStats({
-        totalOrdersToday: 0,
-        revenueToday: 0,
-        activeStores: 0,
-        totalOrders: 0,
-        totalRevenue: 0
-      })
-    } finally {
-      setLoading(false)
+      console.error('Error loading secondary admin data:', error)
     }
   }
 

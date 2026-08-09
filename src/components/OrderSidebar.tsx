@@ -19,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { formatPrice } from '@/lib/price-utils'
 import { calculateETASimple } from '@/lib/eta-utils'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
+import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 
 interface OrderSidebarProps {
   isOpen: boolean
@@ -62,6 +63,19 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
   const [productRatings, setProductRatings] = useState<{ [productId: string]: { rating: number; hover: number; comment: string } }>({})
   const [isSubmittingStoreRating, setIsSubmittingStoreRating] = useState(false)
   const [submittingProducts, setSubmittingProducts] = useState<{ [productId: string]: boolean }>({})
+
+  // Obtener la mejor imagen del producto/variante/combo con fallback a la foto principal del producto
+  const getItemImage = (item: any): string => {
+    if (!item) return ''
+    const variantImg = item.variantImage || item.variant?.image || item.selectedVariant?.image || item.comboImage || item.combo?.image || item.selectedCombo?.image
+    if (variantImg) return variantImg
+    if (item.image) return item.image
+    if (item.imageUrl) return item.imageUrl
+    if (item.productImage) return item.productImage
+    const mainProductImg = item.product?.image || item.product?.mainImage || item.product?.imageUrl || item.mainImage || item.productMainImage
+    if (mainProductImg) return mainProductImg
+    return ''
+  }
 
   // Obtener los minutos estimados restantes hasta la entrega programada
   const getMinutesUntilDelivery = () => {
@@ -514,7 +528,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
       const newProductRating: ProductRating = {
         productId,
         productName: item.variant || item.name || 'Producto',
-        productImage: item.image || item.product?.image || '',
+        productImage: getItemImage(item),
         rating: itemRating.rating,
         comment: itemRating.comment
       }
@@ -737,35 +751,15 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
               {/* TAB 1: SEGUIMIENTO */}
               {activeTab === 'tracking' && (
                 <div className="space-y-4">
-                  {/* Banner de Estado */}
-                  <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Estado Actual</p>
-                      <h4 className="text-xl font-extrabold text-slate-950 mt-0.5">
-                        {order.status === 'cancelled'
-                          ? 'Pedido Cancelado'
-                          : STATUS_STEPS.find(s => s.status === order.status)?.label || order.status}
-                      </h4>
-                      {order.timing?.scheduledTime && !['delivered', 'cancelled'].includes(order.status) && (
-                        <p className="text-xs text-slate-500 font-medium mt-1">
-                          Entrega programada: <strong className="text-slate-700">{order.timing.scheduledTime}</strong>
-                        </p>
-                      )}
-                    </div>
-                    <span className={`px-3 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider ${getStatusBadge(order.status).bg} ${getStatusBadge(order.status).text}`}>
-                      {getStatusBadge(order.status).label}
-                    </span>
-                  </div>
-
                   {/* Tarjeta de Tiempo Estimado de Entrega */}
                   {!['delivered', 'cancelled'].includes(order.status) && (
-                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-[24px] p-5 shadow-lg border border-slate-800">
+                    <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white rounded-[24px] p-5 shadow-lg border border-slate-800">
                       <div className="flex items-center justify-between">
                         <div className="space-y-1">
                           <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block">
                             Tiempo Estimado de Entrega
                           </span>
-                          <h4 className="text-2xl font-black tracking-tight">
+                          <h4 className="text-2xl font-black tracking-tight text-emerald-400">
                             {order.status === 'on_way' && estimatedArrival !== null ? (
                               `Llega en ${estimatedArrival} min`
                             ) : getMinutesUntilDelivery() ? (
@@ -778,7 +772,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                               '30 a 45 minutos'
                             )}
                           </h4>
-                          <p className="text-xs text-slate-400 font-medium">
+                          <p className="text-xs text-slate-300 font-medium">
                             {order.status === 'on_way' && estimatedArrival !== null ? (
                               'El repartidor se encuentra en camino a tu ubicación.'
                             ) : getMinutesUntilDelivery() ? (
@@ -796,7 +790,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                   )}
 
                   {/* Tarjeta dedicada de Notificaciones de Telegram */}
-                  {!order.customer?.telegramChatId && !['delivered', 'cancelled'].includes(order.status) && (
+                  {!order.customer?.telegramChatId && (
                     <div className="bg-gradient-to-r from-[#229ED9]/10 to-[#229ED9]/5 border border-[#229ED9]/20 rounded-[24px] p-5 shadow-sm space-y-3.5">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-[#229ED9]/20 text-[#229ED9] flex items-center justify-center text-xl flex-shrink-0">
@@ -1032,265 +1026,360 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
               )}
 
               {/* TAB 2: CALIFICAR PRODUCTOS */}
-              {activeTab === 'rate' && (
-                <div className="space-y-4">
-                  {/* Banner de Calificación */}
-                  <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-1">
-                    <h4 className="text-base font-black text-slate-900">
-                      {existingRating?.storeRated && order.items?.every((i: any) => existingRating.productRatings?.some((pr: any) => pr.productId === (i.productId || i.id)))
-                        ? '¡Pedido calificado por completo! ❤️'
-                        : 'Califica tu experiencia ⭐'}
-                    </h4>
-                    <p className="text-xs text-slate-400">
-                      {existingRating?.storeRated && order.items?.every((i: any) => existingRating.productRatings?.some((pr: any) => pr.productId === (i.productId || i.id)))
-                        ? 'Tus valoraciones nos ayudan a mantener la máxima calidad.'
-                        : 'Puedes calificar la tienda y tus productos de forma independiente.'}
-                    </p>
-                  </div>
+              {activeTab === 'rate' && (() => {
+                const ratableItems = order.items?.filter((i: any) => {
+                  const price = i.price ?? i.product?.price ?? 0
+                  return price > 0
+                }) || []
 
-                  {/* 1. SECCIÓN: CALIFICACIÓN DE LA TIENDA */}
-                  {existingRating?.storeRated ? (
-                    /* Caso Tienda: Ya calificada */
-                    <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center relative overflow-hidden">
-                      <div className="absolute top-3 right-3 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-100">
-                        Tienda Calificada ✓
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Opinión del servicio</span>
-                      <div className="flex justify-center gap-1 my-2">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <i
-                            key={star}
-                            className={`bi bi-star-fill text-xl ${
-                              star <= existingRating.rating ? 'text-amber-400' : 'text-slate-200'
-                            }`}
-                          ></i>
-                        ))}
-                      </div>
-                      {existingRating.comment && (
-                        <p className="text-xs text-slate-600 italic bg-slate-50/50 p-3 rounded-xl border border-slate-100 mt-2">
-                          "{existingRating.comment}"
-                        </p>
-                      )}
+                const isFullyRated = existingRating?.storeRated && (
+                  ratableItems.length === 0 ||
+                  ratableItems.every((i: any) => existingRating.productRatings?.some((pr: any) => pr.productId === (i.productId || i.id)))
+                )
+
+                return (
+                  <div className="space-y-4">
+                    {/* Banner de Calificación */}
+                    <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-1">
+                      <h4 className="text-base font-black text-slate-900">
+                        {isFullyRated
+                          ? '¡Pedido calificado por completo! ❤️'
+                          : 'Califica tu experiencia ⭐'}
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        {isFullyRated
+                          ? 'Tus valoraciones nos ayudan a mantener la máxima calidad.'
+                          : 'Puedes calificar la tienda y tus productos de forma independiente.'}
+                      </p>
                     </div>
-                  ) : (
-                    /* Caso Tienda: Formulario para calificar */
-                    <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-3">
-                      <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block">Calificación de la tienda</span>
-                      
-                      <div className="flex justify-center gap-2">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            type="button"
-                            onClick={() => setGeneralRating(star)}
-                            onMouseEnter={() => setGeneralHover(star)}
-                            onMouseLeave={() => setGeneralHover(0)}
-                            className="text-3xl focus:outline-none transition-transform duration-100 transform active:scale-95"
-                          >
-                            <i
-                              className={`bi bi-star-fill ${
-                                star <= (generalHover || generalRating)
-                                  ? 'text-amber-400 scale-110'
-                                  : 'text-slate-200'
-                              }`}
-                            ></i>
-                          </button>
-                        ))}
+
+                    {/* 1. SECCIÓN: CALIFICACIÓN DE LA TIENDA */}
+                    {existingRating?.storeRated ? (
+                      /* Caso Tienda: Ya calificada */
+                      <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-3 relative overflow-hidden">
+                        <div className="absolute top-3 right-3 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-100">
+                          Tienda Calificada ✓
+                        </div>
+                        
+                        <div className="flex flex-col items-center justify-center space-y-2 pt-1">
+                          <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-50 border-2 border-slate-100 flex-shrink-0 flex items-center justify-center shadow-md">
+                            {business?.image ? (
+                              <img
+                                src={business.image}
+                                alt={business.name || 'Tienda'}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <i className="bi bi-shop text-slate-400 text-2xl"></i>
+                            )}
+                          </div>
+                          <div>
+                            <h6 className="font-extrabold text-base text-slate-900 leading-tight">
+                              {business?.name || 'Tienda'}
+                            </h6>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">Opinión del servicio</span>
+                          </div>
+
+                          <div className="flex justify-center gap-1 pt-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <i
+                                key={star}
+                                className={`bi bi-star-fill text-lg ${
+                                  star <= existingRating.rating ? 'text-amber-400' : 'text-slate-200'
+                                }`}
+                              ></i>
+                            ))}
+                          </div>
+                        </div>
+
+                        {existingRating.comment && (
+                          <p className="text-xs text-slate-600 italic bg-slate-50/50 p-3 rounded-xl border border-slate-100 mt-2">
+                            "{existingRating.comment}"
+                          </p>
+                        )}
                       </div>
+                    ) : (
+                      /* Caso Tienda: Formulario para calificar */
+                      <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-4">
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-50 border-2 border-slate-100 flex-shrink-0 flex items-center justify-center shadow-md">
+                            {business?.image ? (
+                              <img
+                                src={business.image}
+                                alt={business.name || 'Tienda'}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <i className="bi bi-shop text-slate-400 text-2xl"></i>
+                            )}
+                          </div>
+                          <div>
+                            <h5 className="font-black text-base text-slate-900 leading-tight">
+                              {business?.name || 'Tienda'}
+                            </h5>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">
+                              Calificación de la tienda
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="text-center space-y-3 pt-2 border-t border-slate-50">
+                          <div className="flex justify-center gap-2">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => setGeneralRating(star)}
+                                onMouseEnter={() => setGeneralHover(star)}
+                                onMouseLeave={() => setGeneralHover(0)}
+                                className="text-3xl focus:outline-none transition-transform duration-100 transform active:scale-95"
+                              >
+                                <i
+                                  className={`bi bi-star-fill ${
+                                    star <= (generalHover || generalRating)
+                                      ? 'text-amber-400 scale-110'
+                                      : 'text-slate-200'
+                                  }`}
+                                ></i>
+                              </button>
+                            ))}
+                          </div>
 
-                      {/* Texto descriptivo de la estrella seleccionada */}
-                      {generalRating > 0 && (
-                        <p className="text-xs font-bold text-slate-800 uppercase tracking-widest animate-pulse">
-                          {generalRating === 1 && '💔 Muy malo'}
-                          {generalRating === 2 && '👎 Regular'}
-                          {generalRating === 3 && '⭐ Bueno'}
-                          {generalRating === 4 && '✨ Muy Bueno'}
-                          {generalRating === 5 && '🔥 ¡Excelente servicio!'}
-                        </p>
-                      )}
-
-                      <textarea
-                        placeholder="Déjanos un comentario sobre el servicio en general... (opcional)"
-                        value={generalComment}
-                        onChange={(e) => setGeneralComment(e.target.value)}
-                        className="w-full text-xs p-3.5 bg-slate-50 border border-slate-100 rounded-xl focus:border-slate-300 focus:bg-white focus:outline-none transition-colors duration-250 resize-none h-18"
-                      />
-
-                      {generalRating > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleSaveStoreRating}
-                          disabled={isSubmittingStoreRating}
-                          className="w-full bg-[#0F172A] text-white py-3 px-4 rounded-xl flex items-center justify-center font-bold text-xs gap-1.5 hover:bg-slate-800 transition-all shadow-md active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400"
-                        >
-                          {isSubmittingStoreRating ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                              <span>Guardando Calificación...</span>
-                            </>
-                          ) : (
-                            <>
-                              <i className="bi bi-star text-sm"></i>
-                              <span>GUARDAR CALIFICACIÓN DE TIENDA</span>
-                            </>
+                          {/* Texto descriptivo de la estrella seleccionada */}
+                          {generalRating > 0 && (
+                            <p className="text-xs font-bold text-slate-800 uppercase tracking-widest animate-pulse">
+                              {generalRating === 1 && '💔 Muy malo'}
+                              {generalRating === 2 && '👎 Regular'}
+                              {generalRating === 3 && '⭐ Bueno'}
+                              {generalRating === 4 && '✨ Muy Bueno'}
+                              {generalRating === 5 && '🔥 ¡Excelente servicio!'}
+                            </p>
                           )}
-                        </button>
-                      )}
-                    </div>
-                  )}
 
-                  {/* 2. SECCIÓN: CALIFICACIÓN DE PRODUCTOS */}
-                  <div className="space-y-3.5">
-                    <h5 className="text-xs text-slate-400 font-black uppercase tracking-wider px-1">Califica tus Productos</h5>
-                    
-                    {order.items?.map((item: any, index: number) => {
-                      const pId = item.productId || item.id
-                      // Comprobar si este producto ya fue calificado en Firestore
-                      const existingProductRating = existingRating?.productRatings?.find((pr: any) => pr.productId === pId)
-                      const itemState = productRatings[pId] || { rating: 0, hover: 0, comment: '' }
+                          <textarea
+                            placeholder="Déjanos un comentario sobre el servicio en general... (opcional)"
+                            value={generalComment}
+                            onChange={(e) => setGeneralComment(e.target.value)}
+                            className="w-full text-xs p-3.5 bg-slate-50 border border-slate-100 rounded-xl focus:border-slate-300 focus:bg-white focus:outline-none transition-colors duration-250 resize-none h-18"
+                          />
 
-                      return (
-                        <div
-                          key={index}
-                          className="bg-white p-4 rounded-[24px] border border-gray-100 shadow-sm space-y-3.5 relative overflow-hidden"
-                        >
-                          {existingProductRating ? (
-                            /* Caso Producto: Ya calificado */
-                            <div className="space-y-3">
-                              <div className="absolute top-3 right-3 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-100">
-                                Calificado ✓
-                              </div>
-                              <div className="flex items-center gap-3.5">
-                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex-shrink-0">
-                                  <img
-                                    src={item.image || item.product?.image || business?.image || ''}
-                                    alt={item.variant || item.name}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement
-                                      target.src = business?.image || ''
-                                    }}
-                                  />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <h6 className="font-extrabold text-sm text-slate-900 leading-tight truncate">
-                                    {item.variant || item.name}
-                                  </h6>
-                                  {/* Estrellas del Producto (Modo Lectura) */}
-                                  <div className="flex gap-0.5 my-1">
-                                    {[1, 2, 3, 4, 5].map((star) => (
-                                      <i
-                                        key={star}
-                                        className={`bi bi-star-fill text-xs ${
-                                          star <= existingProductRating.rating
-                                            ? 'text-amber-400'
-                                            : 'text-slate-100'
-                                        }`}
-                                      ></i>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                              {existingProductRating.comment && (
-                                <p className="text-xs text-slate-500 italic bg-slate-50/50 p-2 rounded-lg border border-slate-100/50 mt-1">
-                                  "{existingProductRating.comment}"
-                                </p>
+                          {generalRating > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleSaveStoreRating}
+                              disabled={isSubmittingStoreRating}
+                              className="w-full bg-[#0F172A] text-white py-3 px-4 rounded-xl flex items-center justify-center font-bold text-xs gap-1.5 hover:bg-slate-800 transition-all shadow-md active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400"
+                            >
+                              {isSubmittingStoreRating ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                  <span>Guardando Calificación...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <i className="bi bi-star text-sm"></i>
+                                  <span>GUARDAR CALIFICACIÓN DE TIENDA</span>
+                                </>
                               )}
-                            </div>
-                          ) : (
-                            /* Caso Producto: Formulario para calificar */
-                            <>
-                              <div className="flex items-center gap-3.5">
-                                <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex-shrink-0">
-                                  <img
-                                    src={item.image || item.product?.image || business?.image || ''}
-                                    alt={item.variant || item.name}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement
-                                      target.src = business?.image || ''
-                                    }}
-                                  />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <h6 className="font-extrabold text-sm text-slate-900 leading-tight">
-                                    {item.variant || item.name}
-                                  </h6>
-                                  <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                                    {formatPrice(item.price)} c/u
-                                  </p>
-                                </div>
-                                <span className="text-[10px] text-slate-400 font-black bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg flex-shrink-0">
-                                  x{item.quantity}
-                                </span>
-                              </div>
-
-                              {/* Sección de Selección de Estrellas del Producto */}
-                              <div className="pt-2 border-t border-slate-50 flex items-center justify-between">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                  Calificar Producto
-                                </span>
-                                
-                                <div className="flex gap-1.5">
-                                  {[1, 2, 3, 4, 5].map((star) => (
-                                    <button
-                                      key={star}
-                                      type="button"
-                                      onClick={() => handleProductRatingChange(pId, star)}
-                                      onMouseEnter={() => handleProductRatingHover(pId, star)}
-                                      onMouseLeave={() => handleProductRatingHover(pId, 0)}
-                                      className="focus:outline-none transition-transform active:scale-90"
-                                    >
-                                      <i
-                                        className={`bi bi-star-fill text-lg transition-colors ${
-                                          star <= (itemState.hover || itemState.rating)
-                                            ? 'text-amber-400'
-                                            : 'text-slate-200'
-                                        }`}
-                                      ></i>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-
-                              {/* Input de Comentario y Botón de Guardado */}
-                              {itemState.rating > 0 && (
-                                <div className="animate-fadeIn mt-2.5 space-y-2">
-                                  <textarea
-                                    placeholder={`¿Qué tal estuvo este ${item.variant || item.name}? (opcional)`}
-                                    value={itemState.comment}
-                                    onChange={(e) => handleProductCommentChange(pId, e.target.value)}
-                                    className="w-full text-xs p-3 bg-slate-50 border border-slate-100 rounded-xl focus:border-slate-300 focus:bg-white focus:outline-none transition-colors duration-200 resize-none h-14"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSaveProductRating(pId, item)}
-                                    disabled={submittingProducts[pId]}
-                                    className="w-full bg-[#0F172A] text-white py-2 px-3 rounded-xl flex items-center justify-center font-bold text-xs gap-1 hover:bg-slate-800 transition-all shadow active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400"
-                                  >
-                                    {submittingProducts[pId] ? (
-                                      <>
-                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                        <span>Guardando...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <i className="bi bi-check2"></i>
-                                        <span>GUARDAR RESEÑA PRODUCTO</span>
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              )}
-                            </>
+                            </button>
                           )}
                         </div>
-                      )
-                    })}
+                      </div>
+                    )}
+
+                    {/* 2. SECCIÓN: CALIFICACIÓN DE PRODUCTOS (Omitiendo precio 0) */}
+                    {ratableItems.length > 0 && (
+                      <div className="space-y-3.5">
+                        <h5 className="text-xs text-slate-400 font-black uppercase tracking-wider px-1">Califica tus Productos</h5>
+                        
+                        {ratableItems.map((item: any, index: number) => {
+                          const pId = item.productId || item.id
+                          // Comprobar si este producto ya fue calificado en Firestore
+                          const existingProductRating = existingRating?.productRatings?.find((pr: any) => pr.productId === pId)
+                          const itemState = productRatings[pId] || { rating: 0, hover: 0, comment: '' }
+                          const pImg = getItemImage(item)
+                          const fallbackMainImg = item.product?.image || item.product?.mainImage || item.productImage || ''
+
+                          return (
+                            <div
+                              key={index}
+                              className="bg-white p-4 rounded-[24px] border border-gray-100 shadow-sm space-y-3.5 relative overflow-hidden"
+                            >
+                              {existingProductRating ? (
+                                /* Caso Producto: Ya calificado */
+                                <div className="space-y-3">
+                                  <div className="absolute top-3 right-3 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-100">
+                                    Calificado ✓
+                                  </div>
+                                  <div className="flex items-center gap-3.5">
+                                    <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex-shrink-0 flex items-center justify-center">
+                                      {pImg ? (
+                                        <img
+                                          src={pImg}
+                                          alt={item.variant || item.name}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            const target = e.target as HTMLImageElement
+                                            if (fallbackMainImg && target.src !== fallbackMainImg) {
+                                              target.src = fallbackMainImg
+                                            } else {
+                                              target.style.display = 'none'
+                                              if (target.parentElement) {
+                                                target.parentElement.innerHTML = '<i class="bi bi-box-seam text-slate-400 text-lg"></i>'
+                                              }
+                                            }
+                                          }}
+                                        />
+                                      ) : (
+                                        <i className="bi bi-box-seam text-slate-400 text-lg"></i>
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <h6 className="font-extrabold text-sm text-slate-900 leading-tight truncate">
+                                        {item.variant || item.name}
+                                      </h6>
+                                      {/* Estrellas del Producto (Modo Lectura) */}
+                                      <div className="flex gap-0.5 my-1">
+                                        {[1, 2, 3, 4, 5].map((star) => (
+                                          <i
+                                            key={star}
+                                            className={`bi bi-star-fill text-xs ${
+                                              star <= existingProductRating.rating
+                                                ? 'text-amber-400'
+                                                : 'text-slate-100'
+                                            }`}
+                                          ></i>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {existingProductRating.comment && (
+                                    <p className="text-xs text-slate-500 italic bg-slate-50/50 p-2 rounded-lg border border-slate-100/50 mt-1">
+                                      "{existingProductRating.comment}"
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                /* Caso Producto: Formulario para calificar */
+                                <>
+                                  <div className="flex items-center gap-3.5">
+                                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex-shrink-0 flex items-center justify-center">
+                                      {pImg ? (
+                                        <img
+                                          src={pImg}
+                                          alt={item.variant || item.name}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            const target = e.target as HTMLImageElement
+                                            if (fallbackMainImg && target.src !== fallbackMainImg) {
+                                              target.src = fallbackMainImg
+                                            } else {
+                                              target.style.display = 'none'
+                                              if (target.parentElement) {
+                                                target.parentElement.innerHTML = '<i class="bi bi-box-seam text-slate-400 text-xl"></i>'
+                                              }
+                                            }
+                                          }}
+                                        />
+                                      ) : (
+                                        <i className="bi bi-box-seam text-slate-400 text-xl"></i>
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <h6 className="font-extrabold text-sm text-slate-900 leading-tight">
+                                        {item.variant || item.name}
+                                      </h6>
+                                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                        {formatPrice(item.price)} c/u
+                                      </p>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-black bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg flex-shrink-0">
+                                      x{item.quantity}
+                                    </span>
+                                  </div>
+
+                                  {/* Sección de Selección de Estrellas del Producto */}
+                                  <div className="pt-2 border-t border-slate-50 flex items-center justify-between">
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                      Calificar Producto
+                                    </span>
+                                    
+                                    <div className="flex gap-1.5">
+                                      {[1, 2, 3, 4, 5].map((star) => (
+                                        <button
+                                          key={star}
+                                          type="button"
+                                          onClick={() => handleProductRatingChange(pId, star)}
+                                          onMouseEnter={() => handleProductRatingHover(pId, star)}
+                                          onMouseLeave={() => handleProductRatingHover(pId, 0)}
+                                          className="focus:outline-none transition-transform active:scale-90"
+                                        >
+                                          <i
+                                            className={`bi bi-star-fill text-lg transition-colors ${
+                                              star <= (itemState.hover || itemState.rating)
+                                                ? 'text-amber-400'
+                                                : 'text-slate-200'
+                                            }`}
+                                          ></i>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Input de Comentario y Botón de Guardado */}
+                                  {itemState.rating > 0 && (
+                                    <div className="animate-fadeIn mt-2.5 space-y-2">
+                                      <textarea
+                                        placeholder={`¿Qué tal estuvo este ${item.variant || item.name}? (opcional)`}
+                                        value={itemState.comment}
+                                        onChange={(e) => handleProductCommentChange(pId, e.target.value)}
+                                        className="w-full text-xs p-3 bg-slate-50 border border-slate-100 rounded-xl focus:border-slate-300 focus:bg-white focus:outline-none transition-colors duration-200 resize-none h-14"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveProductRating(pId, item)}
+                                        disabled={submittingProducts[pId]}
+                                        className="w-full bg-[#0F172A] text-white py-2 px-3 rounded-xl flex items-center justify-center font-bold text-xs gap-1 hover:bg-slate-800 transition-all shadow active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400"
+                                      >
+                                        {submittingProducts[pId] ? (
+                                          <>
+                                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                            <span>Guardando...</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <i className="bi bi-check2"></i>
+                                            <span>GUARDAR RESEÑA PRODUCTO</span>
+                                          </>
+                                        )}
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )
+              })()}
             </div>
+
+            {/* Footer flotante solo en pestaña de seguimiento */}
+            {activeTab === 'tracking' && business && !['delivered', 'cancelled'].includes(order?.status) && (
+              <div className="p-4 bg-white/95 backdrop-blur-md border-t border-slate-100 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] sticky bottom-0 z-20">
+                <button
+                  type="button"
+                  onClick={() => sendOrderToStoreFromClient(order, business)}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest text-xs py-3.5 px-4 rounded-[20px] flex items-center justify-center gap-2.5 transition-all shadow-md shadow-emerald-900/10 active:scale-95"
+                >
+                  <i className="bi bi-whatsapp text-lg"></i>
+                  Obtener comprobante por whatsapp
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

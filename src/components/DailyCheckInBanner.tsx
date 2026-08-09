@@ -176,29 +176,9 @@ export default function DailyCheckInBanner({ business, onBusinessUpdate }: Daily
     )
   }
 
-  // Si la tienda ya está abierta
+  // Si la tienda ya está abierta (check-in confirmado), ocultar el componente
   if (currentStatus === 'open') {
-    return (
-      <div className="bg-emerald-50/60 border border-emerald-200/60 rounded-2xl p-3 sm:p-4 mb-6 flex items-center justify-between gap-4 shadow-sm animate-fadeIn">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center text-lg shrink-0">
-            <i className="bi bi-check-circle-fill"></i>
-          </div>
-          <div>
-            <h4 className="font-black text-xs text-emerald-950 tracking-tight leading-tight">Check-in Diario Completado (Abierto)</h4>
-            <p className="text-[11px] text-emerald-800/80 font-medium">Confirmaste tu apertura para el día de hoy.</p>
-          </div>
-        </div>
-        <button
-          disabled={updating}
-          onClick={() => handleSetStatus('desconfirm')}
-          className="px-3 py-1.5 bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 active:scale-95 shrink-0 flex items-center gap-1"
-        >
-          <i className="bi bi-arrow-counterclockwise"></i>
-          {updating ? 'Procesando...' : 'Desconfirmar'}
-        </button>
-      </div>
-    )
+    return null
   }
 
   // Si confirmó como cerrada

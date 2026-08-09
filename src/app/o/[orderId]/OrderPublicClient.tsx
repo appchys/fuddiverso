@@ -1116,6 +1116,18 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
           </div>
         )}
 
+        {/* Botón Obtener comprobante por whatsapp */}
+        {business && !['delivered', 'cancelled'].includes(order?.status) && (
+          <button
+            type="button"
+            onClick={() => sendOrderToStoreFromClient(order, business)}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest text-xs py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2.5 transition-all shadow-md shadow-emerald-600/20 active:scale-95"
+          >
+            <i className="bi bi-whatsapp text-lg"></i>
+            Obtener comprobante por whatsapp
+          </button>
+        )}
+
         {/* Información del Delivery */}
         {order.delivery && order.delivery.type !== 'pickup' && (
           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
@@ -1443,7 +1455,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
               className="w-full bg-white border-2 border-green-500 text-green-600 font-black uppercase tracking-widest text-xs py-4 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-green-50 active:scale-95 shadow-sm"
             >
               <i className="bi bi-whatsapp text-lg"></i>
-              Obtener comprobante
+              Obtener comprobante por whatsapp
             </button>
           )}
 

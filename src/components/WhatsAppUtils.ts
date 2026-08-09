@@ -133,6 +133,9 @@ const buildLocationLink = (order: Order) => {
 
 const normalizePhoneForWhatsApp = (phone: string) => {
     const cleanPhone = phone.replace(/\D/g, '')
+    if (cleanPhone.startsWith('593')) {
+        return cleanPhone
+    }
     return `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
 }
 
