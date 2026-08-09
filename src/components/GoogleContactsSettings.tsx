@@ -12,7 +12,11 @@ interface ContactsStatus {
   updatedAt?: any
 }
 
-export function GoogleContactsSettings() {
+interface GoogleContactsSettingsProps {
+  onSyncComplete?: () => void
+}
+
+export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSettingsProps = {}) {
   const [status, setStatus] = useState<ContactsStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncingAll, setSyncingAll] = useState(false)
@@ -140,6 +144,7 @@ export function GoogleContactsSettings() {
         errors: allErrors.slice(0, 5),
         message: `Sincronización masiva completada: ${totalSynced} de ${clients.length} clientes guardados en tu cuenta de Google Contacts.`
       })
+      onSyncComplete?.()
     } catch (error: any) {
       console.error('Error al sincronizar clientes:', error)
       setSyncResult({

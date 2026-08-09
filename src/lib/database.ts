@@ -2163,6 +2163,8 @@ export interface FirestoreClient {
   lastTelegramLinkDate?: any;
   googleEmail?: string;
   googleUid?: string;
+  googleContactSynced?: boolean;
+  googleContactSyncedAt?: any;
   notas?: string;
 }
 

@@ -442,8 +442,6 @@ export default function AdminDashboard() {
           c.lastOrder = order.createdAt
         }
       })
-      setCustomers(Array.from(customerMap.values()).sort((a, b) => b.spent - a.spent))
-
       // Cargar Datos de Recomendadores y Clientes (Paralelo)
       const [allCredits, allLinks, allGlobalClients, allDeliveries, allGroups, allZones] = await Promise.all([
         getAllUserCreditsGlobal(),
@@ -458,7 +456,47 @@ export default function AdminDashboard() {
       setCoverageGroups(allGroups)
       setCoverageZones(allZones)
 
-      const processedCustomers = Array.from(customerMap.values())
+      // Procesar lista completa de clientes agregando el estado de sincronización con Google Contacts
+      const processedCustomers = Array.from(customerMap.values()).map(cust => {
+        const globalClient = allGlobalClients.find(c => {
+          const cPhone = c.celular || (c as any).phone
+          if (!cPhone || !cust.phone) return false
+          const norm1 = normalizeEcuadorianPhone(cPhone)
+          const norm2 = normalizeEcuadorianPhone(cust.phone)
+          return norm1 === norm2 || cPhone === cust.phone
+        })
+
+        return {
+          ...cust,
+          googleContactSynced: globalClient ? Boolean(globalClient.googleContactSynced) : false
+        }
+      })
+
+      // Incluir también clientes registrados en la colección 'clients' que aún no tienen órdenes
+      allGlobalClients.forEach(gc => {
+        const phone = gc.celular || (gc as any).phone
+        if (!phone) return
+
+        const exists = processedCustomers.some(c => {
+          const norm1 = normalizeEcuadorianPhone(c.phone)
+          const norm2 = normalizeEcuadorianPhone(phone)
+          return norm1 === norm2 || c.phone === phone
+        })
+
+        if (!exists) {
+          processedCustomers.push({
+            name: gc.nombres || (gc as any).name || phone,
+            phone: phone,
+            totalOrders: 0,
+            spent: 0,
+            lastOrder: gc.fecha_de_registro || new Date().toISOString(),
+            googleContactSynced: Boolean(gc.googleContactSynced)
+          })
+        }
+      })
+
+      processedCustomers.sort((a, b) => b.spent - a.spent)
+      setCustomers(processedCustomers)
 
       // Procesar Recomendadores
       const recommenderMap = new Map<string, any>()
@@ -642,13 +680,25 @@ export default function AdminDashboard() {
             Cargando tarjeta de integración de Google Contacts...
           </div>
         }>
-          <GoogleContactsSettings />
+          <GoogleContactsSettings onSyncComplete={loadData} />
         </Suspense>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900">Base de Clientes</h3>
-            <p className="text-sm text-gray-500">Total: {customers.length} clientes únicos</p>
+          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Base de Clientes</h3>
+              <p className="text-sm text-gray-500">Total: {customers.length} clientes registrados</p>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                {customers.filter(c => c.googleContactSynced).length} Sincronizados
+              </span>
+              <span className="inline-flex items-center gap-1 font-medium text-gray-600 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                {customers.filter(c => !c.googleContactSynced).length} Pendientes
+              </span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -658,17 +708,31 @@ export default function AdminDashboard() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Órdenes</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Gastado Acum.</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Google Contacts</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Última Compra</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {customers.map((c, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{c.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-500">{c.phone}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-gray-900 font-semibold">{c.totalOrders}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-red-600 font-bold">${c.spent.toFixed(2)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-500">{new Date(c.lastOrder).toLocaleDateString()}</td>
+                  <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">{c.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-500 font-mono text-xs">{c.phone}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-gray-900 font-bold">{c.totalOrders}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-emerald-600 font-black">${c.spent.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      {c.googleContactSynced ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          Sincronizado
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-gray-50 text-gray-500 border border-gray-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+                          Pendiente
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-500 text-xs">{new Date(c.lastOrder).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
