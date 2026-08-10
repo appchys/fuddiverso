@@ -258,83 +258,8 @@ export default function NotificationSettings({
                     </div>
                 </div>
 
-                {/* Configuración de Impresión */}
-                <div className="mt-8 pt-8 border-t border-gray-100">
-                    <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                        <i className="bi bi-printer text-gray-600 text-xl"></i>
-                        Configuración de Impresión
-                    </h4>
-
-                    <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <div>
-                                <h5 className="font-medium text-gray-900">Auto-impresión</h5>
-                                <p className="text-sm text-gray-500">
-                                    Imprimir ticket automáticamente al presionar "Confirmar".
-                                </p>
-                            </div>
-                            <div
-                                className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.autoPrintOnConfirm ? 'bg-blue-500' : 'bg-gray-200'}`}
-                                onClick={() => handleToggle('autoPrintOnConfirm' as any)}
-                            >
-                                <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.autoPrintOnConfirm ? 'translate-x-6' : ''}`}></div>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center justify-between mb-4">
-                            <div>
-                                <h5 className="font-medium text-gray-900">Modo de Impresión</h5>
-                                <p className="text-sm text-gray-500">
-                                    Selecciona cómo deseas generar los tickets de los pedidos.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                onClick={() => printMode === 'bluetooth' && onTogglePrintMode?.()}
-                                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${printMode === 'standard' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'}`}
-                            >
-                                <i className="bi bi-file-earmark-pdf text-2xl"></i>
-                                <span className="text-xs font-bold uppercase tracking-wider">Navegador (PDF)</span>
-                            </button>
-                            <button
-                                onClick={() => printMode === 'standard' && onTogglePrintMode?.()}
-                                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${printMode === 'bluetooth' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'}`}
-                            >
-                                <i className="bi bi-bluetooth text-2xl"></i>
-                                <span className="text-xs font-bold uppercase tracking-wider">Bluetooth (Térmica)</span>
-                            </button>
-                        </div>
-
-                        {printMode === 'bluetooth' && (
-                            <div className="mt-4 p-3 bg-blue-100/50 rounded-lg border border-blue-100 text-xs text-blue-800 flex items-start gap-2">
-                                <i className="bi bi-info-circle-fill mt-0.5"></i>
-                                <span>Ideal para impresoras MPT-II. Al confirmar un pedido, se imprimirá automáticamente. Asegúrate de que el Bluetooth esté activo en tu dispositivo.</span>
-                            </div>
-                        )}
-
-                        <div className="mt-6 pt-6 border-t border-gray-100">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h5 className="font-medium text-gray-900">Agrupar productos</h5>
-                                    <p className="text-sm text-gray-500">
-                                        Agrupar variantes bajo el nombre del producto en el ticket.
-                                    </p>
-                                </div>
-                                <div
-                                    className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.groupItemsByProduct ? 'bg-blue-500' : 'bg-gray-200'}`}
-                                    onClick={() => handleToggle('groupItemsByProduct' as any)}
-                                >
-                                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.groupItemsByProduct ? 'translate-x-6' : ''}`}></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <div className="mt-6 text-xs text-gray-400 text-center">
-                    <p>Nota: Los cambios se guardan automáticamente.</p>
+                    <p>Nota: Los cambios en las notificaciones se guardan automáticamente.</p>
                 </div>
 
             </div>

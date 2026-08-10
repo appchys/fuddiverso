@@ -37,7 +37,7 @@ const getEcuadorDate = () => {
   return ecuadorDate.toISOString().split('T')[0]
 }
 
-export default function CostReports({ business, initialReportType = 'general' }: CostReportsProps) {
+export default function CostReports({ business, initialReportType = 'costs' }: CostReportsProps) {
   const [report, setReport] = useState<CostReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [dateRange, setDateRange] = useState<'yesterday' | 'today' | 'week' | 'month' | 'custom'>('today')
@@ -392,8 +392,6 @@ export default function CostReports({ business, initialReportType = 'general' }:
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Generando reporte...</p>
         </div>
-      ) : reportType === 'general' ? (
-        <GeneralReport orders={orders} />
       ) : report ? (
         <>
           {/* Resumen General */}

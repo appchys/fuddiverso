@@ -101,7 +101,7 @@ export default function BusinessDashboard() {
 
   // ... (other state variables remain the same)
 
-  const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
+  const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'>('general')
   const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
   const [reportsSubTab, setReportsSubTab] = useState<'general' | 'costs'>('general')
   const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)

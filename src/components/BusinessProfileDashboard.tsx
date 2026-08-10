@@ -6,6 +6,8 @@ import { Business, Product, Ingredient, CoverageZone } from '@/types'
 import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, uploadImage, getCoverageZonesByGroup } from '@/lib/database'
 import ProductList from './ProductList'
 import NotificationSettings from './NotificationSettings'
+import PrintSettings from './PrintSettings'
+import ConfiguracionView from './ConfiguracionView'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
 import QRCodesContent from '@/app/business/qr-codes/qr-codes-content'
 import { auth } from '@/lib/firebase'
@@ -30,7 +32,7 @@ interface BusinessProfileDashboardProps {
   onToggleDayOpen: (day: string) => void
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
-  initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'
+  initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'
   onDirectUpdate?: (field: keyof Business, value: any) => Promise<void>
   // Props para gestión de administradores (opcionales)
   onAddAdmin?: () => void
@@ -74,7 +76,7 @@ export default function BusinessProfileDashboard({
 }: BusinessProfileDashboardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>(initialTab)
+  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'>(initialTab)
   const [fidelizacionSubTab, setFidelizacionSubTab] = useState<'automatic' | 'qr' | 'delivery'>('automatic')
 
   // Hook para ubicación
@@ -851,13 +853,14 @@ export default function BusinessProfileDashboard({
         </div>
       )}
 
-      {/* Contenido de la pestaña Notificaciones */}
-      {activeTab === 'notifications' && (
-        <NotificationSettings
+      {/* Contenido de la pestaña Configuración (Notificaciones e Impresión) */}
+      {(activeTab === 'configuracion' || activeTab === 'notifications') && (
+        <ConfiguracionView
           business={business}
           onBusinessFieldChange={onDirectUpdate || onBusinessFieldChange}
           printMode={printMode}
           onTogglePrintMode={onTogglePrintMode}
+          initialConfigSubTab={activeTab === 'notifications' ? 'notifications' : 'notifications'}
         />
       )}
     </div>

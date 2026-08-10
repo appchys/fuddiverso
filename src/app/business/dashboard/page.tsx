@@ -268,7 +268,7 @@ export default function TodayOrdersPage() {
 
     // Sidebar State
     const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'>('orders')
-    const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
+    const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'>('general')
     const [reportsSubTab, setReportsSubTab] = useState<'general' | 'costs'>('general')
     const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
     const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
@@ -1768,6 +1768,7 @@ export default function TodayOrdersPage() {
                     onLogout={handleLogout}
                     ordersSubTab={ordersSubTab}
                     setOrdersSubTab={setOrdersSubTab}
+                    currentBusinessName={businesses.find(b => b.id === businessId)?.name}
                 />
 
                 <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
