@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
@@ -281,6 +281,7 @@ export default function ProductList({
     setSchedules([])
     setEditingScheduleId(null)
     setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
+    loadIngredientLibrary()
     setShowProductForm(true)
   }
 
@@ -351,9 +352,7 @@ export default function ProductList({
     setVariantIngredients(variantIngs as any)
 
     // Cargar biblioteca de ingredientes
-    if (business?.id) {
-      getIngredientLibrary(business.id).then(lib => setIngredientLibrary(lib))
-    }
+    loadIngredientLibrary()
 
     // Cargar horarios
     if (product.scheduleAvailability?.enabled === true) {
@@ -654,7 +653,64 @@ export default function ProductList({
     }
   }
 
-  // Funciones para ingredientes
+  // Carga y consolidación automática de la biblioteca de ingredientes
+  const loadIngredientLibrary = useCallback(async () => {
+    if (!business?.id) return
+    try {
+      const lib = await getIngredientLibrary(business.id)
+      const libMap = new Map<string, IngredientLibraryItem>()
+      lib.forEach(item => {
+        if (item.name && item.name.trim()) {
+          libMap.set(item.name.toLowerCase().trim(), item)
+        }
+      })
+
+      // Retroalimentación automática: consolidar insumos existentes en productos y variantes de la tienda
+      if (products && Array.isArray(products)) {
+        products.forEach(prod => {
+          (prod.ingredients || []).forEach((ing: any) => {
+            if (ing.name && ing.name.trim()) {
+              const key = ing.name.toLowerCase().trim()
+              if (!libMap.has(key)) {
+                libMap.set(key, {
+                  id: ing.id || Date.now().toString(),
+                  name: ing.name.trim(),
+                  unitCost: Number(ing.unitCost) || 0,
+                  usageCount: 1,
+                  lastUsed: new Date()
+                })
+              }
+            }
+          });
+          (prod.variants || []).forEach((v: any) => {
+            (v.ingredients || []).forEach((ing: any) => {
+              if (ing.name && ing.name.trim()) {
+                const key = ing.name.toLowerCase().trim()
+                if (!libMap.has(key)) {
+                  libMap.set(key, {
+                    id: ing.id || Date.now().toString(),
+                    name: ing.name.trim(),
+                    unitCost: Number(ing.unitCost) || 0,
+                    usageCount: 1,
+                    lastUsed: new Date()
+                  })
+                }
+              }
+            })
+          })
+        })
+      }
+
+      const sortedLib = Array.from(libMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+      setIngredientLibrary(sortedLib)
+    } catch (e) {
+      console.error('Error loading ingredient library:', e)
+    }
+  }, [business?.id, products])
+
+  useEffect(() => {
+    loadIngredientLibrary()
+  }, [loadIngredientLibrary])
 
   // Funciones para ingredientes
   const handleIngredientChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -674,13 +730,14 @@ export default function ProductList({
   }
 
   const selectIngredientFromLibrary = (ingredient: IngredientLibraryItem) => {
-    setCurrentIngredient({
+    setCurrentIngredient(prev => ({
+      ...prev,
       name: ingredient.name,
       unitCost: ingredient.unitCost.toString(),
-      quantity: '1'
-    })
+      quantity: prev.quantity || '1'
+    }))
+    setIngredientSearchTerm(ingredient.name)
     setShowIngredientSuggestions(false)
-    setIngredientSearchTerm('')
   }
 
   const addIngredient = async () => {
@@ -697,9 +754,10 @@ export default function ProductList({
       return
     }
 
+    const ingName = currentIngredient.name.trim()
     const newIngredient = {
       id: Date.now().toString(),
-      name: currentIngredient.name.trim(),
+      name: ingName,
       unitCost: unitCost,
       quantity: quantity
     }
@@ -711,9 +769,18 @@ export default function ProductList({
     setIngredientSearchTerm('')
 
     if (business?.id) {
-      await addOrUpdateIngredientInLibrary(business.id, newIngredient.name, unitCost)
-      const library = await getIngredientLibrary(business.id)
-      setIngredientLibrary(library)
+      // Retroalimentación optimista e instantánea en la biblioteca local
+      setIngredientLibrary(prev => {
+        const key = ingName.toLowerCase()
+        const exists = prev.some(item => item.name.toLowerCase() === key)
+        if (exists) {
+          return prev.map(item => item.name.toLowerCase() === key ? { ...item, unitCost } : item)
+        }
+        return [...prev, { id: Date.now().toString(), name: ingName, unitCost, usageCount: 1, lastUsed: new Date() }].sort((a, b) => a.name.localeCompare(b.name))
+      })
+
+      await addOrUpdateIngredientInLibrary(business.id, ingName, unitCost)
+      loadIngredientLibrary()
       // Autosincronizar si estamos editando un producto
       syncProductIngredients(nextIngredients)
     }
@@ -739,9 +806,10 @@ export default function ProductList({
       return
     }
 
+    const ingName = currentIngredient.name.trim()
     const newIngredient = {
       id: Date.now().toString(),
-      name: currentIngredient.name.trim(),
+      name: ingName,
       unitCost: unitCost,
       quantity: quantity
     }
@@ -756,9 +824,18 @@ export default function ProductList({
     setIngredientSearchTerm('')
 
     if (business?.id) {
-      await addOrUpdateIngredientInLibrary(business.id, newIngredient.name, unitCost)
-      const library = await getIngredientLibrary(business.id)
-      setIngredientLibrary(library)
+      // Retroalimentación optimista e instantánea en la biblioteca local
+      setIngredientLibrary(prev => {
+        const key = ingName.toLowerCase()
+        const exists = prev.some(item => item.name.toLowerCase() === key)
+        if (exists) {
+          return prev.map(item => item.name.toLowerCase() === key ? { ...item, unitCost } : item)
+        }
+        return [...prev, { id: Date.now().toString(), name: ingName, unitCost, usageCount: 1, lastUsed: new Date() }].sort((a, b) => a.name.localeCompare(b.name))
+      })
+
+      await addOrUpdateIngredientInLibrary(business.id, ingName, unitCost)
+      loadIngredientLibrary()
       // Autosincronizar si estamos editando un producto
       syncProductIngredients(undefined, nextVariantIngredients)
     }
