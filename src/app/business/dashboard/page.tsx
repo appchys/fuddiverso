@@ -1008,7 +1008,13 @@ export default function TodayOrdersPage() {
                             const sharedProds = await getProductsByIds(biz.sharedProductIds)
                             const allBizs = await getAllBusinesses()
                             const avShared = sharedProds
-                                .filter(p => p.isAvailable)
+                                .filter(p => {
+                                    if (!p.isAvailable) return false
+                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                                    if (!ownerBiz) return false
+                                    if (ownerBiz.isActive === false) return false
+                                    return isStoreOpen(ownerBiz)
+                                })
                                 .map(p => {
                                     const ownerBiz = allBizs.find(b => b.id === p.businessId)
                                     return {
@@ -1694,7 +1700,7 @@ export default function TodayOrdersPage() {
         // Crear una orden temporal basada en los datos del checkout para prellenar el formulario
         const tempOrder: any = {
             id: `checkout-${checkoutSession.id}`, // ID temporal solo para prellenar
-            businessId: checkoutSession.businessId,
+            businessId: checkoutSession.businessId || checkoutSession.cartItems?.[0]?.originalBusinessId || '',
             customer: checkoutSession.customerData,
             delivery: {
                 type: checkoutSession.deliveryData.type,
@@ -2420,6 +2426,7 @@ export default function TodayOrdersPage() {
                                     setManualSidebarMode('create')
                                 }}
                                 business={business}
+                                businesses={businesses}
                                 products={products}
                                 onOrderCreated={() => {
                                     setManualOrderSidebarOpen(false)

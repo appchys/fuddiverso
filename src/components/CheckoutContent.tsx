@@ -2061,7 +2061,7 @@ export function CheckoutContent({
       // Si la campaña de delivery gratis aplica, el cliente no paga el costo de envío
       const clientDeliveryCost = isFreeDeliveryActive ? 0 : deliveryCost;
       const total = Math.max(0, subtotal + clientDeliveryCost - creditToApply);
-      const businessId = (isEmbedded ? embeddedBusinessId : (searchParams?.get('businessId') || ''))
+      const businessId = embeddedBusinessId || searchParams?.get('businessId') || business?.id || cartItems?.[0]?.originalBusinessId || ''
 
       // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
       const assignedDeliveryId = undefined;

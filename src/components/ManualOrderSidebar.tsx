@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
 import { formatComboVariantSelection } from '@/lib/combo-utils'
@@ -155,6 +155,12 @@ export default function ManualOrderSidebar({
   const [notaImageFile, setNotaImageFile] = useState<File | null>(null)
   const [notaImagePreview, setNotaImagePreview] = useState<string>('')
 
+  // Estados para uso de saldo / créditos del cliente
+  const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
+  const [useCredits, setUseCredits] = useState<boolean>(false)
+  const [creditsAmount, setCreditsAmount] = useState<number>(0)
+  const [creditInputStr, setCreditInputStr] = useState<string>('')
+
   // Estados para vista detalle de cliente
   const [showClientDetailSidebar, setShowClientDetailSidebar] = useState(false)
   const [clientOrders, setClientOrders] = useState<any[]>([])
@@ -261,8 +267,26 @@ export default function ManualOrderSidebar({
     setToastTimeout(timeout)
   }
 
-  const businessDefaultCommissionType = business?.defaultCommissionType
-  const businessCommissionRate = business?.commissionRate
+  // Determinar negocio y su ID de forma efectiva (soporta cuando business prop es null pero editOrder tiene businessId o businesses array está disponible)
+  const effectiveBusinessId = useMemo(() => {
+    if (business?.id) return business.id
+    if (editOrder?.businessId) return editOrder.businessId
+    if (editOrder?.items?.[0]?.originalBusinessId) return editOrder.items[0].originalBusinessId
+    if (businesses && businesses.length === 1) return businesses[0].id
+    return ''
+  }, [business?.id, editOrder?.businessId, editOrder?.items, businesses])
+
+  const effectiveBusiness = useMemo(() => {
+    if (business?.id && business.id === effectiveBusinessId) return business
+    if (businesses && effectiveBusinessId) {
+      const found = businesses.find(b => b.id === effectiveBusinessId)
+      if (found) return found
+    }
+    return business
+  }, [business, businesses, effectiveBusinessId])
+
+  const businessDefaultCommissionType = effectiveBusiness?.defaultCommissionType
+  const businessCommissionRate = effectiveBusiness?.commissionRate
   const businessSelectorOptions = businesses ?? []
   const showBusinessSelector = mode === 'create' && businessSelectorOptions.length > 0 && !!onBusinessChange
 
@@ -279,7 +303,7 @@ export default function ManualOrderSidebar({
     return calculateCommissionPricing(storePrice, defaultCommissionType, commissionRate)
   }, [customProductData.price, businessDefaultCommissionType, businessCommissionRate])
 
-  const canChangeDelivery = business?.email === 'munchys.ec@gmail.com';
+  const canChangeDelivery = effectiveBusiness?.email === 'munchys.ec@gmail.com';
 
   const sidebarRef = useRef<HTMLDivElement>(null)
   const clientCreationPromiseRef = useRef<Promise<any> | null>(null)
@@ -317,9 +341,9 @@ export default function ManualOrderSidebar({
   // Helper para calcular tarifa usando la función compartida en lib/database
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
-      if (!business?.id) return { fee: 0, zoneName: 'Sin cobertura' }
+      if (!effectiveBusinessId) return { fee: 0, zoneName: 'Sin cobertura' }
       const [details, zone] = await Promise.all([
-        getDeliveryDetailsForLocation({ lat, lng }, business.id),
+        getDeliveryDetailsForLocation({ lat, lng }, effectiveBusinessId),
         getCoverageZoneForLocation({ lat, lng })
       ]);
       
@@ -336,6 +360,39 @@ export default function ManualOrderSidebar({
     }
   }
 
+  // Cargar saldo de créditos del cliente seleccionado
+  useEffect(() => {
+    const loadUserCredits = async () => {
+      const identifiers = [
+        manualOrderData.customerId,
+        manualOrderData.customerPhone,
+        editingClient?.id,
+        editingClient?.celular
+      ].filter(Boolean) as string[]
+
+      if (identifiers.length === 0) {
+        setUserCredits({ available: 0, referral: 0, manual: 0 })
+        setUseCredits(false)
+        setCreditsAmount(0)
+        setCreditInputStr('')
+        return
+      }
+
+      try {
+        const credits = await getUserCreditsFlexible(identifiers)
+        setUserCredits({
+          available: credits.available,
+          referral: credits.referral,
+          manual: credits.manual
+        })
+      } catch (error) {
+        console.error('Error loading user credits in manual order:', error)
+      }
+    }
+
+    void loadUserCredits()
+  }, [manualOrderData.customerId, manualOrderData.customerPhone, editingClient?.id, editingClient?.celular])
+
   // Recalcular total cuando cambie la ubicación seleccionada o el tipo de entrega
   useEffect(() => {
     // Si cambia la ubicación o el tipo de entrega, reseteamos el costo de envío personalizado
@@ -344,7 +401,9 @@ export default function ManualOrderSidebar({
       const deliveryCost = prev.deliveryType === 'delivery'
         ? (prev.selectedLocation?.latlong ? parseFloat(prev.selectedLocation?.tarifa || '0') : 1.25)
         : 0
-      const total = subtotal + deliveryCost
+      const totalBeforeCredits = subtotal + deliveryCost
+      const creditToApply = useCredits ? Math.min(creditsAmount || 0, userCredits.available, totalBeforeCredits) : 0
+      const total = Math.max(0, totalBeforeCredits - creditToApply)
       return {
         ...prev,
         customDeliveryCost: null,
@@ -355,7 +414,7 @@ export default function ManualOrderSidebar({
         })
       }
     })
-  }, [manualOrderData.selectedLocation, manualOrderData.deliveryType])
+  }, [manualOrderData.selectedLocation, manualOrderData.deliveryType, useCredits, creditsAmount, userCredits.available])
 
   // Eliminar el useEffect que calculaba tarifa automáticamente al cambiar deliveryType
   // Ahora el cálculo se hace explícitamente al seleccionar o crear una ubicación
@@ -372,10 +431,10 @@ export default function ManualOrderSidebar({
       }
     }
 
-    if (isOpen && business?.id) {
+    if (isOpen && effectiveBusinessId) {
       loadDeliveries()
     }
-  }, [isOpen, business?.id])
+  }, [isOpen, effectiveBusinessId])
 
   // Prefill data when editing
   useEffect(() => {
@@ -515,8 +574,8 @@ export default function ManualOrderSidebar({
       }, [])
     }
     // Usar las categorías del negocio si existen y tienen elementos
-    if (business && Array.isArray(business.categories) && business.categories.length > 0) {
-      const list = [...business.categories]
+    if (effectiveBusiness && Array.isArray(effectiveBusiness.categories) && effectiveBusiness.categories.length > 0) {
+      const list = [...effectiveBusiness.categories]
       const hasSharedProducts = products.some(p => p.isShared)
       if (hasSharedProducts && !list.includes('Compartidos')) {
         list.push('Compartidos')
@@ -561,14 +620,14 @@ export default function ManualOrderSidebar({
   // Buscar delivery asignado a la zona de una ubicación
   const findDeliveryForLocation = async (location: ClientLocation) => {
     // 1. PRIORIDAD: Si la tienda tiene un delivery predeterminado, asignarlo siempre
-    if (business?.defaultDeliveryId) {
-      const defaultDelivery = availableDeliveries.find(d => d.id === business.defaultDeliveryId)
+    if (effectiveBusiness?.defaultDeliveryId) {
+      const defaultDelivery = availableDeliveries.find(d => d.id === effectiveBusiness.defaultDeliveryId)
       if (defaultDelivery) {
         console.log('[ManualOrder] Asignando delivery predeterminado del negocio:', defaultDelivery.nombres)
         setManualOrderData(prev => ({ ...prev, selectedDelivery: defaultDelivery }))
         return // Prioridad máxima
       } else {
-        console.warn('[ManualOrder] Delivery predeterminado configurado pero no encontrado en disponibles:', business.defaultDeliveryId)
+        console.warn('[ManualOrder] Delivery predeterminado configurado pero no encontrado en disponibles:', effectiveBusiness.defaultDeliveryId)
       }
     }
 
@@ -1330,7 +1389,7 @@ export default function ManualOrderSidebar({
           }
 
           if (resolvedLatLong) {
-            if (business?.id) {
+            if (effectiveBusinessId) {
               const [lat, lng] = resolvedLatLong.startsWith('pluscode:') 
                 ? [NaN, NaN] 
                 : resolvedLatLong.split(',').map(p => parseFloat(p.trim()))
@@ -1410,7 +1469,7 @@ export default function ManualOrderSidebar({
         }));
 
         // Calcular tarifa y sector automáticamente
-        if (business?.id) {
+        if (effectiveBusinessId) {
           const [lat, lng] = resolvedLatLong.startsWith('pluscode:') ? [NaN, NaN] : resolvedLatLong.split(',').map(p => parseFloat(p.trim()));
           
           if (!isNaN(lat) && !isNaN(lng)) {
@@ -1434,7 +1493,7 @@ export default function ManualOrderSidebar({
     const latlongValue = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     
     // Si tenemos un negocio, calcular la tarifa automáticamente
-    if (business?.id) {
+    if (effectiveBusinessId) {
       const { fee, zoneName } = await calculateDeliveryFee({ lat, lng });
       const normalizedFee = fee === 0 ? 5 : fee;
       setNewLocationData(prev => ({
@@ -1449,7 +1508,7 @@ export default function ManualOrderSidebar({
         latlong: latlongValue 
       }));
     }
-  }, [business?.id]);
+  }, [effectiveBusinessId]);
 
   // Función para obtener la ubicación actual por GPS
   const getCurrentGpsLocation = () => {
@@ -2194,8 +2253,77 @@ export default function ManualOrderSidebar({
     setIsEditingDeliveryCost(false)
   }
 
+  // Handlers para el uso de saldo de cliente
+  const handleToggleCredits = (checked: boolean) => {
+    const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+    const customCost = manualOrderData.customDeliveryCost
+    const deliveryCost = manualOrderData.deliveryType === 'delivery'
+      ? (customCost !== null && customCost !== undefined
+          ? customCost
+          : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
+      : 0
+    const totalBeforeCredits = subtotal + deliveryCost
+    const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
+    const roundedMax = Math.round(maxPossible * 100) / 100
+
+    setUseCredits(checked)
+    setCreditsAmount(checked ? roundedMax : 0)
+    setCreditInputStr(checked ? roundedMax.toString() : '')
+    calculateTotal(manualOrderData.selectedProducts, undefined, checked, checked ? roundedMax : 0)
+  }
+
+  const handleUseAllCredits = () => {
+    const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+    const customCost = manualOrderData.customDeliveryCost
+    const deliveryCost = manualOrderData.deliveryType === 'delivery'
+      ? (customCost !== null && customCost !== undefined
+          ? customCost
+          : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
+      : 0
+    const totalBeforeCredits = subtotal + deliveryCost
+    const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
+    const roundedMax = Math.round(maxPossible * 100) / 100
+
+    setUseCredits(true)
+    setCreditsAmount(roundedMax)
+    setCreditInputStr(roundedMax.toString())
+    calculateTotal(manualOrderData.selectedProducts, undefined, true, roundedMax)
+  }
+
+  const handleCreditsInputChange = (raw: string) => {
+    if (raw === '' || /^\d*\.?\d{0,2}$/.test(raw)) {
+      setCreditInputStr(raw)
+      const parsed = parseFloat(raw)
+      const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+      const customCost = manualOrderData.customDeliveryCost
+      const deliveryCost = manualOrderData.deliveryType === 'delivery'
+        ? (customCost !== null && customCost !== undefined
+            ? customCost
+            : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
+        : 0
+      const totalBeforeCredits = subtotal + deliveryCost
+      const maxAllowed = Math.min(userCredits.available, totalBeforeCredits)
+
+      if (!isNaN(parsed) && parsed > 0) {
+        const amount = Math.min(parsed, maxAllowed)
+        setUseCredits(true)
+        setCreditsAmount(amount)
+        calculateTotal(manualOrderData.selectedProducts, undefined, true, amount)
+      } else {
+        setUseCredits(true)
+        setCreditsAmount(0)
+        calculateTotal(manualOrderData.selectedProducts, undefined, true, 0)
+      }
+    }
+  }
+
   // Calcular total
-  const calculateTotal = (products: OrderItem[], overrideCustomDeliveryCost?: number | null) => {
+  const calculateTotal = (
+    products: OrderItem[],
+    overrideCustomDeliveryCost?: number | null,
+    overrideUseCredits?: boolean,
+    overrideCreditsAmount?: number
+  ) => {
     const subtotal = products.reduce((sum, item) => sum + (item.price * item.quantity), 0)
     const customCost = overrideCustomDeliveryCost !== undefined
       ? overrideCustomDeliveryCost
@@ -2206,7 +2334,13 @@ export default function ManualOrderSidebar({
           ? customCost
           : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
       : 0
-    const total = subtotal + deliveryCost
+
+    const totalBeforeCredits = subtotal + deliveryCost
+    const activeUseCredits = overrideUseCredits !== undefined ? overrideUseCredits : useCredits
+    const activeCreditsAmount = overrideCreditsAmount !== undefined ? overrideCreditsAmount : creditsAmount
+
+    const creditToApply = activeUseCredits ? Math.min(activeCreditsAmount || 0, userCredits.available, totalBeforeCredits) : 0
+    const total = Math.max(0, totalBeforeCredits - creditToApply)
 
     setManualOrderData(prev => ({
       ...prev,
@@ -2221,7 +2355,7 @@ export default function ManualOrderSidebar({
 
   // Crear o actualizar orden
   const handleSubmitOrder = async () => {
-    if (!business?.id) {
+    if (!effectiveBusinessId) {
       alert('No hay negocio seleccionado')
       return
     }
@@ -2251,7 +2385,7 @@ export default function ManualOrderSidebar({
           { type: optimizedBlob.type || 'image/jpeg' }
         )
 
-        const storageRef = ref(storage, `order-notes/${business.id}/${optimizedFile.name}`)
+        const storageRef = ref(storage, `order-notes/${effectiveBusinessId}/${optimizedFile.name}`)
         await uploadBytes(storageRef, optimizedFile)
         notaImageUrl = await getDownloadURL(storageRef)
       }
@@ -2263,7 +2397,7 @@ export default function ManualOrderSidebar({
       };
 
       let orderData: any = {
-        businessId: business.id,
+        businessId: effectiveBusinessId,
         items: manualOrderData.selectedProducts.map(item => {
           const storePrice = (typeof item.basePrice === 'number' && !isNaN(item.basePrice))
             ? item.basePrice
@@ -2345,7 +2479,7 @@ export default function ManualOrderSidebar({
               // Para NUEVOS pedidos inmediatos, guardar fecha actual y hora actual + tiempo definido (o 30 min)
               scheduledDate: firestoreTimestamp,
               scheduledTime: (() => {
-                const baseDeliveryTime = business?.deliveryTime || 30;
+                const baseDeliveryTime = effectiveBusiness?.deliveryTime || 30;
                 const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000);
                 const hh = String(deliveryTime.getHours()).padStart(2, '0');
                 const mm = String(deliveryTime.getMinutes()).padStart(2, '0');
@@ -2366,6 +2500,16 @@ export default function ManualOrderSidebar({
         },
         subtotal: manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0),
         total: manualOrderData.total,
+        creditUsed: (() => {
+          const sub = manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+          const customCost = manualOrderData.customDeliveryCost
+          const del = manualOrderData.deliveryType === 'delivery'
+            ? (customCost !== null && customCost !== undefined
+                ? customCost
+                : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
+            : 0
+          return useCredits ? Math.min(creditsAmount || 0, userCredits.available, sub + del) : 0
+        })(),
         status: finalStatus as any,
         createdByAdmin: true,
         paymentCollector: 'store',
@@ -2396,6 +2540,7 @@ export default function ManualOrderSidebar({
         try {
           if (mode === 'edit' && editOrder?.id && !isFromCheckout) {
             const updatePayload: any = {
+              businessId: effectiveBusinessId,
               items: orderData.items,
               customer: orderData.customer,
               delivery: orderData.delivery,
@@ -2417,6 +2562,24 @@ export default function ManualOrderSidebar({
           } else {
             const orderId = await createOrder(orderData as any)
             
+            // Descontar saldo/créditos de billetera si se usaron
+            const creditToDeduct = (orderData as any).creditUsed || 0
+            if (creditToDeduct > 0) {
+              try {
+                const identifiers = [
+                  manualOrderData.customerId,
+                  manualOrderData.customerPhone,
+                  editingClient?.id,
+                  editingClient?.celular
+                ].filter(Boolean) as string[]
+                if (identifiers.length > 0) {
+                  await useUserCreditsFlexible(identifiers, effectiveBusinessId || '', creditToDeduct, orderId)
+                }
+              } catch (creditErr) {
+                console.error('Error deducting credits in manual order:', creditErr)
+              }
+            }
+
             // Si viene de un checkout, marcarlo como completado
             if (isFromCheckout && editOrder?.checkoutSessionId) {
               try {
@@ -2440,7 +2603,7 @@ export default function ManualOrderSidebar({
               }))
               if (cartItems.length > 0) {
                 const orderDateStr = new Date().toISOString().split('T')[0]
-                await registerOrderConsumption(business?.id!, cartItems, orderDateStr, orderId)
+                await registerOrderConsumption(effectiveBusinessId, cartItems, orderDateStr, orderId)
               }
             } catch (e) { console.error('Error registering consumption:', e) }
 
@@ -2493,6 +2656,10 @@ export default function ManualOrderSidebar({
     setShowCreateClient(false)
     setIsEditingDeliveryCost(false)
     setTempDeliveryCost('')
+    setUseCredits(false)
+    setCreditsAmount(0)
+    setCreditInputStr('')
+    setUserCredits({ available: 0, referral: 0, manual: 0 })
   }
 
   const handleCancel = () => {
@@ -2774,11 +2941,18 @@ export default function ManualOrderSidebar({
                         <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" title={`Nota: ${manualOrderData.customerNotes}`}></i>
                       )}
                     </p>
-                    {manualOrderData.customerPhone && (
-                      <p className="text-xs text-gray-500 opacity-85 font-mono tracking-wide">
-                        {manualOrderData.customerPhone}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      {manualOrderData.customerPhone && (
+                        <p className="text-xs text-gray-500 opacity-85 font-mono tracking-wide">
+                          {manualOrderData.customerPhone}
+                        </p>
+                      )}
+                      {userCredits.available > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          <i className="bi bi-wallet2"></i> Saldo: ${userCredits.available.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center space-x-1">
                     <button
@@ -3526,11 +3700,106 @@ export default function ManualOrderSidebar({
                   )}
                 </div>
               )}
-              <div className="flex justify-between font-medium border-t pt-1">
-                <span>Total:</span>
-                <span>${manualOrderData.total.toFixed(2)}</span>
+
+              {/* Total base antes de créditos (si se usan créditos) */}
+              {useCredits && (
+                <div className="flex justify-between text-xs text-gray-500 py-0.5 border-t border-dashed border-gray-200 pt-1">
+                  <span>Total del pedido:</span>
+                  <span className="line-through">${(manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0) + (manualOrderData.deliveryType === 'delivery' ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)) : 0)).toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Descuento por Saldo */}
+              {useCredits && Math.min(creditsAmount || 0, userCredits.available) > 0 && (
+                <div className="flex justify-between text-xs font-semibold text-emerald-700 py-0.5">
+                  <span className="flex items-center gap-1">
+                    <i className="bi bi-gift-fill text-emerald-600"></i> Saldo aplicado:
+                  </span>
+                  <span>-${Math.min(creditsAmount || 0, userCredits.available, (manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0) + (manualOrderData.deliveryType === 'delivery' ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)) : 0))).toFixed(2)}</span>
+                </div>
+              )}
+
+              <div className="flex justify-between font-bold border-t pt-1">
+                <span>{useCredits && creditsAmount > 0 ? 'Saldo a Cobrar:' : 'Total:'}</span>
+                <span className={useCredits && manualOrderData.total === 0 ? 'text-emerald-600 font-black' : ''}>
+                  {useCredits && manualOrderData.total === 0 ? '¡Cubierto 100%! 🎉' : `$${manualOrderData.total.toFixed(2)}`}
+                </span>
               </div>
             </div>
+
+            {/* Opción de Pago con Créditos / Saldo disponible */}
+            {userCredits.available > 0 && (
+              <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                <div className="bg-emerald-50/90 border border-emerald-200 rounded-xl p-3.5 transition-all shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center text-sm font-bold shadow-xs shrink-0">
+                        <i className="bi bi-wallet2"></i>
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block leading-tight">Pagar con Saldo del Cliente</span>
+                        <p className="text-[11px] font-medium text-emerald-800">
+                          Disponible: <span className="font-bold">${userCredits.available.toFixed(2)}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={useCredits}
+                        onChange={(e) => handleToggleCredits(e.target.checked)}
+                      />
+                      <div className="w-10 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  {useCredits && (
+                    <div className="mt-3 pt-3 border-t border-emerald-200/60 animate-fadeIn space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-xs font-medium text-gray-700">Monto a descontar:</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleUseAllCredits}
+                            className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-300 hover:bg-emerald-100 rounded-lg px-2 py-1 transition-colors shadow-xs"
+                          >
+                            Usar todo (${Math.min(userCredits.available, (manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0) + (manualOrderData.deliveryType === 'delivery' ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)) : 0))).toFixed(2)})
+                          </button>
+
+                          <div className="flex items-center gap-1 bg-white border border-emerald-300 rounded-lg px-2.5 py-1 shadow-xs focus-within:ring-2 focus-within:ring-emerald-500 transition-all">
+                            <span className="text-emerald-700 font-bold text-xs">$</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={creditInputStr}
+                              placeholder="0.00"
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => handleCreditsInputChange(e.target.value)}
+                              onBlur={() => {
+                                const parsed = parseFloat(creditInputStr)
+                                if (!isNaN(parsed) && parsed > 0) {
+                                  const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+                                  const deliveryCost = manualOrderData.deliveryType === 'delivery'
+                                    ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25))
+                                    : 0
+                                  const totalBeforeCredits = subtotal + deliveryCost
+                                  const maxAllowed = Math.min(userCredits.available, totalBeforeCredits)
+                                  const amount = Math.min(parsed, maxAllowed)
+                                  setCreditInputStr(amount.toString())
+                                }
+                              }}
+                              className="w-16 text-xs text-right font-bold text-emerald-800 bg-transparent focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Notas - Collapsible */}

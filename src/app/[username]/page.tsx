@@ -367,7 +367,13 @@ function RestaurantContent() {
             const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
             const ownerBizs = await getBusinessesByIds(ownerIds)
             const availableShared = sharedProducts
-              .filter(p => p.isAvailable)
+              .filter(p => {
+                if (!p.isAvailable) return false
+                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                if (!ownerBiz) return false
+                if (ownerBiz.isActive === false) return false
+                return isStoreOpen(ownerBiz)
+              })
               .map(p => {
                 const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
                 return {

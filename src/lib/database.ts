@@ -1296,6 +1296,7 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
     // Asegurarnos que siempre tenga la estructura correcta
     const standardizedOrder = {
       ...cleanOrderData,
+      businessId: cleanOrderData.businessId || cleanOrderData.items?.[0]?.originalBusinessId || '',
       status: cleanOrderData.status || 'pending',
       createdByAdmin: cleanOrderData.createdByAdmin ?? false,
       delivery: {

@@ -516,7 +516,13 @@ export default function AdminPedidosPage() {
                         const sharedProducts = await getProductsByIds(biz.sharedProductIds)
                         const allBizs = await getAllBusinesses()
                         const availableShared = sharedProducts
-                            .filter(p => p.isAvailable)
+                            .filter(p => {
+                                if (!p.isAvailable) return false
+                                const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                                if (!ownerBiz) return false
+                                if (ownerBiz.isActive === false) return false
+                                return isStoreOpen(ownerBiz)
+                            })
                             .map(p => {
                                 const ownerBiz = allBizs.find(b => b.id === p.businessId)
                                 return {
@@ -1256,7 +1262,7 @@ export default function AdminPedidosPage() {
     const handleOpenManualOrderFromCheckout = (checkoutSession: CheckoutSession) => {
         const tempOrder: any = {
             id: `checkout-${checkoutSession.id}`,
-            businessId: checkoutSession.businessId,
+            businessId: checkoutSession.businessId || checkoutSession.cartItems?.[0]?.originalBusinessId || '',
             customer: checkoutSession.customerData,
             delivery: {
                 type: checkoutSession.deliveryData.type,
@@ -1842,6 +1848,7 @@ export default function AdminPedidosPage() {
                     setManualSidebarMode('create')
                 }}
                 business={business}
+                businesses={businesses}
                 products={products}
                 onOrderCreated={() => setManualOrderSidebarOpen(false)}
                 mode={manualSidebarMode}
