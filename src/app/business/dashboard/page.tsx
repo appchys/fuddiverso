@@ -514,62 +514,159 @@ export default function TodayOrdersPage() {
     const [productsLoaded, setProductsLoaded] = useState(false)
     const [productsLoading, setProductsLoading] = useState(false)
     
-    // Favorite ingredients stock state
-    const [favStockSummary, setFavStockSummary] = useState<any[]>([])
-    const [favIngredients, setFavIngredients] = useState<string[]>([])
-    const [currentFavIndex, setCurrentFavIndex] = useState(0)
-
+    // Product list loading effect when business is set
     useEffect(() => {
         if (!businessId) return
-        const saved = localStorage.getItem(`fuddi_fav_ingredients_${businessId}`)
-        if (saved) setFavIngredients(JSON.parse(saved))
-        else setFavIngredients([])
-        setCurrentFavIndex(0)
-    }, [businessId, activeTab])
 
-    useEffect(() => {
-        if (!businessId || favIngredients.length === 0) {
-            setFavStockSummary([])
-            return
+        if (!productsLoaded && !productsLoading) {
+            const fetchProducts = async () => {
+                setProductsLoading(true)
+                try {
+                    let productsData = await getProductsByBusiness(businessId)
+                    try {
+                        const biz = business || await getBusiness(businessId)
+                        if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
+                            const sharedProds = await getProductsByIds(biz.sharedProductIds)
+                            const allBizs = await getAllBusinesses()
+                            const avShared = sharedProds
+                                .filter(p => {
+                                    if (!p.isAvailable) return false
+                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                                    if (!ownerBiz) return false
+                                    if (ownerBiz.isActive === false) return false
+                                    return isStoreOpen(ownerBiz)
+                                })
+                                .map(p => {
+                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                                    return {
+                                        ...p,
+                                        category: 'Compartidos',
+                                        isShared: true,
+                                        originalBusinessId: p.businessId,
+                                        originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                                        originalBusinessImage: ownerBiz?.image || null
+                                    }
+                                })
+                            productsData = [...productsData, ...avShared]
+                        }
+                    } catch (e) {
+                        console.error("Error loading shared products in dashboard:", e)
+                    }
+                    setProducts(productsData)
+                    setProductsLoaded(true)
+                } catch (error) {
+                    console.error("Error fetching products", error)
+                } finally {
+                    setProductsLoading(false)
+                }
+            }
+            fetchProducts()
         }
+    }, [businessId, productsLoaded, productsLoading, business])
 
-        const fetchStock = async () => {
-            try {
-                const summary = await getIngredientStockSummary(businessId)
-                const onlyFavs = summary.filter(s => favIngredients.includes(s.ingredientId))
-                
-                setFavStockSummary(prev => {
-                    // Verificamos si los ingredientes son los mismos para mantener el orden
-                    const prevIds = prev.map(p => p.ingredientId).sort().join(',')
-                    const currentIds = onlyFavs.map(o => o.ingredientId).sort().join(',')
-                    
-                    if (prev.length > 0 && prevIds === currentIds) {
-                        return prev.map(p => {
-                            const updated = onlyFavs.find(o => o.ingredientId === p.ingredientId)
-                            return updated ? updated : p
+    // Sold units per day calculation state & memo
+    const [currentUnitsIndex, setCurrentUnitsIndex] = useState(0)
+
+    const todaySoldUnitsSummary = useMemo(() => {
+        const activeOrders = orders.filter(o => o.status !== 'cancelled')
+
+        const ingredientMap = new Map<string, { name: string; quantity: number; unit?: string }>()
+        let totalUnitsCount = 0
+
+        activeOrders.forEach(order => {
+            if (!order.items || !Array.isArray(order.items)) return
+
+            order.items.forEach(item => {
+                const itemQty = Number(item.quantity) || 1
+
+                let ingredientsToUse: any[] = []
+
+                const itemIngredients = (item as any).ingredients
+                if (itemIngredients && Array.isArray(itemIngredients) && itemIngredients.length > 0) {
+                    ingredientsToUse = itemIngredients
+                } else {
+                    const product = products.find(p => p.id === (item.product?.id || (item as any).productId)) || item.product
+
+                    if (product) {
+                        if (item.variant && product.variants && Array.isArray(product.variants)) {
+                            const variantObj = product.variants.find((v: any) => v.name === item.variant || v.name === (item as any).variantName)
+                            if (variantObj?.ingredients && Array.isArray(variantObj.ingredients) && variantObj.ingredients.length > 0) {
+                                ingredientsToUse = variantObj.ingredients
+                            }
+                        }
+
+                        if (ingredientsToUse.length === 0 && product.ingredients && Array.isArray(product.ingredients) && product.ingredients.length > 0) {
+                            ingredientsToUse = product.ingredients
+                        }
+                    }
+                }
+
+                if (ingredientsToUse.length > 0) {
+                    ingredientsToUse.forEach(ing => {
+                        const ingQty = (Number(ing.quantity) || 1) * itemQty
+                        const ingName = (ing.name || 'Ingrediente').trim()
+                        const normKey = ingName.toLowerCase()
+
+                        totalUnitsCount += ingQty
+
+                        const existing = ingredientMap.get(normKey)
+                        if (existing) {
+                            existing.quantity += ingQty
+                        } else {
+                            ingredientMap.set(normKey, {
+                                name: ingName,
+                                quantity: ingQty,
+                                unit: ing.unit || 'uds'
+                            })
+                        }
+                    })
+                } else {
+                    totalUnitsCount += itemQty
+                    const prodName = item.name || item.product?.name || 'Producto'
+                    const normKey = prodName.toLowerCase()
+                    const existing = ingredientMap.get(normKey)
+                    if (existing) {
+                        existing.quantity += itemQty
+                    } else {
+                        ingredientMap.set(normKey, {
+                            name: prodName,
+                            quantity: itemQty,
+                            unit: 'uds'
                         })
                     }
-                    // Si es la primera vez o cambiaron los favoritos, barajamos
-                    return [...onlyFavs].sort(() => Math.random() - 0.5)
-                })
-            } catch (e) {
-                console.error("Error fetching fav stock", e)
-            }
-        }
-        fetchStock()
-        
-        const interval = setInterval(fetchStock, 60000)
-        return () => clearInterval(interval)
-    }, [businessId, favIngredients])
+                }
+            })
+        })
 
-    const nextFav = (e: React.MouseEvent) => {
+        const ingredientsList = Array.from(ingredientMap.values()).sort((a, b) => b.quantity - a.quantity)
+
+        const slides = ingredientsList.map(ing => ({
+            value: ing.quantity,
+            label: ing.name,
+            unit: ing.unit || 'uds'
+        }))
+
+        return {
+            totalUnitsCount,
+            ingredientsList,
+            slides
+        }
+    }, [orders, products])
+
+    const activeUnitsSlide = todaySoldUnitsSummary.slides.length > 0
+        ? todaySoldUnitsSummary.slides[currentUnitsIndex % todaySoldUnitsSummary.slides.length]
+        : null
+
+    const nextUnitsSlide = (e: React.MouseEvent) => {
         e.stopPropagation()
-        setCurrentFavIndex(prev => (prev + 1) % favStockSummary.length)
+        if (todaySoldUnitsSummary.slides.length === 0) return
+        setCurrentUnitsIndex(prev => (prev + 1) % todaySoldUnitsSummary.slides.length)
     }
 
-    const prevFav = (e: React.MouseEvent) => {
+    const prevUnitsSlide = (e: React.MouseEvent) => {
         e.stopPropagation()
-        setCurrentFavIndex(prev => (prev - 1 + favStockSummary.length) % favStockSummary.length)
+        if (todaySoldUnitsSummary.slides.length === 0) return
+        setCurrentUnitsIndex(prev => (prev - 1 + todaySoldUnitsSummary.slides.length) % todaySoldUnitsSummary.slides.length)
     }
 
     useEffect(() => {
@@ -992,56 +1089,7 @@ export default function TodayOrdersPage() {
         setProducts([])
     }, [businessId])
 
-    useEffect(() => {
-        if (!businessId) return
 
-        const shouldLoad = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen
-
-        if (shouldLoad && !productsLoaded && !productsLoading) {
-            const fetchProducts = async () => {
-                setProductsLoading(true)
-                try {
-                    let productsData = await getProductsByBusiness(businessId)
-                    try {
-                        const biz = business || await getBusiness(businessId)
-                        if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
-                            const sharedProds = await getProductsByIds(biz.sharedProductIds)
-                            const allBizs = await getAllBusinesses()
-                            const avShared = sharedProds
-                                .filter(p => {
-                                    if (!p.isAvailable) return false
-                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
-                                    if (!ownerBiz) return false
-                                    if (ownerBiz.isActive === false) return false
-                                    return isStoreOpen(ownerBiz)
-                                })
-                                .map(p => {
-                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
-                                    return {
-                                        ...p,
-                                        category: 'Compartidos',
-                                        isShared: true,
-                                        originalBusinessId: p.businessId,
-                                        originalBusinessName: ownerBiz?.name || 'Otra tienda',
-                                        originalBusinessImage: ownerBiz?.image || null
-                                    }
-                                })
-                            productsData = [...productsData, ...avShared]
-                        }
-                    } catch (e) {
-                        console.error("Error loading shared products in dashboard:", e)
-                    }
-                    setProducts(productsData)
-                    setProductsLoaded(true)
-                } catch (error) {
-                    console.error("Error fetching products", error)
-                } finally {
-                    setProductsLoading(false)
-                }
-            }
-            fetchProducts()
-        }
-    }, [businessId, activeTab, profileSubTab, manualOrderSidebarOpen, productsLoaded, productsLoading])
 
     // Fetch active deliveries
     useEffect(() => {
@@ -2130,30 +2178,32 @@ export default function TodayOrdersPage() {
                                                             className="text-center px-1 border-x border-gray-100 flex flex-col justify-center overflow-hidden group cursor-pointer hover:bg-gray-50 transition-colors"
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
-                                                                setActiveTab('inventory')
+                                                                setActiveTab('stats')
                                                             }}
                                                         >
-                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock</p>
-                                                            {favIngredients.length > 0 ? (
-                                                                <div className="flex items-center justify-between gap-1">
-                                                                    <button onClick={prevFav} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-left text-[8px]"></i></button>
-                                                                    <div className="min-w-0 text-center">
-                                                                        {favStockSummary[currentFavIndex] ? (
-                                                                            <>
-                                                                                <p className={`text-lg font-black leading-none mb-0.5 ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
-                                                                                    {Math.round(favStockSummary[currentFavIndex].currentStock)}
-                                                                                </p>
-                                                                                <p className="text-[8px] font-bold text-gray-500 truncate leading-tight">{favStockSummary[currentFavIndex].ingredientName}</p>
-                                                                            </>
-                                                                        ) : (
-                                                                            <div className="animate-pulse h-4 w-8 bg-gray-100 rounded mx-auto" />
-                                                                        )}
-                                                                    </div>
-                                                                    <button onClick={nextFav} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-right text-[8px]"></i></button>
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Vendidos</p>
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                {todaySoldUnitsSummary.slides.length > 1 && (
+                                                                    <button onClick={prevUnitsSlide} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-left text-[8px]"></i></button>
+                                                                )}
+                                                                <div className="min-w-0 text-center flex-1">
+                                                                    {activeUnitsSlide ? (
+                                                                        <>
+                                                                            <p className="text-lg font-black leading-none mb-0.5 text-gray-900">
+                                                                                {Math.round(activeUnitsSlide.value)}
+                                                                            </p>
+                                                                            <p className="text-[8px] font-bold text-gray-500 truncate leading-tight">
+                                                                                {activeUnitsSlide.label}
+                                                                            </p>
+                                                                        </>
+                                                                    ) : (
+                                                                        <p className="text-lg font-black leading-none mb-0.5 text-gray-900">0</p>
+                                                                    )}
                                                                 </div>
-                                                            ) : (
-                                                                <p className="text-[8px] text-gray-300 italic">Sin favs</p>
-                                                            )}
+                                                                {todaySoldUnitsSummary.slides.length > 1 && (
+                                                                    <button onClick={nextUnitsSlide} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-right text-[8px]"></i></button>
+                                                                )}
+                                                            </div>
                                                         </div>
 
                                                         <div className="text-right">
@@ -2279,31 +2329,33 @@ export default function TodayOrdersPage() {
                                                                 className="text-center px-4 border-x border-gray-100 flex flex-col justify-center group cursor-pointer hover:bg-gray-50 transition-colors"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
-                                                                    setActiveTab('inventory')
+                                                                    setActiveTab('stats')
                                                                 }}
                                                             >
-                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock Favorito</p>
-                                                                {favIngredients.length > 0 ? (
-                                                                    <div className="flex items-center justify-center gap-4">
-                                                                        <button onClick={prevFav} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-left text-xs"></i></button>
-                                                                        <div className="min-w-0">
-                                                                            {favStockSummary[currentFavIndex] ? (
-                                                                                <>
-                                                                                    <p className={`text-xl font-black leading-none mb-1 ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
-                                                                                        {Math.round(favStockSummary[currentFavIndex].currentStock)}
-                                                                                        <span className="text-[10px] ml-1 uppercase font-bold text-gray-400">{favStockSummary[currentFavIndex].unit || 'uds'}</span>
-                                                                                    </p>
-                                                                                    <p className="text-xs font-bold text-gray-500 truncate leading-tight">{favStockSummary[currentFavIndex].ingredientName}</p>
-                                                                                </>
-                                                                            ) : (
-                                                                                <div className="animate-pulse h-6 w-12 bg-gray-100 rounded mx-auto" />
-                                                                            )}
-                                                                        </div>
-                                                                        <button onClick={nextFav} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-right text-xs"></i></button>
+                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Unidades Vendidas Hoy</p>
+                                                                <div className="flex items-center justify-center gap-4">
+                                                                    {todaySoldUnitsSummary.slides.length > 1 && (
+                                                                        <button onClick={prevUnitsSlide} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-left text-xs"></i></button>
+                                                                    )}
+                                                                    <div className="min-w-0 text-center">
+                                                                        {activeUnitsSlide ? (
+                                                                            <>
+                                                                                <p className="text-xl font-black leading-none mb-1 text-gray-900">
+                                                                                    {Math.round(activeUnitsSlide.value)}
+                                                                                    <span className="text-[10px] ml-1 uppercase font-bold text-gray-400">{activeUnitsSlide.unit}</span>
+                                                                                </p>
+                                                                                <p className="text-xs font-bold text-gray-500 truncate leading-tight">{activeUnitsSlide.label}</p>
+                                                                            </>
+                                                                        ) : (
+                                                                            <p className="text-xl font-black leading-none mb-1 text-gray-900">
+                                                                                0 <span className="text-[10px] ml-1 uppercase font-bold text-gray-400">uds</span>
+                                                                            </p>
+                                                                        )}
                                                                     </div>
-                                                                ) : (
-                                                                    <p className="text-xs text-gray-300 italic">Sin favoritos marcados</p>
-                                                                )}
+                                                                    {todaySoldUnitsSummary.slides.length > 1 && (
+                                                                        <button onClick={nextUnitsSlide} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-right text-xs"></i></button>
+                                                                    )}
+                                                                </div>
                                                             </div>
 
                                                             <div className="text-right">
