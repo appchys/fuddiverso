@@ -206,6 +206,13 @@ export async function getValidAccessToken(): Promise<string> {
   return await refreshContactsAccessToken(connection.refreshToken)
 }
 
+export function isValidEmail(email?: string): boolean {
+  if (!email || typeof email !== 'string') return false
+  const trimmed = email.trim().toLowerCase()
+  if (['none', 'n/a', 'sin email', 'no tiene', 'no', 'test@test.com', 'undefined', 'null'].includes(trimmed)) return false
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)
+}
+
 /**
  * Normaliza un número telefónico para Google Contacts.
  * Ejemplo para Ecuador: '0991234567' -> '+593991234567'
@@ -217,6 +224,8 @@ export function normalizePhoneForGoogle(phone: string): string {
     cleaned = '+593' + cleaned.substring(1)
   } else if (!cleaned.startsWith('+') && cleaned.length === 9 && cleaned.startsWith('9')) {
     cleaned = '+593' + cleaned
+  } else if (cleaned.startsWith('593') && !cleaned.startsWith('+') && cleaned.length === 12) {
+    cleaned = '+' + cleaned
   }
   return cleaned || phone
 }
@@ -250,10 +259,10 @@ export async function createGoogleContact(contactData: { name: string; phone: st
     ]
   }
 
-  if (contactData.email) {
+  if (contactData.email && isValidEmail(contactData.email)) {
     payload.emails = [
       {
-        value: contactData.email,
+        value: contactData.email.trim(),
         type: 'home'
       }
     ]
@@ -268,6 +277,13 @@ export async function createGoogleContact(contactData: { name: string; phone: st
     ]
   }
 
+  console.log('[createGoogleContact] Intentando crear contacto:', {
+    name: contactData.name,
+    phone: formattedPhone,
+    email: contactData.email,
+    payload
+  })
+
   let response = await fetch('https://people.googleapis.com/v1/people:createContact', {
     method: 'POST',
     headers: {
@@ -279,6 +295,7 @@ export async function createGoogleContact(contactData: { name: string; phone: st
 
   // Si Google responde con límite de tasa (429/403), hacer una pausa de 2.5s y reintentar
   if (response.status === 429 || response.status === 403) {
+    console.warn(`[createGoogleContact] Límite de tasa de Google (HTTP ${response.status}), reintentando en 2.5s...`)
     await new Promise(resolve => setTimeout(resolve, 2500))
     response = await fetch('https://people.googleapis.com/v1/people:createContact', {
       method: 'POST',
@@ -293,9 +310,16 @@ export async function createGoogleContact(contactData: { name: string; phone: st
   const data = await response.json()
 
   if (!response.ok) {
-    console.error('❌ Error de Google People API:', data)
-    throw new Error(data.error?.message || data.error_description || 'Error al crear contacto en Google Contacts')
+    console.error('❌ Error de Google People API para cliente:', contactData.name, {
+      status: response.status,
+      statusText: response.statusText,
+      errorDetails: data
+    })
+    const details = data.error?.message || data.error_description || JSON.stringify(data)
+    throw new Error(`Google API (${response.status}): ${details}`)
   }
+
+  console.log('✅ Contacto creado exitosamente en Google Contacts:', data.resourceName)
 
   return {
     success: true,

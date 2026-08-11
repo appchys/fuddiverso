@@ -76,6 +76,7 @@ export default function AdminDashboard() {
     end: new Date().toISOString().split('T')[0]
   })
 
+  const [customerSyncFilter, setCustomerSyncFilter] = useState<'all' | 'synced' | 'pending'>('all')
   const [customers, setCustomers] = useState<any[]>([])
   const [recommenders, setRecommenders] = useState<any[]>([])
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
@@ -465,8 +466,13 @@ export default function AdminDashboard() {
         const phone = gc.celular || (gc as any).phone
         if (phone) {
           const norm = normalizeEcuadorianPhone(phone)
-          if (norm) clientByNormPhone.set(norm, gc)
-          clientByNormPhone.set(phone, gc)
+          const keys = [phone, norm].filter(Boolean) as string[]
+          keys.forEach(k => {
+            const existing = clientByNormPhone.get(k)
+            if (!existing || (!existing.googleContactSynced && gc.googleContactSynced)) {
+              clientByNormPhone.set(k, gc)
+            }
+          })
         }
       })
 
@@ -503,6 +509,7 @@ export default function AdminDashboard() {
         const globalClient = clientByNormPhone.get(norm) || clientByNormPhone.get(cust.phone)
         processedCustomers.push({
           ...cust,
+          id: globalClient?.id,
           googleContactSynced: globalClient ? Boolean(globalClient.googleContactSynced) : false
         })
       })
@@ -694,6 +701,15 @@ export default function AdminDashboard() {
   }
 
   const renderCustomersTab = () => {
+    const filteredCustomers = customers.filter(c => {
+      if (customerSyncFilter === 'synced') return Boolean(c.googleContactSynced)
+      if (customerSyncFilter === 'pending') return !c.googleContactSynced
+      return true
+    })
+
+    const syncedCount = customers.filter(c => c.googleContactSynced).length
+    const pendingCount = customers.filter(c => !c.googleContactSynced).length
+
     return (
       <div className="space-y-6">
         <Suspense fallback={
@@ -701,26 +717,67 @@ export default function AdminDashboard() {
             Cargando tarjeta de integración de Google Contacts...
           </div>
         }>
-          <GoogleContactsSettings onSyncComplete={loadData} />
+          <GoogleContactsSettings customersList={customers} onSyncComplete={loadData} />
         </Suspense>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+          <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Base de Clientes</h3>
-              <p className="text-sm text-gray-500">Total: {customers.length} clientes registrados</p>
+              <p className="text-sm text-gray-500">
+                Mostrando {filteredCustomers.length} de {customers.length} clientes registrados
+                {customerSyncFilter !== 'all' && (
+                  <button
+                    onClick={() => setCustomerSyncFilter('all')}
+                    className="ml-2 text-xs font-bold text-blue-600 hover:underline"
+                  >
+                    (Ver todos)
+                  </button>
+                )}
+              </p>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                {customers.filter(c => c.googleContactSynced).length} Sincronizados
-              </span>
-              <span className="inline-flex items-center gap-1 font-medium text-gray-600 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
-                {customers.filter(c => !c.googleContactSynced).length} Pendientes
-              </span>
+
+            {/* Badges / Filtros de estado */}
+            <div className="flex items-center gap-2 text-xs flex-wrap">
+              <button
+                onClick={() => setCustomerSyncFilter('all')}
+                className={`px-3 py-1 rounded-full font-bold transition-all ${
+                  customerSyncFilter === 'all'
+                    ? 'bg-slate-900 text-white shadow-sm ring-2 ring-slate-400/20'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Todos ({customers.length})
+              </button>
+
+              <button
+                onClick={() => setCustomerSyncFilter(prev => prev === 'synced' ? 'all' : 'synced')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold transition-all ${
+                  customerSyncFilter === 'synced'
+                    ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/30'
+                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                }`}
+                title="Filtrar por clientes sincronizados"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${customerSyncFilter === 'synced' ? 'bg-white' : 'bg-emerald-500'}`}></span>
+                {syncedCount} Sincronizados
+              </button>
+
+              <button
+                onClick={() => setCustomerSyncFilter(prev => prev === 'pending' ? 'all' : 'pending')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold transition-all ${
+                  customerSyncFilter === 'pending'
+                    ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400/30'
+                    : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                }`}
+                title="Filtrar por clientes pendientes de sincronizar"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${customerSyncFilter === 'pending' ? 'bg-white' : 'bg-gray-400'}`}></span>
+                {pendingCount} Pendientes
+              </button>
             </div>
           </div>
+
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -734,28 +791,36 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {customers.map((c, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">{c.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-500 font-mono text-xs">{c.phone}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-gray-900 font-bold">{c.totalOrders}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-emerald-600 font-black">${c.spent.toFixed(2)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {c.googleContactSynced ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                          Sincronizado
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-gray-50 text-gray-500 border border-gray-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                          Pendiente
-                        </span>
-                      )}
+                {filteredCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-xs text-gray-400 font-medium">
+                      No hay clientes para mostrar en esta categoría.
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-500 text-xs">{new Date(c.lastOrder).toLocaleDateString()}</td>
                   </tr>
-                ))}
+                ) : (
+                  filteredCustomers.map((c, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">{c.name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-500 font-mono text-xs">{c.phone}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-gray-900 font-bold">{c.totalOrders}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-emerald-600 font-black">${c.spent.toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {c.googleContactSynced ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            Sincronizado
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-gray-50 text-gray-500 border border-gray-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+                            Pendiente
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-500 text-xs">{new Date(c.lastOrder).toLocaleDateString()}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

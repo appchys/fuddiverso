@@ -1364,6 +1364,29 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
 
     const docRef = await addDoc(collection(db, 'orders'), standardizedOrder)
 
+    // Registrar o verificar automáticamente que el cliente exista en la colección 'clients'
+    try {
+      const customerPhone = standardizedOrder.customer?.phone
+      const customerName = standardizedOrder.customer?.name || customerPhone
+      const customerEmail = standardizedOrder.customer?.email
+      if (customerPhone) {
+        searchClientByPhone(customerPhone).then(async (existingClient) => {
+          if (!existingClient) {
+            await createClient({
+              celular: customerPhone,
+              nombres: customerName,
+              email: customerEmail || undefined,
+              fecha_de_registro: formatDateDDMMYYYY()
+            })
+          }
+        }).catch(err => {
+          console.warn('⚠️ [createOrder] Error asegurando registro de cliente en Firestore:', err)
+        })
+      }
+    } catch (clientErr) {
+      console.warn('⚠️ Excepción silenciada al asegurar registro de cliente:', clientErr)
+    }
+
     // 3. REGISTRO AUTOMÁTICO DE CONSUMO (Punto 4 del pedido)
     try {
       await registerOrderConsumption(
@@ -2414,7 +2437,7 @@ export async function registerClientForgotPin(clientId: string) {
   }
 }
 
-export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string; pinHash?: string; notas?: string }) {
+export async function createClient(clientData: { celular: string; nombres: string; email?: string; fecha_de_registro?: string; id?: string; pinHash?: string; notas?: string }) {
   try {
     // Formatear fecha_de_registro como DD/MM/YYYY para mantener compatibilidad con la base histórica
     // Usar el helper superior `formatDateDDMMYYYY` definido en el módulo
@@ -2425,6 +2448,10 @@ export async function createClient(clientData: { celular: string; nombres: strin
       fecha_de_registro: clientData.fecha_de_registro || formatDateDDMMYYYY(),
       id: clientData.id || ''
     };
+
+    if (clientData.email) {
+      payload.email = clientData.email
+    }
 
     if (clientData.pinHash) {
       payload.pinHash = clientData.pinHash
@@ -2446,8 +2473,10 @@ export async function createClient(clientData: { celular: string; nombres: strin
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            id: clientRef.id,
             nombres: clientData.nombres,
             celular: clientData.celular,
+            email: clientData.email,
             notas: clientData.notas
           })
         }).catch(err => {

@@ -14,9 +14,10 @@ interface ContactsStatus {
 
 interface GoogleContactsSettingsProps {
   onSyncComplete?: () => void
+  customersList?: any[]
 }
 
-export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSettingsProps = {}) {
+export function GoogleContactsSettings({ onSyncComplete, customersList }: GoogleContactsSettingsProps = {}) {
   const [status, setStatus] = useState<ContactsStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncingAll, setSyncingAll] = useState(false)
@@ -80,9 +81,16 @@ export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSetting
       setSyncResult(null)
       setProgressText('Obteniendo lista de clientes...')
 
-      const allClients = await getAllClientsGlobal()
+      let rawClients: any[] = []
 
-      if (!allClients || allClients.length === 0) {
+      if (Array.isArray(customersList) && customersList.length > 0) {
+        rawClients = customersList
+      } else {
+        const fetched = await getAllClientsGlobal()
+        rawClients = fetched || []
+      }
+
+      if (!rawClients || rawClients.length === 0) {
         setSyncResult({
           success: true,
           total: 0,
@@ -92,15 +100,24 @@ export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSetting
         return
       }
 
+      // Normalizar objetos de clientes
+      const normalizedClients = rawClients.map(c => ({
+        id: c.id,
+        nombres: c.name || c.nombres || c.phone || c.celular,
+        celular: c.phone || c.celular,
+        email: c.email,
+        googleContactSynced: Boolean(c.googleContactSynced)
+      }))
+
       // Filtrar únicamente los clientes que aún NO han sido sincronizados
-      const pendingClients = allClients.filter(c => !c.googleContactSynced)
+      const pendingClients = normalizedClients.filter(c => !c.googleContactSynced && (c.celular || c.nombres))
 
       if (pendingClients.length === 0) {
         setSyncResult({
           success: true,
-          total: allClients.length,
+          total: normalizedClients.length,
           syncedCount: 0,
-          message: `¡Excelente! Los ${allClients.length} clientes registrados ya están sincronizados en Google Contacts.`
+          message: `¡Excelente! Los ${normalizedClients.length} clientes registrados ya están sincronizados en Google Contacts.`
         })
         return
       }
@@ -157,7 +174,7 @@ export function GoogleContactsSettings({ onSyncComplete }: GoogleContactsSetting
         total: pendingClients.length,
         syncedCount: totalSynced,
         failedCount: totalFailed,
-        errors: allErrors.slice(0, 5),
+        errors: allErrors,
         message: `Sincronización completada: ${totalSynced} de ${pendingClients.length} clientes pendientes fueron guardados exitosamente en tu cuenta de Google Contacts.`
       })
       onSyncComplete?.()
