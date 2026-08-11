@@ -6,11 +6,19 @@ html, body {
   touch-action: manipulation;
 }
 
-/* Material Symbols configuration */
+/* Material Symbols configuration & FOIT protection */
 .material-symbols-rounded {
+  font-family: 'Material Symbols Rounded', sans-serif;
   font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
-  /* Prevent FOUT with fallback font */
-  font-family: 'Material Symbols Rounded', sans-serif; 
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  width: 1.25em;
+  height: 1.25em;
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: 1;
 }
 
 /* Custom utilities for mobile optimization */

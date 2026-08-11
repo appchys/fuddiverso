@@ -427,127 +427,274 @@ export default function BusinessProfileDashboard({
         </div>
       )}
 
-
       {/* Contenido de la pestaña Fidelización */}
       {activeTab === 'fidelizacion' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          {/* Sub-tabs header */}
-          <div className="flex border-b border-gray-200">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          {/* Sub-tabs Header Bar */}
+          <div className="bg-gray-50/80 p-2 border-b border-gray-100 flex flex-col sm:flex-row gap-2">
             <button
               onClick={() => setFidelizacionSubTab('automatic')}
-              className={`flex-1 py-4 text-sm font-medium text-center transition-colors border-b-2 ${fidelizacionSubTab === 'automatic'
-                  ? 'border-red-500 text-red-600 bg-red-50/50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                }`}
+              className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold tracking-tight transition-all duration-200 flex items-center justify-center gap-2.5 ${
+                fidelizacionSubTab === 'automatic'
+                  ? 'bg-white text-rose-600 shadow-md shadow-gray-200/50 border border-gray-200/60'
+                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100/60'
+              }`}
             >
-              <i className="bi bi-gift me-2"></i>
-              Premio Automático
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-colors ${
+                fidelizacionSubTab === 'automatic' ? 'bg-rose-100/80 text-rose-600' : 'bg-gray-100 text-gray-400'
+              }`}>
+                <i className="bi bi-gift"></i>
+              </div>
+              <span>Premio Automático</span>
             </button>
+            
             <button
               onClick={() => setFidelizacionSubTab('qr')}
-              className={`flex-1 py-4 text-sm font-medium text-center transition-colors border-b-2 ${fidelizacionSubTab === 'qr'
-                  ? 'border-red-500 text-red-600 bg-red-50/50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                }`}
+              className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold tracking-tight transition-all duration-200 flex items-center justify-center gap-2.5 ${
+                fidelizacionSubTab === 'qr'
+                  ? 'bg-white text-rose-600 shadow-md shadow-gray-200/50 border border-gray-200/60'
+                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100/60'
+              }`}
             >
-              <i className="bi bi-qr-code me-2"></i>
-              Códigos QR
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-colors ${
+                fidelizacionSubTab === 'qr' ? 'bg-rose-100/80 text-rose-600' : 'bg-gray-100 text-gray-400'
+              }`}>
+                <i className="bi bi-qr-code"></i>
+              </div>
+              <span>Códigos QR</span>
             </button>
+
             <button
               onClick={() => setFidelizacionSubTab('delivery')}
-              className={`flex-1 py-4 text-sm font-medium text-center transition-colors border-b-2 ${fidelizacionSubTab === 'delivery'
-                  ? 'border-green-500 text-green-600 bg-green-50/50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                }`}
+              className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold tracking-tight transition-all duration-200 flex items-center justify-center gap-2.5 ${
+                fidelizacionSubTab === 'delivery'
+                  ? 'bg-white text-rose-600 shadow-md shadow-gray-200/50 border border-gray-200/60'
+                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100/60'
+              }`}
             >
-              <i className="bi bi-truck me-2"></i>
-              Delivery Gratis
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-colors ${
+                fidelizacionSubTab === 'delivery' ? 'bg-rose-100/80 text-rose-600' : 'bg-gray-100 text-gray-400'
+              }`}>
+                <i className="bi bi-truck"></i>
+              </div>
+              <span>Delivery Gratis</span>
             </button>
           </div>
 
-          <div className="p-6">
+          <div className="p-6 md:p-8">
             {/* Contenido Premio Automático */}
             {fidelizacionSubTab === 'automatic' && (
               <div className="max-w-2xl mx-auto">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Premio Automático</h3>
-                    <p className="text-sm text-gray-500">Configura un regalo que se agregará automáticamente al carrito de tus clientes.</p>
+                {/* Hero Header */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-gray-100 mb-6">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center text-xl shadow-sm border border-rose-100/60 flex-shrink-0">
+                      <i className="bi bi-gift-fill"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-gray-900 tracking-tight">Premio Automático</h3>
+                      <p className="text-xs font-medium text-gray-500 leading-relaxed mt-0.5">Configura un regalo que se agregará automáticamente al carrito de tus clientes.</p>
+                    </div>
                   </div>
-                  <div
-                    className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${displayBusiness.rewardSettings?.enabled ? 'bg-red-500' : 'bg-gray-200'}`}
-                    onClick={() => {
-                      const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
-                      onBusinessFieldChange('rewardSettings', { ...currentSettings, enabled: !currentSettings.enabled });
-                    }}
-                  >
-                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${displayBusiness.rewardSettings?.enabled ? 'translate-x-6' : ''}`}></div>
+
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end flex-wrap">
+                    {/* Toggle Switch */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
+                        onBusinessFieldChange('rewardSettings', { ...currentSettings, enabled: !currentSettings.enabled });
+                      }}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all cursor-pointer flex-shrink-0 ${
+                        displayBusiness.rewardSettings?.enabled
+                          ? 'bg-rose-50/80 border-rose-200 text-rose-700 shadow-sm'
+                          : 'bg-gray-50 border-gray-200 text-gray-500'
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold uppercase tracking-wider">
+                        {displayBusiness.rewardSettings?.enabled ? 'ACTIVADO' : 'DESACTIVADO'}
+                      </span>
+                      <div className={`relative inline-block w-8 h-4.5 rounded-full transition-colors duration-200 ${
+                        displayBusiness.rewardSettings?.enabled ? 'bg-rose-500' : 'bg-gray-300'
+                      }`}>
+                        <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-white rounded-full transition-transform duration-200 shadow-sm ${
+                          displayBusiness.rewardSettings?.enabled ? 'translate-x-3.5' : ''
+                        }`}></div>
+                      </div>
+                    </button>
+
+                    {/* Botón Editar / Guardar / Cancelar en el Header */}
+                    {isEditingProfile ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={onCancelEdit}
+                          className="px-3 py-2 border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-100 font-bold text-xs transition-colors flex items-center gap-1.5"
+                        >
+                          <i className="bi bi-x-circle text-xs"></i>
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onSaveProfile}
+                          className="px-3.5 py-2 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white rounded-xl font-bold text-xs transition-all shadow-md shadow-rose-500/20 active:scale-95 flex items-center gap-1.5"
+                        >
+                          <i className="bi bi-check2 text-xs"></i>
+                          Guardar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={onEditProfile}
+                        className="px-3.5 py-2 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white rounded-xl font-bold text-xs transition-all shadow-md shadow-rose-500/20 active:scale-95 flex items-center gap-1.5"
+                      >
+                        <i className="bi bi-pencil-square text-xs"></i>
+                        Editar Configuración
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <div className={`space-y-4 transition-opacity duration-200 ${displayBusiness.rewardSettings?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Premio</label>
-                    <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">🎁</span>
-                      <input
-                        type="text"
-                        placeholder="Ej: 5 wantancitos gratis"
-                        value={displayBusiness.rewardSettings?.name || ''}
-                        onChange={(e) => {
-                          const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
-                          onBusinessFieldChange('rewardSettings', { ...currentSettings, name: e.target.value });
-                        }}
-                        className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
-                  </div>
+                {!isEditingProfile ? (
+                  /* VISTA RESUMEN (SOLO LECTURA) */
+                  <div className="space-y-6">
+                    <div className="bg-gradient-to-br from-rose-50/40 via-white to-gray-50/40 p-6 rounded-2xl border border-rose-100/80 shadow-sm relative overflow-hidden">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-rose-600 bg-rose-100/80 px-2.5 py-1 rounded-full border border-rose-200/60 inline-block mb-2">
+                            Premio Configurado
+                          </span>
+                          <h4 className="text-xl font-black text-gray-900 tracking-tight">
+                            {displayBusiness.rewardSettings?.name || 'Sin nombre de premio configurado'}
+                          </h4>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                            displayBusiness.rewardSettings?.enabled
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-gray-100 text-gray-500 border border-gray-200'
+                          }`}>
+                            <span className={`w-2 h-2 rounded-full ${displayBusiness.rewardSettings?.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></span>
+                            {displayBusiness.rewardSettings?.enabled ? 'Activo en Carrito' : 'Inactivo'}
+                          </span>
+                        </div>
+                      </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Descripción (opcional)</label>
-                    <textarea
-                      placeholder="Ej: ¡Felicidades! Has reclamado tu premio especial gratis"
-                      value={displayBusiness.rewardSettings?.description || ''}
-                      onChange={(e) => {
-                        const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
-                        onBusinessFieldChange('rewardSettings', { ...currentSettings, description: e.target.value });
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      rows={3}
-                    />
-                  </div>
+                      {displayBusiness.rewardSettings?.description ? (
+                        <p className="text-xs text-gray-600 font-medium leading-relaxed bg-white/90 p-3.5 rounded-xl border border-gray-100">
+                          {displayBusiness.rewardSettings.description}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400 font-medium italic">Sin descripción registrada.</p>
+                      )}
 
-                  {/* Sección de Ingredientes y Costos del Premio */}
-                  <div className="mt-8 pt-6 border-t border-gray-100">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Ingredientes y Costos</h4>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">Costo total del premio:</span>
-                        <span className="text-sm font-bold text-red-600">
-                          ${calculateTotalRewardIngredientCost().toFixed(2)}
-                        </span>
+                      {/* Insumos Asociados */}
+                      <div className="mt-5 pt-4 border-t border-rose-100/60">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                            <i className="bi bi-box-seam text-rose-500"></i> Insumos incluidos ({(displayBusiness.rewardSettings?.ingredients || []).length})
+                          </span>
+                          <span className="text-xs font-black text-rose-600 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100">
+                            Costo Total: ${calculateTotalRewardIngredientCost().toFixed(2)}
+                          </span>
+                        </div>
+
+                        {(displayBusiness.rewardSettings?.ingredients || []).length === 0 ? (
+                          <div className="p-3 bg-gray-50/60 rounded-xl border border-dashed border-gray-200 text-center">
+                            <p className="text-xs text-gray-400 font-medium">No hay insumos ni ingredientes asignados a este premio.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {(displayBusiness.rewardSettings?.ingredients || []).map((ing, idx) => (
+                              <div key={ing.id || idx} className="bg-white p-3 rounded-xl border border-gray-100 shadow-2xs flex justify-between items-center text-xs">
+                                <span className="font-bold text-gray-800">{ing.name}</span>
+                                <span className="text-gray-500 font-medium">
+                                  {ing.quantity} u. (<strong className="text-rose-600">${(ing.quantity * ing.unitCost).toFixed(2)}</strong>)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Formulario para agregar ingrediente - Estilo unificado con ProductList */}
-                    <div className="bg-gray-50/50 p-4 rounded-2xl border border-dashed border-gray-200 mb-6">
-                      <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <i className="bi bi-plus-circle text-red-500"></i>
-                        Agregar Insumo de la Base
-                      </h5>
-                      <div className="space-y-4">
+                    {/* Info Callout */}
+                    <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200/60 flex gap-3 text-amber-900 text-xs">
+                      <i className="bi bi-info-circle-fill text-amber-500 text-base flex-shrink-0 mt-0.5"></i>
+                      <p className="font-medium leading-relaxed">
+                        Este premio aparecerá automáticamente en el carrito del cliente con precio de <strong>$0.00</strong>. Para modificar los datos o cambiar insumos, haz clic en el botón <strong>Editar Configuración</strong> en la barra superior.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  /* VISTA FORMULARIO DE EDICIÓN */
+                  <div className={`space-y-6 transition-opacity duration-200 ${displayBusiness.rewardSettings?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Nombre del Premio</label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-rose-500 text-base">🎁</span>
+                        <input
+                          type="text"
+                          placeholder="Ej: 5 wantancitos gratis por compras sobre $15"
+                          value={displayBusiness.rewardSettings?.name || ''}
+                          onChange={(e) => {
+                            const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
+                            onBusinessFieldChange('rewardSettings', { ...currentSettings, name: e.target.value });
+                          }}
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 font-bold text-sm text-gray-900 transition-all shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Descripción (opcional)</label>
+                      <textarea
+                        placeholder="Ej: ¡Felicidades! Has reclamado tu premio especial totalmente gratis."
+                        value={displayBusiness.rewardSettings?.description || ''}
+                        onChange={(e) => {
+                          const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
+                          onBusinessFieldChange('rewardSettings', { ...currentSettings, description: e.target.value });
+                        }}
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 font-medium text-sm text-gray-800 transition-all shadow-sm"
+                        rows={3}
+                      />
+                    </div>
+
+                    {/* Sección de Ingredientes y Costos del Premio */}
+                    <div className="mt-8 pt-6 border-t border-gray-100">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                          <i className="bi bi-box-seam text-rose-500"></i>
+                          Ingredientes y Costos del Premio
+                        </h4>
+                        <div className="flex items-center gap-2 bg-rose-50/80 px-3 py-1.5 rounded-full border border-rose-100">
+                          <span className="text-xs font-medium text-gray-600">Costo total premio:</span>
+                          <span className="text-xs font-black text-rose-600">
+                            ${calculateTotalRewardIngredientCost().toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Formulario para agregar ingrediente */}
+                      <div className="bg-gray-50/70 p-4.5 rounded-2xl border border-dashed border-gray-200 mb-6 space-y-3.5">
+                        <h5 className="text-[11px] font-bold text-gray-600 uppercase tracking-wider flex items-center gap-1.5">
+                          <i className="bi bi-plus-circle-fill text-rose-500 text-xs"></i>
+                          Agregar Insumo de la Base
+                        </h5>
+                        
                         <div className="relative reward-ingredient-input-container">
                           <div className="relative">
-                            <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
+                            <i className="bi bi-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
                             <input
                               type="text"
                               name="name"
-                              placeholder="Buscar o crear insumo..."
+                              placeholder="Buscar o escribir insumo..."
                               value={currentRewardIngredient.name}
                               onChange={handleRewardIngredientChange}
                               onFocus={() => setShowRewardIngredientSuggestions(true)}
                               autoComplete="off"
-                              className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-bold transition-all shadow-sm"
+                              className="w-full pl-9 pr-4 py-2.5 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 font-bold transition-all shadow-sm"
                             />
                           </div>
                           {showRewardIngredientSuggestions && (
@@ -558,17 +705,17 @@ export default function BusinessProfileDashboard({
                                     key={ing.id}
                                     type="button"
                                     onClick={() => selectRewardIngredientFromLibrary(ing)}
-                                    className="w-full px-4 py-2.5 text-left text-xs hover:bg-red-50 border-b border-gray-50 last:border-b-0 transition-all flex justify-between items-center"
+                                    className="w-full px-4 py-2.5 text-left text-xs hover:bg-rose-50/60 border-b border-gray-50 last:border-b-0 transition-all flex justify-between items-center"
                                   >
                                     <span className="font-bold text-gray-700">{ing.name}</span>
-                                    <span className="text-red-500 font-black">${ing.unitCost.toFixed(2)}</span>
+                                    <span className="text-rose-600 font-black">${ing.unitCost.toFixed(2)}</span>
                                   </button>
                                 ))
                               ) : currentRewardIngredient.name.trim() !== '' && (
                                 <button
                                   type="button"
                                   onClick={() => setShowRewardIngredientSuggestions(false)}
-                                  className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 text-xs font-black text-red-700 transition-all flex items-center gap-2"
+                                  className="w-full text-left px-4 py-3 bg-rose-50 hover:bg-rose-100/80 text-xs font-bold text-rose-700 transition-all flex items-center gap-2"
                                 >
                                   <i className="bi bi-plus-lg bg-white p-1 rounded-lg shadow-sm"></i>
                                   Crear "{currentRewardIngredient.name}"
@@ -579,15 +726,15 @@ export default function BusinessProfileDashboard({
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">$</span>
                             <input
                               type="number"
                               name="unitCost"
                               step="0.01"
-                              placeholder="Costo u."
+                              placeholder="Costo unitario"
                               value={currentRewardIngredient.unitCost}
                               onChange={handleRewardIngredientChange}
-                              className="w-full pl-7 pr-3 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-black transition-all"
+                              className="w-full pl-7 pr-3 py-2.5 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 font-bold transition-all"
                             />
                           </div>
                           <input
@@ -597,82 +744,56 @@ export default function BusinessProfileDashboard({
                             placeholder="Cantidad"
                             value={currentRewardIngredient.quantity}
                             onChange={handleRewardIngredientChange}
-                            className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-black transition-all"
+                            className="w-full px-3 py-2.5 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 font-bold transition-all"
                           />
                         </div>
                         <button
                           type="button"
                           onClick={addRewardIngredient}
                           disabled={!currentRewardIngredient.name.trim()}
-                          className="w-full bg-red-600 text-white px-4 py-3 text-xs rounded-xl hover:bg-red-700 transition-all font-black uppercase tracking-wider"
+                          className="w-full bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white px-4 py-2.5 text-xs rounded-xl transition-all font-black uppercase tracking-wider shadow-md shadow-rose-500/15 disabled:opacity-40"
                         >
                           Agregar al Premio
                         </button>
                       </div>
-                    </div>
 
-                    {/* Lista de ingredientes agregados */}
-                    <div className="space-y-2">
-                      {(displayBusiness.rewardSettings?.ingredients || []).length === 0 ? (
-                        <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                          <p className="text-xs text-gray-500">No hay ingredientes definidos para este premio.</p>
-                        </div>
-                      ) : (
-                        (displayBusiness.rewardSettings?.ingredients || []).map((ing, idx) => (
-                          <div key={ing.id || idx} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-100 group">
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium text-gray-900">{ing.name}</span>
-                              <span className="text-xs text-gray-500">
-                                {ing.quantity} x ${ing.unitCost.toFixed(2)} = ${(ing.quantity * ing.unitCost).toFixed(2)}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeRewardIngredient(ing.id || (ing as any).id)}
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-                            >
-                              <i className="bi bi-trash text-sm"></i>
-                            </button>
+                      {/* Lista de ingredientes agregados */}
+                      <div className="space-y-2">
+                        {(displayBusiness.rewardSettings?.ingredients || []).length === 0 ? (
+                          <div className="text-center py-4 bg-gray-50/60 rounded-xl border border-dashed border-gray-200">
+                            <p className="text-xs font-medium text-gray-400">No hay ingredientes definidos para este premio.</p>
                           </div>
-                        ))
-                      )}
+                        ) : (
+                          (displayBusiness.rewardSettings?.ingredients || []).map((ing, idx) => (
+                            <div key={ing.id || idx} className="flex items-center justify-between p-3 bg-gray-50/80 rounded-xl border border-gray-100 hover:bg-gray-100/60 transition-colors group">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-gray-900">{ing.name}</span>
+                                <span className="text-[11px] text-gray-500 font-medium">
+                                  {ing.quantity} x ${ing.unitCost.toFixed(2)} = <strong className="text-rose-600">${(ing.quantity * ing.unitCost).toFixed(2)}</strong>
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeRewardIngredient(ing.id || (ing as any).id)}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Eliminar ingrediente"
+                              >
+                                <i className="bi bi-trash text-xs"></i>
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
-                    <div className="flex gap-3">
-                      <i className="bi bi-info-circle text-orange-500 text-lg"></i>
-                      <p className="text-sm text-orange-800">
-                        Este premio aparecerá en el carrito del cliente con un precio de <strong>$0.00</strong>. Asegúrate de tener stock suficiente para cumplir con estos regalos.
-                      </p>
+                    <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200/60">
+                      <div className="flex gap-3">
+                        <i className="bi bi-info-circle-fill text-amber-500 text-base flex-shrink-0 mt-0.5"></i>
+                        <p className="text-xs text-amber-900 font-medium leading-relaxed">
+                          Este premio aparecerá automáticamente en el carrito del cliente con un precio de <strong>$0.00</strong>. Asegúrate de contar con insumos suficientes en cocina.
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </div>
-
-                {isEditingProfile ? (
-                  <div className="flex gap-3 mt-8 pt-6 border-t border-gray-200">
-                    <button
-                      onClick={onCancelEdit}
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={onSaveProfile}
-                      className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
-                    >
-                      Guardar Cambios
-                    </button>
-                  </div>
-                ) : (
-                  <div className="mt-8 pt-6 border-t border-gray-200 text-center">
-                    <button
-                      onClick={onEditProfile}
-                      className="inline-flex items-center px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium gap-2"
-                    >
-                      <i className="bi bi-pencil"></i>
-                      Editar Configuración
-                    </button>
                   </div>
                 )}
               </div>
@@ -680,87 +801,104 @@ export default function BusinessProfileDashboard({
 
             {/* Contenido Códigos QR */}
             {fidelizacionSubTab === 'qr' && (
-              <QRCodesContent businessId={business.id} />
+              <QRCodesContent businessId={business.id} embedded={true} />
             )}
 
             {/* Contenido Delivery Gratis */}
             {fidelizacionSubTab === 'delivery' && (
               <div className="max-w-2xl mx-auto">
-                {/* Header y toggle principal */}
-                <div className="flex items-start justify-between mb-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Campaña de Delivery Gratis</h3>
-                    <p className="text-sm text-gray-500 mt-1">El restaurante asume el costo de envío. El repartidor recibe su pago normal.</p>
+                {/* Hero Header */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-gray-100 mb-6">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center text-xl shadow-sm border border-rose-100/60 flex-shrink-0">
+                      <i className="bi bi-truck"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-gray-900 tracking-tight">Campaña de Delivery Gratis</h3>
+                      <p className="text-xs font-medium text-gray-500 leading-relaxed mt-0.5">El restaurante asume el costo de envío. El repartidor recibe su pago normal.</p>
+                    </div>
                   </div>
-                  <div
-                    className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 flex-shrink-0 ml-4 ${
-                      deliveryCampaignForm.isActive ? 'bg-green-500' : 'bg-gray-200'
-                    }`}
+
+                  <button
+                    type="button"
                     onClick={() => setDeliveryCampaignForm(prev => ({ ...prev, isActive: !prev.isActive }))}
+                    className={`flex items-center gap-3 px-3.5 py-2 rounded-2xl border transition-all cursor-pointer flex-shrink-0 ${
+                      deliveryCampaignForm.isActive
+                        ? 'bg-emerald-50/80 border-emerald-200 text-emerald-700 shadow-sm'
+                        : 'bg-gray-50 border-gray-200 text-gray-500'
+                    }`}
                   >
-                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${deliveryCampaignForm.isActive ? 'translate-x-6' : ''}`}></div>
-                  </div>
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      {deliveryCampaignForm.isActive ? 'ACTIVADA' : 'DESACTIVADA'}
+                    </span>
+                    <div className={`relative inline-block w-9 h-5 rounded-full transition-colors duration-200 ${
+                      deliveryCampaignForm.isActive ? 'bg-emerald-500' : 'bg-gray-300'
+                    }`}>
+                      <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${
+                        deliveryCampaignForm.isActive ? 'translate-x-4' : ''
+                      }`}></div>
+                    </div>
+                  </button>
                 </div>
 
-                <div className={`space-y-5 transition-opacity duration-200 ${deliveryCampaignForm.isActive ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-
+                <div className={`space-y-6 transition-opacity duration-200 ${deliveryCampaignForm.isActive ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                   {/* Fechas de la campaña */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio (opcional)</label>
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Fecha de inicio (opcional)</label>
                       <input
                         type="date"
                         value={deliveryCampaignForm.startDate}
                         onChange={e => setDeliveryCampaignForm(prev => ({ ...prev, startDate: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 font-bold text-xs text-gray-800 transition-all shadow-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin (opcional)</label>
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Fecha de fin (opcional)</label>
                       <input
                         type="date"
                         value={deliveryCampaignForm.endDate}
                         onChange={e => setDeliveryCampaignForm(prev => ({ ...prev, endDate: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 font-bold text-xs text-gray-800 transition-all shadow-sm"
                       />
                     </div>
                   </div>
 
                   {/* Monto mínimo de compra */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Monto mínimo de compra (0 = sin mínimo)</label>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Monto mínimo de compra (0 = sin mínimo)</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">$</span>
                       <input
                         type="number"
                         min="0"
                         step="0.50"
                         value={deliveryCampaignForm.minimumOrderAmount}
                         onChange={e => setDeliveryCampaignForm(prev => ({ ...prev, minimumOrderAmount: parseFloat(e.target.value) || 0 }))}
-                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        className="w-full pl-8 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10 font-bold text-xs text-gray-900 transition-all shadow-sm"
                       />
                     </div>
                   </div>
 
                   {/* Zonas aplicables */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Zonas donde aplica
-                      <span className="text-gray-400 font-normal text-xs ml-2">(vacío = aplica a todas las zonas)</span>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center justify-between">
+                      <span>Zonas donde aplica</span>
+                      <span className="text-gray-400 font-medium normal-case text-[11px]">(vacío = aplica a todas las zonas)</span>
                     </label>
 
                     {!business?.groupId ? (
-                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                        <i className="bi bi-exclamation-triangle me-2"></i>
-                        Este restaurante no tiene un grupo de cobertura asignado. Asigna un grupo desde el panel de administración para poder filtrar zonas.
+                      <div className="p-4 bg-amber-50/80 border border-amber-200/80 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2">
+                        <i className="bi bi-exclamation-triangle text-amber-600 text-sm"></i>
+                        Este restaurante no tiene un grupo de cobertura asignado. Asigna un grupo desde el panel de administración.
                       </div>
                     ) : loadingGroupZones ? (
-                      <div className="flex items-center gap-2 py-4 text-gray-500 text-sm">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-500"></div>
+                      <div className="flex items-center gap-2 py-4 text-gray-500 text-xs font-bold">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-rose-500"></div>
                         Cargando zonas...
                       </div>
                     ) : groupZones.length === 0 ? (
-                      <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500">
+                      <div className="p-4 bg-gray-50 border border-gray-200/80 rounded-xl text-xs text-gray-500 font-medium">
                         No hay zonas configuradas para el grupo de este restaurante.
                       </div>
                     ) : (
@@ -770,9 +908,9 @@ export default function BusinessProfileDashboard({
                           return (
                             <label
                               key={zone.id}
-                              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                              className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
                                 isChecked
-                                  ? 'border-green-400 bg-green-50'
+                                  ? 'border-rose-300 bg-rose-50/40 text-rose-900 shadow-sm'
                                   : 'border-gray-200 bg-white hover:border-gray-300'
                               }`}
                             >
@@ -787,15 +925,15 @@ export default function BusinessProfileDashboard({
                                       : [...prev.applicableZoneIds, zone.id]
                                   }))
                                 }}
-                                className="w-4 h-4 text-green-500 rounded"
+                                className="w-4 h-4 text-rose-600 rounded focus:ring-rose-500 border-gray-300"
                               />
-                              <div className="flex-1">
-                                <span className="text-sm font-medium text-gray-800">{zone.name}</span>
+                              <div className="flex-1 flex items-center justify-between">
+                                <span className="text-xs font-bold text-gray-800">{zone.name}</span>
                                 {zone.deliveryFee > 0 && (
-                                  <span className="ml-2 text-xs text-gray-400">${zone.deliveryFee.toFixed(2)}</span>
+                                  <span className="text-[11px] text-gray-500 font-medium">${zone.deliveryFee.toFixed(2)}</span>
                                 )}
                               </div>
-                              {isChecked && <i className="bi bi-check-circle-fill text-green-500"></i>}
+                              {isChecked && <i className="bi bi-check-circle-fill text-rose-500 text-sm"></i>}
                             </label>
                           )
                         })}
@@ -803,22 +941,21 @@ export default function BusinessProfileDashboard({
                     )}
                   </div>
 
-                  {/* Info */}
-                  <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+                  {/* Info Callout */}
+                  <div className="p-4 bg-emerald-50/80 rounded-2xl border border-emerald-200/60">
                     <div className="flex gap-3">
-                      <i className="bi bi-info-circle text-green-600 text-lg"></i>
-                      <p className="text-sm text-green-800">
-                        Los clientes verán el costo de envío <strong>tachado</strong> y un <strong>$0.00</strong> en verde.
-                        El repartidor sigue recibiendo su pago normal — el costo lo asume el restaurante.
+                      <i className="bi bi-info-circle-fill text-emerald-600 text-base flex-shrink-0 mt-0.5"></i>
+                      <p className="text-xs text-emerald-900 font-medium leading-relaxed">
+                        Los clientes verán el costo de envío <strong>tachado</strong> y un <strong>$0.00</strong> promocional. El repartidor sigue recibiendo su tarifa habitual asumida por el negocio.
                       </p>
                     </div>
                   </div>
                 </div>
 
                 {/* Botón Guardar */}
-                <div className="mt-8 pt-6 border-t border-gray-200">
+                <div className="mt-8 pt-6 border-t border-gray-100">
                   {campaignSaved && (
-                    <p className="text-green-600 text-sm text-center mb-3 flex items-center justify-center gap-2">
+                    <p className="text-emerald-600 text-xs font-bold text-center mb-3 flex items-center justify-center gap-1.5">
                       <i className="bi bi-check-circle-fill"></i> Campaña guardada exitosamente
                     </p>
                   )}
@@ -838,12 +975,12 @@ export default function BusinessProfileDashboard({
                       }
                     }}
                     disabled={savingCampaign || !onDirectUpdate}
-                    className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white rounded-xl font-bold text-xs transition-all shadow-lg shadow-rose-500/20 active:scale-98 flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {savingCampaign ? (
                       <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> Guardando...</>
                     ) : (
-                      <><i className="bi bi-save2"></i> Guardar Campaña</>
+                      <><i className="bi bi-check2-circle text-sm"></i> Guardar Configuración de Campaña</>
                     )}
                   </button>
                 </div>

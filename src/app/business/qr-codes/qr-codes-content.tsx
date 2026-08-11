@@ -10,6 +10,7 @@ import QRStatistics from '@/components/QRStatistics'
 
 interface QRCodesContentProps {
   businessId?: string | null
+  embedded?: boolean
 }
 
 interface CampaignSectionProps {
@@ -136,7 +137,7 @@ function generateLocalShortId(length: number = 6): string {
   return result
 }
 
-export default function QRCodesContent({ businessId: initialBusinessId }: QRCodesContentProps) {
+export default function QRCodesContent({ businessId: initialBusinessId, embedded = false }: QRCodesContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
@@ -421,8 +422,30 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
     </div>
   )
 
-  return (
-    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+  const renderHeader = () => {
+    if (embedded) {
+      return (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-gray-100 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center text-xl shadow-sm border border-rose-100/60">
+              <i className="bi bi-qr-code"></i>
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 tracking-tight">Códigos QR y Escáner</h3>
+              <p className="text-xs font-medium text-gray-500 leading-relaxed mt-0.5">Genera y administra cupones QR de incentivo para tus clientes.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => openModal()} 
+            className="w-full sm:w-auto bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-rose-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
+            <i className="bi bi-plus-lg"></i> Nuevo Código QR
+          </button>
+        </div>
+      )
+    }
+
+    return (
       <div className="p-8 border-b border-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-gray-50/30">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Fidelización QR</h2>
@@ -432,12 +455,19 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
           <i className="bi bi-plus-lg"></i> Nuevo Código
         </button>
       </div>
+    )
+  }
 
-      <div className="p-8">
+  const mainContent = (
+    <>
+      {renderHeader()}
+
+      <div className={embedded ? "" : "p-8"}>
         {qrCodes.length === 0 ? (
-          <div className="text-center p-12 text-gray-400">
-            <i className="bi bi-qr-code text-6xl mb-4"></i>
-            <p className="font-bold">No hay códigos configurados para este negocio</p>
+          <div className="text-center p-12 text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+            <i className="bi bi-qr-code text-5xl mb-3 text-gray-300 block"></i>
+            <p className="font-bold text-sm text-gray-700">No hay códigos configurados para este negocio</p>
+            <p className="text-xs text-gray-400 mt-1">Haz clic en "Nuevo Código QR" para crear la primera campaña de fidelización.</p>
           </div>
         ) : (
           <div className="space-y-6">
@@ -459,12 +489,26 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
         )}
 
         {qrCodes.length > 0 && (
-          <div className="mt-12">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i className="bi bi-graph-up text-red-600"></i> Estadísticas</h2>
+          <div className="mt-10 pt-8 border-t border-gray-100">
+            <h2 className="text-lg font-black text-gray-900 tracking-tight mb-4 flex items-center gap-2">
+              <i className="bi bi-graph-up text-rose-500"></i> Estadísticas de Escaneo
+            </h2>
             <QRStatistics businessId={businessId} qrCodes={qrCodes} initialTab={activeTab} />
           </div>
         )}
       </div>
+    </>
+  )
+
+  return (
+    <>
+      {embedded ? (
+        <div className="w-full">{mainContent}</div>
+      ) : (
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+          {mainContent}
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -566,6 +610,6 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

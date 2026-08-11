@@ -70,7 +70,7 @@ export default function DashboardSidebar({
                     className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors lg:hidden"
                     aria-label="Cerrar menú"
                 >
-                    <span className="material-symbols-rounded text-xl">close</span>
+                    <i className="bi bi-x-lg text-lg"></i>
                 </button>
             </div>
 
@@ -101,11 +101,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-receipt-cutoff text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'orders' && ordersSubTab === 'today' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            receipt_long
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight flex-1 text-left">Pedidos de hoy</span>
                         <span className={`
                             px-2 py-0.5 text-xs font-bold rounded-full transition-colors
@@ -135,11 +133,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-clock-history text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'orders' && ordersSubTab === 'history' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            history
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Historial de pedidos</span>
                     </button>
                 </div>
@@ -166,11 +162,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-shop text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'profile' && profileSubTab === 'products' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            lunch_dining
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Productos y menú</span>
                     </button>
 
@@ -189,11 +183,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-gift text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'profile' && profileSubTab === 'fidelizacion' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            loyalty
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Promociones</span>
                     </button>
                 </div>
@@ -219,11 +211,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-credit-card-2-front text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'expenses' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            payments
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Gastos</span>
                     </button>
 
@@ -241,11 +231,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-wallet2 text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'wallet' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            account_balance_wallet
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Saldo</span>
                     </button>
 
@@ -263,11 +251,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-boxes text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'inventory' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            inventory_2
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Inventario</span>
                     </button>
 
@@ -285,11 +271,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-bar-chart-line text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'stats' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            bar_chart
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Estadísticas</span>
                     </button>
                 </div>
@@ -316,11 +300,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-shop-window text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'profile' && profileSubTab === 'general' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            storefront
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Ajustes de tienda</span>
                     </button>
 
@@ -339,11 +321,9 @@ export default function DashboardSidebar({
                             }
                         `}
                     >
-                        <span className={`material-symbols-rounded text-xl transition-transform group-hover:scale-110 ${
+                        <i className={`bi bi-gear text-lg transition-transform group-hover:scale-110 ${
                             activeTab === 'profile' && profileSubTab === 'configuracion' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}>
-                            settings
-                        </span>
+                        }`}></i>
                         <span className="tracking-tight text-left">Configuración</span>
                     </button>
                 </div>
@@ -355,7 +335,7 @@ export default function DashboardSidebar({
                             onClick={requestPermission}
                             className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 border border-blue-100 hover:border-blue-300"
                         >
-                            <span className="material-symbols-rounded text-lg text-blue-500">notifications_active</span>
+                            <i className="bi bi-bell-fill text-lg text-blue-500"></i>
                             <span className="text-left flex-1">Activar Notificaciones</span>
                         </button>
                     </div>
