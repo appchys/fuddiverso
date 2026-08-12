@@ -59,6 +59,8 @@ export default function ProductList({
   const [showVariantForm, setShowVariantForm] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
+  const [isDraggingImage, setIsDraggingImage] = useState(false)
+  const [isDraggingVariantImage, setIsDraggingVariantImage] = useState(false)
 
   // Estados para ingredientes
   const [ingredients, setIngredients] = useState<Array<{
@@ -281,6 +283,8 @@ export default function ProductList({
     setSchedules([])
     setEditingScheduleId(null)
     setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
+    setIsDraggingImage(false)
+    setIsDraggingVariantImage(false)
     loadIngredientLibrary()
     setShowProductForm(true)
   }
@@ -375,6 +379,8 @@ export default function ProductList({
     setOptionGroups(product.optionGroups || [])
     setEditingGroupIndex(null)
     setHasVariants(!!(product.variants && product.variants.length > 0) || !!product.isCombo)
+    setIsDraggingImage(false)
+    setIsDraggingVariantImage(false)
     setShowProductForm(true)
   }
 
@@ -418,6 +424,8 @@ export default function ProductList({
     setEditingOptionIndex(null)
     setEditingOptionName('')
     setEditingOptionPrice('')
+    setIsDraggingImage(false)
+    setIsDraggingVariantImage(false)
   }
 
   const handleAddOptionGroup = () => {
@@ -574,6 +582,50 @@ export default function ProductList({
     const file = e.target.files?.[0]
     if (file) {
       setFormData(prev => ({ ...prev, image: file }))
+    }
+  }
+
+  const handleDragOverImage = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIsDraggingImage(true)
+    } else if (e.type === "dragleave") {
+      setIsDraggingImage(false)
+    }
+  }
+
+  const handleDropImage = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingImage(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0]
+      if (file.type.startsWith('image/')) {
+        setFormData(prev => ({ ...prev, image: file }))
+      }
+    }
+  }
+
+  const handleDragOverVariantImage = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIsDraggingVariantImage(true)
+    } else if (e.type === "dragleave") {
+      setIsDraggingVariantImage(false)
+    }
+  }
+
+  const handleDropVariantImage = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingVariantImage(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0]
+      if (file.type.startsWith('image/')) {
+        setCurrentVariant(prev => ({ ...prev, imageFile: file }))
+      }
     }
   }
 
@@ -2034,7 +2086,24 @@ export default function ProductList({
                         
                         <div className="aspect-square w-full relative">
                           <label htmlFor="image-upload" className="block cursor-pointer h-full">
-                            <div className="relative h-full bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
+                            <div 
+                              onDragEnter={handleDragOverImage}
+                              onDragOver={handleDragOverImage}
+                              onDragLeave={handleDragOverImage}
+                              onDrop={handleDropImage}
+                              className={`relative h-full bg-slate-50 rounded-2xl border-2 border-dashed transition-all duration-300 flex items-center justify-center overflow-hidden group shadow-inner ${
+                                isDraggingImage 
+                                  ? 'border-[#aa1918] bg-red-50/40 scale-[1.02] shadow-lg shadow-red-100/50 ring-4 ring-red-100' 
+                                  : 'border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10'
+                              }`}
+                            >
+                              {isDraggingImage && (
+                                <div className="absolute inset-0 z-30 bg-[#aa1918]/90 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4 text-center animate-in fade-in zoom-in-95 duration-150">
+                                  <i className="bi bi-cloud-arrow-up text-4xl mb-2 animate-bounce"></i>
+                                  <p className="text-xs font-black uppercase tracking-wider">Suelta la imagen aquí</p>
+                                  <p className="text-[10px] opacity-90 mt-0.5">Para asignar la foto al producto</p>
+                                </div>
+                              )}
                               {uploading && formData.image && (
                                 <div className="absolute inset-0 z-20 bg-slate-900/60 backdrop-blur-[1px] flex flex-col items-center justify-center">
                                   <i className="bi bi-arrow-clockwise animate-spin text-white text-2xl mb-2"></i>
@@ -2058,10 +2127,10 @@ export default function ProductList({
                               ) : (
                                 <div className="text-center p-6 space-y-2">
                                   <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-                                    <i className="bi bi-camera text-xl"></i>
+                                    <i className="bi bi-cloud-arrow-up text-xl"></i>
                                   </div>
                                   <div>
-                                    <p className="text-xs text-slate-600 font-bold">Subir Foto</p>
+                                    <p className="text-xs text-slate-600 font-bold">Subir o Arrastrar Foto</p>
                                     <p className="text-[10px] text-slate-400 font-medium mt-0.5">JPG o PNG, recomendado 1:1</p>
                                   </div>
                                 </div>
@@ -2686,7 +2755,23 @@ export default function ProductList({
                                     {/* Imagen de la variante */}
                                     <div className="w-20 h-20 flex-shrink-0 mx-auto sm:mx-0">
                                       <label htmlFor="variant-image-upload" className="block cursor-pointer h-full">
-                                        <div className="relative h-full bg-white rounded-xl border-2 border-dashed border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10 transition-all flex items-center justify-center overflow-hidden group shadow-sm">
+                                        <div 
+                                          onDragEnter={handleDragOverVariantImage}
+                                          onDragOver={handleDragOverVariantImage}
+                                          onDragLeave={handleDragOverVariantImage}
+                                          onDrop={handleDropVariantImage}
+                                          className={`relative h-full bg-white rounded-xl border-2 border-dashed transition-all duration-300 flex items-center justify-center overflow-hidden group shadow-sm ${
+                                            isDraggingVariantImage 
+                                              ? 'border-[#aa1918] bg-red-50/40 ring-2 ring-red-100 scale-105' 
+                                              : 'border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10'
+                                          }`}
+                                        >
+                                          {isDraggingVariantImage && (
+                                            <div className="absolute inset-0 z-30 bg-[#aa1918]/90 flex flex-col items-center justify-center text-white text-center p-1">
+                                              <i className="bi bi-cloud-arrow-up text-xl animate-bounce"></i>
+                                              <p className="text-[8px] font-black uppercase">Suelta aquí</p>
+                                            </div>
+                                          )}
                                           {currentVariant.imageFile ? (
                                             <img src={URL.createObjectURL(currentVariant.imageFile)} alt="Preview" className="w-full h-full object-cover" />
                                           ) : currentVariant.imageUrl ? (

@@ -1117,14 +1117,14 @@ function RestaurantContent() {
         </div>
 
         {/* Contenido debajo de la portada - Diseño Premium */}
-        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-8 text-center">
+        <div className="max-w-3xl mx-auto px-4 pt-14 sm:pt-16 pb-6 text-center">
           <div className="flex flex-col items-center">
             <div className="w-full">
               <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">
                 {business.name}
               </h1>
               <div 
-                className="flex justify-center items-center gap-2 mb-4 cursor-pointer hover:opacity-80 transition-all active:scale-95 group"
+                className="flex justify-center items-center gap-2 mb-3 cursor-pointer hover:opacity-80 transition-all active:scale-95 group"
                 onClick={() => {
                   setIsRatingModalOpen(true);
                 }}
@@ -1158,60 +1158,59 @@ function RestaurantContent() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-                <span className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm transition-all ${isStoreOpen(business)
+              {/* Indicadores de Estado y Próxima Apertura (Lado a Lado) */}
+              <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4">
+                <span className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm transition-all ${isStoreOpen(business)
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                   : 'bg-rose-50 text-rose-700 border border-rose-100'
                   }`}>
                   <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
                   {isStoreOpen(business) ? 'Abierto Ahora' : 'Cerrado'}
                 </span>
-              </div>
 
-              {!isStoreOpen(business) && getNextOpeningMessage(business) && (
-                <div className="mt-1 flex justify-center">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 animate-in fade-in slide-in-from-top-1 duration-500">
+                {!isStoreOpen(business) && getNextOpeningMessage(business) && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200/80 shadow-xs animate-in fade-in zoom-in-95 duration-300">
                     <i className="bi bi-clock text-gray-400"></i>
                     {getNextOpeningMessage(business)}
                   </span>
-                </div>
-              )}
+                )}
+              </div>
 
-              {/* Navegación por Pestañas - Estilo Minimalista */}
-              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-6 mt-8 w-full max-w-md mx-auto px-4">
+              {/* Navegación por Pestañas - Estilo Pill Compacto */}
+              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 mt-5 max-w-lg mx-auto">
                 <button
                   onClick={() => setActiveTab('perfil')}
-                  className={`flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all duration-300 gap-1.5 sm:gap-2 ${activeTab === 'perfil'
-                    ? 'bg-white text-gray-900 shadow-md ring-1 ring-black/5'
-                    : 'text-gray-400 hover:text-gray-600'
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 active:scale-95 ${activeTab === 'perfil'
+                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-black/5'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100/60'
                     }`}
                 >
-                  <i className={`bi bi-shop text-lg sm:text-xl ${activeTab === 'perfil' ? 'text-red-500' : ''}`}></i>
+                  <i className={`bi bi-shop text-sm ${activeTab === 'perfil' ? 'text-red-500' : ''}`}></i>
                   Perfil
                 </button>
                 <button
                   onClick={() => setActiveTab('catalogo')}
-                  className={`flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all duration-300 gap-1.5 sm:gap-2 ${activeTab === 'catalogo'
-                    ? 'bg-white text-gray-900 shadow-md ring-1 ring-black/5'
-                    : 'text-gray-400 hover:text-gray-600'
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 active:scale-95 ${activeTab === 'catalogo'
+                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-black/5'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100/60'
                     }`}
                 >
-                  <i className={`bi bi-grid text-lg sm:text-xl ${activeTab === 'catalogo' ? 'text-red-500' : ''}`}></i>
+                  <i className={`bi bi-grid text-sm ${activeTab === 'catalogo' ? 'text-red-500' : ''}`}></i>
                   Catálogo
                 </button>
                 <button
                   onClick={copyStoreLink}
-                  className="flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-1.5 sm:gap-2"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-gray-100/60 transition-all duration-200 active:scale-95"
                 >
-                  <i className="bi bi-share text-lg sm:text-xl"></i>
+                  <i className="bi bi-share text-sm"></i>
                   Compartir
                 </button>
                 {isOwner && (
                   <Link
                     href="/business/dashboard"
-                    className="flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-1.5 sm:gap-2"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-gray-100/60 transition-all duration-200 active:scale-95"
                   >
-                    <i className="bi bi-gear text-lg sm:text-xl"></i>
+                    <i className="bi bi-gear text-sm"></i>
                     Administrar
                   </Link>
                 )}
