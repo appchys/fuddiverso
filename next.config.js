@@ -41,7 +41,7 @@ const nextConfig = {
   },
   // Optimize loading to reduce preload warnings
   experimental: {
-    optimizePackageImports: ['@react-google-maps/api', 'bootstrap-icons'],
+    optimizePackageImports: ['@react-google-maps/api', 'bootstrap-icons', 'lucide-react', 'firebase/firestore', 'firebase/auth'],
   },
   // Reduce resource preloading for better performance
   webpack: (config, { isServer }) => {

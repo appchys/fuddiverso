@@ -1,17 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import Head from 'next/head'
-import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
+import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
-import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
+import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { Flame } from 'lucide-react'
 import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
-import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import dynamic from 'next/dynamic'
@@ -133,7 +130,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
         }`}
         title="Recomendar"
       >
-        <Flame size={16} strokeWidth={hasRecommended ? 3 : 1.5} color={hasRecommended ? '#F59E0B' : undefined} />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hasRecommended ? '#F59E0B' : 'currentColor'} strokeWidth={hasRecommended ? 3 : 1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></svg>
         {referralCount !== undefined && referralCount > 0 && (
           <span className="text-[10px] font-bold text-gray-500">
             {referralCount}
@@ -255,18 +252,12 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
 }
 
 export default function RestaurantPage() {
-  return (
-    <BusinessAuthProvider>
-      <RestaurantContent />
-    </BusinessAuthProvider>
-  )
+  return <RestaurantContent />
 }
 
 function RestaurantContent() {
-  const { user } = useBusinessAuth()
   const { user: clientUser } = useAuth()
   const params = useParams()
-  const router = useRouter()
   const username = typeof params?.username === 'string' ? params.username : Array.isArray(params?.username) ? params.username[0] : ''
 
   const [business, setBusiness] = useState<Business | null>(null)
@@ -322,32 +313,72 @@ function RestaurantContent() {
   const [generatedReferralProducts, setGeneratedReferralProducts] = useState<Set<string>>(new Set())
   const [referralCounts, setReferralCounts] = useState<Record<string, number>>({})
   const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
+  const [isOwner, setIsOwner] = useState(false)
 
+  // Lightweight isOwner check from localStorage — avoids loading Firebase Auth SDK for all visitors
+  useEffect(() => {
+    if (!business) return
+    try {
+      const savedOwnerId = localStorage.getItem('ownerId')
+      if (savedOwnerId) {
+        setIsOwner(
+          business.ownerId === savedOwnerId ||
+          business.administrators?.some(a => a.uid === savedOwnerId) || false
+        )
+      }
+    } catch { /* ignore */ }
+  }, [business])
+
+
+  // Track whether products have been loaded for this username to avoid re-fetching on real-time updates
+  const productsLoadedRef = useRef(false)
 
   useEffect(() => {
     if (!username) return
 
-    // First, get initial business data
-    const loadInitialData = async () => {
-      try {
-        const businessData = await getBusinessByUsername(username)
-        if (!businessData) {
-          setError('Restaurante no encontrado')
-          setLoading(false)
-          return
-        }
+    productsLoadedRef.current = false
 
-        setBusiness(businessData)
-        
+    // Use onSnapshot as the SINGLE source of truth for business data.
+    // The first snapshot acts as the initial load; subsequent snapshots provide real-time updates.
+    // This eliminates the duplicate read from getBusinessByUsername + onSnapshot.
+    const q = query(
+      collection(db, 'businesses'),
+      where('username', '==', username),
+      limit(1)
+    )
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      if (snapshot.empty) {
+        setError('Restaurante no encontrado')
+        setLoading(false)
+        return
+      }
+
+      const docSnap = snapshot.docs[0]
+      const businessData = docSnap.data()
+      const updatedBusiness: Business = {
+        id: docSnap.id,
+        ...businessData,
+        createdAt: businessData.createdAt?.toDate?.() || businessData.createdAt,
+        updatedAt: businessData.updatedAt?.toDate?.() || businessData.updatedAt
+      } as Business
+
+      setBusiness(updatedBusiness)
+
+      // Only load products on the FIRST snapshot (initial load)
+      if (productsLoadedRef.current) return
+      productsLoadedRef.current = true
+
+      try {
         // Handle visit increment (Non-blocking background call)
         try {
-          const sessionKey = `visited:${businessData.id}`
+          const sessionKey = `visited:${updatedBusiness.id}`
           if (!sessionStorage.getItem(sessionKey)) {
             sessionStorage.setItem(sessionKey, '1')
-            incrementVisitFirestore(businessData.id).catch(e => {
+            incrementVisitFirestore(updatedBusiness.id).catch(e => {
               const pendingRaw = localStorage.getItem('pendingVisits')
               const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
-              pending[businessData.id] = (pending[businessData.id] || 0) + 1
+              pending[updatedBusiness.id] = (pending[updatedBusiness.id] || 0) + 1
               localStorage.setItem('pendingVisits', JSON.stringify(pending))
               console.warn('Failed to increment visit in Firestore, stored pendingVisits locally')
             })
@@ -356,14 +387,18 @@ function RestaurantContent() {
           console.error('Error handling visit increment:', e)
         }
 
-        // Load products
-        const productsData = await getProductsByBusiness(businessData.id)
+        // Load products — parallelize own products + shared products
+        const hasShared = updatedBusiness.sharedProductIds && updatedBusiness.sharedProductIds.length > 0
+        const [productsData, sharedProducts] = await Promise.all([
+          getProductsByBusiness(updatedBusiness.id),
+          hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[])
+        ])
+
         let availableProducts = productsData.filter(product => product.isAvailable)
 
-        // Cargar productos compartidos por referencia (Optimizado sin descargar todas las tiendas)
-        if (businessData.sharedProductIds && businessData.sharedProductIds.length > 0) {
+        // Process shared products if any were fetched
+        if (sharedProducts.length > 0) {
           try {
-            const sharedProducts = await getProductsByIds(businessData.sharedProductIds)
             const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
             const ownerBizs = await getBusinessesByIds(ownerIds)
             const availableShared = sharedProducts
@@ -387,85 +422,39 @@ function RestaurantContent() {
               })
             availableProducts = [...availableProducts, ...availableShared]
           } catch (e) {
-            console.error('Error loading shared products:', e)
+            console.error('Error processing shared products:', e)
           }
         }
 
         setProducts(availableProducts)
-
-        // Hide loading screen immediately after products are loaded
         setLoading(false)
 
-        // Defer loading of non-critical background data
+        // Defer loading of non-critical background data: other businesses only
         setTimeout(() => {
-          // Load user recommended products and referral counts
-          if (clientUser?.id && availableProducts.length > 0) {
-            const productIds = availableProducts.map(p => p.id)
-            const recommendedSet = new Set<string>()
-            Promise.all(
-              productIds.map(async (productId) => {
-                try {
-                  const hasReferral = await userHasReferralForProduct(clientUser.id, productId)
-                  if (hasReferral) recommendedSet.add(productId)
-                } catch (e) {
-                  console.error('Error fetching user referral for product:', productId, e)
-                }
-              })
-            ).then(() => {
-              setGeneratedReferralProducts(recommendedSet)
-            }).catch(e => console.error('Error loading user referrals:', e))
-
-            getProductsReferralCounts(productIds).then(counts => {
-              setReferralCounts(counts)
-            }).catch(e => console.error('Error loading referral counts:', e))
-          }
-
-          // Load other businesses
-          getAllBusinesses().then(all => {
-            const others = all
-              .filter(
-                (b) =>
-                  b.username !== username &&
-                  b.isActive !== false &&
-                  b.isHidden !== true &&
-                  b.businessType !== 'distributor'
-              )
+          // Load other businesses with a LIMITED query instead of getAllBusinesses()
+          const otherQ = query(
+            collection(db, 'businesses'),
+            where('isActive', '!=', false),
+            limit(12)
+          )
+          getDocs(otherQ).then(snap => {
+            const others = snap.docs
+              .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() || d.data().createdAt } as Business))
+              .filter(b => b.username !== username && b.isHidden !== true && b.businessType !== 'distributor')
               .sort(() => 0.5 - Math.random())
               .slice(0, 4)
             setOtherBusinesses(others)
           }).catch(e => console.error('Error loading other businesses:', e))
-        }, 50)
+        }, 100)
       } catch (err) {
         console.error('Error loading restaurant data:', err)
         setError('Error al cargar el restaurante')
         setLoading(false)
       }
-    }
-
-    loadInitialData()
-
-    // Then set up real-time listener for business updates
-    const q = query(
-      collection(db, 'businesses'),
-      where('username', '==', username),
-      limit(1)
-    )
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const doc = snapshot.docs[0]
-        const businessData = doc.data()
-        const updatedBusiness: Business = {
-          id: doc.id,
-          ...businessData,
-          createdAt: businessData.createdAt?.toDate?.() || businessData.createdAt,
-          updatedAt: businessData.updatedAt?.toDate?.() || businessData.updatedAt
-        } as Business
-        
-        setBusiness(updatedBusiness)
-      }
     }, (error) => {
       console.error('Error listening to business updates:', error)
+      setError('Error al cargar el restaurante')
+      setLoading(false)
     })
 
     return () => unsubscribe()
@@ -480,28 +469,14 @@ function RestaurantContent() {
     }
   }, [])
 
+  // Scrollbar hide — CSS rules are in globals.css, we just toggle the class
   useEffect(() => {
     document.documentElement.classList.add('store-page-no-scrollbar')
     document.body.classList.add('store-page-no-scrollbar')
-    const style = document.createElement('style')
-    style.setAttribute('data-store-page-scrollbar', 'true')
-    style.textContent = `
-      html.store-page-no-scrollbar::-webkit-scrollbar,
-      body.store-page-no-scrollbar::-webkit-scrollbar {
-        display: none;
-      }
-      html.store-page-no-scrollbar,
-      body.store-page-no-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-    `
-    document.head.appendChild(style)
 
     return () => {
       document.documentElement.classList.remove('store-page-no-scrollbar')
       document.body.classList.remove('store-page-no-scrollbar')
-      style.remove()
     }
   }, [])
 
@@ -1014,7 +989,7 @@ function RestaurantContent() {
   const whatsappMessage = encodeURIComponent(`Hola ${business.name}, encontré tu tienda en https://fuddi.shop , me gustaría conocer tu menú`)
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`
 
-  const isOwner = user && business && (business.ownerId === user.uid || business.administrators?.some(a => a.uid === user.uid))
+
 
   // Agrupar productos por categoría, respetando el orden definido en business.categories
   const productsByCategory: Record<string, Product[]> = {}
@@ -1066,17 +1041,19 @@ function RestaurantContent() {
 
       {/* Hero Section sin skeletons */}
       <div className="bg-white shadow-sm">
-        {/* Rating Modal */}
-        <StoreRatingModal
-          isOpen={isRatingModalOpen}
-          onClose={() => setIsRatingModalOpen(false)}
-          business={business}
-          clientPhone={clientPhone}
-          clientUser={clientUser}
-          businessUser={user}
-          businessOwnerId={business?.ownerId || null}
-          onSuccess={(msg) => showNotification(msg)}
-        />
+        {/* Rating Modal — only mounted when open */}
+        {isRatingModalOpen && (
+          <StoreRatingModal
+            isOpen={true}
+            onClose={() => setIsRatingModalOpen(false)}
+            business={business}
+            clientPhone={clientPhone}
+            clientUser={clientUser}
+            businessUser={isOwner ? { uid: localStorage.getItem('ownerId') } : null}
+            businessOwnerId={business?.ownerId || null}
+            onSuccess={(msg) => showNotification(msg)}
+          />
+        )}
 
         {/* Portada con logo superpuesto */}
         <div className="relative w-full h-36 sm:h-48 bg-gray-200">
@@ -1527,6 +1504,8 @@ function RestaurantContent() {
                         src={store.image}
                         alt={store.name}
                         className="w-full h-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                       />
                     ) : (
                       <i className="bi bi-shop text-5xl text-gray-400"></i>
@@ -1596,29 +1575,36 @@ function RestaurantContent() {
 
         </div>
       )}
-      <UserSidebar
-        isOpen={isUserSidebarOpen}
-        onClose={() => setIsUserSidebarOpen(false)}
-        onLogin={() => setShowLoginModal(true)}
-      />
+      {/* Modals — only mounted when open to avoid loading chunks upfront */}
+      {isUserSidebarOpen && (
+        <UserSidebar
+          isOpen={true}
+          onClose={() => setIsUserSidebarOpen(false)}
+          onLogin={() => setShowLoginModal(true)}
+        />
+      )}
 
-      <ClientLoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onLoginSuccess={(phone) => {
-          setClientPhone(phone)
-          setShowLoginModal(false)
-        }}
-      />
+      {showLoginModal && (
+        <ClientLoginModal
+          isOpen={true}
+          onClose={() => setShowLoginModal(false)}
+          onLoginSuccess={(phone) => {
+            setClientPhone(phone)
+            setShowLoginModal(false)
+          }}
+        />
+      )}
 
       {/* Modal de Referidos */}
-      <ReferralModal
-        isOpen={referralModalOpen}
-        onClose={() => setReferralModalOpen(false)}
-        product={selectedProductForReferral}
-        referralLink={generatedReferralLink}
-        businessName={business?.name || ''}
-      />
+      {referralModalOpen && (
+        <ReferralModal
+          isOpen={true}
+          onClose={() => setReferralModalOpen(false)}
+          product={selectedProductForReferral}
+          referralLink={generatedReferralLink}
+          businessName={business?.name || ''}
+        />
+      )}
       </>
     </div>
   )

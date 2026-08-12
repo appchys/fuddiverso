@@ -20,7 +20,6 @@ const ReferralModal = dynamic(() => import('@/components/ReferralModal'), { ssr:
 const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), { ssr: false })
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
-import { Flame } from 'lucide-react'
 
 // Componente para imágenes con carga progresiva - usa next/image con fill
 const ProgressiveImage: React.FC<{
@@ -62,7 +61,6 @@ const ProgressiveImage: React.FC<{
           height={!fill ? height : undefined}
           priority={priority}
           sizes={sizes}
-          unoptimized={true}
           className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
           style={style}
           onLoad={() => setIsLoaded(true)}
@@ -73,11 +71,9 @@ const ProgressiveImage: React.FC<{
 
 export default function HomePage() {
   return (
-    <BusinessAuthProvider>
-      <Suspense fallback={<HomePageLoading />}>
-        <HomePageContent />
-      </Suspense>
-    </BusinessAuthProvider>
+    <Suspense fallback={<HomePageLoading />}>
+      <HomePageContent />
+    </Suspense>
   )
 }
 
@@ -106,7 +102,6 @@ function getDampenedImagePosition(position: string | undefined): string {
 
 function HomePageContent() {
   const { user } = useAuth()
-  const { user: businessUser } = useBusinessAuth()
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -662,11 +657,8 @@ function HomePageContent() {
   const loadHomeProducts = async (category: string = 'all') => {
     try {
       setLoadingProducts(true)
-      // Cargar productos y órdenes recientes en PARALELO para máxima velocidad
-      const [selected, recentOrders] = await Promise.all([
-        getGlobalProducts(category, 120, showAllRestaurants ? 'ALL' : (groupId || undefined)),
-        getRecentOrders(100)
-      ])
+      // 1. Cargar productos inmediatamente sin esperar a órdenes recientes
+      const selected = await getGlobalProducts(category, 120, showAllRestaurants ? 'ALL' : (groupId || undefined))
 
       // 1. Lo más nuevo (ordenar por createdAt desc)
       const sortedByNew = [...selected].sort((a, b) => {
@@ -675,6 +667,7 @@ function HomePageContent() {
         return dateB - dateA
       })
       setNewestProducts(sortedByNew)
+      setBestSellersProducts(sortedByNew) // Fallback inicial rápido
 
       // Actualizar categorías del menú con los productos obtenidos (evita consulta duplicada)
       if (selected.length > 0) {
@@ -687,33 +680,35 @@ function HomePageContent() {
         })
       }
 
-      // 2. Los más vendidos (obtener órdenes y calcular en memoria)
-      const salesMap = new Map<string, number>()
-      
-      recentOrders.forEach(order => {
-        if (order.status === 'cancelled') return
-        order.items?.forEach((item: any) => {
-          const productId = item.productId || item.product?.id
-          if (productId) {
-            const qty = item.quantity || 1
-            salesMap.set(productId, (salesMap.get(productId) || 0) + qty)
-          }
-        })
-      })
+      setLoadingProducts(false)
 
-      const sortedBySales = [...selected].sort((a, b) => {
-        const salesA = salesMap.get(a.id) || 0
-        const salesB = salesMap.get(b.id) || 0
-        if (salesB !== salesA) {
-          return salesB - salesA
-        }
-        // En caso de empate en ventas, ordenar por ID de forma determinista para diferenciarlo de lo más nuevo
-        return a.id.localeCompare(b.id)
-      })
-      setBestSellersProducts(sortedBySales)
+      // 2. Los más vendidos — diferir consulta de órdenes recientes en segundo plano
+      getRecentOrders(50).then(recentOrders => {
+        const salesMap = new Map<string, number>()
+        recentOrders.forEach(order => {
+          if (order.status === 'cancelled') return
+          order.items?.forEach((item: any) => {
+            const productId = item.productId || item.product?.id
+            if (productId) {
+              const qty = item.quantity || 1
+              salesMap.set(productId, (salesMap.get(productId) || 0) + qty)
+            }
+          })
+        })
+
+        const sortedBySales = [...selected].sort((a, b) => {
+          const salesA = salesMap.get(a.id) || 0
+          const salesB = salesMap.get(b.id) || 0
+          if (salesB !== salesA) {
+            return salesB - salesA
+          }
+          return a.id.localeCompare(b.id)
+        })
+        setBestSellersProducts(sortedBySales)
+      }).catch(e => console.error('Error loading recent orders for best sellers:', e))
+
     } catch (error) {
       console.error('Error loading home products:', error)
-    } finally {
       setLoadingProducts(false)
     }
   }
@@ -1531,7 +1526,7 @@ function HomePageContent() {
                                     className={`flex items-center gap-1 flex-shrink-0 transition-all ${generatedReferralProducts.has(product.id) ? '' : 'text-gray-400 hover:text-[#aa1918]'}`}
                                     title="Recomendar"
                                   >
-                                    <Flame size={16} strokeWidth={generatedReferralProducts.has(product.id) ? 3 : 1.5} color={generatedReferralProducts.has(product.id) ? '#F59E0B' : undefined} />
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={generatedReferralProducts.has(product.id) ? '#F59E0B' : 'currentColor'} strokeWidth={generatedReferralProducts.has(product.id) ? 3 : 1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></svg>
                                     {referralCounts[product.id] !== undefined && referralCounts[product.id] > 0 && (
                                       <span className="text-[10px] font-bold text-gray-500">
                                         {referralCounts[product.id]}
@@ -1846,7 +1841,7 @@ function HomePageContent() {
                           }`}
                         title="Recomendar"
                       >
-                        <Flame size={16} strokeWidth={generatedReferralProducts.has(storyProducts[currentStoryIndex].id) ? 3 : 1.5} />
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={generatedReferralProducts.has(storyProducts[currentStoryIndex].id) ? 3 : 1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></svg>
                         {referralCounts[storyProducts[currentStoryIndex].id] !== undefined && referralCounts[storyProducts[currentStoryIndex].id] > 0 && (
                           <span className="text-xs font-bold text-white/70">
                             {referralCounts[storyProducts[currentStoryIndex].id]}
@@ -1924,74 +1919,85 @@ function HomePageContent() {
         </div>
       )}
 
-      <ProductDetailSidebar
-        isOpen={isProductSidebarOpen}
-        onClose={() => setIsProductSidebarOpen(false)}
-        product={selectedProduct}
-        business={selectedProductBusiness!}
-        onProductSelect={handleProductClick}
-        onOpenCart={() => setIsCartOpen(true)}
-        onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
-        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
-        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
-        onOpenRatingModal={() => {
-          if (selectedProductBusiness) {
-            setSelectedRatingBusiness(selectedProductBusiness)
-            setIsRatingModalOpen(true)
-          }
-        }}
-      />
+      {/* Modals & Sidebars — only mounted when opened */}
+      {isProductSidebarOpen && (
+        <ProductDetailSidebar
+          isOpen={true}
+          onClose={() => setIsProductSidebarOpen(false)}
+          product={selectedProduct}
+          business={selectedProductBusiness!}
+          onProductSelect={handleProductClick}
+          onOpenCart={() => setIsCartOpen(true)}
+          onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
+          hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+          referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
+          onOpenRatingModal={() => {
+            if (selectedProductBusiness) {
+              setSelectedRatingBusiness(selectedProductBusiness)
+              setIsRatingModalOpen(true)
+            }
+          }}
+        />
+      )}
 
-      <StoryProductDetail
-        isOpen={isStoryPaused}
-        onClose={() => setIsStoryPaused(false)}
-        product={selectedProduct}
-        business={selectedProductBusiness}
-        onAddToCart={addItemToCart}
-        onOpenCart={() => {
-          setIsCartOpen(true)
-          setIsStoryModalOpen(false)
-        }}
-        onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
-        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
-        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
-      />
+      {isStoryPaused && (
+        <StoryProductDetail
+          isOpen={true}
+          onClose={() => setIsStoryPaused(false)}
+          product={selectedProduct}
+          business={selectedProductBusiness}
+          onAddToCart={addItemToCart}
+          onOpenCart={() => {
+            setIsCartOpen(true)
+            setIsStoryModalOpen(false)
+          }}
+          onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
+          hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+          referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
+        />
+      )}
 
-      <CartSidebar
-        isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        cart={cart}
-        business={selectedProductBusiness}
-        removeFromCart={removeFromCart}
-        updateQuantity={updateQuantity}
-        clearCart={clearCart}
-        addItemToCart={addItemToCart}
-        onShowProductDetails={(p: Product) => handleProductClick(p, selectedProductBusiness || undefined)}
-      />
+      {isCartOpen && (
+        <CartSidebar
+          isOpen={true}
+          onClose={() => setIsCartOpen(false)}
+          cart={cart}
+          business={selectedProductBusiness}
+          removeFromCart={removeFromCart}
+          updateQuantity={updateQuantity}
+          clearCart={clearCart}
+          addItemToCart={addItemToCart}
+          onShowProductDetails={(p: Product) => handleProductClick(p, selectedProductBusiness || undefined)}
+        />
+      )}
 
-      <ReferralModal
-        isOpen={referralModalOpen}
-        onClose={() => setReferralModalOpen(false)}
-        product={selectedProductForReferral}
-        referralLink={generatedReferralLink}
-        businessName={referralBusinessName}
-      />
+      {referralModalOpen && (
+        <ReferralModal
+          isOpen={true}
+          onClose={() => setReferralModalOpen(false)}
+          product={selectedProductForReferral}
+          referralLink={generatedReferralLink}
+          businessName={referralBusinessName}
+        />
+      )}
 
-      <ClientLoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onLoginSuccess={() => setShowLoginModal(false)}
-      />
+      {showLoginModal && (
+        <ClientLoginModal
+          isOpen={true}
+          onClose={() => setShowLoginModal(false)}
+          onLoginSuccess={() => setShowLoginModal(false)}
+        />
+      )}
 
       {/* Rating Modal */}
-      {selectedRatingBusiness && (
+      {isRatingModalOpen && selectedRatingBusiness && (
         <StoreRatingModal
-          isOpen={isRatingModalOpen}
+          isOpen={true}
           onClose={() => setIsRatingModalOpen(false)}
           business={selectedRatingBusiness}
           clientPhone={null}
           clientUser={user}
-          businessUser={businessUser}
+          businessUser={null}
           businessOwnerId={selectedRatingBusiness.ownerId || null}
           onSuccess={handleRatingSuccess}
         />

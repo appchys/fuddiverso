@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
 import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode, uploadImage } from '@/lib/database'
+import { optimizeImage } from '@/lib/image-utils'
 import { QRCode } from '@/types'
 import QRStatistics from '@/components/QRStatistics'
 
@@ -328,8 +329,15 @@ export default function QRCodesContent({ businessId: initialBusinessId, embedded
     try {
       let imageUrl = imagePreview || ''
       if (newCodeImage) {
-        const filePath = `qrcodes/${Date.now()}_${newCodeImage.name}`
-        imageUrl = await uploadImage(newCodeImage, filePath)
+        const timestamp = Date.now()
+        const optimizedBlob = await optimizeImage(newCodeImage, 600, 0.8, 'image/jpeg')
+        const optimizedFile = new File(
+          [optimizedBlob],
+          `${timestamp}_${newCodeImage.name.split('.')[0]}.jpg`,
+          { type: optimizedBlob.type || 'image/jpeg' }
+        )
+        const filePath = `qrcodes/${timestamp}_${newCodeImage.name.split('.')[0]}.jpg`
+        imageUrl = await uploadImage(optimizedFile, filePath)
       }
 
       const codeData: any = {

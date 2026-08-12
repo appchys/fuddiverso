@@ -42,6 +42,7 @@ import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import DashboardSidebar from '@/components/DashboardSidebar'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
+import { optimizeImage } from '@/lib/image-utils'
 
 const ProductList = dynamic(() => import('@/components/ProductList'), { ssr: false })
 const DayPreflightChecklist = dynamic(() => import('@/components/DayPreflightChecklist'), { ssr: false })
@@ -794,8 +795,15 @@ export default function TodayOrdersPage() {
         if (!file || !business) return
         setUploadingCover(true)
         try {
-            const path = `businesses/covers/${business.id}_${Date.now()}_${file.name}`
-            const imageUrl = await uploadImage(file, path)
+            const timestamp = Date.now()
+            const optimizedBlob = await optimizeImage(file, 1200, 0.7, 'image/jpeg')
+            const optimizedFile = new File(
+                [optimizedBlob],
+                `${timestamp}_${file.name.split('.')[0]}.jpg`,
+                { type: optimizedBlob.type || 'image/jpeg' }
+            )
+            const path = `businesses/covers/${business.id}_${timestamp}_${file.name.split('.')[0]}.jpg`
+            const imageUrl = await uploadImage(optimizedFile, path)
             await updateBusiness(business.id, { coverImage: imageUrl })
             const updatedBusiness = { ...business, coverImage: imageUrl }
             setBusiness(updatedBusiness)
@@ -813,8 +821,15 @@ export default function TodayOrdersPage() {
         if (!file || !business) return
         setUploadingProfile(true)
         try {
-            const path = `businesses/profiles/${business.id}_${Date.now()}_${file.name}`
-            const imageUrl = await uploadImage(file, path)
+            const timestamp = Date.now()
+            const optimizedBlob = await optimizeImage(file, 500, 0.8, 'image/jpeg')
+            const optimizedFile = new File(
+                [optimizedBlob],
+                `${timestamp}_${file.name.split('.')[0]}.jpg`,
+                { type: optimizedBlob.type || 'image/jpeg' }
+            )
+            const path = `businesses/profiles/${business.id}_${timestamp}_${file.name.split('.')[0]}.jpg`
+            const imageUrl = await uploadImage(optimizedFile, path)
             await updateBusiness(business.id, { image: imageUrl })
             const updatedBusiness = { ...business, image: imageUrl }
             setBusiness(updatedBusiness)
@@ -832,8 +847,15 @@ export default function TodayOrdersPage() {
         if (!file || !business) return
         setUploadingLocation(true)
         try {
-            const path = `businesses/locations/${business.id}_${Date.now()}_${file.name}`
-            const imageUrl = await uploadImage(file, path)
+            const timestamp = Date.now()
+            const optimizedBlob = await optimizeImage(file, 800, 0.7, 'image/jpeg')
+            const optimizedFile = new File(
+                [optimizedBlob],
+                `${timestamp}_${file.name.split('.')[0]}.jpg`,
+                { type: optimizedBlob.type || 'image/jpeg' }
+            )
+            const path = `businesses/locations/${business.id}_${timestamp}_${file.name.split('.')[0]}.jpg`
+            const imageUrl = await uploadImage(optimizedFile, path)
             await updateBusiness(business.id, { locationImage: imageUrl })
             const updatedBusiness = { ...business, locationImage: imageUrl }
             setBusiness(updatedBusiness)

@@ -101,6 +101,17 @@ html, body {
   }
 }
 
+/* Store page scrollbar hide (used by [username]/page.tsx) */
+html.store-page-no-scrollbar::-webkit-scrollbar,
+body.store-page-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+html.store-page-no-scrollbar,
+body.store-page-no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Improved tap targets for mobile */
 @media (max-width: 768px) {
   button, a {
