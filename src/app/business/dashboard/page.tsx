@@ -6,34 +6,28 @@ import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
-import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'
 import {
     getBusiness,
     getProductsByBusiness,
     deleteOrder,
-    getCoverageZones,
-    isPointInPolygon,
     getDeliveriesByStatus,
     updateOrderStatus,
     updateBusiness,
     getUserBusinessAccess,
     getTodayVisitsDocRef,
-    getHistoricalOrdersByBusiness,
     getOrdersByBusinessPaginated,
-    getOrdersByBusinessComplete,
     uploadImage,
     addBusinessAdministrator,
     removeBusinessAdministrator,
-    getIngredientStockSummary,
     getAllBusinesses,
     getProductsByIds
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
-    sendWhatsAppToCustomer,
     getNextStatus
 } from '@/components/WhatsAppUtils'
-import { isStoreOpen, getNextOpeningMessage, calculateManualStatusExpiry } from '@/lib/store-utils'
+import { isStoreOpen, calculateManualStatusExpiry } from '@/lib/store-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
 import DailyCheckInBanner from '@/components/DailyCheckInBanner'
@@ -41,17 +35,26 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import DashboardSidebar from '@/components/DashboardSidebar'
-import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { optimizeImage } from '@/lib/image-utils'
 
+// Dashboard-specific imports (extracted modules)
+import {
+    toSafeDate,
+    toLocalDateInputValue,
+    isActiveDashboardOrder,
+    getConfiguredDeliveryTime,
+    getStatusText,
+    getStatusColor,
+    autoAssignDeliveryForOrder,
+    MUNCHYS_BUSINESS_ID,
+} from './dashboard-utils'
+import { OrderStatusColumn } from './OrderStatusColumn'
+import { DeliveryStatusModal } from './DeliveryStatusModal'
+import { CustomerContactModal } from './CustomerContactModal'
+
+// Lazy-loaded components
 const ProductList = dynamic(() => import('@/components/ProductList'), { ssr: false })
 const DayPreflightChecklist = dynamic(() => import('@/components/DayPreflightChecklist'), { ssr: false })
-
-// Helper function to check point in polygon (if not imported, but we added it to imports above)
-// If isPointInPolygon is not exported from @/lib/database, we might need to define it here or import it.
-// Assuming it is exported based on dashboard/page.tsx usage.
-
-// dynamic loading for history
 const OrderHistory = dynamic(() => import('@/components/OrderHistory'), {
     loading: () => (
         <div className="flex justify-center items-center py-12">
@@ -60,8 +63,6 @@ const OrderHistory = dynamic(() => import('@/components/OrderHistory'), {
     ),
     ssr: false
 })
-
-// Lazy-loaded SPA tab components
 const StatisticsView = dynamic(() => import('@/components/StatisticsView'), { ssr: false })
 const WalletView = dynamic(() => import('@/components/WalletView'), { ssr: false })
 const IngredientStockManagement = dynamic(() => import('@/components/IngredientStockManagement'), { ssr: false })
@@ -71,129 +72,16 @@ const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfile
 const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), { ssr: false })
 const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: false })
 
-
-// Auto-assign logic
-const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: string): Promise<string | undefined> => {
-    try {
-        const deliveries = await getDeliveriesByStatus('activo');
-        let assignedDeliveryId: string | undefined = undefined;
-
-        // 0. Default Delivery
-        if (defaultDeliveryId) {
-            const defaultDelivery = deliveries.find(d => d.id === defaultDeliveryId);
-            if (defaultDelivery) {
-                console.log('[AutoAssign] Using store default delivery:', defaultDeliveryId);
-                return defaultDelivery.id;
-            }
-        }
-
-        // 1. Coverage Zone
-        const latlong = order.delivery.latlong;
-        if (latlong && !latlong.startsWith('pluscode:')) {
-            const [lat, lng] = latlong.split(',').map(Number);
-            if (!isNaN(lat) && !isNaN(lng)) {
-                const zones = await getCoverageZones();
-                const matchingZone = zones.find(zone =>
-                    zone.isActive &&
-                    zone.assignedDeliveryId &&
-                    isPointInPolygon({ lat, lng }, zone.polygon)
-                );
-
-                if (matchingZone?.assignedDeliveryId) {
-                    const zoneDelivery = deliveries.find(d => d.id === matchingZone.assignedDeliveryId);
-                    if (zoneDelivery) {
-                        assignedDeliveryId = zoneDelivery.id;
-                    }
-                }
-            }
-        }
-
-        // 2. Fallbacks
-        if (!assignedDeliveryId) {
-            const pedroDelivery = deliveries.find(d => d.celular === '0990815097');
-            if (pedroDelivery) {
-                assignedDeliveryId = pedroDelivery.id;
-            } else {
-                const sergioDelivery = deliveries.find(d => d.celular === '0978697867');
-                if (sergioDelivery) {
-                    assignedDeliveryId = sergioDelivery.id;
-                }
-            }
-        }
-
-        return assignedDeliveryId;
-    } catch (error) {
-        console.error('Error in autoAssign:', error);
-        return undefined;
-    }
-}
-
-
-
 import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
-
 const PaymentManagementModals = dynamic(() => import('@/components/PaymentManagementModals'), { ssr: false })
 const ManualOrderSidebar = dynamic(() => import('@/components/ManualOrderSidebar'), { ssr: false })
 const LiveCheckoutsPanel = dynamic(() => import('@/components/LiveCheckoutsPanel').then(m => m.LiveCheckoutsPanel), { ssr: false })
-
-const getStatusText = (status: string) => {
-    switch (status) {
-        case 'pending': return 'Pendiente'
-        case 'borrador': return 'Borrador'
-        case 'confirmed': return 'Confirmado'
-        case 'preparing': return 'Preparando'
-        case 'ready': return 'Listo para entrega'
-        case 'on_way': return 'En camino'
-        case 'delivered': return 'Entregado'
-        case 'cancelled': return 'Descartado'
-        default: return status
-    }
-}
-
-const getStatusColor = (status: string) => {
-    switch (status) {
-        case 'pending': return 'bg-yellow-100 text-yellow-800'
-        case 'borrador': return 'bg-orange-100 text-orange-800'
-        case 'confirmed': return 'bg-blue-100 text-blue-800'
-        case 'preparing': return 'bg-purple-100 text-purple-800'
-        case 'ready': return 'bg-green-100 text-green-800'
-        case 'on_way': return 'bg-indigo-100 text-indigo-800'
-        case 'delivered': return 'bg-gray-100 text-gray-800'
-        case 'cancelled': return 'bg-red-100 text-red-800'
-        default: return 'bg-gray-100 text-gray-800'
-    }
-}
-
-// Helper to convert Firestore timestamp to Date
-const toSafeDate = (val: any): Date => {
-    if (!val) return new Date()
-    if (val instanceof Timestamp) return val.toDate()
-    if (typeof val.toDate === 'function') return val.toDate()
-    if (val.seconds) return new Date(val.seconds * 1000)
-    if (typeof val === 'string') {
-        const dateOnlyMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-        if (dateOnlyMatch) {
-            const [, year, month, day] = dateOnlyMatch
-            return new Date(Number(year), Number(month) - 1, Number(day))
-        }
-        return new Date(val)
-    }
-    if (val instanceof Date) return val
-    return new Date()
-}
-
-const toLocalDateInputValue = (date: Date) => {
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
-}
 
 // Helper to get the display time for an order
 const getOrderDisplayTime = (order: Order) => {
     try {
         if (order.timing?.scheduledTime) {
-            return order.timing.scheduledTime; // Already formatted as HH:MM
+            return order.timing.scheduledTime;
         }
         const date = toSafeDate(order.createdAt);
         return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
@@ -201,31 +89,6 @@ const getOrderDisplayTime = (order: Order) => {
         return '--:--';
     }
 }
-
-const isActiveDashboardOrder = (order: Order) =>
-    ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
-
-const getOrderReferenceDateForBadge = (order: Order) =>
-    order.timing?.type === 'scheduled' && order.timing.scheduledDate
-        ? toSafeDate(order.timing.scheduledDate)
-        : toSafeDate(order.createdAt)
-
-const isPreviousActiveOrder = (order: Order) => {
-    if (!isActiveDashboardOrder(order)) return false
-
-    const today = new Date()
-    const orderDate = getOrderReferenceDateForBadge(order)
-
-    return orderDate.getFullYear() !== today.getFullYear()
-        || orderDate.getMonth() !== today.getMonth()
-        || orderDate.getDate() !== today.getDate()
-}
-
-const getConfiguredDeliveryTime = (business?: Business | null) => {
-    return business?.defaultDeliveryTime ?? business?.deliveryTime ?? 30
-}
-
-const MUNCHYS_BUSINESS_ID = '0FeNtdYThoTRMPJ6qaS7'
 
 export default function TodayOrdersPage() {
     const router = useRouter()
@@ -275,32 +138,42 @@ export default function TodayOrdersPage() {
     const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
     const [summaryExpanded, setSummaryExpanded] = useState(false)
 
-    // Load today's expenses
+    // Load today's expenses — DEFERRED: subscribe after 3s to reduce initial burst
     const [todayExpenses, setTodayExpenses] = useState<any[]>([])
 
     useEffect(() => {
         if (!businessId) return
 
-        const now = new Date()
-        const todayStr = now.toISOString().split('T')[0]
+        const timer = setTimeout(() => {
+            const now = new Date()
+            const todayStr = now.toISOString().split('T')[0]
 
-        const q = query(
-            collection(db, 'expenses'),
-            where('businessId', '==', businessId),
-            where('date', '==', todayStr)
-        )
+            const q = query(
+                collection(db, 'expenses'),
+                where('businessId', '==', businessId),
+                where('date', '==', todayStr)
+            )
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }))
-            setTodayExpenses(data)
-        }, (error) => {
-            console.error("Error listening to expenses:", error)
-        })
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const data = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }))
+                setTodayExpenses(data)
+            }, (error) => {
+                console.error("Error listening to expenses:", error)
+            })
 
-        return () => unsubscribe()
+            // Store cleanup for when the effect is cleaned up
+            cleanupRef.current = unsubscribe
+        }, 3000)
+
+        const cleanupRef = { current: () => {} }
+
+        return () => {
+            clearTimeout(timer)
+            cleanupRef.current()
+        }
     }, [businessId])
 
 
@@ -328,7 +201,7 @@ export default function TodayOrdersPage() {
         localStorage.setItem('fuddi_print_mode', newMode)
     }
 
-    // activeTab removed (was 'orders') - now we use orders state directly
+    // Core state
     const [orders, setOrders] = useState<Order[]>([])
     const [loading, setLoading] = useState(true)
     const [availableDeliveries, setAvailableDeliveries] = useState<Delivery[]>([])
@@ -442,65 +315,68 @@ export default function TodayOrdersPage() {
     const [customerContactModalOpen, setCustomerContactModalOpen] = useState(false)
     const [selectedOrderForCustomerContact, setSelectedOrderForCustomerContact] = useState<Order | null>(null)
 
-    // Cache de notas de clientes
+    // Cache de notas de clientes — DEFERRED: load after 5s to reduce initial burst
     const [clientsWithNotes, setClientsWithNotes] = useState<Record<string, string>>({})
 
-    // Cargar notas de clientes de las órdenes activas y futuras (se excluye el historial para evitar lecturas masivas innecesarias)
     useEffect(() => {
-        const fetchNotesForCustomers = async () => {
-            const allOrdersList = [...orders, ...allUpcomingOrders]
-            if (allOrdersList.length === 0) return
-            const { searchClientByPhone } = await import('@/lib/database')
-            
-            const phones = Array.from(new Set(
-                allOrdersList
-                    .map(o => o.customer?.phone)
-                    .filter((phone): phone is string => !!phone && phone.trim().length >= 9)
-            ))
-
-            // Filtrar los teléfonos que aún no hemos consultado
-            const newPhones = phones.filter(phone => clientsWithNotes[phone] === undefined)
-
-            if (newPhones.length === 0) return
-
-            // Marcar todos como consultados provisionalmente de golpe para evitar peticiones duplicadas
-            const provisionalNotes: Record<string, string> = {}
-            for (const phone of newPhones) {
-                provisionalNotes[phone] = ''
-            }
-            setClientsWithNotes(prev => ({ ...prev, ...provisionalNotes }))
-
-            // Buscar notas en paralelo
-            try {
-                const results = await Promise.all(
-                    newPhones.map(async (phone) => {
-                        try {
-                            const client = await searchClientByPhone(phone)
-                            return { phone, notas: client?.notas || '' }
-                        } catch (error) {
-                            console.error(`Error fetching client notes for phone ${phone}:`, error)
-                            return { phone, notas: '' }
-                        }
-                    })
-                )
-
-                // Construir mapa final y actualizar de una sola vez
-                const finalNotes: Record<string, string> = {}
-                for (const r of results) {
-                    if (r.notas) {
-                        finalNotes[r.phone] = r.notas
-                    }
-                }
+        const timer = setTimeout(() => {
+            const fetchNotesForCustomers = async () => {
+                const allOrdersList = [...orders, ...allUpcomingOrders]
+                if (allOrdersList.length === 0) return
+                const { searchClientByPhone } = await import('@/lib/database')
                 
-                if (Object.keys(finalNotes).length > 0) {
-                    setClientsWithNotes(prev => ({ ...prev, ...finalNotes }))
-                }
-            } catch (error) {
-                console.error("Error fetching notes in parallel:", error)
-            }
-        }
+                const phones = Array.from(new Set(
+                    allOrdersList
+                        .map(o => o.customer?.phone)
+                        .filter((phone): phone is string => !!phone && phone.trim().length >= 9)
+                ))
 
-        fetchNotesForCustomers()
+                // Filtrar los teléfonos que aún no hemos consultado
+                const newPhones = phones.filter(phone => clientsWithNotes[phone] === undefined)
+
+                if (newPhones.length === 0) return
+
+                // Marcar todos como consultados provisionalmente de golpe para evitar peticiones duplicadas
+                const provisionalNotes: Record<string, string> = {}
+                for (const phone of newPhones) {
+                    provisionalNotes[phone] = ''
+                }
+                setClientsWithNotes(prev => ({ ...prev, ...provisionalNotes }))
+
+                // Buscar notas en paralelo
+                try {
+                    const results = await Promise.all(
+                        newPhones.map(async (phone) => {
+                            try {
+                                const client = await searchClientByPhone(phone)
+                                return { phone, notas: client?.notas || '' }
+                            } catch (error) {
+                                console.error(`Error fetching client notes for phone ${phone}:`, error)
+                                return { phone, notas: '' }
+                            }
+                        })
+                    )
+
+                    // Construir mapa final y actualizar de una sola vez
+                    const finalNotes: Record<string, string> = {}
+                    for (const r of results) {
+                        if (r.notas) {
+                            finalNotes[r.phone] = r.notas
+                        }
+                    }
+                    
+                    if (Object.keys(finalNotes).length > 0) {
+                        setClientsWithNotes(prev => ({ ...prev, ...finalNotes }))
+                    }
+                } catch (error) {
+                    console.error("Error fetching notes in parallel:", error)
+                }
+            }
+
+            fetchNotesForCustomers()
+        }, 5000)
+
+        return () => clearTimeout(timer)
     }, [orders, allUpcomingOrders])
 
     // Limpiar caché cuando se cierra el sidebar de pedidos manuales por si se editaron notas
@@ -515,9 +391,12 @@ export default function TodayOrdersPage() {
     const [productsLoaded, setProductsLoaded] = useState(false)
     const [productsLoading, setProductsLoading] = useState(false)
     
-    // Product list loading effect when business is set
+    // OPTIMIZED: Load products only when needed (products tab or manual order sidebar)
+    const needsProducts = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen
+    
     useEffect(() => {
         if (!businessId) return
+        if (!needsProducts) return
 
         if (!productsLoaded && !productsLoading) {
             const fetchProducts = async () => {
@@ -529,13 +408,14 @@ export default function TodayOrdersPage() {
                         if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
                             const sharedProds = await getProductsByIds(biz.sharedProductIds)
                             const allBizs = await getAllBusinesses()
+                            const { isStoreOpen: isOpen } = await import('@/lib/store-utils')
                             const avShared = sharedProds
                                 .filter(p => {
                                     if (!p.isAvailable) return false
                                     const ownerBiz = allBizs.find(b => b.id === p.businessId)
                                     if (!ownerBiz) return false
                                     if (ownerBiz.isActive === false) return false
-                                    return isStoreOpen(ownerBiz)
+                                    return isOpen(ownerBiz)
                                 })
                                 .map(p => {
                                     const ownerBiz = allBizs.find(b => b.id === p.businessId)
@@ -563,7 +443,7 @@ export default function TodayOrdersPage() {
             }
             fetchProducts()
         }
-    }, [businessId, productsLoaded, productsLoading, business])
+    }, [businessId, productsLoaded, productsLoading, business, needsProducts])
 
     // Sold units per day calculation state & memo
     const [currentUnitsIndex, setCurrentUnitsIndex] = useState(0)
@@ -1083,25 +963,34 @@ export default function TodayOrdersPage() {
         repairOrCleanup()
     }, [business?.id, business?.manualStoreStatus, !!business?.manualStatusExpiry])
 
-    // Load visits count
+    // Load visits count — DEFERRED: subscribe after 3s to reduce initial burst
     const [visitsCount, setVisitsCount] = useState(0)
 
     useEffect(() => {
         if (!businessId) return
 
-        const visitRef = getTodayVisitsDocRef(businessId)
-        const unsubscribe = onSnapshot(visitRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data()
-                setVisitsCount(data.count || 0)
-            } else {
-                setVisitsCount(0)
-            }
-        }, (error) => {
-            console.error("Error listening to visits:", error)
-        })
+        const timer = setTimeout(() => {
+            const visitRef = getTodayVisitsDocRef(businessId)
+            const unsubscribe = onSnapshot(visitRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data()
+                    setVisitsCount(data.count || 0)
+                } else {
+                    setVisitsCount(0)
+                }
+            }, (error) => {
+                console.error("Error listening to visits:", error)
+            })
 
-        return () => unsubscribe()
+            cleanupRef.current = unsubscribe
+        }, 3000)
+
+        const cleanupRef = { current: () => {} }
+
+        return () => {
+            clearTimeout(timer)
+            cleanupRef.current()
+        }
     }, [businessId])
 
     // Fetch products (Lazy loading)
@@ -1156,7 +1045,6 @@ export default function TodayOrdersPage() {
         let createdQueryLoaded = false
         let scheduledQueryLoaded = false
         let scheduledStringQueryLoaded = false
-        let cancelled = false
 
         const isActiveOrder = (order: Order) => ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
         const isScheduledOrder = (order: Order) => order.timing?.type === 'scheduled' && Boolean(order.timing.scheduledDate)
@@ -1196,6 +1084,8 @@ export default function TodayOrdersPage() {
             // Only stop loading spinner when all queries have fetched their initial snapshot
             if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded && scheduledStringQueryLoaded) {
                 setLoading(false)
+                // OPTIMIZED: Set first load flag directly instead of polling with setInterval
+                isFirstOrdersLoad.current = false
             }
         }
 
@@ -1333,38 +1223,14 @@ export default function TodayOrdersPage() {
             updateOrdersState()
         })
 
-        const loadLegacyScheduledToday = async () => {
-            try {
-                const allOrders = await getOrdersByBusinessComplete(businessId)
-                if (cancelled) return
-
-                allOrders.forEach(order => {
-                    if (order.timing?.type === 'scheduled' && isOrderForToday(order)) {
-                        ordersMap.set(order.id, order)
-                    }
-                })
-                updateOrdersState()
-            } catch (error) {
-                console.error("Error loading legacy scheduled orders:", error)
-            }
-        }
-        loadLegacyScheduledToday()
-
-        // Set isFirstOrdersLoad.current = false after all initial queries have reported at least once
-        const checkFirstLoad = setInterval(() => {
-            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded && scheduledStringQueryLoaded) {
-                isFirstOrdersLoad.current = false
-                clearInterval(checkFirstLoad)
-            }
-        }, 500)
+        // REMOVED: loadLegacyScheduledToday — the 4 listeners above already cover all scheduled date formats
+        // REMOVED: setInterval polling for first load — now set directly in updateOrdersState
 
         return () => {
-            cancelled = true
             unsubCreated()
             unsubActive()
             unsubScheduled()
             unsubScheduledString()
-            clearInterval(checkFirstLoad)
         }
     }, [businessId])
 
@@ -1605,15 +1471,12 @@ export default function TodayOrdersPage() {
 
             // Auto-assign delivery logic
             if (isDelivery && hasNoDeliveryAssigned) {
-                // Scenario A: Confirming a pending order (Immediate orders go to preparing, Scheduled go to confirmed)
-                // We only assign delivery here if it's NOT scheduled (meaning it's immediate)
                 if (previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
                     const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                     }
                 }
-                // Scenario B: Moving a scheduled order from confirmed to preparing (purple button)
                 else if (previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
                     const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
@@ -1706,7 +1569,6 @@ export default function TodayOrdersPage() {
                 order,
                 availableDeliveries,
                 orderBusiness
-                // Removed callbacks to prevent automatic status advancement
             )
         } catch (e) {
             console.error("Error sending WhatsApp", e)
@@ -2712,1164 +2574,6 @@ export default function TodayOrdersPage() {
                     )}
                 </div>
             </div>
-        </div>
-    )
-}
-
-function CustomerContactModal({
-    isOpen,
-    onClose,
-    order
-}: {
-    isOpen: boolean,
-    onClose: () => void,
-    order: Order | null
-}) {
-    if (!isOpen || !order) return null
-
-    return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-            onMouseDown={onClose}
-        >
-            <div
-                className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200"
-                onMouseDown={(e) => e.stopPropagation()}
-            >
-                <div className="p-6">
-                    <div className="flex justify-between items-start mb-6">
-                        <div>
-                            <h3 className="text-xl font-bold text-gray-900">Contactar Cliente</h3>
-                            <p className="text-sm text-gray-500 mt-1">{order.customer?.name}</p>
-                        </div>
-                        <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg text-gray-400">
-                            <i className="bi bi-x-lg"></i>
-                        </button>
-                    </div>
-
-                    <div className="space-y-3">
-                        <button
-                            onClick={() => {
-                                sendWhatsAppToCustomer(order)
-                                onClose()
-                            }}
-                            className="w-full flex items-center justify-center gap-3 py-4 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
-                        >
-                            <i className="bi bi-whatsapp text-xl"></i>
-                            Enviar WhatsApp
-                        </button>
-
-                        <a
-                            href={`tel:${order.customer?.phone}`}
-                            onClick={onClose}
-                            className="w-full flex items-center justify-center gap-3 py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
-                        >
-                            <i className="bi bi-telephone-fill text-xl"></i>
-                            Llamar por teléfono
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-const getDeliveryCoordinates = (order: Order | null) => {
-    if (!order?.delivery) return null
-    if (typeof order.delivery.mapLocation?.lat === 'number' && typeof order.delivery.mapLocation?.lng === 'number') {
-        return {
-            lat: order.delivery.mapLocation.lat,
-            lng: order.delivery.mapLocation.lng
-        }
-    }
-
-    const latlong = order.delivery.latlong
-    if (!latlong || latlong.startsWith('pluscode:')) return null
-    const [lat, lng] = latlong.split(',').map(value => Number(value.trim()))
-
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return null
-    return { lat, lng }
-}
-
-const getDeliveryZone = (order: Order | null) => {
-    const delivery = order?.delivery as any
-    return delivery?.sector || delivery?.address || delivery?.zoneName || delivery?.coverageZoneName || 'No especificado'
-}
-
-function DeliveryStatusModal({
-    isOpen,
-    onClose,
-    order,
-    deliveryAgent,
-    availableDeliveries,
-    canChangeDelivery,
-    onDeliveryAssign,
-    onWhatsApp,
-    deliveryServiceType,
-    defaultDeliveryId,
-    onAutoAssignFuddi
-}: {
-    isOpen: boolean,
-    onClose: () => void,
-    order: Order | null,
-    deliveryAgent?: Delivery,
-    availableDeliveries: Delivery[],
-    canChangeDelivery: boolean,
-    onDeliveryAssign: (id: string, deliveryId: string) => void | Promise<void>,
-    onWhatsApp: () => void,
-    deliveryServiceType?: 'self' | 'fuddi',
-    defaultDeliveryId?: string,
-    onAutoAssignFuddi?: (order: Order) => void | Promise<void>
-}) {
-    const [isSearchingFuddi, setIsSearchingFuddi] = useState(false)
-    const [showSelfSelect, setShowSelfSelect] = useState(false)
-
-    if (!isOpen || !order) return null
-
-    const status = order.delivery?.acceptanceStatus
-    const isUnassigned = !order.delivery?.assignedDelivery
-    const isFuddiConfigured = (deliveryServiceType ?? 'fuddi') === 'fuddi'
-    const agentCardClass = isUnassigned
-        ? 'bg-gray-50 border-gray-200'
-        : status === 'accepted'
-            ? 'bg-green-50 border-green-200'
-            : 'bg-yellow-50 border-yellow-200'
-
-    return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-            onMouseDown={onClose}
-        >
-            <div
-                className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200"
-                onMouseDown={(e) => e.stopPropagation()}
-            >
-                <div className="p-6">
-                    <div className="flex justify-between items-start mb-6">
-                        <h3 className="text-xl font-bold text-gray-900">Estado del Delivery</h3>
-                        <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg text-gray-400">
-                            <i className="bi bi-x-lg"></i>
-                        </button>
-                    </div>
-
-                    <div className="space-y-6">
-                        {isUnassigned && isFuddiConfigured ? (
-                            <div className="space-y-4">
-                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                    Selecciona el método de delivery
-                                </p>
-
-                                {/* Opción Autogestión */}
-                                <div className={`p-4 rounded-xl border-2 transition-all ${showSelfSelect ? 'border-orange-500 bg-orange-50/50' : 'border-gray-200 hover:border-orange-300 bg-white'}`}>
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (defaultDeliveryId && availableDeliveries.some(d => d.id === defaultDeliveryId)) {
-                                                await onDeliveryAssign(order.id, defaultDeliveryId)
-                                                onClose()
-                                            } else {
-                                                setShowSelfSelect(prev => !prev)
-                                            }
-                                        }}
-                                        className="w-full text-left flex items-start gap-3"
-                                    >
-                                        <div className="w-10 h-10 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center shrink-0">
-                                            <i className="bi bi-person-badge text-xl"></i>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                                <span className="font-bold text-gray-900 text-sm">Autogestión</span>
-                                                <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded bg-orange-100 text-orange-700">Tienda</span>
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                                {defaultDeliveryId && availableDeliveries.some(d => d.id === defaultDeliveryId)
-                                                    ? 'Asignar repartidor predeterminado de la tienda'
-                                                    : 'Seleccionar repartidor propio de la tienda'}
-                                            </p>
-                                        </div>
-                                    </button>
-
-                                    {(showSelfSelect || !defaultDeliveryId || !availableDeliveries.some(d => d.id === defaultDeliveryId)) && canChangeDelivery && (
-                                        <div className="mt-3 pt-3 border-t border-gray-200">
-                                            <label className="block text-xs font-semibold text-gray-600 mb-1">Seleccionar repartidor propio:</label>
-                                            <select
-                                                value={order.delivery?.assignedDelivery || ''}
-                                                onChange={async (e) => {
-                                                    if (e.target.value) {
-                                                        await onDeliveryAssign(order.id, e.target.value)
-                                                        onClose()
-                                                    }
-                                                }}
-                                                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-                                            >
-                                                <option value="">Elegir repartidor...</option>
-                                                {availableDeliveries.map(delivery => (
-                                                    <option key={delivery.id} value={delivery.id}>{delivery.nombres}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Opción Delivery Fuddi */}
-                                <div className="p-4 rounded-xl border-2 border-gray-200 hover:border-blue-300 bg-white transition-all">
-                                    <button
-                                        type="button"
-                                        disabled={isSearchingFuddi}
-                                        onClick={async () => {
-                                            setIsSearchingFuddi(true)
-                                            try {
-                                                if (onAutoAssignFuddi) {
-                                                    await onAutoAssignFuddi(order)
-                                                }
-                                            } finally {
-                                                setIsSearchingFuddi(false)
-                                                onClose()
-                                            }
-                                        }}
-                                        className="w-full text-left flex items-start gap-3"
-                                    >
-                                        <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                                            {isSearchingFuddi ? (
-                                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                                            ) : (
-                                                <i className="bi bi-scooter text-xl"></i>
-                                            )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                                <span className="font-bold text-gray-900 text-sm">Delivery Fuddi</span>
-                                                <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded bg-blue-100 text-blue-700">Red Fuddi</span>
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                                Buscar repartidor de la red Fuddi automáticamente por zona de cobertura
-                                            </p>
-                                        </div>
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            /* Normal info when assigned or store has deliveryServiceType === 'self' */
-                            <div className={`flex items-center gap-4 p-4 rounded-xl border ${agentCardClass}`}>
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${!order.delivery?.assignedDelivery ? 'bg-gray-100 text-gray-500' : status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                    <i className="bi bi-person-fill text-2xl"></i>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <p className="text-xs text-gray-500 font-medium">Repartidor Asignado</p>
-                                    {canChangeDelivery ? (
-                                        <select
-                                            value={order.delivery?.assignedDelivery || ''}
-                                            onChange={(e) => onDeliveryAssign(order.id, e.target.value)}
-                                            className="mt-1 w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-red-100 focus:border-red-300"
-                                        >
-                                            <option value="">Asignar repartidor...</option>
-                                            {availableDeliveries.map(delivery => (
-                                                <option key={delivery.id} value={delivery.id}>{delivery.nombres}</option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <p className="text-lg font-bold text-gray-900 truncate">{deliveryAgent?.nombres || 'No identificado'}</p>
-                                    )}
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <span className={`h-2 w-2 rounded-full ${!order.delivery?.assignedDelivery ? 'bg-gray-400' :
-                                            status === 'accepted' ? 'bg-green-500' :
-                                                status === 'rejected' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'
-                                            }`} />
-                                        <span className="text-sm font-bold text-gray-900">
-                                            {!order.delivery?.assignedDelivery ? 'Sin asignar' :
-                                                status === 'accepted' ? 'Confirmado' :
-                                                    status === 'rejected' ? 'Rechazado' : 'Esperando confirmacion'}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* WhatsApp Action */}
-                        {order.delivery?.assignedDelivery && (
-                            <button
-                                onClick={onWhatsApp}
-                                className="w-full flex items-center justify-center gap-2 py-3.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
-                            >
-                                <i className="bi bi-whatsapp text-xl"></i>
-                                Notificar por WhatsApp
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-const getActionIcon = (status: string) => {
-    switch (status) {
-        case 'preparing': return 'bi-fire text-purple-500'
-        case 'ready': return 'bi-check2 text-green-600'
-        case 'on_way': return 'bi-bicycle text-indigo-500'
-        case 'delivered': return 'bi-stars text-purple-500'
-        default: return 'bi-arrow-right'
-    }
-}
-
-const getActionText = (status: string) => {
-    switch (status) {
-        case 'confirmed': return 'Confirmar'
-        case 'preparing': return 'Preparando'
-        case 'ready': return 'Listo para la entrega'
-        case 'on_way': return 'En camino'
-        case 'delivered': return 'Entregado'
-        default: return getStatusText(status)
-    }
-}
-
-const getActionEmoji = (status: string) => {
-    switch (status) {
-        case 'preparing': return '🔥'
-        case 'ready': return '✔️'
-        case 'on_way': return '🛵'
-        case 'delivered': return '🎉'
-        default: return '➡️'
-    }
-}
-
-function OrderStatusColumn({
-    statuses,
-    orders,
-    availableDeliveries,
-    handleStatusChange,
-    handleDeliveryAssignment,
-    handlePaymentClick,
-    handleSendWhatsAppToDelivery,
-    handlePrint,
-    setSelectedOrderForStatusModal,
-    setDeliveryStatusModalOpen,
-    setSelectedOrderForEdit,
-    setManualSidebarMode,
-    setManualOrderSidebarOpen,
-    handleDeleteOrder,
-    setSelectedOrderForCustomerContact,
-    setCustomerContactModalOpen,
-    business,
-    canChangeDelivery,
-    canDeleteOrders,
-    deliveryTimeMinutes,
-    autoPrintOnConfirm,
-    clientsWithNotes
-}: any) {
-    return (
-        <>
-            {statuses.map((statusConfig: any) => {
-                const groupedStatuses = typeof statusConfig === 'string' ? [statusConfig] : statusConfig.statuses;
-                const sectionKey = typeof statusConfig === 'string' ? statusConfig : statusConfig.key;
-                const sectionTitle = typeof statusConfig === 'string' ? getStatusText(statusConfig) : statusConfig.title;
-                const sectionStatusColor = typeof statusConfig === 'string' ? statusConfig : statusConfig.statusColor || groupedStatuses[0];
-                const sectionDefaultExpanded = typeof statusConfig === 'string' || statusConfig.defaultExpanded === undefined
-                    ? !groupedStatuses.every((status: string) => ['delivered', 'cancelled'].includes(status))
-                    : statusConfig.defaultExpanded;
-                const statusOrders = orders.filter((o: any) => groupedStatuses.includes(o.status));
-                const countStatusTotal = typeof statusConfig === 'string' || !statusConfig.countStatus
-                    ? null
-                    : statusOrders.filter((o: any) => o.status === statusConfig.countStatus).length;
-                const sectionCount = countStatusTotal == null || countStatusTotal === statusOrders.length
-                    ? statusOrders.length
-                    : `${countStatusTotal} de ${statusOrders.length}`;
-                if (statusOrders.length === 0) return null;
-
-                return (
-                    <CollapsibleSection
-                        key={sectionKey}
-                        title={sectionTitle}
-                        count={sectionCount}
-                        status={sectionStatusColor}
-                        defaultExpanded={sectionDefaultExpanded}
-                    >
-                        {statusOrders.map((order: any) => (
-                            <OrderCard
-                                key={order.id}
-                                order={order}
-                                availableDeliveries={availableDeliveries}
-                                onStatusChange={handleStatusChange}
-                                onDeliveryAssign={handleDeliveryAssignment}
-                                onPaymentEdit={() => handlePaymentClick(order)}
-                                onWhatsAppDelivery={() => handleSendWhatsAppToDelivery(order)}
-                                onPrint={(silent?: boolean) => handlePrint(order, silent)}
-                                onDeliveryStatusClick={(o: any) => {
-                                    setSelectedOrderForStatusModal(o)
-                                    setDeliveryStatusModalOpen(true)
-                                }}
-                                onEdit={() => {
-                                    setSelectedOrderForEdit(order)
-                                    setManualSidebarMode('edit')
-                                    setManualOrderSidebarOpen(true)
-                                }}
-                                onDelete={() => handleDeleteOrder(order.id)}
-                                onCustomerClick={() => {
-                                    setSelectedOrderForCustomerContact(order)
-                                    setCustomerContactModalOpen(true)
-                                }}
-                                sectionKey={sectionKey}
-                                businessPhone={business?.phone}
-                                canChangeDelivery={canChangeDelivery}
-                                canDeleteOrders={canDeleteOrders}
-                                deliveryTimeMinutes={deliveryTimeMinutes}
-                                autoPrintOnConfirm={autoPrintOnConfirm}
-                                clientsWithNotes={clientsWithNotes}
-                             />
-                        ))}
-                    </CollapsibleSection>
-                );
-            })}
-        </>
-    );
-}
-
-function CollapsibleSection({
-    title,
-    count,
-    status,
-    children,
-    defaultExpanded = true
-}: {
-    title: string,
-    count: number | string,
-    status: string,
-    children: React.ReactNode,
-    defaultExpanded?: boolean
-}) {
-    const [isExpanded, setIsExpanded] = useState(defaultExpanded)
-
-    const getDotColor = (s: string) => {
-        switch (s) {
-            case 'pending': return 'bg-yellow-500 shadow-yellow-200'
-            case 'borrador': return 'bg-orange-400 shadow-orange-200'
-            case 'confirmed': return 'bg-blue-500 shadow-blue-200'
-            case 'preparing': return 'bg-purple-500 shadow-purple-200'
-            case 'ready': return 'bg-green-500 shadow-green-200'
-            case 'on_way': return 'bg-indigo-500 shadow-indigo-200'
-            case 'delivered': return 'bg-gray-500 shadow-gray-200'
-            case 'cancelled': return 'bg-red-500 shadow-red-200'
-            default: return 'bg-gray-400'
-        }
-    }
-
-    return (
-        <div className="mb-4 overflow-visible rounded-xl bg-transparent">
-            <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full px-4 py-3 flex justify-between items-center bg-gray-100 hover:bg-gray-200 transition-colors"
-            >
-                <div className="flex items-center gap-3">
-                    <span className={`w-3 h-3 rounded-full shadow-sm ${getDotColor(status)}`}></span>
-                    <h3 className="font-bold text-gray-800 text-lg">{title}</h3>
-                    <span className="bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold px-2.5 py-0.5 rounded-full">{count}</span>
-                </div>
-                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 transition-transform duration-200`}></i>
-            </button>
-
-            {isExpanded && (
-                <div className="p-4 space-y-3 bg-gray-100 animate-in slide-in-from-top-2 duration-200">
-                    {children}
-                </div>
-            )}
-        </div>
-    )
-}
-
-function OrderCard({
-    order,
-    availableDeliveries,
-    onStatusChange,
-    onDeliveryAssign,
-    onPaymentEdit,
-    onWhatsAppDelivery,
-    onPrint,
-    onDeliveryStatusClick,
-    onEdit,
-    onDelete,
-    onCustomerClick,
-    sectionKey,
-    businessPhone,
-    canChangeDelivery,
-    canDeleteOrders,
-    deliveryTimeMinutes,
-    autoPrintOnConfirm,
-    clientsWithNotes
-}: {
-    order: Order,
-    availableDeliveries: Delivery[],
-    onStatusChange: (id: string, status: Order['status'], reason?: string) => void,
-    onDeliveryAssign: (id: string, deliveryId: string) => void,
-    onPaymentEdit: () => void,
-    onWhatsAppDelivery: () => void,
-    onPrint: (silent?: boolean) => void,
-    onDeliveryStatusClick: (order: Order) => void,
-    onEdit: () => void,
-    onDelete: () => void,
-    onCustomerClick: () => void,
-    sectionKey?: string,
-    businessPhone?: string,
-    canChangeDelivery?: boolean,
-    canDeleteOrders?: boolean,
-    deliveryTimeMinutes?: number,
-    autoPrintOnConfirm?: boolean,
-    clientsWithNotes?: Record<string, string>
-}) {
-    const nextStatus = getNextStatus(order.status)
-    const getOrderTargetDate = () => {
-        const date = order.timing?.scheduledDate
-            ? toSafeDate(order.timing.scheduledDate)
-            : toSafeDate(order.createdAt)
-
-        if (order.timing?.scheduledTime) {
-            const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
-            if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
-                date.setHours(hours, minutes, 0, 0)
-            }
-        }
-
-        return date
-    }
-    const isWithinDeliveryTimeWindow = () => {
-        if (!['confirmed', 'preparing'].includes(order.status)) return false
-        const windowMinutes = deliveryTimeMinutes ?? 30
-        const diffMinutes = (getOrderTargetDate().getTime() - Date.now()) / 60000
-        return diffMinutes <= windowMinutes
-    }
-    const showReadyAction = ['confirmed', 'preparing'].includes(order.status) && isWithinDeliveryTimeWindow()
-    const primaryActionStatus = showReadyAction ? 'ready' : (order.status === 'confirmed' ? null : nextStatus)
-    const primaryActionLabel = showReadyAction ? '¿Listo?' : (primaryActionStatus ? getActionText(primaryActionStatus) : '')
-    const isDelivery = order.delivery?.type === 'delivery'
-    const isPickup = order.delivery?.type === 'pickup'
-    const [isExpanded, setIsExpanded] = useState(false)
-    const [statusMenuOpen, setStatusMenuOpen] = useState(false)
-    const [menuView, setMenuView] = useState<'main' | 'statuses' | 'whatsapp'>('main')
-    const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
-    const [discardReason, setDiscardReason] = useState('')
-    const [deliveryInfoExpanded, setDeliveryInfoExpanded] = useState(false)
-    const statusMenuRef = useRef<HTMLDivElement>(null)
-    const assignedDelivery = availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
-    const deliveryLabel = order.delivery?.assignedDelivery
-        ? assignedDelivery?.nombres || 'Delivery asignado'
-        : 'Buscando delivery'
-    const deliveryLabelClass = !order.delivery?.assignedDelivery
-        ? 'bg-gray-100 text-gray-600 border-gray-200'
-        : order.delivery?.acceptanceStatus === 'accepted'
-            ? 'bg-green-100 text-green-700 border-green-200'
-            : 'bg-yellow-100 text-yellow-800 border-yellow-200'
-    const deliveryLabelTitle = !order.delivery?.assignedDelivery
-        ? 'Buscando delivery'
-        : order.delivery?.acceptanceStatus === 'accepted'
-            ? 'Delivery confirmado'
-            : 'Esperando confirmacion del delivery'
-    const fulfillmentLabel = isPickup ? 'Retiro en tienda' : deliveryLabel
-    const fulfillmentLabelClass = isPickup ? 'bg-blue-100 text-blue-700 border-blue-200' : deliveryLabelClass
-    const fulfillmentLabelTitle = isPickup ? 'Retiro en tienda' : deliveryLabelTitle
-    const showInlineStatusTag = sectionKey === 'delivered-group'
-    const inlineStatusClass = order.status === 'ready'
-        ? 'bg-green-50 text-green-700 border-green-200'
-        : order.status === 'on_way'
-            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-            : 'bg-gray-100 text-gray-700 border-gray-200'
-    const deliveryCoordinates = getDeliveryCoordinates(order)
-    const deliveryZone = getDeliveryZone(order)
-    const deliveryCost = order.delivery?.deliveryCost || 0
-    const deliveryMapsUrl = deliveryCoordinates
-        ? `https://www.google.com/maps/search/?api=1&query=${deliveryCoordinates.lat},${deliveryCoordinates.lng}`
-        : undefined
-    const deliveryMapImageUrl = deliveryCoordinates
-        ? `https://maps.googleapis.com/maps/api/staticmap?center=${deliveryCoordinates.lat},${deliveryCoordinates.lng}&zoom=16&size=600x180&scale=2&maptype=roadmap&markers=color:red%7C${deliveryCoordinates.lat},${deliveryCoordinates.lng}&key=${GOOGLE_MAPS_API_KEY}`
-        : undefined
-
-    // Prevent scroll when modal is open
-    useEffect(() => {
-        if (confirmDiscardOpen) {
-            document.body.style.overflow = 'hidden'
-        } else {
-            document.body.style.overflow = ''
-        }
-        return () => {
-            document.body.style.overflow = ''
-        }
-    }, [confirmDiscardOpen])
-
-    useEffect(() => {
-        if (!statusMenuOpen) {
-            setMenuView('main')
-            return
-        }
-
-        const handleClickOutside = (event: MouseEvent) => {
-            if (!statusMenuRef.current?.contains(event.target as Node)) {
-                setStatusMenuOpen(false)
-                setMenuView('main')
-            }
-        }
-
-        document.addEventListener('mousedown', handleClickOutside)
-        return () => document.removeEventListener('mousedown', handleClickOutside)
-    }, [statusMenuOpen])
-
-    // Urgency check
-    const isUrgent = () => {
-        // Only for active orders that are not ready or delivered
-        if (['ready', 'delivered', 'completed', 'cancelled'].includes(order.status)) return false;
-
-        const now = new Date();
-        let targetDate = new Date();
-
-        if (order.timing?.scheduledTime) {
-            const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
-            targetDate.setHours(hours, minutes, 0, 0);
-        } else {
-            // For immediate orders, maybe check if created more than 30 mins ago?
-            // User specifically asked for "less than 5 mins for delivery".
-            // If no scheduled time, we can't really know unless we assume a standard time.
-            // For now, let's stick to scheduled times or maybe immediate orders created > 40 mins ago?
-            // Let's stick to strict interpretation: if scheduled and < 5 mins left.
-            return false;
-        }
-
-        const diffInMinutes = (targetDate.getTime() - now.getTime()) / 60000;
-        return diffInMinutes <= 5;
-    }
-
-    const urgent = isUrgent();
-
-    // Sort items: non-zero price first, then zero price
-    const sortedItems = [...(order.items || [])].sort((a: any, b: any) => {
-        const priceA = (a.price || a.product?.price || 0) * a.quantity;
-        const priceB = (b.price || b.product?.price || 0) * b.quantity;
-
-        if (priceA === 0 && priceB !== 0) return 1;
-        if (priceA !== 0 && priceB === 0) return -1;
-        return 0; // Keep original order if both are zero or both are non-zero
-    });
-
-    return (
-        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 transition-all ${statusMenuOpen ? 'relative z-30' : ''} ${urgent ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
-            {/* Confirmation Modal for Discard */}
-            {confirmDiscardOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
-                    <div
-                        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"
-                        onClick={() => {
-                            setConfirmDiscardOpen(false)
-                            setDiscardReason('')
-                        }}
-                    />
-
-                    <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 flex flex-col items-center text-center animate-in zoom-in-95 duration-200">
-                        <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-4">
-                            <i className="bi bi-trash3 text-2xl"></i>
-                        </div>
-
-                        <h4 className="text-xl font-bold text-gray-900 mb-2">¿Descartar pedido?</h4>
-                        <p className="text-sm text-gray-500 mb-6 px-2">
-                            Se marcará como descartado y desaparecerá de la lista activa. Por favor selecciona el motivo.
-                        </p>
-
-                        {/* Reason Selector */}
-                        <div className="w-full mb-6">
-                            <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-2 text-left ml-1">
-                                Motivo del descarte
-                            </label>
-                            <select
-                                value={discardReason}
-                                onChange={(e) => setDiscardReason(e.target.value)}
-                                className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 text-sm outline-none focus:ring-2 focus:ring-red-100 focus:border-red-300 transition-all font-medium"
-                            >
-                                <option value="">Selecciona un motivo...</option>
-                                <option value="Cliente no responde">Cliente no responde</option>
-                                <option value="Sin stock de productos">Sin stock de productos</option>
-                                <option value="Fuera de zona de cobertura">Fuera de zona de cobertura</option>
-                                <option value="Pedido duplicado">Pedido duplicado</option>
-                                <option value="Fallo en el pago">Fallo en el pago</option>
-                                <option value="Otro">Otro motivo</option>
-                            </select>
-                        </div>
-
-                        <div className="flex gap-3 w-full">
-                            <button
-                                onClick={() => {
-                                    setConfirmDiscardOpen(false)
-                                    setDiscardReason('')
-                                }}
-                                className="flex-1 py-3 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={() => {
-                                    onStatusChange(order.id, 'cancelled', discardReason || 'Sin motivo especificado')
-                                    setConfirmDiscardOpen(false)
-                                    setDiscardReason('')
-                                    setStatusMenuOpen(false)
-                                }}
-                                className="flex-1 py-3 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
-                                disabled={!discardReason}
-                            >
-                                Confirmar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* Card Header: Time & Status */}
-            <div
-                className={`px-4 py-3 border-b cursor-pointer transition-colors ${isExpanded ? 'border-gray-200 bg-gray-200 hover:bg-gray-200' : 'border-gray-50 bg-gray-50/50 hover:bg-gray-100'}`}
-                onClick={() => setIsExpanded(!isExpanded)}
-            >
-                {/* First Row: Customer, Time & Buttons */}
-                <div className="flex justify-between items-center mb-2">
-                    <div className="flex items-center gap-3">
-                        {/* Column for expand/collapse chevron + mobile icon */}
-                        <div className="flex flex-col items-center shrink-0 mt-1 mr-1">
-                            <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs transform transition-transform duration-200`}></i>
-                            {!order.createdByAdmin && (
-                                <i className="bi bi-phone text-blue-500 text-[10px] mt-0.5" title="Pedido del cliente (Checkout)"></i>
-                            )}
-                        </div>
-
-                        <div className="flex flex-col">
-                            <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
-                                {order.customer?.name || "Cliente"}
-                                {Boolean(order.customer?.telegramChatId || (order as any).telegramChatId) && (
-                                    <i 
-                                        className="bi bi-patch-check-fill text-[#229ED9] text-sm shrink-0" 
-                                        title="Cliente con Telegram vinculado"
-                                    ></i>
-                                )}
-                                {order.customer?.phone && clientsWithNotes && clientsWithNotes[order.customer.phone] && (
-                                    <i 
-                                        className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" 
-                                        title={`Nota de cliente: ${clientsWithNotes[order.customer.phone]}`}
-                                    ></i>
-                                )}
-                            </span>
-
-                            <div className="flex items-center gap-2 mt-0.5">
-                                <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock' : 'bi-lightning-fill'} ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-yellow-500'}`}></i>
-                                <span className="font-mono text-sm sm:font-medium text-gray-600">
-                                    {getOrderDisplayTime(order)}
-                                </span>
-                                {isPreviousActiveOrder(order) && (
-                                    <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold leading-none bg-amber-100 text-amber-800 border border-amber-200">
-                                        Pendiente anterior
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                        {/* Advance Status */}
-                        {primaryActionStatus && (
-                            <button
-                                onClick={() => {
-                                    // Si el siguiente estado es 'confirmed', verificar el tipo de timing
-                                    if (primaryActionStatus === 'confirmed') {
-                                        onStatusChange(order.id, 'confirmed');
-                                        
-                                        // Imprimir automáticamente (silenciosamente)
-                                        if (autoPrintOnConfirm) {
-                                            setTimeout(() => {
-                                                onPrint(true);
-                                            }, 500);
-                                        }
-                                    } else {
-                                        onStatusChange(order.id, primaryActionStatus);
-                                    }
-                                }}
-                                className={`flex items-center gap-1 rounded-lg transition-colors ${showReadyAction
-                                    ? 'px-2 py-1.5 text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50'
-                                    : primaryActionStatus === 'confirmed'
-                                        ? 'px-3 py-1.5 text-xs font-bold bg-green-600 text-white hover:bg-green-700 shadow-sm'
-                                        : 'p-1.5 text-lg hover:bg-white hover:shadow-md'
-                                    }`}
-                                title={primaryActionLabel}
-                            >
-                                {(primaryActionStatus === 'confirmed' || showReadyAction) ? (
-                                    <>
-                                        <span>{primaryActionLabel}</span>
-                                        {!showReadyAction && <i className="bi bi-check2-circle"></i>}
-                                    </>
-                                ) : (
-                                    <i className={`bi ${getActionIcon(primaryActionStatus)}`}></i>
-                                )}
-                            </button>
-                        )}
-
-                        {/* Preparing Button for Confirmed Scheduled Orders (within 30 minutes) */}
-                        {false && (
-                            <button
-                                onClick={() => onStatusChange(order.id, 'preparing')}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-purple-600 text-white rounded-lg transition-colors shadow-sm hover:bg-purple-700"
-                                title="Iniciar preparación"
-                            >
-                                <span>En preparación</span>
-                                <i className="bi bi-fire"></i>
-                            </button>
-                        )}
-
-                        {/* Discard Button for Pending Orders */}
-                        {order.status === 'pending' && (
-                            <button
-                                onClick={() => setConfirmDiscardOpen(true)}
-                                className="p-1.5 text-lg text-gray-400 bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"
-                                title="Descartar pedido"
-                            >
-                                <i className="bi bi-x-lg"></i>
-                            </button>
-                        )}
-
-                        {/* Print Button */}
-                        <button
-                            onClick={() => onPrint()}
-                            className="p-1.5 text-lg text-gray-500 rounded-lg transition-all hover:bg-gray-200/60 hover:text-gray-800"
-                            title="Imprimir ticket"
-                        >
-                            <i className="bi bi-printer"></i>
-                        </button>
-
-                        {/* Status Select Menu */}
-                        {showInlineStatusTag ? (
-                            <span
-                                className={`inline-flex h-7 items-center rounded-lg border px-2 text-[11px] font-bold leading-none ${inlineStatusClass}`}
-                                title={getStatusText(order.status)}
-                            >
-                                {getStatusText(order.status)}
-                            </span>
-                        ) : (
-                            <div className="relative" ref={statusMenuRef}>
-                                <button
-                                    onClick={() => setStatusMenuOpen(!statusMenuOpen)}
-                                    className={`p-1.5 text-lg rounded-lg transition-all hover:bg-gray-100 ${statusMenuOpen ? 'bg-gray-100' : ''}`}
-                                    title="Opciones del pedido"
-                                >
-                                    <i className="bi bi-three-dots-vertical"></i>
-                                </button>
-
-                                {statusMenuOpen && (
-                                    <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                                        {menuView === 'main' && (
-                                            <div className="animate-in slide-in-from-left-2 duration-150">
-                                                <button
-                                                    onClick={() => {
-                                                        onEdit()
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-pencil text-blue-500 text-base"></i>
-                                                    Editar
-                                                </button>
-
-                                                <button
-                                                    onClick={() => setMenuView('whatsapp')}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-between font-medium group"
-                                                >
-                                                    <div className="flex items-center gap-2.5">
-                                                        <i className="bi bi-whatsapp text-green-500 text-base"></i>
-                                                        <span>WhatsApp</span>
-                                                    </div>
-                                                    <i className="bi bi-chevron-right text-xs text-gray-400 group-hover:translate-x-0.5 transition-transform"></i>
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        if (canDeleteOrders !== false) {
-                                                            onDelete()
-                                                        } else {
-                                                            setConfirmDiscardOpen(true)
-                                                        }
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-trash text-red-500 text-base"></i>
-                                                    Eliminar
-                                                </button>
-
-                                                <div className="my-1 border-t border-gray-100"></div>
-
-                                                <button
-                                                    onClick={() => setMenuView('statuses')}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-between font-medium group"
-                                                >
-                                                    <div className="flex items-center gap-2.5">
-                                                        <i className="bi bi-arrow-repeat text-purple-500 text-base"></i>
-                                                        <span>Estados</span>
-                                                    </div>
-                                                    <i className="bi bi-chevron-right text-xs text-gray-400 group-hover:translate-x-0.5 transition-transform"></i>
-                                                </button>
-                                            </div>
-                                        )}
-
-                                        {menuView === 'whatsapp' && (
-                                            <div className="animate-in slide-in-from-right-2 duration-150">
-                                                <button
-                                                    onClick={() => setMenuView('main')}
-                                                    className="w-full text-left px-3 py-1.5 text-xs text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-1.5 font-semibold border-b border-gray-100 mb-1"
-                                                >
-                                                    <i className="bi bi-arrow-left text-sm"></i>
-                                                    <span>Volver</span>
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onCustomerClick()
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-person-check text-green-600 text-base"></i>
-                                                    Cliente (Comprobante)
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onWhatsAppDelivery()
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-bicycle text-indigo-500 text-base"></i>
-                                                    Delivery
-                                                </button>
-                                            </div>
-                                        )}
-
-                                        {menuView === 'statuses' && (
-                                            <div className="animate-in slide-in-from-right-2 duration-150">
-                                                <button
-                                                    onClick={() => setMenuView('main')}
-                                                    className="w-full text-left px-3 py-1.5 text-xs text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-1.5 font-semibold border-b border-gray-100 mb-1"
-                                                >
-                                                    <i className="bi bi-arrow-left text-sm"></i>
-                                                    <span>Volver</span>
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onStatusChange(order.id, 'preparing')
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-fire text-purple-500 text-base"></i>
-                                                    Preparando
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onStatusChange(order.id, 'ready')
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-box-seam text-green-500 text-base"></i>
-                                                    Listo para entrega
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onStatusChange(order.id, 'delivered')
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-check-all text-gray-500 text-base"></i>
-                                                    Entregado
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        setConfirmDiscardOpen(true)
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2.5 font-medium border-t border-gray-50 mt-1"
-                                                >
-                                                    <i className="bi bi-x-circle text-red-500 text-base"></i>
-                                                    Descartado
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {!isExpanded && (
-                    <div className="flex flex-col gap-0.5">
-                        {sortedItems.map((item: any, idx) => {
-                            return (
-                                <div key={idx} className="text-lg sm:text-sm leading-tight text-gray-600">
-                                    {item.quantity}x {item.variant || item.product?.name || item.name}
-                                </div>
-                            )
-                        })}
-                    </div>
-                )}
-
-                {(isDelivery || isPickup) && (
-                    <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (isDelivery) {
-                                    onDeliveryStatusClick(order)
-                                }
-                            }}
-                            className={`flex h-[20px] min-h-[20px] max-h-[20px] w-36 items-center justify-center truncate rounded-[3px] border px-2 py-0 text-[11px] font-semibold leading-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] transition-colors ${fulfillmentLabelClass} ${isDelivery ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
-                            title={fulfillmentLabelTitle}
-                        >
-                            {fulfillmentLabel}
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            {/* Card Body */}
-            {isExpanded && (
-                <div className="p-4 bg-white animate-in slide-in-from-top-2 duration-200">
-                    {/* Customer Info */}
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="flex-1 pr-2">
-                            {isDelivery && (
-                                <div className="space-y-2">
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            setDeliveryInfoExpanded(prev => !prev)
-                                        }}
-                                        className="group flex w-full max-w-full items-start gap-1.5 rounded-lg px-2 py-1.5 text-left text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-700"
-                                        title={deliveryInfoExpanded ? 'Ocultar datos de entrega' : 'Ver datos de entrega'}
-                                        aria-expanded={deliveryInfoExpanded}
-                                    >
-                                        <i className="bi bi-geo-alt-fill mt-0.5 flex-shrink-0 text-gray-400 group-hover:text-red-500"></i>
-                                        <span className="line-clamp-2">{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}</span>
-                                        <i className={`bi bi-chevron-${deliveryInfoExpanded ? 'up' : 'down'} mt-0.5 flex-shrink-0 text-[11px] text-gray-300 group-hover:text-red-500`}></i>
-                                    </button>
-                                    {deliveryInfoExpanded && (
-                                        <div className="ml-2 overflow-hidden rounded-xl border border-red-100 bg-red-50/50 animate-in slide-in-from-top-1 duration-150">
-                                            {deliveryMapImageUrl && deliveryMapsUrl ? (
-                                                <a
-                                                    href={deliveryMapsUrl}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className="block"
-                                                    title="Abrir ubicacion en Maps"
-                                                >
-                                                    <img
-                                                        src={deliveryMapImageUrl}
-                                                        alt="Mapa de entrega"
-                                                        className="h-36 w-full object-cover"
-                                                        loading="lazy"
-                                                    />
-                                                </a>
-                                            ) : (
-                                                <div className="flex h-24 items-center justify-center gap-2 text-sm font-medium text-gray-500">
-                                                    <i className="bi bi-map text-gray-300"></i>
-                                                    Sin coordenadas
-                                                </div>
-                                            )}
-
-                                            <div className="grid grid-cols-2 gap-2 p-3 text-sm">
-                                                <div>
-                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Zona</p>
-                                                    <p className="font-semibold text-gray-900">{deliveryZone}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Envío</p>
-                                                    <p className="font-semibold text-gray-900">${deliveryCost.toFixed(2)}</p>
-                                                </div>
-                                            </div>
-
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Notes - Show only if exists */}
-                    {order.notas && order.notas.trim() && (
-                        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                            <div className="flex items-start gap-2">
-                                <i className="bi bi-sticky text-amber-600 mt-0.5 flex-shrink-0"></i>
-                                <div className="flex-1">
-                                    <p className="text-sm font-medium text-amber-800 mb-1">Notas</p>
-                                    <p className="text-sm text-amber-700 whitespace-pre-wrap">{order.notas}</p>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {order.notaImageUrl && (
-                        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                            <div className="flex items-start gap-2">
-                                <i className="bi bi-image text-amber-600 mt-0.5 flex-shrink-0"></i>
-                                <div className="flex-1">
-                                    <p className="text-sm font-medium text-amber-800 mb-2">Imagen de nota</p>
-                                    <img src={order.notaImageUrl} alt="Imagen de nota" className="max-h-48 w-full object-contain rounded-md border border-amber-200 bg-white" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Items */}
-                    <div className="space-y-2 mb-4">
-                        {order.items?.map((item: any, idx: number) => (
-                            <div key={idx} className="flex justify-between text-base">
-                                <span className="text-gray-700">
-                                    <span className="font-medium text-gray-900">{item.quantity}x</span> {item.variant || item.product?.name || item.name}
-                                </span>
-                                <div className="flex flex-col items-end">
-                                    <span className="text-emerald-600 font-bold text-sm">
-                                        ${((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity).toFixed(2)}
-                                    </span>
-                                    {((item.price || item.product?.price || 0) > (item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0)))) && (
-                                        <span className="text-[9px] text-gray-400 font-medium">Público: ${((item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="border-t border-dashed border-gray-200 my-3"></div>
-
-                    {/* Total & Payment */}
-                    <div className="flex justify-between items-center mb-4">
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={onPaymentEdit}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium transition-colors ${order.payment?.paymentStatus === 'paid'
-                                    ? 'bg-green-100 text-green-700'
-                                    : order.payment?.paymentStatus === 'validating'
-                                        ? 'bg-yellow-100 text-yellow-700'
-                                        : 'bg-red-100 text-red-700'
-                                    }`}
-                            >
-                                <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' :
-                                    order.payment?.method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'
-                                    }`}></i>
-                                <div className="flex flex-col items-start leading-tight">
-                                    <span className="text-emerald-600 font-black">${(order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0).toFixed(2)}</span>
-                                    {((order.total || 0) > (order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0)) && (
-                                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Público: ${(order.total || 0).toFixed(2)}</span>
-                                    )}
-                                </div>
-                                <i className="bi bi-pencil-square text-xs opacity-50 ml-1"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     )
 }
