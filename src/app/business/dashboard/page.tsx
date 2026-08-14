@@ -391,8 +391,8 @@ export default function TodayOrdersPage() {
     const [productsLoaded, setProductsLoaded] = useState(false)
     const [productsLoading, setProductsLoading] = useState(false)
     
-    // OPTIMIZED: Load products only when needed (products tab or manual order sidebar)
-    const needsProducts = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen
+    // OPTIMIZED: Load products when needed (products tab, manual order sidebar) OR in background after initial dashboard load (!loading)
+    const needsProducts = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen || !loading
     
     useEffect(() => {
         if (!businessId) return
@@ -451,7 +451,7 @@ export default function TodayOrdersPage() {
     const todaySoldUnitsSummary = useMemo(() => {
         const activeOrders = orders.filter(o => o.status !== 'cancelled')
 
-        const ingredientMap = new Map<string, { name: string; quantity: number; unit?: string }>()
+        const ingredientMap = new Map<string, { name: string; quantity: number; unit?: string; isIngredient: boolean }>()
         let totalUnitsCount = 0
 
         activeOrders.forEach(order => {
@@ -462,20 +462,55 @@ export default function TodayOrdersPage() {
 
                 let ingredientsToUse: any[] = []
 
+                // 1. Check if ingredients are directly stored on item snapshot
                 const itemIngredients = (item as any).ingredients
                 if (itemIngredients && Array.isArray(itemIngredients) && itemIngredients.length > 0) {
                     ingredientsToUse = itemIngredients
                 } else {
-                    const product = products.find(p => p.id === (item.product?.id || (item as any).productId)) || item.product
+                    const productId = item.product?.id || (item as any).productId || (item as any).id
+                    const productName = item.name || item.product?.name
+                    const product = products.find(p => p.id === productId) || (productName ? products.find(p => p.name === productName) : undefined) || item.product
 
                     if (product) {
-                        if (item.variant && product.variants && Array.isArray(product.variants)) {
-                            const variantObj = product.variants.find((v: any) => v.name === item.variant || v.name === (item as any).variantName)
-                            if (variantObj?.ingredients && Array.isArray(variantObj.ingredients) && variantObj.ingredients.length > 0) {
-                                ingredientsToUse = variantObj.ingredients
+                        // 2. Check combo selections (if item is a combo product with comboSelection)
+                        const comboSelection = (item as any).comboSelection
+                        if (comboSelection && typeof comboSelection === 'object' && product.variants && Array.isArray(product.variants)) {
+                            const comboIngs: any[] = []
+                            Object.entries(comboSelection).forEach(([variantName, selQty]) => {
+                                const selCount = Number(selQty) || 0
+                                if (selCount > 0) {
+                                    const variantObj = product.variants?.find((v: any) => v.name === variantName || v.id === variantName)
+                                    if (variantObj?.ingredients && Array.isArray(variantObj.ingredients)) {
+                                        variantObj.ingredients.forEach((ing: any) => {
+                                            comboIngs.push({
+                                                ...ing,
+                                                quantity: (Number(ing.quantity) || 1) * selCount
+                                            })
+                                        })
+                                    }
+                                }
+                            })
+                            if (comboIngs.length > 0) {
+                                ingredientsToUse = comboIngs
                             }
                         }
 
+                        // 3. Single variant ingredients
+                        if (ingredientsToUse.length === 0) {
+                            const variantName = item.variant || (item as any).variantName
+                            const variantId = (item as any).variantId
+                            if ((variantName || variantId) && product.variants && Array.isArray(product.variants)) {
+                                const variantObj = product.variants.find((v: any) =>
+                                    (variantId && v.id === variantId) ||
+                                    (variantName && v.name === variantName)
+                                )
+                                if (variantObj?.ingredients && Array.isArray(variantObj.ingredients) && variantObj.ingredients.length > 0) {
+                                    ingredientsToUse = variantObj.ingredients
+                                }
+                            }
+                        }
+
+                        // 4. Product-level ingredients
                         if (ingredientsToUse.length === 0 && product.ingredients && Array.isArray(product.ingredients) && product.ingredients.length > 0) {
                             ingredientsToUse = product.ingredients
                         }
@@ -497,7 +532,8 @@ export default function TodayOrdersPage() {
                             ingredientMap.set(normKey, {
                                 name: ingName,
                                 quantity: ingQty,
-                                unit: ing.unit || 'uds'
+                                unit: ing.unit || 'uds',
+                                isIngredient: true
                             })
                         }
                     })
@@ -512,7 +548,8 @@ export default function TodayOrdersPage() {
                         ingredientMap.set(normKey, {
                             name: prodName,
                             quantity: itemQty,
-                            unit: 'uds'
+                            unit: 'uds',
+                            isIngredient: false
                         })
                     }
                 }
@@ -524,7 +561,8 @@ export default function TodayOrdersPage() {
         const slides = ingredientsList.map(ing => ({
             value: ing.quantity,
             label: ing.name,
-            unit: ing.unit || 'uds'
+            unit: ing.unit || 'uds',
+            isIngredient: ing.isIngredient
         }))
 
         return {
@@ -2065,7 +2103,9 @@ export default function TodayOrdersPage() {
                                                                 setActiveTab('stats')
                                                             }}
                                                         >
-                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Vendidos</p>
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">
+                                                                {activeUnitsSlide ? (activeUnitsSlide.isIngredient ? 'Ingrediente' : 'Producto') : 'Ingredientes'}
+                                                            </p>
                                                             <div className="flex items-center justify-between gap-1">
                                                                 {todaySoldUnitsSummary.slides.length > 1 && (
                                                                     <button onClick={prevUnitsSlide} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-left text-[8px]"></i></button>
@@ -2216,7 +2256,9 @@ export default function TodayOrdersPage() {
                                                                     setActiveTab('stats')
                                                                 }}
                                                             >
-                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Unidades Vendidas Hoy</p>
+                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">
+                                                                    {activeUnitsSlide ? (activeUnitsSlide.isIngredient ? 'Ingredientes Vendidos Hoy' : 'Productos Vendidos Hoy') : 'Ingredientes Vendidos Hoy'}
+                                                                </p>
                                                                 <div className="flex items-center justify-center gap-4">
                                                                     {todaySoldUnitsSummary.slides.length > 1 && (
                                                                         <button onClick={prevUnitsSlide} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-left text-xs"></i></button>
