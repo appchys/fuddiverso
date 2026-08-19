@@ -153,11 +153,11 @@ export default function ProductPageByUsername() {
       // Format description based on variants
       let descriptionPrefix = ''
       if (product.variants && product.variants.length > 0) {
-        const basePrice = getProductPublicPrice(product)
-        const displayPrice = basePrice > 0 ? basePrice : Math.min(...product.variants.map(v => getProductPublicPrice(v)))
+        const basePrice = getProductPublicPrice(product, business)
+        const displayPrice = basePrice > 0 ? basePrice : Math.min(...product.variants.map(v => getProductPublicPrice(v, business)))
         descriptionPrefix = `Desde ${formatPrice(displayPrice)} - `
       } else {
-        descriptionPrefix = `${formatPrice(getProductPublicPrice(product))} - `
+        descriptionPrefix = `${formatPrice(getProductPublicPrice(product, business))} - `
       }
 
       const description = `${descriptionPrefix}${product.description || `Descubre ${product.name} en ${storeName}`}`
@@ -226,7 +226,7 @@ export default function ProductPageByUsername() {
         variantName: finalVariantName,
         productName: product.name,
         // Siempre usar precio público calculado (con comisión aplicada si corresponde)
-        price: variantData ? getProductPublicPrice(variantData) : getProductPublicPrice(product),
+        price: variantData ? getProductPublicPrice(variantData, business) : getProductPublicPrice(product, business),
         image: product.image,
         description: variantData?.description || product.description,
         businessId: businessIdForCart,
@@ -513,7 +513,7 @@ export default function ProductPageByUsername() {
                             {variant.name}
                           </span>
                           <span className="text-lg font-black text-red-600">
-                            {formatPrice(getProductPublicPrice(variant))}
+                            {formatPrice(getProductPublicPrice(variant, business))}
                           </span>
                         </div>
 
@@ -557,8 +557,14 @@ export default function ProductPageByUsername() {
                   <div className="inline-flex flex-col">
                     <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
                     <p className="text-4xl font-black text-red-600 tracking-tight">
-                      {formatPrice(getProductPublicPrice(product))}
+                      {formatPrice(getProductPublicPrice(product, business))}
                     </p>
+                    {getPackagingFee(business) > 0 && (
+                      <span className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mt-1 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/60 w-fit">
+                        <i className="bi bi-box-seam text-amber-600 text-xs"></i>
+                        Incluye recargo por empaque
+                      </span>
+                    )}
                   </div>
 
                   {(() => {
@@ -656,7 +662,7 @@ export default function ProductPageByUsername() {
                           {prod.name}
                         </h3>
                         <p className="text-red-500 font-black text-lg tracking-tight">
-                          {formatPrice(getProductPublicPrice(prod))}
+                          {formatPrice(getProductPublicPrice(prod, business))}
                         </p>
                       </div>
                     </div>

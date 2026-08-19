@@ -312,8 +312,17 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     if (!edited) return
     setSaving(true)
     try {
-      await updateBusiness(businessId, { ...edited, updatedAt: new Date() })
-      setBusiness(edited)
+      const dataToSave: Business = {
+        ...edited,
+        hasPackagingFee: !!edited.hasPackagingFee,
+        packagingFee: edited.hasPackagingFee
+          ? (typeof edited.packagingFee === 'number' && !Number.isNaN(edited.packagingFee) ? edited.packagingFee : parseFloat(String(edited.packagingFee || 0.50)))
+          : (edited.packagingFee || 0),
+        updatedAt: new Date()
+      }
+      await updateBusiness(businessId, dataToSave)
+      setBusiness(dataToSave)
+      setEdited(dataToSave)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (e) {
@@ -569,6 +578,67 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
                   <option value="fixed_commission">Comisión fija</option>
                 </select>
               </div>
+            </div>
+
+            {/* Recargo por Empaque / Para Llevar */}
+            <div className="pt-4 border-t border-gray-100 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-gray-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                    <i className="bi bi-box-seam text-amber-600 text-sm"></i>
+                    Recargo por Empaque / Para Llevar
+                  </h4>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Suma este valor al precio público de cada producto para cubrir empaque en pedidos de la app.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !edited.hasPackagingFee;
+                    handleField('hasPackagingFee', nextVal);
+                    if (nextVal && (!edited.packagingFee || edited.packagingFee <= 0)) {
+                      handleField('packagingFee', 0.50);
+                    }
+                  }}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    edited.hasPackagingFee ? 'bg-amber-500' : 'bg-gray-200'
+                  }`}
+                  role="switch"
+                  aria-checked={!!edited.hasPackagingFee}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      edited.hasPackagingFee ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {edited.hasPackagingFee && (
+                <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200/60 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
+                  <div>
+                    <label className="block text-xs font-bold text-amber-900 mb-1">
+                      Monto del Recargo por Producto ($)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.05}
+                      value={edited.packagingFee ?? 0.50}
+                      onChange={e => handleField('packagingFee', Math.max(0, Number(e.target.value)))}
+                      className="w-full px-3 py-2 border border-amber-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white font-bold text-amber-900"
+                      placeholder="0.50"
+                    />
+                  </div>
+                  <div className="flex items-center text-xs text-amber-800 leading-relaxed font-medium">
+                    <i className="bi bi-info-circle-fill text-amber-600 text-base mr-2 flex-shrink-0"></i>
+                    <span>
+                      Ejemplo: Si un producto cuesta $3.00, con recargo de $0.50 el cliente verá el producto a $3.50 en la app.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

@@ -102,6 +102,8 @@ export interface Business {
   defaultCommissionType?: CommissionType // Trato por defecto para nuevos productos
   commissionRate?: number // Porcentaje de comisión por tienda
   sharedProductIds?: string[] // IDs de productos de otras tiendas compartidos
+  hasPackagingFee?: boolean // Si la tienda cobra recargo por empaque / llevar
+  packagingFee?: number // Monto del recargo por empaque por producto (ej: 0.50)
 }
 
 export interface FreeDeliveryCampaign {

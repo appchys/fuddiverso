@@ -312,7 +312,7 @@ export const sendWhatsAppToCustomer = async (order: Order) => {
     openExternalLink(whatsappUrl)
 }
 
-export const sendOrderToStoreFromClient = async (order: Order, business: Business) => {
+export const sendOrderToStoreFromClient = async (order: Order, business: Business, targetWindow?: Window | null) => {
     const storePhone = business.phone || '0985985684'
     const customerName = order.customer?.name || 'Cliente'
     const productsList = buildProductsList(order)
@@ -323,11 +323,11 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
         return sum + (price * (item.quantity || 1))
     }, 0) || 0
     
-    const total = (order.total || calculatedTotal).toFixed(2)
+    const total = (order.total !== undefined ? order.total : calculatedTotal).toFixed(2)
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
     const locationLink = buildLocationLink(order)
     const orderType = formatScheduledDate(order.timing)
-    const references = order.delivery.type === 'pickup'
+    const references = order.delivery?.type === 'pickup'
         ? '🏪 Retira en tienda'
         : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia')
     
@@ -357,7 +357,12 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
-    openExternalLink(whatsappUrl)
+    
+    if (targetWindow && !targetWindow.closed) {
+        targetWindow.location.href = whatsappUrl
+    } else {
+        openExternalLink(whatsappUrl)
+    }
 }
 
 export const sendOrderToStore = async (order: Order, business: Business) => {

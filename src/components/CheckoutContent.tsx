@@ -42,6 +42,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
+import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot, isAnyDeliveryAvailable, getNextOpeningDate, getStoreOpeningLabel } from '@/lib/store-utils'
 import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
 
@@ -1935,9 +1936,15 @@ export function CheckoutContent({
       }
     }
 
+    let waWindow: Window | null = null
     setLoading(true)
     setIsProcessingOrder(true) // Activar estado de procesamiento
     try {
+      // Pre-abrir pestaña para WhatsApp de la tienda (evita bloqueo de popups por el navegador)
+      const storePhoneRaw = business?.phone || ''
+      if (storePhoneRaw && typeof window !== 'undefined') {
+        waWindow = window.open('about:blank', '_blank')
+      }
       // Validación final antes de crear la orden
       if (!deliveryData.type) {
         alert('Por favor selecciona un tipo de entrega')
@@ -2227,6 +2234,24 @@ export function CheckoutContent({
         console.error('Error removing pending referral:', e)
       }
 
+      // Abrir WhatsApp de la tienda inmediatamente usando la plantilla oficial cliente-tienda
+      if (business) {
+        try {
+          const createdOrder = {
+            id: orderId,
+            ...orderData
+          } as any
+          await sendOrderToStoreFromClient(createdOrder, business, waWindow)
+        } catch (waErr) {
+          console.error('Error sending order to store via WhatsApp:', waErr)
+          if (waWindow && !waWindow.closed) {
+            waWindow.close()
+          }
+        }
+      } else if (waWindow && !waWindow.closed) {
+        waWindow.close()
+      }
+
       if (isEmbedded && onOrderCreated) {
         try {
           onOrderCreated(orderId)
@@ -2254,6 +2279,9 @@ export function CheckoutContent({
         router.push(`/o/${orderId}`)
       }
     } catch (error) {
+      if (typeof waWindow !== 'undefined' && waWindow && !waWindow.closed) {
+        waWindow.close()
+      }
       console.error('Error creating order:', error)
       setIsProcessingOrder(false) // Resetear estado en caso de error
     } finally {

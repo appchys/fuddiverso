@@ -19,7 +19,7 @@ import {
     getProductsByBusiness
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
-import { formatPrice, getProductPublicPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
+import { formatPrice, getProductPublicPrice, getPriceMetadata, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { CheckoutContent } from '@/components/CheckoutContent'
 import OrderSidebar from '@/components/OrderSidebar'
 
@@ -146,8 +146,10 @@ export default function CartSidebar({
                 name: productToAdd.name,
                 variantName: null,
                 productName: productToAdd.name,
-                price: getProductPublicPrice(productToAdd),
-                ...getPriceMetadata(productToAdd),
+                price: getProductPublicPrice(productToAdd, business),
+                ...getPriceMetadata(productToAdd, business),
+                isCartItem: true,
+                feeAlreadyApplied: true,
                 image: productToAdd.image || null,
                 description: productToAdd.description || '',
                 businessId: business.id,
@@ -920,7 +922,7 @@ export default function CartSidebar({
                                                 {/* Horizontal Scroll Carousel container */}
                                                 <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-6 px-6 snap-x snap-mandatory">
                                                     {quickAddonsToShow.map((product) => {
-                                                        const displayPrice = getProductPublicPrice(product);
+                                                        const displayPrice = getProductPublicPrice(product, business);
 
                                                         return (
                                                             <div

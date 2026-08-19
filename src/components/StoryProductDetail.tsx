@@ -155,7 +155,7 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
                             </span>
                             <h2 className="text-xl font-black text-gray-900 tracking-tight leading-tight line-clamp-2">{product.name}</h2>
                             <p className="text-lg font-black text-red-600 mt-1">
-                                {formatPrice(getProductPublicPrice(selectedVariant ? product.variants?.find(v => v.name === selectedVariant) || product : product))}
+                                {formatPrice(getProductPublicPrice(selectedVariant ? product.variants?.find(v => v.name === selectedVariant) || product : product, business))}
                             </p>
                         </div>
                         {onGenerateReferral && (
@@ -196,8 +196,15 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
                 >
                     {/* Description (Also triggers drag if at top) */}
                     {product.description && (
-                        <div className="mb-6 pointer-events-none">
+                        <div className="mb-4 pointer-events-none">
                             <p className="text-sm text-gray-500 font-medium leading-relaxed">{product.description}</p>
+                        </div>
+                    )}
+
+                    {getPackagingFee(business) > 0 && (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-xs font-semibold border border-amber-200/60 mb-4">
+                            <i className="bi bi-box-seam text-amber-600 text-xs"></i>
+                            <span>Incluye recargo por empaque</span>
                         </div>
                     )}
 
@@ -215,7 +222,7 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
                                         className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${selectedVariant === v.name ? 'border-[#aa1918] bg-[#aa1918]/5' : 'border-gray-100 bg-white'}`}
                                     >
                                         <span className={`text-sm font-bold ${selectedVariant === v.name ? 'text-[#aa1918]' : 'text-gray-900'}`}>{v.name}</span>
-                                        <span className="text-sm font-black text-gray-900">{formatPrice(getProductPublicPrice(v))}</span>
+                                        <span className="text-sm font-black text-gray-900">{formatPrice(getProductPublicPrice(v, business))}</span>
                                     </button>
                                 ))}
                             </div>
@@ -231,8 +238,8 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
                                     id: product.id,
                                     name: product.name,
                                     variantName: selectedVariant,
-                                    price: getProductPublicPrice(variant || product),
-                                    ...getPriceMetadata(variant || product),
+                                    price: getProductPublicPrice(variant || product, business),
+                                    ...getPriceMetadata(variant || product, business),
                                     image: product.image,
                                     businessId: business.id,
                                     businessName: business.name,

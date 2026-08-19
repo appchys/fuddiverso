@@ -7,7 +7,7 @@ import { Product, Business } from '@/types'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import { unredeemQRCodePrize, getProductsByBusiness, getProductRatings } from '@/lib/database'
 import dynamic from 'next/dynamic'
-import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
+import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { formatComboVariantSelection } from '@/lib/combo-utils'
 import { Flame, Star } from 'lucide-react'
 
@@ -107,11 +107,11 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         return Object.entries(comboSelection).reduce((total, [variantName, qty]) => {
             const variant = availableVariants.find(v => v.name === variantName);
             if (variant && qty > 0) {
-                return total + (getProductPublicPrice(variant) * qty);
+                return total + (getProductPublicPrice(variant, business) * qty);
             }
             return total;
         }, 0);
-    }, [product, comboSelection, availableVariants]);
+    }, [product, comboSelection, availableVariants, business]);
 
     const activeVariantObj = useMemo(() => {
         if (!product || !product.variants || !selectedVariant) return null;
@@ -135,8 +135,17 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
 
     const baseProductPrice = useMemo(() => {
         if (!product) return 0;
-        return activeVariantObj ? getProductPublicPrice(activeVariantObj) : getProductPublicPrice(product);
-    }, [product, activeVariantObj]);
+        if (activeVariantObj) {
+            return getProductPublicPrice(activeVariantObj, business);
+        }
+        if (product.variants && product.variants.length > 0) {
+            const available = product.variants.filter(v => v.isAvailable !== false);
+            if (available.length > 0) {
+                return getProductPublicPrice(available[0], business);
+            }
+        }
+        return getProductPublicPrice(product, business);
+    }, [product, activeVariantObj, business]);
 
 
     // Reset state when product changes
@@ -327,6 +336,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             productName: product.name,
             price: baseProductPrice + optionsPrice,
             ...basePriceMeta,
+            isCartItem: true,
+            feeAlreadyApplied: true,
             // Include options price in basePrice and storeReceives
             basePrice: (basePriceMeta.basePrice || baseProductPrice) + optionsPrice,
             storeReceives: (basePriceMeta.storeReceives || baseProductPrice) + optionsPrice,
@@ -545,6 +556,13 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             {product.description && (
                                 <p className="text-sm text-gray-500 font-medium leading-relaxed">{product.description}</p>
                             )}
+
+                            {getPackagingFee(business) > 0 && (
+                                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-xs font-semibold border border-amber-200/60 mt-1">
+                                    <i className="bi bi-box-seam text-amber-600 text-xs"></i>
+                                    <span>Incluye recargo por empaque</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Variants & Actions */}
@@ -580,7 +598,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                 <span className="font-bold text-gray-900 text-sm">{variant.name}</span>
                                                             </div>
                                                             <span className="text-sm font-black text-red-600">
-                                                                {formatPrice(getProductPublicPrice(variant))}
+                                                                {formatPrice(getProductPublicPrice(variant, business))}
                                                             </span>
                                                         </label>
                                                     );
@@ -679,7 +697,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                     <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                         <div>
                                             <span className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
-                                            <span className="text-3xl font-black text-red-600 tracking-tight">{formatPrice((baseProductPrice + optionsPrice) * quantity)}</span>
+                                            <span className="text-3xl font-black text-red-600 tracking-tight">{formatPrice(getProductPublicPrice(product, business))}</span>
                                         </div>
                                         <div className="flex items-center gap-3">
                                             <div className="flex items-center gap-2 bg-white rounded-xl p-1 shadow-sm border border-gray-100">
@@ -737,7 +755,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                     {variant.description}
                                                                 </p>
                                                             )}
-                                                            <span className="text-sm font-black text-red-600">{formatPrice(getProductPublicPrice(variant))}</span>
+                                                            <span className="text-sm font-black text-red-600">{formatPrice(getProductPublicPrice(variant, business))}</span>
                                                         </div>
                                                     </div>
                                                     <div>
@@ -781,8 +799,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                             variant: variant.name,        // Nombre de la variante
                                                                             variantName: variant.name,    // Nombre de la variante
                                                                             productName: product.name,    // Nombre base (redundante pero claro)
-                                                                            price: getProductPublicPrice(variant),
-                                                                            ...getPriceMetadata(variant),
+                                                                            price: getProductPublicPrice(variant, business),
+                                                                            ...getPriceMetadata(variant, business),
                                                                             image: product.image,
                                                                             imagePosition: product.imagePosition || 'center 50%',
                                                                             description: variant.description || product.description,
@@ -821,7 +839,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                     <div>
                                         <span className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
-                                        <span className="text-3xl font-black text-red-600 tracking-tight">{formatPrice(getProductPublicPrice(product))}</span>
+                                        <span className="text-3xl font-black text-red-600 tracking-tight">{formatPrice(getProductPublicPrice(product, business))}</span>
                                     </div>
                                     <div>
                                         {(() => {
@@ -845,8 +863,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                 name: product.name,
                                                                 variantName: null,
                                                                 productName: product.name,
-                                                                price: getProductPublicPrice(product),
-                                                                ...getPriceMetadata(product),
+                                                                price: getProductPublicPrice(product, business),
+                                                                ...getPriceMetadata(product, business),
                                                                 image: product.image,
                                                                 imagePosition: product.imagePosition || 'center 50%',
                                                                 description: product.description,

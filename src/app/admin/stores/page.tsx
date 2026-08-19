@@ -118,6 +118,51 @@ export default function AdminStoresDeliveryPage() {
     }
   }
 
+  // Toggle Recargo Empaque
+  const handleTogglePackagingFee = async (businessId: string, currentHasFee: boolean, currentFee?: number) => {
+    setUpdatingStoreId(businessId)
+    const newHasFee = !currentHasFee
+    const feeAmount = typeof currentFee === 'number' && currentFee > 0 ? currentFee : 0.50
+    try {
+      console.log(`📦 [AdminStores] Toggling packagingFee for ${businessId}: hasFee=${newHasFee}, fee=${feeAmount}`)
+      await updateBusiness(businessId, {
+        hasPackagingFee: newHasFee,
+        packagingFee: feeAmount
+      })
+      setBusinesses(prev => prev.map(b =>
+        b.id === businessId ? { ...b, hasPackagingFee: newHasFee, packagingFee: feeAmount } : b
+      ))
+      showToast(newHasFee ? `Recargo por empaque activado ($${feeAmount.toFixed(2)})` : 'Recargo por empaque desactivado', 'success')
+    } catch (error) {
+      console.error('Error al actualizar recargo por empaque:', error)
+      showToast('No se pudo actualizar el recargo por empaque', 'error')
+    } finally {
+      setUpdatingStoreId(null)
+    }
+  }
+
+  // Update Recargo Empaque Amount
+  const handleUpdatePackagingFeeAmount = async (businessId: string, amount: number) => {
+    setUpdatingStoreId(businessId)
+    const validAmount = Math.max(0, amount)
+    try {
+      console.log(`📦 [AdminStores] Updating packagingFee amount for ${businessId}: fee=${validAmount}`)
+      await updateBusiness(businessId, {
+        hasPackagingFee: true,
+        packagingFee: validAmount
+      })
+      setBusinesses(prev => prev.map(b =>
+        b.id === businessId ? { ...b, hasPackagingFee: true, packagingFee: validAmount } : b
+      ))
+      showToast(`Monto del recargo por empaque actualizado: $${validAmount.toFixed(2)}`, 'success')
+    } catch (error) {
+      console.error('Error al actualizar monto de recargo por empaque:', error)
+      showToast('No se pudo actualizar el monto', 'error')
+    } finally {
+      setUpdatingStoreId(null)
+    }
+  }
+
   // Filtrar y buscar tiendas
   const filteredBusinesses = useMemo(() => {
     return businesses.filter(b => {
@@ -279,6 +324,7 @@ export default function AdminStoresDeliveryPage() {
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Tienda</th>
+                  <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Recargo Empaque</th>
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Check-in Diario</th>
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Tipo de Delivery</th>
                   <th className="px-6 py-4.5 text-xs font-bold uppercase tracking-wider text-gray-400">Delivery Predeterminado</th>
@@ -322,6 +368,50 @@ export default function AdminStoresDeliveryPage() {
                               </Link>
                             </div>
                           </div>
+                        </div>
+                      </td>
+
+                      {/* Recargo Empaque */}
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-2">
+                          <button
+                            disabled={isUpdating}
+                            onClick={() => handleTogglePackagingFee(store.id, !!store.hasPackagingFee, store.packagingFee)}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              store.hasPackagingFee ? 'bg-amber-500' : 'bg-gray-200'
+                            } ${isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            role="switch"
+                            aria-checked={!!store.hasPackagingFee}
+                            title={store.hasPackagingFee ? 'Recargo por empaque activo' : 'Sin recargo por empaque'}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                store.hasPackagingFee ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                          {store.hasPackagingFee ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-bold text-amber-900">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.05}
+                                disabled={isUpdating}
+                                key={`${store.id}-${store.packagingFee}`}
+                                defaultValue={store.packagingFee ?? 0.50}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value)
+                                  if (!Number.isNaN(val) && val !== store.packagingFee) {
+                                    handleUpdatePackagingFeeAmount(store.id, val)
+                                  }
+                                }}
+                                className="w-16 px-2 py-1 border border-amber-300 rounded-lg text-xs font-bold text-amber-900 bg-amber-50 focus:bg-white focus:outline-none"
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 font-semibold">No cobra</span>
+                          )}
                         </div>
                       </td>
 

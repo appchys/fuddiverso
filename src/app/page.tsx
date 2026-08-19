@@ -1076,7 +1076,7 @@ function HomePageContent() {
                         )}
                         {product.price > 0 && (
                           <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
-                            {formatPrice(getProductPublicPrice(product))}
+                            {formatPrice(getProductPublicPrice(product, business))}
                           </div>
                         )}
                       </div>
@@ -1190,7 +1190,7 @@ function HomePageContent() {
                         )}
                         {product.price > 0 && (
                           <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
-                            {formatPrice(getProductPublicPrice(product))}
+                            {formatPrice(getProductPublicPrice(product, business))}
                           </div>
                         )}
                       </div>
@@ -1508,7 +1508,7 @@ function HomePageContent() {
                                 )}
                                 {product.price > 0 && (
                                   <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold shadow-sm">
-                                    {formatPrice(getProductPublicPrice(product))}
+                                    {formatPrice(getProductPublicPrice(product, b))}
                                   </div>
                                 )}
                               </div>
@@ -1644,7 +1644,7 @@ function HomePageContent() {
                                 )}
                                 {product.price > 0 && (
                                   <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md text-gray-900 px-3 py-1 rounded-full text-[10px] font-black shadow-sm ring-1 ring-black/5">
-                                    {formatPrice(getProductPublicPrice(product))}
+                                    {formatPrice(getProductPublicPrice(product, b))}
                                   </div>
                                 )}
                               </div>

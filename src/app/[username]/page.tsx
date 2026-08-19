@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
+import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
@@ -90,7 +90,15 @@ function BusinessStructuredData({ business }: { business: Business }) {
   )
 }
 
-function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral, hasRecommended, referralCount }: {
+function getMinVariantPrice(variants: any[], biz: any): number {
+  if (!variants || !Array.isArray(variants) || variants.length === 0) return 0
+  const available = variants.filter((v: any) => v.isAvailable !== false)
+  const list = available.length > 0 ? available : variants
+  const prices = list.map((v: any) => getProductPublicPrice(v, biz)).filter(p => !Number.isNaN(p) && p > 0)
+  return prices.length > 0 ? Math.min(...prices) : 0
+}
+
+function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral, hasRecommended, referralCount, business }: {
   product: any,
   onAddToCart: (item: any) => void,
   onShowDetails: (product: any) => void,
@@ -100,22 +108,26 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
   businessUsername?: string,
   onGenerateReferral: (product: any) => void,
   hasRecommended?: boolean,
-  referralCount?: number
+  referralCount?: number,
+  business?: any
 }) {
   const [imgLoaded, setImgLoaded] = useState(false)
+  const [showFeeTooltip, setShowFeeTooltip] = useState(false)
   const handleCardClick = () => onShowDetails(product)
 
-  const hasVariants = product.variants && product.variants.length > 0
+  const hasVariants = Boolean(product.variants && Array.isArray(product.variants) && product.variants.length > 0)
   const isCombo = product.isCombo === true
-  const hasOptions = product.optionGroups && product.optionGroups.length > 0
+  const hasOptions = Boolean(product.optionGroups && Array.isArray(product.optionGroups) && product.optionGroups.length > 0)
   const quantity = (hasVariants || isCombo || hasOptions) ? 0 : getCartItemQuantity(product.id, null)
-  const publicPrice = getProductPublicPrice(product)
+  const publicPrice = getProductPublicPrice(product, business)
+  const displayPrice = hasVariants ? getMinVariantPrice(product.variants, business) : publicPrice
 
   return (
     <div
       onClick={handleCardClick}
-      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer active:scale-[0.98] ${quantity > 0 ? 'border-red-200 shadow-md ring-1 ring-red-50' : 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-        }`}
+      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer active:scale-[0.98] ${
+        quantity > 0 ? 'border-red-200 shadow-md ring-1 ring-red-50' : 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
+      }`}
     >
       {/* Botón de recomendar */}
       <button
@@ -138,10 +150,8 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
         )}
       </button>
 
-      {/* Imagen cuadrada con diseño redondeado */}
-      <div
-        className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 hover:opacity-90 transition-opacity"
-      >
+      {/* Imagen del producto */}
+      <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 hover:opacity-90 transition-opacity">
         <div className={`absolute inset-0 animate-pulse bg-gray-100 ${imgLoaded ? 'hidden' : 'block'}`}></div>
         <img
           src={product.image || businessImage}
@@ -193,14 +203,12 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
           </div>
 
           <div className="mt-2 flex items-center justify-between">
-            <div className="flex items-baseline gap-1">
+            <div className="flex items-center gap-1.5">
               {hasVariants && (
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Desde</span>
               )}
               <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                {formatPrice(hasVariants && publicPrice <= 0
-                  ? Math.min(...product.variants.filter((v: any) => v.isAvailable !== false).map((v: any) => getProductPublicPrice(v)))
-                  : publicPrice)}
+                {formatPrice(displayPrice)}
               </span>
             </div>
 
@@ -230,12 +238,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!hasVariants && !isCombo && !hasOptions) {
-                    onAddToCart({
-                      ...product,
-                      price: publicPrice,
-                      variantName: null,
-                      productName: product.name
-                    });
+                    onAddToCart(product);
                   } else {
                     onShowDetails(product);
                   }
@@ -304,6 +307,7 @@ function RestaurantContent() {
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [otherBusinesses, setOtherBusinesses] = useState<Business[]>([])
+  const [showHeaderFeeTooltip, setShowHeaderFeeTooltip] = useState(false)
 
   // Estados para sistema de referidos
   const [referralModalOpen, setReferralModalOpen] = useState(false)
@@ -364,6 +368,12 @@ function RestaurantContent() {
       } as Business
 
       setBusiness(updatedBusiness)
+      console.log('🏪 [onSnapshot Business Loaded]:', updatedBusiness?.name, {
+        id: updatedBusiness?.id,
+        hasPackagingFee: updatedBusiness?.hasPackagingFee,
+        packagingFee: updatedBusiness?.packagingFee,
+        calculatedFee: getPackagingFee(updatedBusiness)
+      })
 
       // Only load products on the FIRST snapshot (initial load)
       if (productsLoadedRef.current) return
@@ -394,7 +404,10 @@ function RestaurantContent() {
           hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[])
         ])
 
-        let availableProducts = productsData.filter(product => product.isAvailable)
+        const storePackagingFee = getPackagingFee(updatedBusiness)
+        let availableProducts: any[] = productsData
+          .map(product => ({ ...product, packagingFee: storePackagingFee }))
+          .filter(product => product.isAvailable)
 
         // Process shared products if any were fetched
         if (sharedProducts.length > 0) {
@@ -722,35 +735,54 @@ function RestaurantContent() {
     loadReferralData()
   }, [clientUser?.id, products.length])
 
-  const addToCart = (product: any) => {
+  const addToCart = (productInput: any) => {
     if (!business?.id) return;
 
     // Si el producto tiene variantes, abrir modal
-    if (product.variants && product.variants.length > 0) {
-      setSelectedProduct(product)
+    if (productInput.variants && productInput.variants.length > 0) {
+      setSelectedProduct(productInput)
       setIsVariantModalOpen(true)
       return
     }
 
-    // Si no tiene variantes, agregar directamente
+    const isCartAlready = Boolean(productInput.isCartItem || productInput.feeAlreadyApplied)
+    const publicPrice = isCartAlready
+      ? (typeof productInput.price === 'number' ? productInput.price : 0)
+      : getProductPublicPrice(productInput, business)
+
+    const priceMeta = isCartAlready
+      ? getPriceMetadata(productInput)
+      : getPriceMetadata(productInput, business)
+
+    console.log('🛒 [addToCart] Adding product to cart:', {
+      productName: productInput.name,
+      isCartAlready,
+      publicPrice,
+      packagingFee: priceMeta.packagingFee,
+      businessPackagingFee: getPackagingFee(business)
+    })
+
     const cartItem = {
-      id: product.id,
-      name: product.name,
+      id: productInput.id,
+      name: productInput.name,
       variantName: null,
-      productName: product.name,
-      price: getProductPublicPrice(product),
-      ...getPriceMetadata(product),
-      image: product.image,
-      description: product.description,
-      isAvailable: product.isAvailable, // Incluir disponibilidad
-      scheduleAvailability: product.scheduleAvailability, // Incluir horarios
+      productName: productInput.name,
+      price: publicPrice,
+      ...priceMeta,
+      publicPrice: publicPrice,
+      isCartItem: true,
+      feeAlreadyApplied: true,
+      image: productInput.image,
+      description: productInput.description,
+      isAvailable: productInput.isAvailable,
+      scheduleAvailability: productInput.scheduleAvailability,
       businessId: business.id,
       businessName: business.name,
       businessImage: business.image,
-      ...(product.isShared && {
-        originalBusinessId: product.originalBusinessId,
-        originalBusinessName: product.originalBusinessName,
-        originalBusinessImage: product.originalBusinessImage
+      ...(productInput.isShared && {
+        originalBusinessId: productInput.originalBusinessId,
+        originalBusinessName: productInput.originalBusinessName,
+        originalBusinessImage: productInput.originalBusinessImage
       })
     }
 
@@ -763,13 +795,13 @@ function RestaurantContent() {
           ? { ...item, quantity: item.quantity + 1 }
           : item
       )
-      showNotification(`Se agregó otra ${product.name} al carrito`)
+      showNotification(`Se agregó otra ${productInput.name} al carrito`)
     } else {
       newCart = [...cart, {
         ...cartItem,
         quantity: 1
       }]
-      showNotification(`${product.name} agregado al carrito`)
+      showNotification(`${productInput.name} agregado al carrito`)
     }
 
     setCart(newCart)
@@ -1308,9 +1340,39 @@ function RestaurantContent() {
         /* Vista de Catálogo (actual) */
         <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
           <div className="flex items-center gap-4 mb-10">
-            <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
-              Nuestro Menú
-            </h2>
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+                Nuestro Menú
+              </h2>
+              {getPackagingFee(business) > 0 && (
+                <div className="relative inline-flex items-center">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowHeaderFeeTooltip(prev => !prev)
+                    }}
+                    onMouseEnter={() => setShowHeaderFeeTooltip(true)}
+                    onMouseLeave={() => setShowHeaderFeeTooltip(false)}
+                    className="p-0 bg-transparent border-none text-amber-500 hover:text-amber-600 transition-colors focus:outline-none flex items-center justify-center cursor-pointer align-super"
+                    aria-label="Precios incluyen recargo por empaque"
+                    title="Precios incluyen recargo por empaque"
+                  >
+                    <i className="bi bi-asterisk text-xs sm:text-sm font-black"></i>
+                  </button>
+                  {showHeaderFeeTooltip && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-amber-900 text-amber-50 text-xs font-bold rounded-xl shadow-xl whitespace-nowrap z-20 flex items-center gap-2 animate-fadeIn"
+                    >
+                      <i className="bi bi-asterisk text-xs text-amber-300"></i>
+                      <span>Precios incluyen recargo por empaque</span>
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-amber-900"></div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
           </div>
 
@@ -1373,6 +1435,7 @@ function RestaurantContent() {
                       onGenerateReferral={handleGenerateReferral}
                       hasRecommended={generatedReferralProducts.has(product.id)}
                       referralCount={referralCounts[product.id]}
+                      business={business}
                     />
                   ))}
                 </div>
