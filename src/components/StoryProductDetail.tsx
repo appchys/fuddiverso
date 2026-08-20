@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Product, Business } from '@/types'
-import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
+import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Flame } from 'lucide-react'
 
 interface StoryProductDetailProps {
