@@ -94,7 +94,7 @@ export default function MyOrdersPage() {
               business: business ? {
                 id: business.id,
                 name: business.name,
-                address: business.address,
+                address: business.pickupSettings?.references || '',
                 image: business.image
               } : {
                 id: order.businessId,

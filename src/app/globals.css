@@ -62,11 +62,6 @@ html, body {
     animation: pulse 2s infinite;
   }
 
-  @keyframes story-progress {
-    from { width: 0; }
-    to { width: 100%; }
-  }
-
   .animate-story-progress {
     animation: story-progress 5s linear;
   }
@@ -75,6 +70,11 @@ html, body {
   .bottom-cart-position {
     bottom: calc(84px + env(safe-area-inset-bottom));
   }
+}
+
+@keyframes story-progress {
+  from { width: 0; }
+  to { width: 100%; }
 }
 
 @media (min-width: 768px) {

@@ -17,6 +17,7 @@ import dynamic from 'next/dynamic'
 
 const ProductList = dynamic(() => import('@/components/ProductList'), { ssr: false })
 const NotificationSettings = dynamic(() => import('@/components/NotificationSettings'), { ssr: false })
+import { GoogleMap, useCurrentLocation } from '@/components/GoogleMap'
 
 const DAYS_ES: Record<string, string> = {
   monday: 'Lunes',
@@ -49,6 +50,10 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
   const [loadingDeliveries, setLoadingDeliveries] = useState(false)
   const [savingDelivery, setSavingDelivery] = useState(false)
   const [deliverySaved, setDeliverySaved] = useState(false)
+
+  // Estado e información de pickup
+  const [uploadingPickupPhoto, setUploadingPickupPhoto] = useState(false)
+  const { location: currentLocation, loading: locatingPickup, getCurrentLocation: getPickupLocation } = useCurrentLocation()
 
   // Estados para administradores
   const [showAddAdminModal, setShowAddAdminModal] = useState(false)
@@ -336,6 +341,52 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     setEdited(prev => prev ? { ...prev, [field]: value } : null)
   }
 
+  const handlePickupField = (field: string, value: any) => {
+    setEdited(prev => {
+      if (!prev) return null
+      const current = prev.pickupSettings || {
+        enabled: false,
+        restrictToPrevious: false,
+        references: '',
+        latlong: '',
+        storePhotoUrl: ''
+      }
+      return {
+        ...prev,
+        pickupSettings: {
+          ...current,
+          [field]: value
+        }
+      }
+    })
+  }
+
+  const handlePickupLocationChange = (lat: number, lng: number) => {
+    handlePickupField('latlong', `${lat}, ${lng}`)
+  }
+
+  useEffect(() => {
+    if (currentLocation) {
+      handlePickupLocationChange(currentLocation.lat, currentLocation.lng)
+    }
+  }, [currentLocation])
+
+  const handlePickupPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !businessId) return
+
+    setUploadingPickupPhoto(true)
+    try {
+      const url = await uploadImage(file, `businesses/${businessId}/pickup_photo_${Date.now()}`)
+      handlePickupField('storePhotoUrl', url)
+    } catch (error) {
+      console.error('Error al subir foto de retiro:', error)
+      alert('Error al subir la foto de retiro')
+    } finally {
+      setUploadingPickupPhoto(false)
+    }
+  }
+
   const handleScheduleField = (day: string, key: 'open' | 'close' | 'isOpen', value: any) => {
     setEdited(prev => {
       if (!prev) return null
@@ -543,15 +594,6 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
                 className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               />
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Dirección</label>
-              <input
-                type="text"
-                value={(edited.address as any) ?? ''}
-                onChange={e => handleField('address', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
 
             {/* Commission */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
@@ -639,6 +681,269 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Información de Retiro en Tienda (Pickup) */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shadow-sm">
+                  <i className="bi bi-shop-window text-xl" />
+                </div>
+                <div>
+                  <h3 className="font-black text-gray-900 text-sm uppercase tracking-wider">Información de Retiro en Tienda (Pickup)</h3>
+                  <p className="text-xs text-gray-500">Configura la disponibilidad, referencias, foto de fachada y ubicación GPS para retiro en local.</p>
+                </div>
+              </div>
+              {edited.pickupSettings?.enabled && (
+                <span className={`inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1 rounded-full shrink-0 ${
+                  edited.pickupSettings.restrictToPrevious ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-green-100 text-green-800 border border-green-200'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${edited.pickupSettings.restrictToPrevious ? 'bg-amber-500' : 'bg-green-500'}`} />
+                  {edited.pickupSettings.restrictToPrevious ? 'Restringido a Clientes Históricos' : 'Retiro Activo (Todos)'}
+                </span>
+              )}
+            </div>
+
+            {/* Estatus del Servicio de Retiro */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Estatus del Servicio de Retiro
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Opción: Desactivado */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePickupField('enabled', false)
+                    handlePickupField('restrictToPrevious', false)
+                  }}
+                  className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between ${
+                    !edited.pickupSettings?.enabled
+                      ? 'border-red-500 bg-red-50/60 text-red-900 shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-extrabold text-xs uppercase tracking-wider">Desactivado</span>
+                      {!edited.pickupSettings?.enabled && <i className="bi bi-check-circle-fill text-red-600 text-sm" />}
+                    </div>
+                    <p className="text-xs text-gray-500 leading-snug">Los clientes no podrán seleccionar retiro en tienda.</p>
+                  </div>
+                </button>
+
+                {/* Opción: Activado (Todos) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePickupField('enabled', true)
+                    handlePickupField('restrictToPrevious', false)
+                  }}
+                  className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between ${
+                    edited.pickupSettings?.enabled && !edited.pickupSettings?.restrictToPrevious
+                      ? 'border-green-600 bg-green-50/60 text-green-900 shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-extrabold text-xs uppercase tracking-wider">Activado (Todos)</span>
+                      {edited.pickupSettings?.enabled && !edited.pickupSettings?.restrictToPrevious && (
+                        <i className="bi bi-check-circle-fill text-green-600 text-sm" />
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 leading-snug">Cualquier cliente puede elegir la opción de retiro en local.</p>
+                  </div>
+                </button>
+
+                {/* Opción: Solo Históricos */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePickupField('enabled', true)
+                    handlePickupField('restrictToPrevious', true)
+                  }}
+                  className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between ${
+                    edited.pickupSettings?.enabled && edited.pickupSettings?.restrictToPrevious
+                      ? 'border-amber-600 bg-amber-50/60 text-amber-900 shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-extrabold text-xs uppercase tracking-wider">Solo Históricos</span>
+                      {edited.pickupSettings?.enabled && edited.pickupSettings?.restrictToPrevious && (
+                        <i className="bi bi-check-circle-fill text-amber-600 text-sm" />
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 leading-snug">Solo clientes que hayan comprado antes en la tienda.</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Detalles de Pickup */}
+            <div className="space-y-5 pt-2">
+              {/* Referencias / Instrucciones */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Instrucciones de Retiro / Referencias del Local
+                </label>
+                <textarea
+                  value={edited.pickupSettings?.references || ''}
+                  onChange={e => handlePickupField('references', e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-medium text-gray-900"
+                  placeholder="Ej: Retirar en la ventanilla lateral frente al parque central..."
+                />
+              </div>
+
+              {/* Foto Fachada del Local */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Foto del Local / Fachada (Opcional)
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                  <div
+                    onClick={() => document.getElementById('admin-pickup-photo-input')?.click()}
+                    className="relative h-44 rounded-xl border-2 border-dashed border-gray-200 hover:border-blue-400 bg-gray-50 flex items-center justify-center cursor-pointer overflow-hidden group transition-all"
+                  >
+                    {edited.pickupSettings?.storePhotoUrl ? (
+                      <>
+                        <img
+                          src={edited.pickupSettings.storePhotoUrl}
+                          alt="Fachada para Retiro"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <span className="text-white text-xs font-bold flex items-center gap-1.5 bg-black/60 px-3 py-1.5 rounded-lg">
+                            <i className="bi bi-camera" /> Cambiar foto
+                          </span>
+                        </div>
+                      </>
+                    ) : uploadingPickupPhoto ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin rounded-full h-7 w-7 border-2 border-blue-600 border-t-transparent" />
+                        <span className="text-xs text-gray-500 font-semibold">Subiendo foto...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1.5 text-gray-400 group-hover:text-blue-600 transition-colors">
+                        <i className="bi bi-camera text-2xl" />
+                        <span className="text-xs font-bold">Haz clic para subir foto del local</span>
+                        <span className="text-[10px] text-gray-400">Ayuda a los clientes a ubicar la fachada</span>
+                      </div>
+                    )}
+                    <input
+                      id="admin-pickup-photo-input"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => handlePickupPhotoUpload(e)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    {edited.pickupSettings?.storePhotoUrl && (
+                      <div className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold text-green-700 flex items-center gap-1">
+                          <i className="bi bi-check-circle-fill" /> Foto de fachada configurada
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={edited.pickupSettings.storePhotoUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold text-gray-700 flex items-center gap-1 transition-all"
+                          >
+                            <i className="bi bi-box-arrow-up-right" /> Ver completa
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handlePickupField('storePhotoUrl', '')}
+                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 rounded-lg text-xs font-bold text-red-600 flex items-center gap-1 transition-all"
+                          >
+                            <i className="bi bi-trash" /> Eliminar foto
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500 leading-relaxed italic">
+                      Una foto clara del establecimiento facilita que los clientes identifiquen la tienda física al momento de retirar su compra.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ubicación GPS & Mapa */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <i className="bi bi-geo-alt-fill text-red-500" />
+                    Ubicación Exacta de Retiro (Latitud, Longitud)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => getPickupLocation()}
+                    disabled={locatingPickup}
+                    className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors disabled:opacity-50"
+                  >
+                    <i className={`bi ${locatingPickup ? 'animate-spin bi-arrow-repeat' : 'bi-crosshair'}`} />
+                    {locatingPickup ? 'Obteniendo GPS...' : 'Usar mi ubicación actual'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <div className="sm:col-span-2">
+                    <input
+                      type="text"
+                      value={edited.pickupSettings?.latlong || ''}
+                      onChange={e => handlePickupField('latlong', e.target.value)}
+                      placeholder="Ej: -0.180653, -78.467834"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-gray-800"
+                    />
+                  </div>
+                  {edited.pickupSettings?.latlong ? (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(edited.pickupSettings.latlong)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-all"
+                    >
+                      <i className="bi bi-map-fill" /> Abrir en Google Maps
+                    </a>
+                  ) : (
+                    <div className="flex items-center justify-center px-3 py-2 bg-gray-50 text-gray-400 rounded-xl text-xs font-medium">
+                      Sin coordenadas
+                    </div>
+                  )}
+                </div>
+
+                {/* Mapa interactivo */}
+                <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-inner h-60 relative bg-gray-50">
+                  {(() => {
+                    const rawLatlong = edited.pickupSettings?.latlong || ''
+                    const coords = rawLatlong.split(',').map((c: string) => parseFloat(c.trim()))
+                    const lat = !isNaN(coords[0]) ? coords[0] : -0.1807
+                    const lng = !isNaN(coords[1]) ? coords[1] : -78.4678
+
+                    return (
+                      <GoogleMap
+                        latitude={lat}
+                        longitude={lng}
+                        height="100%"
+                        draggable={true}
+                        fixedCenterMarker={true}
+                        onLocationChange={handlePickupLocationChange}
+                      />
+                    )
+                  })()}
+                </div>
+                <p className="text-[11px] text-gray-400 font-medium mt-1.5 text-center">
+                  Puedes arrastrar el mapa para ajustar la ubicación exacta de retiro.
+                </p>
+              </div>
             </div>
           </div>
 

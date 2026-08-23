@@ -35,7 +35,7 @@ function BusinessStructuredData({ business }: { business: Business }) {
     "email": business.email,
     "address": {
       "@type": "PostalAddress",
-      "streetAddress": business.pickupSettings?.enabled ? business.pickupSettings.references : (business.address || ''),
+      "streetAddress": business.pickupSettings?.references || '',
       "addressCountry": "EC"
     },
     "servesCuisine": business.categories || [],

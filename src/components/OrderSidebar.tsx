@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { db } from '@/lib/firebase'
-import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc } from 'firebase/firestore'
+import Link from 'next/link'
+import { db, auth } from '@/lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
+import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore'
 import {
   getBusiness,
   getDelivery,
@@ -13,13 +15,18 @@ import {
   createProductRatingNotification,
   ProductRating,
   BusinessRating,
-  updateBusinessRatingStats
+  updateBusinessRatingStats,
+  updateOrderStatus,
+  getDeliveriesByBusiness,
+  getDeliveriesByStatus
 } from '@/lib/database'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatPrice } from '@/lib/price-utils'
 import { calculateETASimple } from '@/lib/eta-utils'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
+import { DeliveryStatusModal } from '@/app/business/dashboard/DeliveryStatusModal'
+import PaymentManagementModals from '@/components/PaymentManagementModals'
 
 interface OrderSidebarProps {
   isOpen: boolean
@@ -46,15 +53,167 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
   const [order, setOrder] = useState<any | null>(null)
   const [business, setBusiness] = useState<any | null>(null)
   const [deliveryPerson, setDeliveryPerson] = useState<any | null>(null)
+  const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
+  const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
   // Estados de UI
-  const [activeTab, setActiveTab] = useState<'tracking' | 'rate'>('tracking')
+  const [activeTab, setActiveTab] = useState<'tracking' | 'gestion' | 'rate'>('tracking')
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [estimatedArrival, setEstimatedArrival] = useState<number | null>(null)
   const [showReceiptModal, setShowReceiptModal] = useState(false)
-  
+
+  // Estado para Firebase Auth (dueños/administradores del dashboard)
+  const [fbUser, setFbUser] = useState<any>(null)
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setFbUser(user)
+    })
+    return () => unsub()
+  }, [])
+
+  // Verificación estricta si el usuario actual es Administrador de ESTE negocio específico
+  const isStoreAdmin = (() => {
+    if (!order || !order.businessId) return false
+    const targetBusinessId = order.businessId
+
+    // 1. Sesión activa del negocio desde el Dashboard de la tienda (localStorage)
+    if (typeof window !== 'undefined') {
+      const savedBusinessId = localStorage.getItem('businessId')
+      const savedOwnerId = localStorage.getItem('ownerId')
+      
+      // La sesión activa en el navegador DEBE ser para este negocio específico
+      if (savedBusinessId && savedBusinessId === targetBusinessId) {
+        const currentFbUser = fbUser || auth.currentUser
+        if (currentFbUser) {
+          if (savedOwnerId === currentFbUser.uid) return true
+          if (business?.ownerId === currentFbUser.uid) return true
+          if (business?.administrators && Array.isArray(business.administrators)) {
+            if (business.administrators.some((a: any) => a.uid === currentFbUser.uid || a.email === currentFbUser.email)) return true
+          }
+        }
+        return true
+      }
+    }
+
+    // 2. Autenticación de Firebase Auth contra el negocio del pedido
+    const currentFbUser = fbUser || auth.currentUser
+    if (currentFbUser && business && business.id === targetBusinessId) {
+      if (business.ownerId && business.ownerId === currentFbUser.uid) return true
+      if (business.administrators && Array.isArray(business.administrators)) {
+        if (business.administrators.some((a: any) => a.uid === currentFbUser.uid || a.email === currentFbUser.email)) return true
+      }
+    }
+
+    // 3. Usuario del cliente (ClientUser) asociado explícitamente a este negocio
+    if (clientUser) {
+      const clientBizId = (clientUser as any).businessId
+      const clientBizIds = (clientUser as any).businessIds
+      const isMatchingBiz = clientBizId === targetBusinessId || (Array.isArray(clientBizIds) && clientBizIds.includes(targetBusinessId))
+
+      if (isMatchingBiz) {
+        const userRole = (clientUser as any).role
+        if (userRole === 'admin' || userRole === 'owner' || userRole === 'manager') return true
+      }
+
+      if (business && business.id === targetBusinessId && business.administrators && Array.isArray(business.administrators)) {
+        const isListedAdmin = business.administrators.some(
+          (admin: any) =>
+            admin.uid === (clientUser as any).uid ||
+            admin.email === clientUser.email ||
+            admin.uid === clientUser.id
+        )
+        if (isListedAdmin) return true
+      }
+    }
+
+    return false
+  })()
+
+  // Reset de pestaña de seguridad: si no es admin de esta tienda, forzar 'tracking'
+  useEffect(() => {
+    if (activeTab === 'gestion' && !isStoreAdmin && !loading) {
+      setActiveTab('tracking')
+    }
+  }, [activeTab, isStoreAdmin, loading])
+
+  // Console.log de diagnóstico para verificar el reconocimiento del negocio
+  useEffect(() => {
+    if (order) {
+      console.log('[OrderSidebar Admin Check]', {
+        orderId: order.id,
+        orderBusinessId: order.businessId,
+        savedBusinessId: typeof window !== 'undefined' ? localStorage.getItem('businessId') : null,
+        savedOwnerId: typeof window !== 'undefined' ? localStorage.getItem('ownerId') : null,
+        fbUserUid: (fbUser || auth.currentUser)?.uid,
+        fbUserEmail: (fbUser || auth.currentUser)?.email,
+        clientUserId: clientUser?.id,
+        clientUserRole: (clientUser as any)?.role,
+        businessOwnerId: business?.ownerId,
+        businessAdmins: business?.administrators,
+        isStoreAdminResult: isStoreAdmin
+      })
+    }
+  }, [order, business, clientUser, fbUser, isStoreAdmin])
+
+  const handleDeliveryAssign = async (targetOrderId: string, deliveryId: string) => {
+    try {
+      const orderRef = doc(db, 'orders', targetOrderId)
+      await updateDoc(orderRef, {
+        'delivery.assignedDelivery': deliveryId,
+        'delivery.acceptanceStatus': 'pending',
+        updatedAt: serverTimestamp()
+      })
+      if (deliveryId) {
+        const dData = await getDelivery(deliveryId)
+        setDeliveryPerson(dData)
+      } else {
+        setDeliveryPerson(null)
+      }
+    } catch (err) {
+      console.error('Error asignando repartidor:', err)
+    }
+  }
+
+  const [isPrinting, setIsPrinting] = useState(false)
+
+  const handlePrintTicket = async () => {
+    if (!order) return
+    setIsPrinting(true)
+    try {
+      const savedPrintMode = typeof window !== 'undefined' ? localStorage.getItem('fuddi_print_mode') : 'standard'
+      const printMode = savedPrintMode === 'bluetooth' ? 'bluetooth' : 'standard'
+
+      if (printMode === 'bluetooth') {
+        const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
+        await printOrderBluetooth({
+          order: order as any,
+          businessName: business?.name || "Negocio",
+          businessLogo: business?.image,
+          groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
+        })
+      } else {
+        const { printOrder } = await import('@/lib/print-utils')
+        await printOrder({
+          order: order as any,
+          businessName: business?.name || "Negocio",
+          businessLogo: business?.image,
+          groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
+        })
+      }
+    } catch (e: any) {
+      console.error("Error al imprimir ticket:", e)
+      if (e?.name !== 'NotFoundError') {
+        alert("Error al imprimir: " + (e?.message || "Error desconocido"))
+      }
+    } finally {
+      setIsPrinting(false)
+    }
+  }
+
   // Estados de Calificaciones
   const [existingRating, setExistingRating] = useState<BusinessRating | null>(null)
   const [generalRating, setGeneralRating] = useState<number>(0)
@@ -267,15 +426,21 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                 const businessData = await getBusiness(orderData.businessId)
                 setBusiness(businessData)
 
+                // Cargar repartidores activos (igual que el Dashboard de Tienda)
+                getDeliveriesByStatus('activo')
+                  .then(deliveries => {
+                    if (deliveries && deliveries.length > 0) {
+                      setAvailableDeliveries(deliveries)
+                    } else if (orderData.businessId) {
+                      getDeliveriesByBusiness(orderData.businessId).then(setAvailableDeliveries)
+                    }
+                  })
+                  .catch(err => console.error('Error cargando repartidores:', err))
+
                 // Buscar si la orden ya tiene calificación
                 const ratingData = await getOrderRating(orderData.businessId, orderId)
                 if (ratingData) {
                   setExistingRating(ratingData)
-                  // Si ya fue calificada, iniciar en la pestaña de calificar
-                  setActiveTab('rate')
-                } else if (orderData.status === 'delivered') {
-                  // Si no está calificada y ya se entregó, sugerir calificar
-                  setActiveTab('rate')
                 }
               } catch (e) {
                 console.error('Error cargando datos del negocio:', e)
@@ -722,14 +887,28 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
             <div className="bg-white px-4 border-b border-gray-100 flex">
               <button
                 onClick={() => setActiveTab('tracking')}
-                className={`flex-1 py-3 text-xs sm:text-sm font-black uppercase tracking-widest border-b-2 text-center transition-all ${
+                className={`flex-1 py-3 text-xs sm:text-sm font-black uppercase tracking-widest border-b-2 text-center transition-all flex items-center justify-center gap-1.5 ${
                   activeTab === 'tracking'
                     ? 'border-slate-900 text-slate-900'
                     : 'border-transparent text-slate-400 hover:text-slate-600'
                 }`}
               >
-                Seguimiento 📦
+                <i className="bi bi-box-seam text-sm"></i>
+                <span>Seguimiento</span>
               </button>
+              {isStoreAdmin && (
+                <button
+                  onClick={() => setActiveTab('gestion')}
+                  className={`flex-1 py-3 text-xs sm:text-sm font-black uppercase tracking-widest border-b-2 text-center transition-all flex items-center justify-center gap-1.5 ${
+                    activeTab === 'gestion'
+                      ? 'border-blue-600 text-blue-600 font-black'
+                      : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  <i className="bi bi-shop text-sm"></i>
+                  <span>Gestión</span>
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('rate')}
                 className={`flex-1 py-3 text-xs sm:text-sm font-black uppercase tracking-widest border-b-2 text-center transition-all flex items-center justify-center gap-1.5 ${
@@ -738,19 +917,309 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                     : 'border-transparent text-slate-400 hover:text-slate-600'
                 }`}
               >
-                Calificar ⭐️
-                {!existingRating && order.status === 'delivered' && (
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-                )}
+                <i className="bi bi-star-fill text-yellow-500 text-xs"></i>
+                <span>Calificar</span>
               </button>
             </div>
 
             {/* Contenido con scroll independiente */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               
+              {/* TAB GESTIÓN DE TIENDA (Tarjeta desplegada completa de business/dashboard) */}
+              {activeTab === 'gestion' && isStoreAdmin && (
+                <div className="space-y-4">
+                  {(() => {
+                    const isPickup = order.delivery?.type === 'pickup'
+                    const isDelivery = order.delivery?.type === 'delivery'
+
+                    const getDashboardStatusLabel = (s: string) => {
+                      switch (s) {
+                        case 'pending': return 'Pendiente'
+                        case 'confirmed': return 'Confirmado'
+                        case 'preparing': return 'Preparando'
+                        case 'ready': return 'Listo para entrega'
+                        case 'on_way': return 'En camino'
+                        case 'delivered': return 'Entregado'
+                        case 'cancelled': return 'Descartado'
+                        default: return s
+                      }
+                    }
+
+                    const getDashboardStatusBadgeClass = (s: string) => {
+                      switch (s) {
+                        case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                        case 'confirmed': return 'bg-blue-100 text-blue-800 border-blue-200'
+                        case 'preparing': return 'bg-purple-100 text-purple-800 border-purple-200'
+                        case 'ready': return 'bg-green-100 text-green-800 border-green-200'
+                        case 'on_way': return 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                        case 'delivered': return 'bg-gray-100 text-gray-800 border-gray-200'
+                        case 'cancelled': return 'bg-red-100 text-red-800 border-red-200'
+                        default: return 'bg-gray-100 text-gray-800 border-gray-200'
+                      }
+                    }
+
+                    const getPrimaryActionDetails = (status: string) => {
+                      switch (status) {
+                        case 'pending': return { next: 'confirmed', label: 'Confirmar', icon: 'bi-check2-circle', style: 'bg-green-600 text-white hover:bg-green-700' }
+                        case 'confirmed': return { next: 'preparing', label: 'Preparar', icon: 'bi-fire', style: 'bg-purple-600 text-white hover:bg-purple-700' }
+                        case 'preparing': return { next: 'ready', label: 'Listo', icon: 'bi-box-seam', style: 'bg-green-600 text-white hover:bg-green-700' }
+                        case 'ready': return { next: isPickup ? 'delivered' : 'on_way', label: isPickup ? 'Entregado' : 'En camino', icon: isPickup ? 'bi-check-all' : 'bi-bicycle', style: 'bg-indigo-600 text-white hover:bg-indigo-700' }
+                        case 'on_way': return { next: 'delivered', label: 'Entregado', icon: 'bi-check-all', style: 'bg-gray-800 text-white hover:bg-gray-900' }
+                        default: return null
+                      }
+                    }
+
+                    const primaryAction = getPrimaryActionDetails(order.status)
+                    const fulfillmentLabel = isPickup ? 'Retiro en tienda' : (deliveryPerson ? deliveryPerson.nombres : 'Delivery asignado')
+                    const fulfillmentClass = isPickup ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-green-100 text-green-700 border-green-200'
+
+                    const deliveryCoordinates = order.delivery?.latlong ? (() => {
+                      const parts = String(order.delivery.latlong).split(',')
+                      if (parts.length === 2) {
+                        const lat = parseFloat(parts[0].trim())
+                        const lng = parseFloat(parts[1].trim())
+                        if (!isNaN(lat) && !isNaN(lng)) return { lat, lng }
+                      }
+                      return null
+                    })() : null
+
+                    const deliveryMapsUrl = deliveryCoordinates
+                      ? `https://www.google.com/maps/search/?api=1&query=${deliveryCoordinates.lat},${deliveryCoordinates.lng}`
+                      : undefined
+
+                    const deliveryMapImageUrl = deliveryCoordinates
+                      ? `https://maps.googleapis.com/maps/api/staticmap?center=${deliveryCoordinates.lat},${deliveryCoordinates.lng}&zoom=16&size=600x180&scale=2&maptype=roadmap&markers=color:red%7C${deliveryCoordinates.lat},${deliveryCoordinates.lng}&key=${GOOGLE_MAPS_API_KEY}`
+                      : undefined
+
+                    return (
+                      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        {/* Card Header: Estilo exacto OrderCard */}
+                        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                            <div className="flex flex-col items-center shrink-0">
+                              <i className="bi bi-shop text-blue-600 text-sm"></i>
+                              {!order.createdByAdmin && (
+                                <i className="bi bi-phone text-blue-500 text-[10px] mt-0.5" title="Pedido del cliente (Checkout)"></i>
+                              )}
+                            </div>
+
+                            <div className="flex flex-col">
+                              <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                                {order.customer?.name || "Cliente"}
+                              </span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock text-blue-600' : 'bi-lightning-fill text-yellow-500'}`}></i>
+                                <span className="font-mono text-xs sm:text-sm font-medium text-gray-600">
+                                  {getMinutesUntilDelivery()?.timeDisplay || 'Inmediato'}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${getDashboardStatusBadgeClass(order.status)}`}>
+                                  {getDashboardStatusLabel(order.status)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {/* Botón Acción Principal */}
+                            {primaryAction && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await updateOrderStatus(order.id, primaryAction.next as any, undefined, 'app')
+                                  } catch (err) {
+                                    console.error('Error al actualizar estado:', err)
+                                  }
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm transition-colors ${primaryAction.style}`}
+                              >
+                                <span>{primaryAction.label}</span>
+                                <i className={`bi ${primaryAction.icon}`}></i>
+                              </button>
+                            )}
+
+                            {/* Imprimir Ticket (respetando configuración PDF/Bluetooth) */}
+                            <button
+                              type="button"
+                              disabled={isPrinting}
+                              onClick={handlePrintTicket}
+                              className="p-1.5 text-lg text-gray-500 rounded-lg transition-all hover:bg-gray-200/60 hover:text-gray-800 disabled:opacity-50 flex items-center justify-center min-w-[32px] min-h-[32px]"
+                              title="Imprimir ticket (PDF / Bluetooth)"
+                            >
+                              {isPrinting ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-700"></div>
+                              ) : (
+                                <i className="bi bi-printer"></i>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Card Body (Vista Desplegada Completa del Dashboard) */}
+                        <div className="p-4 bg-white space-y-4">
+                          {/* Información de Ubicación & Mapa */}
+                          {isDelivery && (
+                            <div className="space-y-2">
+                              <div className="flex items-start gap-2 text-sm text-gray-700 font-medium">
+                                <i className="bi bi-geo-alt-fill text-red-500 mt-0.5 flex-shrink-0"></i>
+                                <span>{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación de entrega"}</span>
+                              </div>
+                              {deliveryMapImageUrl && deliveryMapsUrl ? (
+                                <a
+                                  href={deliveryMapsUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block rounded-xl overflow-hidden border border-gray-200 hover:opacity-95 transition-opacity"
+                                  title="Abrir en Google Maps"
+                                >
+                                  <img
+                                    src={deliveryMapImageUrl}
+                                    alt="Mapa de entrega"
+                                    className="h-36 w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                </a>
+                              ) : null}
+                            </div>
+                          )}
+
+                          {/* Notas del cliente */}
+                          {order.notas && order.notas.trim() && (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <i className="bi bi-sticky text-amber-600 mt-0.5 flex-shrink-0"></i>
+                                <div className="flex-1">
+                                  <p className="text-sm font-bold text-amber-800 mb-1">Notas del cliente</p>
+                                  <p className="text-sm text-amber-700 whitespace-pre-wrap">{order.notas}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {order.notaImageUrl && (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <i className="bi bi-image text-amber-600 mt-0.5 flex-shrink-0"></i>
+                                <div className="flex-1">
+                                  <p className="text-sm font-bold text-amber-800 mb-2">Imagen adjunta</p>
+                                  <img src={order.notaImageUrl} alt="Imagen adjunta" className="max-h-48 w-full object-contain rounded-md border border-amber-200 bg-white" />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Lista de Artículos */}
+                          <div className="space-y-2 pt-2 border-t border-gray-100">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">Detalle de Productos</span>
+                            {order.items?.map((item: any, idx: number) => (
+                              <div key={idx} className="flex justify-between text-sm py-1 border-b border-gray-50 last:border-0">
+                                <span className="text-gray-800 font-medium">
+                                  <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variant || item.product?.name || item.name}
+                                </span>
+                                <span className="text-emerald-600 font-bold">
+                                  ${((item.storeReceives || item.price || 0) * item.quantity).toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Resumen de Pago & Total (Estilo idéntico a OrderCard del Dashboard) */}
+                          {(() => {
+                            const storeReceivesTotal = order.items?.reduce((acc: number, item: any) => {
+                              const itemStorePrice = item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))
+                              return acc + (itemStorePrice * item.quantity)
+                            }, 0) || order.total || 0
+
+                            const publicTotal = order.total || 0
+                            const hasPublicPriceDiff = publicTotal > storeReceivesTotal
+
+                            return (
+                              <div className="pt-3 border-t border-dashed border-gray-200 flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isStoreAdmin) {
+                                        setIsPaymentModalOpen(true)
+                                      }
+                                    }}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-sm font-medium transition-colors ${
+                                      order.payment?.paymentStatus === 'paid'
+                                        ? 'bg-green-100 text-green-700'
+                                        : order.payment?.paymentStatus === 'validating'
+                                          ? 'bg-yellow-100 text-yellow-700'
+                                          : 'bg-red-100 text-red-700'
+                                    } ${isStoreAdmin ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
+                                    title={isStoreAdmin ? 'Haga clic para gestionar el pago' : ''}
+                                  >
+                                    <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'}`}></i>
+                                    <div className="flex flex-col items-start leading-tight">
+                                      <span className="text-emerald-600 font-black">${storeReceivesTotal.toFixed(2)}</span>
+                                      {hasPublicPriceDiff && (
+                                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Público: ${publicTotal.toFixed(2)}</span>
+                                      )}
+                                    </div>
+                                    {isStoreAdmin && <i className="bi bi-pencil-square text-xs opacity-50 ml-1"></i>}
+                                  </button>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isStoreAdmin) {
+                                      setIsPaymentModalOpen(true)
+                                    }
+                                  }}
+                                  className={`text-right group ${isStoreAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+                                  title={isStoreAdmin ? 'Haga clic para gestionar el pago' : ''}
+                                >
+                                  <span className="text-[10px] text-gray-400 font-bold uppercase block group-hover:text-blue-600 transition-colors flex items-center justify-end gap-1">
+                                    Total {isStoreAdmin && <i className="bi bi-pencil-square text-[9px] opacity-60"></i>}
+                                  </span>
+                                  <span className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors">${publicTotal.toFixed(2)}</span>
+                                </button>
+                              </div>
+                            )
+                          })()}
+
+                          {/* Fulfillment Label Pill */}
+                          {(isDelivery || isPickup) && (
+                            <div className="pt-2 flex justify-end border-t border-gray-100">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isStoreAdmin) {
+                                    setIsDeliveryModalOpen(true)
+                                  }
+                                }}
+                                className={`flex h-[20px] min-h-[20px] max-h-[20px] items-center justify-center truncate rounded-[3px] border px-2 py-0 text-[11px] font-semibold leading-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] transition-colors ${fulfillmentClass} ${isStoreAdmin ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
+                                title={isStoreAdmin ? 'Haga clic para cambiar o asignar repartidor' : fulfillmentLabel}
+                              >
+                                {fulfillmentLabel}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Enlace al Dashboard Completo de la Tienda */}
+                  <Link
+                    href="/business/dashboard"
+                    className="flex items-center justify-center gap-2.5 w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all group"
+                  >
+                    <i className="bi bi-speedometer2 text-base text-blue-400 group-hover:scale-110 transition-transform"></i>
+                    <span>Ir al Dashboard Completo de la Tienda</span>
+                    <i className="bi bi-arrow-right text-slate-400 group-hover:translate-x-1 transition-transform"></i>
+                  </Link>
+                </div>
+              )}
+
               {/* TAB 1: SEGUIMIENTO */}
               {activeTab === 'tracking' && (
                 <div className="space-y-4">
+
                   {/* Tarjeta de Tiempo Estimado de Entrega */}
                   {!['delivered', 'cancelled'].includes(order.status) && (
                     <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white rounded-[24px] p-5 shadow-lg border border-slate-800">
@@ -1417,6 +1886,27 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
           </div>
         </div>
       )}
+
+      {/* Modal Selector de Estado del Delivery */}
+      <DeliveryStatusModal
+        isOpen={isDeliveryModalOpen}
+        onClose={() => setIsDeliveryModalOpen(false)}
+        order={order}
+        deliveryAgent={deliveryPerson || undefined}
+        availableDeliveries={availableDeliveries}
+        canChangeDelivery={true}
+        onDeliveryAssign={handleDeliveryAssign}
+        onWhatsApp={() => {}}
+      />
+      {/* Modal de Gestión de Pago */}
+      <PaymentManagementModals
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        order={order}
+        onOrderUpdated={(updatedOrder) => {
+          setOrder(updatedOrder)
+        }}
+      />
     </div>
   )
 }

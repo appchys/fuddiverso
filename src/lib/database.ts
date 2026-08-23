@@ -376,7 +376,6 @@ export async function createBusinessFromForm(formData: {
     username: formData.username,
     email: formData.email,
     phone: formData.phone,
-    address: '',
     description: formData.description,
     image: formData.image,
     coverImage: formData.coverImage,
@@ -1287,6 +1286,15 @@ export async function getBusinessByProduct(productId: string): Promise<Business 
   }
 }
 
+function generateShortOrderCode(length = 6): string {
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
+}
+
 // Funciones para Pedidos
 export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
   try {
@@ -1363,7 +1371,9 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       })
     }
 
-    const docRef = await addDoc(collection(db, 'orders'), standardizedOrder)
+    const shortId = generateShortOrderCode(6)
+    const docRef = doc(db, 'orders', shortId)
+    await setDoc(docRef, standardizedOrder)
 
     // Registrar o verificar automáticamente que el cliente exista en la colección 'clients'
     try {
@@ -2100,7 +2110,7 @@ export async function createBusinessFromGoogleAuth(userData: {
   name: string
   username?: string
   phone: string
-  address: string
+  address?: string
   description?: string
 }) {
   try {
@@ -2113,7 +2123,6 @@ export async function createBusinessFromGoogleAuth(userData: {
       name: userData.name,
       username: userData.username || `user_${user.uid.slice(0, 8)}`, // Generate username if not provided
       phone: userData.phone,
-      address: userData.address,
       description: userData.description || '',
       email: user.email || '',
       ownerId: user.uid,

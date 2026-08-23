@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     }
 
     const title = `${business.name} - Catálogo`
-    const description = business.description || `Ordena deliciosa comida de ${business.name} a través de fuddi.shop. ${business.address ? `Ubicado en ${business.address}.` : ''}`
+    const description = business.description || `Ordena deliciosa comida de ${business.name} a través de fuddi.shop.`
     // Usar imagen del negocio o una imagen por defecto
     const imageUrl = business.image || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1200&h=630&fit=crop&crop=center'
     const url = `https://fuddi.shop/${business.username}`
@@ -63,7 +63,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         'og:image:type': 'image/jpeg',
         
         // Información adicional del negocio
-        'business:contact_data:street_address': business.address || '',
+        'business:contact_data:street_address': business.pickupSettings?.references || '',
         'business:contact_data:phone_number': business.phone || '',
         'business:contact_data:email': business.email || '',
         

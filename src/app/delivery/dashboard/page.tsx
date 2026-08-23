@@ -962,7 +962,7 @@ function DeliveryDashboardContent() {
                                             WhatsApp
                                           </a>
                                           <a
-                                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderBusiness?.address || '')}`}
+                                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderBusiness?.pickupSettings?.latlong || orderBusiness?.pickupSettings?.references || '')}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             onClick={(e) => {

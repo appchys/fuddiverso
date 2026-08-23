@@ -1013,7 +1013,7 @@ export default function TiendasPage() {
       {/* MODAL DETALLES DE TIENDA */}
       {/* ============================================================== */}
       {selectedBusiness && (() => {
-        const displayAddress = selectedBusiness.address || selectedBusiness.pickupSettings?.references || ''
+        const displayAddress = selectedBusiness.pickupSettings?.references || ''
         
         let lat = 0
         let lng = 0

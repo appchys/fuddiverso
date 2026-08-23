@@ -476,10 +476,10 @@ function TMAContent() {
                 </div>
               )}
             </div>
-            {orderBusiness?.address && (
+            {orderBusiness?.pickupSettings?.references && (
               <p className="text-xs text-gray-500 flex items-start gap-1.5 leading-relaxed">
                 <i className="bi bi-geo-alt text-gray-400 mt-0.5"></i>
-                <span>{orderBusiness.address}</span>
+                <span>{orderBusiness.pickupSettings.references}</span>
               </p>
             )}
           </div>
