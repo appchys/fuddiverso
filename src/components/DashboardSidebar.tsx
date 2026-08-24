@@ -7,8 +7,8 @@ interface DashboardSidebarProps {
     setSidebarOpen: (open: boolean) => void
     activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'
     setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses') => void
-    profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'
-    setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion') => void
+    profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion' | 'sucursales'
+    setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion' | 'sucursales') => void
     reportsSubTab: 'general' | 'costs'
     setReportsSubTab: (tab: 'general' | 'costs') => void
     isTiendaMenuOpen?: boolean
@@ -187,6 +187,27 @@ export default function DashboardSidebar({
                             activeTab === 'profile' && profileSubTab === 'fidelizacion' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
                         }`}></i>
                         <span className="tracking-tight text-left">Promociones</span>
+                    </button>
+
+                    {/* Sucursales */}
+                    <button
+                        onClick={() => {
+                            setActiveTab('profile')
+                            setProfileSubTab('sucursales')
+                            setSidebarOpen(false)
+                        }}
+                        className={`
+                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                            ${activeTab === 'profile' && profileSubTab === 'sucursales'
+                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                            }
+                        `}
+                    >
+                        <i className={`bi bi-diagram-3 text-lg transition-transform group-hover:scale-110 ${
+                            activeTab === 'profile' && profileSubTab === 'sucursales' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                        }`}></i>
+                        <span className="tracking-tight text-left">Sucursales</span>
                     </button>
                 </div>
 

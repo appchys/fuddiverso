@@ -10,6 +10,7 @@ import PrintSettings from './PrintSettings'
 import ConfiguracionView from './ConfiguracionView'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
 import QRCodesContent from '@/app/business/qr-codes/qr-codes-content'
+import BranchManagementView from './BranchManagementView'
 import { auth } from '@/lib/firebase'
 
 interface BusinessProfileDashboardProps {
@@ -32,8 +33,9 @@ interface BusinessProfileDashboardProps {
   onToggleDayOpen: (day: string) => void
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
-  initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'
+  initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion' | 'sucursales'
   onDirectUpdate?: (field: keyof Business, value: any) => Promise<void>
+  onSwitchBusiness?: (businessId: string) => void
   // Props para gestión de administradores (opcionales)
   onAddAdmin?: () => void
   onRemoveAdmin?: (email: string) => void
@@ -66,6 +68,7 @@ export default function BusinessProfileDashboard({
   onCategoriesChange,
   initialTab = 'general',
   onDirectUpdate,
+  onSwitchBusiness,
   onAddAdmin,
   onRemoveAdmin,
   onEditAdminPassword,
@@ -76,7 +79,7 @@ export default function BusinessProfileDashboard({
 }: BusinessProfileDashboardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'>(initialTab)
+  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion' | 'sucursales'>(initialTab)
   const [fidelizacionSubTab, setFidelizacionSubTab] = useState<'automatic' | 'qr' | 'delivery'>('automatic')
 
   // Hook para ubicación
@@ -418,6 +421,7 @@ export default function BusinessProfileDashboard({
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <ProductList
             business={business}
+            onBusinessChange={onSwitchBusiness}
             products={products}
             categories={categories}
             onProductsChange={onProductsChange}
@@ -988,6 +992,15 @@ export default function BusinessProfileDashboard({
             )}
           </div>
         </div>
+      )}
+
+      {/* Contenido de la pestaña Sucursales */}
+      {activeTab === 'sucursales' && (
+        <BranchManagementView
+          currentBusiness={business}
+          onSwitchBusiness={onSwitchBusiness}
+          userRole={userRole}
+        />
       )}
 
       {/* Contenido de la pestaña Configuración (Notificaciones e Impresión) */}

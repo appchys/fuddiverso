@@ -80,6 +80,16 @@ export function calculateCommissionPricing(
         }
     }
 
+    if (commissionType === 'subscription' || commissionType === 'no_commission') {
+        return {
+            storePrice: safeStorePrice,
+            commission: 0,
+            publicPrice: safeStorePrice,
+            commissionType,
+            storeReceives: safeStorePrice
+        }
+    }
+
     return {
         storePrice: safeStorePrice,
         commission: 0,
@@ -109,7 +119,7 @@ export function getProductPublicPrice(
     const basePrice = typeof item.basePrice === 'number' ? item.basePrice : undefined;
 
     let price = rawPrice;
-    if (item.commissionType === 'no_commission' || !item.commissionType) {
+    if (item.commissionType === 'no_commission' || item.commissionType === 'subscription' || !item.commissionType) {
         price = basePrice !== undefined ? basePrice : rawPrice;
     }
 
@@ -189,10 +199,10 @@ export function getPriceMetadata(
 
     const commissionType = item.commissionType || 'no_commission';
     const basePrice = typeof item.basePrice === 'number' ? item.basePrice : (typeof item.price === 'number' ? item.price : 0);
-    const commission = commissionType === 'no_commission' ? 0 : (typeof item.commission === 'number' ? item.commission : 0);
+    const commission = (commissionType === 'no_commission' || commissionType === 'subscription') ? 0 : (typeof item.commission === 'number' ? item.commission : 0);
 
-    // If no_commission, publicPrice = basePrice, otherwise use the 'price' field, plus packaging fee
-    const publicPrice = (commissionType === 'no_commission' ? basePrice : (typeof item.price === 'number' ? item.price : 0)) + fee;
+    // If no_commission or subscription, publicPrice = basePrice, otherwise use the 'price' field, plus packaging fee
+    const publicPrice = ((commissionType === 'no_commission' || commissionType === 'subscription') ? basePrice : (typeof item.price === 'number' ? item.price : 0)) + fee;
 
     let storeReceives = basePrice + fee;
     if (commissionType === 'fuddi_assumed_by_store') {

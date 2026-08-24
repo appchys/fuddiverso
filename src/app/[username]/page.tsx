@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts, getBranchesForBusiness } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
@@ -157,7 +157,11 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
           src={product.image || businessImage}
           alt={product.name}
           className="w-full h-full object-cover transition-transform duration-500 md:group-hover:scale-110"
-          style={{ objectPosition: product.imagePosition || 'center' }}
+          style={{ 
+            objectPosition: product.imagePosition || 'center',
+            transformOrigin: product.imagePosition || 'center',
+            transform: product.imageScale && product.imageScale > 1 ? `scale(${product.imageScale})` : undefined
+          }}
           loading="lazy"
           decoding="async"
           onLoad={() => setImgLoaded(true)}
@@ -318,6 +322,16 @@ function RestaurantContent() {
   const [referralCounts, setReferralCounts] = useState<Record<string, number>>({})
   const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
   const [isOwner, setIsOwner] = useState(false)
+  const [branches, setBranches] = useState<Business[]>([])
+  const [showBranchModal, setShowBranchModal] = useState(false)
+
+  // Cargar sucursales de la marca si existen
+  useEffect(() => {
+    if (!business?.id) return
+    getBranchesForBusiness(business.id)
+      .then(list => setBranches(list))
+      .catch(err => console.error('Error loading branches in store:', err))
+  }, [business?.id])
 
   // Lightweight isOwner check from localStorage — avoids loading Firebase Auth SDK for all visitors
   useEffect(() => {
@@ -1167,7 +1181,7 @@ function RestaurantContent() {
                 </div>
               )}
 
-              {/* Indicadores de Estado y Próxima Apertura (Lado a Lado) */}
+              {/* Indicadores de Estado, Sucursal y Próxima Apertura */}
               <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4">
                 <span className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm transition-all ${isStoreOpen(business)
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
@@ -1176,6 +1190,19 @@ function RestaurantContent() {
                   <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
                   {isStoreOpen(business) ? 'Abierto Ahora' : 'Cerrado'}
                 </span>
+
+                {branches.length > 1 && (
+                  <button
+                    onClick={() => setShowBranchModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 shadow-sm transition-all cursor-pointer"
+                  >
+                    <i className="bi bi-geo-alt-fill text-rose-500"></i>
+                    <span>
+                      {business.branchName || (business.isBranch ? 'Sucursal' : 'Matriz')}
+                    </span>
+                    <i className="bi bi-chevron-down text-[10px] ml-0.5 opacity-70"></i>
+                  </button>
+                )}
 
                 {!isStoreOpen(business) && getNextOpeningMessage(business) && (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200/80 shadow-xs animate-in fade-in zoom-in-95 duration-300">
@@ -1658,15 +1685,81 @@ function RestaurantContent() {
         />
       )}
 
-      {/* Modal de Referidos */}
-      {referralModalOpen && (
-        <ReferralModal
-          isOpen={true}
-          onClose={() => setReferralModalOpen(false)}
-          product={selectedProductForReferral}
-          referralLink={generatedReferralLink}
-          businessName={business?.name || ''}
-        />
+      {/* Modal de Selección de Sucursal */}
+      {showBranchModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden animate-scale-up">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-rose-50 to-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center font-bold">
+                  <i className="bi bi-shop text-lg"></i>
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-gray-900 tracking-tight leading-tight">
+                    Selecciona una Sucursal
+                  </h3>
+                  <p className="text-xs font-medium text-gray-500">
+                    Locales disponibles de {business?.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBranchModal(false)}
+                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+
+            <div className="p-4 max-h-80 overflow-y-auto space-y-2.5">
+              {branches.map(branchItem => {
+                const isCurrent = branchItem.id === business?.id
+                return (
+                  <a
+                    key={branchItem.id}
+                    href={`/${branchItem.username}`}
+                    onClick={() => setShowBranchModal(false)}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all duration-150 ${
+                      isCurrent
+                        ? 'bg-rose-50 border-rose-200 ring-2 ring-rose-500/20'
+                        : 'bg-white hover:bg-gray-50 border-gray-100 hover:border-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-gray-100 overflow-hidden flex-shrink-0 border border-gray-200/60">
+                        {branchItem.image ? (
+                          <img src={branchItem.image} alt={branchItem.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400"><i className="bi bi-shop"></i></div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-black text-sm text-gray-900 truncate">
+                          {branchItem.branchName || branchItem.name}
+                        </p>
+                        {branchItem.pickupSettings?.references && (
+                          <p className="text-xs text-gray-500 font-medium truncate mt-0.5">
+                            {branchItem.pickupSettings.references}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                      {isCurrent ? (
+                        <span className="text-[10px] font-black uppercase tracking-wider bg-rose-600 text-white px-2 py-0.5 rounded-full">
+                          Actual
+                        </span>
+                      ) : (
+                        <i className="bi bi-chevron-right text-gray-400 text-sm"></i>
+                      )}
+                    </div>
+                  </a>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       )}
       </>
     </div>

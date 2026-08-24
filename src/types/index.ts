@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore'
 
-export type CommissionType = 'fuddi_assumed_by_store' | 'fuddi_assumed_by_customer' | 'no_commission' | 'fixed_commission'
+export type CommissionType = 'fuddi_assumed_by_store' | 'fuddi_assumed_by_customer' | 'no_commission' | 'fixed_commission' | 'subscription'
 
 
 export interface BankAccount {
@@ -103,6 +103,11 @@ export interface Business {
   sharedProductIds?: string[] // IDs de productos de otras tiendas compartidos
   hasPackagingFee?: boolean // Si la tienda cobra recargo por empaque / llevar
   packagingFee?: number // Monto del recargo por empaque por producto (ej: 0.50)
+  // Soporte de Sucursales
+  parentBusinessId?: string // ID de la tienda matriz si esta tienda es una sucursal
+  isBranch?: boolean // Si esta tienda es una sucursal
+  branchName?: string // Nombre descriptivo de la sucursal (ej: "Sucursal Kennedy", "Centro", etc.)
+  branches?: string[] // IDs de sucursales vinculadas a esta tienda matriz
 }
 
 export interface FreeDeliveryCampaign {
@@ -234,6 +239,7 @@ export interface Product {
   category: string
   image?: string
   imagePosition?: string
+  imageScale?: number
   slug?: string // Slug amigable (ej: "munRJd")
   variants?: ProductVariant[] // Variantes opcionales del producto
   isAvailable: boolean

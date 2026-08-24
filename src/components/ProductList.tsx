@@ -1,8 +1,8 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup } from '@/types'
-import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds } from '@/lib/database'
+import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds, getBranchesForBusiness } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
 
@@ -13,6 +13,7 @@ interface ProductListProps {
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
   onDirectUpdate?: (field: keyof Business, value: any) => Promise<void>
+  onBusinessChange?: (businessId: string) => void
 }
 
 export default function ProductList({
@@ -21,7 +22,8 @@ export default function ProductList({
   categories,
   onProductsChange,
   onCategoriesChange,
-  onDirectUpdate
+  onDirectUpdate,
+  onBusinessChange
 }: ProductListProps) {
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -36,8 +38,12 @@ export default function ProductList({
     isCombo: false,
     minComboItems: 1,
     countComboUnits: false,
-    imagePosition: 'center 50%'
+    imagePosition: '50% 50%',
+    imageScale: 1
   })
+  const [isPanningImage, setIsPanningImage] = useState(false)
+  const [showEncuadreDetails, setShowEncuadreDetails] = useState(false)
+  const panStartRef = useRef<{ startX: number; startY: number; initPosX: number; initPosY: number } | null>(null)
   const [variants, setVariants] = useState<ProductVariant[]>([])
   const [currentVariant, setCurrentVariant] = useState<{
     name: string;
@@ -54,6 +60,12 @@ export default function ProductList({
   })
   const [variantImageFiles, setVariantImageFiles] = useState<Record<string, File>>({})
   const commissionSettings = getBusinessCommissionSettings(business)
+  const isSubscription =
+    business?.defaultCommissionType === 'subscription' ||
+    business?.defaultCommissionType === 'no_commission' ||
+    commissionSettings.commissionRate <= 0 ||
+    formData.commissionType === 'subscription' ||
+    formData.commissionType === 'no_commission'
   const [showCommissionSettings, setShowCommissionSettings] = useState(false)
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
   const [showVariantForm, setShowVariantForm] = useState(false)
@@ -90,6 +102,31 @@ export default function ProductList({
   const [activeVariantMenu, setActiveVariantMenu] = useState<string | null>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const [hasVariants, setHasVariants] = useState(false)
+  const [availableBranches, setAvailableBranches] = useState<Business[]>([])
+
+  // Cargar únicamente las sucursales vinculadas a este mismo negocio
+  useEffect(() => {
+    if (!business?.id) {
+      setAvailableBranches([])
+      return
+    }
+
+    let isMounted = true
+    getBranchesForBusiness(business.id)
+      .then(list => {
+        if (isMounted) {
+          setAvailableBranches(list && list.length > 0 ? list : [])
+        }
+      })
+      .catch(err => {
+        console.error('Error loading branches in ProductList:', err)
+        if (isMounted) setAvailableBranches([])
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [business?.id])
 
   // Estados para opciones/modificadores
   const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([])
@@ -153,7 +190,7 @@ export default function ProductList({
   // Cargar lista de negocios y productos compartidos actuales
   useEffect(() => {
     if (!business?.id) return;
-    
+
     // Cargar todos los negocios una vez
     getAllBusinesses().then(bizs => {
       // Filtrar el negocio actual
@@ -164,7 +201,7 @@ export default function ProductList({
   // Cargar los productos compartidos actuales cuando cambie sharedProductIds
   useEffect(() => {
     if (!business?.id) return;
-    
+
     const loadSharedProducts = async () => {
       if (business.sharedProductIds && business.sharedProductIds.length > 0) {
         setLoadingShared(true)
@@ -209,10 +246,10 @@ export default function ProductList({
 
   const handleToggleShareProduct = async (productId: string, isSharedCurrently: boolean) => {
     if (!business?.id) return;
-    
+
     const currentSharedIds = business.sharedProductIds || []
     let newSharedIds: string[]
-    
+
     if (isSharedCurrently) {
       newSharedIds = currentSharedIds.filter(id => id !== productId)
     } else {
@@ -222,7 +259,7 @@ export default function ProductList({
 
     try {
       await updateBusiness(business.id, { sharedProductIds: newSharedIds })
-      
+
       // Intentar actualizar a través de la callback onDirectUpdate si está disponible
       if (onDirectUpdate) {
         await onDirectUpdate('sharedProductIds', newSharedIds)
@@ -230,7 +267,7 @@ export default function ProductList({
         // Fallback
         business.sharedProductIds = newSharedIds
       }
-      
+
       alert(isSharedCurrently ? 'Producto quitado de compartidos.' : 'Producto compartido con éxito en tu tienda.')
     } catch (e) {
       console.error('Error sharing product:', e)
@@ -252,6 +289,12 @@ export default function ProductList({
   const handleOpenNewProduct = () => {
     setEditingProduct(null)
     const defaultCategory = categories.length > 0 ? categories[0] : 'General'
+    const isSub = business?.defaultCommissionType === 'subscription' ||
+      business?.defaultCommissionType === 'no_commission' ||
+      (typeof business?.commissionRate === 'number' && business?.commissionRate <= 0) ||
+      commissionSettings.commissionRate <= 0
+    const defaultCommType = isSub ? 'subscription' : (business?.defaultCommissionType || 'fuddi_assumed_by_customer')
+
     setFormData({
       name: '',
       description: '',
@@ -259,11 +302,12 @@ export default function ProductList({
       category: defaultCategory,
       isAvailable: true,
       image: null,
-      commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
+      commissionType: defaultCommType as CommissionType,
       isCombo: false,
       minComboItems: 1,
       countComboUnits: false,
-      imagePosition: 'center 50%'
+      imagePosition: '50% 50%',
+      imageScale: 1
     })
     setVariants([])
     setIngredients([])
@@ -295,7 +339,7 @@ export default function ProductList({
     const fromProducts = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
     const extras = fromProducts.filter(c => !master.includes(c));
     const list = [...master, ...extras];
-    
+
     // Si hay productos sin ninguna categoría, añadimos un placeholder si no existe
     if (products.some(p => !p.category || p.category === 'Sin categoría') && !list.includes('Sin categoría')) {
       list.push('Sin categoría');
@@ -308,7 +352,7 @@ export default function ProductList({
     if (products.length > 0 && business?.id && onCategoriesChange && onDirectUpdate) {
       const fromProducts = Array.from(new Set(products.map(p => p.category).filter(c => c && c !== 'Sin categoría'))) as string[];
       const missing = fromProducts.filter(c => !categories.includes(c));
-      
+
       if (missing.length > 0) {
         const updated = [...categories, ...missing];
         onCategoriesChange(updated);
@@ -319,6 +363,14 @@ export default function ProductList({
 
   const handleEditProduct = (product: Product) => {
     setEditingProduct(product)
+    const isSub = business?.defaultCommissionType === 'subscription' ||
+      business?.defaultCommissionType === 'no_commission' ||
+      (typeof business?.commissionRate === 'number' && business?.commissionRate <= 0) ||
+      commissionSettings.commissionRate <= 0
+    const commType = isSub
+      ? 'subscription'
+      : (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer')
+
     setFormData({
       name: product.name,
       description: product.description,
@@ -326,11 +378,12 @@ export default function ProductList({
       category: product.category || 'Sin categoría',
       isAvailable: product.isAvailable,
       image: null,
-      commissionType: (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
+      commissionType: commType as CommissionType,
       isCombo: product.isCombo || false,
       minComboItems: product.minComboItems || 1,
       countComboUnits: product.countComboUnits || false,
-      imagePosition: product.imagePosition || 'center 50%'
+      imagePosition: product.imagePosition || '50% 50%',
+      imageScale: product.imageScale || 1
     })
     setVariants(product.variants?.map(v => ({ ...v, price: v.basePrice || v.price })) || [])
     setIngredients((product.ingredients || []) as any)
@@ -399,7 +452,8 @@ export default function ProductList({
       isCombo: false,
       minComboItems: 1,
       countComboUnits: false,
-      imagePosition: 'center 50%'
+      imagePosition: '50% 50%',
+      imageScale: 1
     })
     setVariants([])
     setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
@@ -655,20 +709,20 @@ export default function ProductList({
     if (editingVariantId) {
       setVariants(prev => prev.map(v =>
         v.id === editingVariantId
-          ? { 
-              ...v, 
-              name: currentVariant.name, 
-              price: price,
-              description: currentVariant.description,
-              image: currentVariant.imageUrl // Mantener la URL actual si existe
-            }
+          ? {
+            ...v,
+            name: currentVariant.name,
+            price: price,
+            description: currentVariant.description,
+            image: currentVariant.imageUrl // Mantener la URL actual si existe
+          }
           : v
       ))
-      
+
       if (currentVariant.imageFile) {
         setVariantImageFiles(prev => ({ ...prev, [editingVariantId]: currentVariant.imageFile! }))
       }
-      
+
       setEditingVariantId(null)
     } else {
       const newId = Date.now().toString()
@@ -1019,6 +1073,85 @@ export default function ProductList({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showIngredientSuggestions, activeMenu, activeVariantMenu, showHeaderMenu])
 
+  // Funciones de Encuadre, Pan y Zoom interactivo
+  const parseImagePosition = (pos: string = '50% 50%') => {
+    const parts = (pos || '50% 50%').trim().split(/\s+/);
+    let x = 50;
+    let y = 50;
+    if (parts.length === 1) {
+      if (parts[0] === 'center') { x = 50; y = 50; }
+      else {
+        const val = parseFloat(parts[0]);
+        if (!isNaN(val)) { x = val; y = val; }
+      }
+    } else if (parts.length >= 2) {
+      if (parts[0] === 'center') x = 50;
+      else {
+        const valX = parseFloat(parts[0]);
+        if (!isNaN(valX)) x = valX;
+      }
+      if (parts[1] === 'center') y = 50;
+      else {
+        const valY = parseFloat(parts[1]);
+        if (!isNaN(valY)) y = valY;
+      }
+    }
+    return {
+      x: Math.max(0, Math.min(100, Math.round(x))),
+      y: Math.max(0, Math.min(100, Math.round(y)))
+    };
+  };
+
+  const handlePanStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    const hasImg = !!(formData.image || editingProduct?.image);
+    if (!hasImg) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const { x, y } = parseImagePosition(formData.imagePosition);
+    panStartRef.current = { startX: clientX, startY: clientY, initPosX: x, initPosY: y };
+    setIsPanningImage(true);
+  };
+
+  const handlePanMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    if (!panStartRef.current) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const deltaX = clientX - panStartRef.current.startX;
+    const deltaY = clientY - panStartRef.current.startY;
+
+    const zoom = formData.imageScale || 1;
+    const sensitivity = 0.4 / zoom;
+    let newX = Math.round(panStartRef.current.initPosX - deltaX * sensitivity);
+    let newY = Math.round(panStartRef.current.initPosY - deltaY * sensitivity);
+    newX = Math.max(0, Math.min(100, newX));
+    newY = Math.max(0, Math.min(100, newY));
+
+    setFormData(prev => ({ ...prev, imagePosition: `${newX}% ${newY}%` }));
+  };
+
+  const handlePanEnd = () => {
+    panStartRef.current = null;
+    setIsPanningImage(false);
+  };
+
+  const handleZoomChange = (newScale: number) => {
+    const scale = Math.max(1, Math.min(3, Math.round(newScale * 100) / 100));
+    setFormData(prev => ({ ...prev, imageScale: scale }));
+  };
+
+  const handleWheelZoom = (e: React.WheelEvent<HTMLDivElement>) => {
+    const hasImg = !!(formData.image || editingProduct?.image);
+    if (!hasImg) return;
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.1 : -0.1;
+    const cur = formData.imageScale || 1;
+    handleZoomChange(cur + delta);
+  };
+
+  const handleResetPosition = () => {
+    setFormData(prev => ({ ...prev, imagePosition: '50% 50%', imageScale: 1 }));
+  };
+
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!business?.id) return
@@ -1056,11 +1189,11 @@ export default function ProductList({
       const processedVariants = await Promise.all(variants.map(async (variant) => {
         let variantImageUrl = variant.image || ''
         const imageFile = variantImageFiles[variant.id]
-        
+
         if (imageFile) {
           const timestamp = Date.now()
           const path = `products/variants/${timestamp}_${imageFile.name.split('.')[0]}.jpg`
-          
+
           try {
             const optimizedBlob = await optimizeImage(imageFile, 800, 0.8, 'image/jpeg')
             const optimizedFile = new File(
@@ -1129,6 +1262,7 @@ export default function ProductList({
         countComboUnits: formData.isCombo ? !!formData.countComboUnits : false,
         optionGroups: optionGroups.length > 0 ? optionGroups : undefined,
         imagePosition: formData.imagePosition,
+        imageScale: formData.imageScale || 1,
         businessId: business.id,
         updatedAt: new Date()
       }
@@ -1189,14 +1323,15 @@ export default function ProductList({
         isCombo: product.isCombo || false,
         minComboItems: product.minComboItems || 1,
         optionGroups: product.optionGroups || undefined,
-        imagePosition: product.imagePosition || 'center 50%',
+        imagePosition: product.imagePosition || '50% 50%',
+        imageScale: product.imageScale || 1,
         businessId: business.id,
         updatedAt: new Date(),
         order: (product.order || 0) + 1 // Intentar colocarlo cerca
       }
 
       const newProductId = await createProduct(productData, business.username)
-      
+
       const newProduct: Product = {
         ...productData,
         id: newProductId,
@@ -1423,7 +1558,7 @@ export default function ProductList({
     try {
       for (let i = 0; i < parsedProducts.length; i++) {
         const p = parsedProducts[i]
-        
+
         // 1. Calcular comisión sobre precio base
         const productPricing = calculateCommissionPricing(
           p.price,
@@ -1504,31 +1639,71 @@ export default function ProductList({
 
   return (
     <div className="space-y-6">
-      {/* Selector de Pestaña Principal (Estilo Premium) */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between sm:items-center bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-        <div>
-          <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
-            <i className="bi bi-box-seam text-[#aa1918]" />
-            {activeSection === 'mis-productos' ? 'Mis Productos' : 'Productos Compartidos'}
-          </h2>
-          <p className="text-xs text-gray-500 mt-1">
-            {activeSection === 'mis-productos' 
-              ? 'Administra el menú y productos de tu restaurante' 
+      {/* Selector de Pestaña Principal y Selector de Sucursales (Estilo Premium) */}
+      <div className="flex flex-col md:flex-row gap-4 justify-between md:items-center bg-white p-5 sm:p-6 rounded-3xl border border-gray-100 shadow-sm">
+        <div className="space-y-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-xl font-black text-gray-900 flex items-center gap-2 tracking-tight leading-tight">
+              <i className="bi bi-box-seam text-[#aa1918]" />
+              {activeSection === 'mis-productos' ? 'Mis Productos' : 'Productos Compartidos'}
+            </h2>
+
+            {/* Badge de Sucursal Actual */}
+            {business && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 rounded-full text-xs font-black">
+                <i className="bi bi-geo-alt-fill text-[11px] text-rose-500"></i>
+                {business.branchName || (business.isBranch ? 'Sucursal' : 'Matriz')}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 font-medium">
+            {activeSection === 'mis-productos'
+              ? `Administra el menú de productos para ${business?.name || 'tu negocio'}${business?.branchName ? ` (${business.branchName})` : ''}`
               : 'Busca productos de otras tiendas y publícalos en tu perfil'}
           </p>
         </div>
-        
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+          {/* Selector de Sucursal */}
+          {availableBranches.length > 1 && (
+            <div className="flex items-center gap-2 bg-gradient-to-r from-rose-50/90 to-amber-50/70 border border-rose-200/90 px-3.5 py-1.5 rounded-2xl shadow-xs">
+              <div className="w-7 h-7 rounded-xl bg-white shadow-xs text-rose-600 flex items-center justify-center flex-shrink-0">
+                <i className="bi bi-shop text-xs"></i>
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[9px] font-black uppercase tracking-wider text-rose-600 leading-none">
+                  Cambiar Sucursal
+                </span>
+                <select
+                  value={business?.id || ''}
+                  onChange={(e) => onBusinessChange?.(e.target.value)}
+                  className="bg-transparent text-xs font-black text-gray-900 focus:outline-none cursor-pointer tracking-tight pr-2 -ml-0.5"
+                >
+                  {availableBranches.map(branch => {
+                    const isCurrent = branch.id === business?.id
+                    const branchTitle = branch.branchName
+                      ? branch.branchName
+                      : (branch.parentBusinessId ? 'Sucursal' : 'Matriz (Principal)')
+                    return (
+                      <option key={branch.id} value={branch.id} className="text-gray-900 bg-white font-bold text-xs py-1">
+                        {branchTitle} {isCurrent ? '✓' : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+            </div>
+          )}
+
           {/* Tab Selector */}
           <div className="flex bg-gray-100 p-1.5 rounded-2xl text-xs font-black border border-gray-200/50 shadow-inner">
             <button
               type="button"
               onClick={() => setActiveSection('mis-productos')}
-              className={`py-2 px-4 rounded-xl transition-all flex items-center gap-2 ${
-                activeSection === 'mis-productos'
+              className={`py-2 px-4 rounded-xl transition-all flex items-center gap-2 ${activeSection === 'mis-productos'
                   ? 'bg-white text-[#aa1918] shadow-sm'
                   : 'text-gray-500 hover:text-gray-900'
-              }`}
+                }`}
             >
               <i className="bi bi-grid-fill"></i>
               Mis Productos
@@ -1536,11 +1711,10 @@ export default function ProductList({
             <button
               type="button"
               onClick={() => setActiveSection('compartidos')}
-              className={`py-2 px-4 rounded-xl transition-all flex items-center gap-2 ${
-                activeSection === 'compartidos'
+              className={`py-2 px-4 rounded-xl transition-all flex items-center gap-2 ${activeSection === 'compartidos'
                   ? 'bg-white text-[#aa1918] shadow-sm'
                   : 'text-gray-500 hover:text-gray-900'
-              }`}
+                }`}
             >
               <i className="bi bi-share-fill"></i>
               Compartidos
@@ -1558,7 +1732,7 @@ export default function ProductList({
               >
                 <i className="bi bi-three-dots text-lg"></i>
               </button>
-              
+
               {showHeaderMenu && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
                   <button
@@ -1584,260 +1758,260 @@ export default function ProductList({
 
       {activeSection === 'mis-productos' && (
         products.length === 0 ? (
-        <div className="bg-gray-50 rounded-lg border border-gray-200 p-8 text-center">
-          <i className="bi bi-box-seam text-4xl text-gray-300 mb-3 block"></i>
-          <p className="text-gray-600 font-medium">No hay productos</p>
-          <p className="text-sm text-gray-500 mt-1">Crea tu primer producto para comenzar</p>
-        </div>
-      ) : (
-        <div className="space-y-8">
-          {allCategories.map((category, catIndex) => {
-            const isMaster = categories.includes(category);
-            const categoryProducts = products
-              .filter(p => {
-                if (category === 'Sin categoría') return !p.category || p.category === 'Sin categoría';
-                return p.category === category;
-              })
-              .sort((a, b) => (a.order || 0) - (b.order || 0))
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-8 text-center">
+            <i className="bi bi-box-seam text-4xl text-gray-300 mb-3 block"></i>
+            <p className="text-gray-600 font-medium">No hay productos</p>
+            <p className="text-sm text-gray-500 mt-1">Crea tu primer producto para comenzar</p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {allCategories.map((category, catIndex) => {
+              const isMaster = categories.includes(category);
+              const categoryProducts = products
+                .filter(p => {
+                  if (category === 'Sin categoría') return !p.category || p.category === 'Sin categoría';
+                  return p.category === category;
+                })
+                .sort((a, b) => (a.order || 0) - (b.order || 0))
 
-            if (categoryProducts.length === 0) return null
+              if (categoryProducts.length === 0) return null
 
-            return (
-              <div key={category} className="mb-10 last:mb-0">
-                <div className="flex items-center gap-3 mb-6">
-                  <h3 className={`text-lg font-bold tracking-wide uppercase ${isMaster ? 'text-gray-800' : 'text-gray-400 italic'}`}>
-                    {category}
-                  </h3>
-                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
-                    {categoryProducts.length} items
-                  </span>
-                  <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent ml-2"></div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => moveCategory(catIndex, 'up')}
-                      disabled={catIndex === 0}
-                      className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
-                      title="Subir categoría"
-                    >
-                      <i className="bi bi-chevron-up"></i>
-                    </button>
-                    <button
-                      onClick={() => moveCategory(catIndex, 'down')}
-                      disabled={catIndex === allCategories.length - 1}
-                      className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
-                      title="Bajar categoría"
-                    >
-                      <i className="bi bi-chevron-down"></i>
-                    </button>
+              return (
+                <div key={category} className="mb-10 last:mb-0">
+                  <div className="flex items-center gap-3 mb-6">
+                    <h3 className={`text-lg font-bold tracking-wide uppercase ${isMaster ? 'text-gray-800' : 'text-gray-400 italic'}`}>
+                      {category}
+                    </h3>
+                    <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
+                      {categoryProducts.length} items
+                    </span>
+                    <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent ml-2"></div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => moveCategory(catIndex, 'up')}
+                        disabled={catIndex === 0}
+                        className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
+                        title="Subir categoría"
+                      >
+                        <i className="bi bi-chevron-up"></i>
+                      </button>
+                      <button
+                        onClick={() => moveCategory(catIndex, 'down')}
+                        disabled={catIndex === allCategories.length - 1}
+                        className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
+                        title="Bajar categoría"
+                      >
+                        <i className="bi bi-chevron-down"></i>
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-                  {categoryProducts.map((product, pIndex) => (
-                    <div
-                      key={product.id}
-                      onClick={() => handleEditProduct(product)}
-                      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer ${product.isAvailable
-                        ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-                        : 'border-gray-200 bg-gray-50/50'
-                        }`}
-                    >
-                      <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
-                        {/* Imagen cuadrada con diseño redondeado */}
-                        <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
-                          {product.image ? (
-                            <img
-                              src={product.image}
-                              alt={product.name}
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                              style={{ objectPosition: product.imagePosition || 'center' }}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                              <i className="bi bi-box-seam text-2xl"></i>
-                            </div>
-                          )}
-                        </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+                    {categoryProducts.map((product, pIndex) => (
+                      <div
+                        key={product.id}
+                        onClick={() => handleEditProduct(product)}
+                        className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer ${product.isAvailable
+                          ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
+                          : 'border-gray-200 bg-gray-50/50'
+                          }`}
+                      >
+                        <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
+                          {/* Imagen cuadrada con diseño redondeado */}
+                          <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
+                            {product.image ? (
+                              <img
+                                src={product.image}
+                                alt={product.name}
+                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                style={{ objectPosition: product.imagePosition || 'center' }}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                                <i className="bi bi-box-seam text-2xl"></i>
+                              </div>
+                            )}
+                          </div>
 
-                        {/* Info Content */}
-                        <div className="flex-1 min-w-0 ml-4 pr-10">
-                          <div className="flex flex-col h-full justify-between">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
-                                  {product.name}
-                                </h4>
-                                {!product.isAvailable && (
-                                  <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                    Oculto
+                          {/* Info Content */}
+                          <div className="flex-1 min-w-0 ml-4 pr-10">
+                            <div className="flex flex-col h-full justify-between">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2 mb-1">
+                                  <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+                                    {product.name}
+                                  </h4>
+                                  {!product.isAvailable && (
+                                    <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                      Oculto
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+                                  {product.description}
+                                </p>
+                              </div>
+
+                              <div className="mt-2 flex flex-col">
+                                <div className="flex items-center gap-3">
+                                  <span className="text-base sm:text-xl font-black text-emerald-600 tracking-tight">
+                                    ${(product.basePrice || product.price).toFixed(2)}
+                                  </span>
+                                  {product.variants && product.variants.length > 0 && (
+                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
+                                      <i className="bi bi-stack text-gray-400 text-[10px]"></i>
+                                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                                        {product.variants.length} variantes
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                                {product.basePrice && product.basePrice !== product.price && (
+                                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+                                    Público: ${product.price.toFixed(2)}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
-                                {product.description}
-                              </p>
-                            </div>
-
-                            <div className="mt-2 flex flex-col">
-                              <div className="flex items-center gap-3">
-                                <span className="text-base sm:text-xl font-black text-emerald-600 tracking-tight">
-                                  ${(product.basePrice || product.price).toFixed(2)}
-                                </span>
-                                {product.variants && product.variants.length > 0 && (
-                                  <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                    <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                      {product.variants.length} variantes
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                              {product.basePrice && product.basePrice !== product.price && (
-                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
-                                  Público: ${product.price.toFixed(2)}
-                                </span>
-                              )}
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Botones de acción - Desplegable */}
-                      <div className="absolute top-3 right-3 product-action-menu z-20">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setActiveMenu(activeMenu === product.id ? null : product.id)
-                          }}
-                          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
-                        >
-                          <i className="bi bi-three-dots-vertical text-lg"></i>
-                        </button>
+                        {/* Botones de acción - Desplegable */}
+                        <div className="absolute top-3 right-3 product-action-menu z-20">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setActiveMenu(activeMenu === product.id ? null : product.id)
+                            }}
+                            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
+                          >
+                            <i className="bi bi-three-dots-vertical text-lg"></i>
+                          </button>
 
-                        {activeMenu === product.id && (
-                          <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleToggleAvailability(product.id, product.isAvailable)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
-                              {product.isAvailable ? 'Ocultar' : 'Mostrar'}
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleEditProduct(product)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className="bi bi-pencil text-blue-600"></i>
-                              Editar
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setQuickAddonProduct(product)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className="bi bi-plus-circle text-emerald-600"></i>
-                              Añadidos rápidos
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDuplicateProduct(product)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className="bi bi-files text-amber-600"></i>
-                              Duplicar
-                            </button>
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
-                                try {
-                                  if (navigator.clipboard && window.isSecureContext) {
-                                    await navigator.clipboard.writeText(productUrl)
-                                  } else {
-                                    const textArea = document.createElement('textarea')
-                                    textArea.value = productUrl
-                                    textArea.style.position = 'fixed'
-                                    textArea.style.opacity = '0'
-                                    document.body.appendChild(textArea)
-                                    textArea.focus()
-                                    textArea.select()
-                                    document.execCommand('copy')
-                                    document.body.removeChild(textArea)
-                                  }
+                          {activeMenu === product.id && (
+                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleToggleAvailability(product.id, product.isAvailable)
                                   setActiveMenu(null)
-                                } catch (err) {
-                                  console.error('Error al copiar enlace:', err)
-                                }
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className="bi bi-link-45deg text-purple-600"></i>
-                              Copiar link
-                            </button>
-                            <div className="border-t border-gray-50 my-1"></div>
-                            <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                              Mover
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    moveProduct(product, 'up')
-                                  }}
-                                  disabled={pIndex === 0}
-                                  className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                >
-                                  <i className="bi bi-chevron-up"></i>
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    moveProduct(product, 'down')
-                                  }}
-                                  disabled={pIndex === categoryProducts.length - 1}
-                                  className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                >
-                                  <i className="bi bi-chevron-down"></i>
-                                </button>
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                              >
+                                <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
+                                {product.isAvailable ? 'Ocultar' : 'Mostrar'}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleEditProduct(product)
+                                  setActiveMenu(null)
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                              >
+                                <i className="bi bi-pencil text-blue-600"></i>
+                                Editar
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setQuickAddonProduct(product)
+                                  setActiveMenu(null)
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                              >
+                                <i className="bi bi-plus-circle text-emerald-600"></i>
+                                Añadidos rápidos
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDuplicateProduct(product)
+                                  setActiveMenu(null)
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                              >
+                                <i className="bi bi-files text-amber-600"></i>
+                                Duplicar
+                              </button>
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
+                                  try {
+                                    if (navigator.clipboard && window.isSecureContext) {
+                                      await navigator.clipboard.writeText(productUrl)
+                                    } else {
+                                      const textArea = document.createElement('textarea')
+                                      textArea.value = productUrl
+                                      textArea.style.position = 'fixed'
+                                      textArea.style.opacity = '0'
+                                      document.body.appendChild(textArea)
+                                      textArea.focus()
+                                      textArea.select()
+                                      document.execCommand('copy')
+                                      document.body.removeChild(textArea)
+                                    }
+                                    setActiveMenu(null)
+                                  } catch (err) {
+                                    console.error('Error al copiar enlace:', err)
+                                  }
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                              >
+                                <i className="bi bi-link-45deg text-purple-600"></i>
+                                Copiar link
+                              </button>
+                              <div className="border-t border-gray-50 my-1"></div>
+                              <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                Mover
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      moveProduct(product, 'up')
+                                    }}
+                                    disabled={pIndex === 0}
+                                    className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
+                                  >
+                                    <i className="bi bi-chevron-up"></i>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      moveProduct(product, 'down')
+                                    }}
+                                    disabled={pIndex === categoryProducts.length - 1}
+                                    className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
+                                  >
+                                    <i className="bi bi-chevron-down"></i>
+                                  </button>
+                                </div>
                               </div>
+                              <div className="border-t border-gray-50 my-1"></div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteProduct(product.id)
+                                  setActiveMenu(null)
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
+                              >
+                                <i className="bi bi-trash"></i>
+                                Eliminar
+                              </button>
                             </div>
-                            <div className="border-t border-gray-50 my-1"></div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteProduct(product.id)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
-                            >
-                              <i className="bi bi-trash"></i>
-                              Eliminar
-                            </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
-      )
-    )}
+              )
+            })}
+          </div>
+        )
+      )}
 
       {activeSection === 'compartidos' && (
         /* VISTA: PRODUCTOS COMPARTIDOS */
@@ -1848,7 +2022,7 @@ export default function ProductList({
               <i className="bi bi-search text-red-600 text-base" />
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Buscar en otras tiendas</h3>
             </div>
-            
+
             <div className="flex flex-col sm:flex-row gap-3">
               <select
                 value={selectedSearchBusinessId}
@@ -1871,7 +2045,7 @@ export default function ProductList({
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
                 Productos disponibles en la tienda seleccionada
               </h3>
-              
+
               {loadingSearchProducts ? (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
@@ -1901,15 +2075,14 @@ export default function ProductList({
                             <p className="text-xs font-black text-emerald-600 mt-1">${prod.price.toFixed(2)}</p>
                           </div>
                         </div>
-                        
+
                         <button
                           type="button"
                           onClick={() => handleToggleShareProduct(prod.id, isShared)}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 flex-shrink-0 ${
-                            isShared
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 flex-shrink-0 ${isShared
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100'
                               : 'bg-red-600 text-white hover:bg-red-700 shadow-sm shadow-red-100'
-                          }`}
+                            }`}
                         >
                           {isShared ? (
                             <>
@@ -1980,7 +2153,7 @@ export default function ProductList({
                           <p className="text-xs font-black text-emerald-600">${prod.price.toFixed(2)}</p>
                         </div>
                       </div>
-                      
+
                       <button
                         type="button"
                         onClick={() => handleToggleShareProduct(prod.id, true)}
@@ -2028,11 +2201,10 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('general')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${
-                      activeTab === 'general'
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${activeTab === 'general'
                         ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
                         : 'text-slate-500 hover:text-slate-800'
-                    }`}
+                      }`}
                   >
                     <i className="bi bi-info-circle text-sm"></i>
                     General
@@ -2040,11 +2212,10 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('ingredients')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${
-                      activeTab === 'ingredients'
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${activeTab === 'ingredients'
                         ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
                         : 'text-slate-500 hover:text-slate-800'
-                    }`}
+                      }`}
                   >
                     <i className="bi bi-basket text-sm"></i>
                     <span>Ingredientes</span>
@@ -2057,11 +2228,10 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('options')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${
-                      activeTab === 'options'
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${activeTab === 'options'
                         ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
                         : 'text-slate-500 hover:text-slate-800'
-                    }`}
+                      }`}
                   >
                     <i className="bi bi-gear text-sm"></i>
                     <span>Toppings</span>
@@ -2075,136 +2245,413 @@ export default function ProductList({
 
                 {/* PESTAÑA: INFORMACIÓN GENERAL */}
                 {activeTab === 'general' && (
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    
-                    {/* COLUMNA IZQUIERDA: IMAGEN, CATEGORIA Y HORARIOS */}
-                    <div className="contents lg:block lg:col-span-5 lg:space-y-6">
-                      
-                      {/* Tarjeta 1: Imagen de Portada */}
-                      <div className="order-1 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Imagen de Portada</h4>
-                        
-                        <div className="aspect-square w-full relative">
-                          <label htmlFor="image-upload" className="block cursor-pointer h-full">
-                            <div 
+                  <div className="max-w-2xl mx-auto space-y-6">
+
+                    {/* 1. Nombre del Producto */}
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-0.5">
+                        Nombre del Producto
+                      </label>
+                      <input
+                        type="text"
+                        name="name"
+                        value={formData.name}
+                        onChange={handleInputChange}
+                        placeholder="Ej: Hamburguesa Clásica, Pizza Hawaiana..."
+                        className={`w-full px-4 py-3 bg-slate-50/70 border rounded-xl text-sm font-bold text-slate-900 focus:bg-white transition-all outline-none ${errors.name ? 'border-red-500 focus:border-red-500' : 'border-slate-200/80 focus:border-[#aa1918]'
+                          }`}
+                      />
+                      {errors.name && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.name}</p>}
+                    </div>
+
+                    {/* 2. Foto del Producto con Encuadre y Zoom 2D */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-0.5">
+                          Foto del Producto
+                        </label>
+                        {(formData.image || editingProduct?.image) && (
+                          <span className="text-[10px] font-bold text-slate-400">
+                            Arrastra para mover • Rueda para zoom
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="w-full relative">
+                        {!(formData.image || editingProduct?.image) ? (
+                          <label htmlFor="image-upload" className="block cursor-pointer">
+                            <div
                               onDragEnter={handleDragOverImage}
                               onDragOver={handleDragOverImage}
                               onDragLeave={handleDragOverImage}
                               onDrop={handleDropImage}
-                              className={`relative h-full bg-slate-50 rounded-2xl border-2 border-dashed transition-all duration-300 flex items-center justify-center overflow-hidden group shadow-inner ${
-                                isDraggingImage 
-                                  ? 'border-[#aa1918] bg-red-50/40 scale-[1.02] shadow-lg shadow-red-100/50 ring-4 ring-red-100' 
-                                  : 'border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10'
+                              className={`relative aspect-square w-full max-w-[280px] mx-auto bg-slate-50/70 rounded-2xl border-2 border-dashed transition-all duration-200 flex items-center justify-center overflow-hidden group ${
+                                isDraggingImage
+                                  ? 'border-[#aa1918] bg-red-50/30 ring-4 ring-red-100 scale-[1.01]'
+                                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-100/50'
                               }`}
                             >
                               {isDraggingImage && (
                                 <div className="absolute inset-0 z-30 bg-[#aa1918]/90 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4 text-center animate-in fade-in zoom-in-95 duration-150">
-                                  <i className="bi bi-cloud-arrow-up text-4xl mb-2 animate-bounce"></i>
+                                  <i className="bi bi-cloud-arrow-up text-3xl mb-1.5 animate-bounce"></i>
                                   <p className="text-xs font-black uppercase tracking-wider">Suelta la imagen aquí</p>
-                                  <p className="text-[10px] opacity-90 mt-0.5">Para asignar la foto al producto</p>
                                 </div>
                               )}
-                              {uploading && formData.image && (
+                              {uploading && (
                                 <div className="absolute inset-0 z-20 bg-slate-900/60 backdrop-blur-[1px] flex flex-col items-center justify-center">
-                                  <i className="bi bi-arrow-clockwise animate-spin text-white text-2xl mb-2"></i>
+                                  <i className="bi bi-arrow-clockwise animate-spin text-white text-2xl mb-1.5"></i>
                                   <p className="text-white text-[9px] font-black uppercase tracking-widest">Subiendo Imagen</p>
                                 </div>
                               )}
-                              {formData.image ? (
-                                <div className="absolute inset-0 w-full h-full">
-                                  <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" style={{ objectPosition: formData.imagePosition }} />
-                                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <i className="bi bi-camera text-white text-2xl"></i>
-                                  </div>
+                              <div className="text-center p-4 space-y-1.5">
+                                <div className="w-10 h-10 rounded-full bg-white text-slate-400 flex items-center justify-center mx-auto shadow-xs group-hover:scale-105 transition-transform">
+                                  <i className="bi bi-cloud-arrow-up text-lg text-slate-500"></i>
                                 </div>
-                              ) : editingProduct?.image ? (
-                                <div className="absolute inset-0 w-full h-full">
-                                  <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" style={{ objectPosition: formData.imagePosition }} />
-                                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <i className="bi bi-camera text-white text-2xl"></i>
-                                  </div>
+                                <div>
+                                  <p className="text-xs text-slate-700 font-bold">Subir o arrastrar foto</p>
+                                  <p className="text-[10px] text-slate-400 font-medium">Formato 1:1</p>
                                 </div>
-                              ) : (
-                                <div className="text-center p-6 space-y-2">
-                                  <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-                                    <i className="bi bi-cloud-arrow-up text-xl"></i>
-                                  </div>
-                                  <div>
-                                    <p className="text-xs text-slate-600 font-bold">Subir o Arrastrar Foto</p>
-                                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">JPG o PNG, recomendado 1:1</p>
-                                  </div>
-                                </div>
-                              )}
+                              </div>
                             </div>
                           </label>
-                        </div>
+                        ) : (
+                          /* Contenedor Interactivo con Pan 2D y Zoom */
+                          <div className="relative aspect-square w-full max-w-[280px] mx-auto rounded-2xl overflow-hidden border-2 border-slate-200/80 bg-slate-900 shadow-inner group select-none">
+                            <div
+                              onMouseDown={handlePanStart}
+                              onMouseMove={handlePanMove}
+                              onMouseUp={handlePanEnd}
+                              onMouseLeave={handlePanEnd}
+                              onTouchStart={handlePanStart}
+                              onTouchMove={handlePanMove}
+                              onTouchEnd={handlePanEnd}
+                              onWheel={handleWheelZoom}
+                              className={`w-full h-full relative overflow-hidden flex items-center justify-center ${
+                                isPanningImage ? 'cursor-grabbing' : 'cursor-grab'
+                              }`}
+                              title="Arrastra para mover la imagen en cualquier dirección o usa la rueda para zoom"
+                            >
+                              <img
+                                src={formData.image ? URL.createObjectURL(formData.image) : editingProduct?.image}
+                                alt="Preview"
+                                className="w-full h-full object-cover select-none pointer-events-none transition-transform duration-75"
+                                style={{
+                                  objectPosition: formData.imagePosition || '50% 50%',
+                                  transformOrigin: formData.imagePosition || '50% 50%',
+                                  transform: (formData.imageScale && formData.imageScale > 1) ? `scale(${formData.imageScale})` : undefined
+                                }}
+                                draggable={false}
+                              />
 
-                        {/* Control de encuadre (slider) */}
-                        {(formData.image || editingProduct?.image) && (
-                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
-                            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
-                              <span className="text-slate-400 font-black">Ajuste de Encuadre</span>
-                              <span className="text-[#aa1918] font-black">
-                                {(() => {
-                                  const pct = parseInt(formData.imagePosition.split(' ')[1] || '50', 10);
-                                  if (pct === 50) return 'Centro';
-                                  if (pct < 40) return 'Arriba';
-                                  if (pct > 60) return 'Abajo';
-                                  return `${pct}%`;
-                                })()}
-                              </span>
+                              {/* Guías de Regla de Tercios */}
+                              <div
+                                className={`absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none transition-opacity duration-200 ${
+                                  isPanningImage ? 'opacity-50' : 'opacity-0 group-hover:opacity-25'
+                                }`}
+                              >
+                                <div className="border-r border-b border-white/80 shadow-xs"></div>
+                                <div className="border-r border-b border-white/80 shadow-xs"></div>
+                                <div className="border-b border-white/80 shadow-xs"></div>
+                                <div className="border-r border-b border-white/80 shadow-xs"></div>
+                                <div className="border-r border-b border-white/80 shadow-xs"></div>
+                                <div className="border-b border-white/80 shadow-xs"></div>
+                                <div className="border-r border-b border-white/80 shadow-xs"></div>
+                                <div className="border-r border-white/80 shadow-xs"></div>
+                                <div></div>
+                              </div>
+
+                              {/* Botón flotante para Cambiar Foto */}
+                              <label
+                                htmlFor="image-upload"
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute top-2 right-2 z-10 bg-black/60 hover:bg-black/80 backdrop-blur-xs text-white px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1 shadow-sm active:scale-95"
+                              >
+                                <i className="bi bi-camera text-xs"></i>
+                                <span>Cambiar</span>
+                              </label>
                             </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={parseInt(formData.imagePosition.split(' ')[1] || '50', 10)}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setFormData(prev => ({ ...prev, imagePosition: `center ${val}%` }));
-                              }}
-                              className="w-full accent-[#aa1918] h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                            />
                           </div>
                         )}
-                        <input
-                          id="image-upload"
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageChange}
-                          className="hidden"
-                        />
                       </div>
 
-                      {/* Tarjeta 2: Categoría y Disponibilidad */}
-                      <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría y Estado</h4>
-                        
-                        {/* Categoría */}
-                        <div className="space-y-1.5">
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoría</label>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              name="category"
-                              list="categories-list"
-                              value={formData.category}
-                              onChange={handleInputChange}
-                              placeholder="Escribe o selecciona una categoría..."
-                              className="w-full px-4 py-3 bg-slate-50 border border-slate-100 hover:border-slate-200 focus:border-[#aa1918] focus:bg-white rounded-xl focus:outline-none transition-all text-sm font-bold text-slate-800"
-                            />
-                            <datalist id="categories-list">
-                              {categories.map((cat) => (
-                                <option key={cat} value={cat} />
-                              ))}
-                            </datalist>
+                      {/* Controles de Encuadre y Zoom */}
+                      {(formData.image || editingProduct?.image) && (
+                        <div className="space-y-2.5 max-w-[280px] mx-auto pt-1">
+                          
+                          {/* Control de Zoom */}
+                          <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70 space-y-1.5">
+                            <div className="flex items-center justify-between text-[10px] font-bold">
+                              <span className="text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                <i className="bi bi-zoom-in text-slate-500"></i>
+                                Zoom
+                              </span>
+                              <span className="text-[#aa1918] font-mono">
+                                {Math.round((formData.imageScale || 1) * 100)}%
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleZoomChange((formData.imageScale || 1) - 0.1)}
+                                disabled={(formData.imageScale || 1) <= 1}
+                                className="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded-md text-slate-600 hover:text-slate-900 disabled:opacity-30 disabled:pointer-events-none transition-all text-xs"
+                                title="Reducir zoom"
+                              >
+                                <i className="bi bi-dash"></i>
+                              </button>
+                              <input
+                                type="range"
+                                min="1"
+                                max="3"
+                                step="0.05"
+                                value={formData.imageScale || 1}
+                                onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                                className="flex-1 accent-[#aa1918] h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleZoomChange((formData.imageScale || 1) + 0.1)}
+                                disabled={(formData.imageScale || 1) >= 3}
+                                className="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded-md text-slate-600 hover:text-slate-900 disabled:opacity-30 disabled:pointer-events-none transition-all text-xs"
+                                title="Aumentar zoom"
+                              >
+                                <i className="bi bi-plus"></i>
+                              </button>
+                            </div>
                           </div>
+
+                          {/* Botones de acción rápida: Centrar y Ajuste Fino */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleResetPosition}
+                              className="flex-1 py-1.5 px-2 bg-slate-50/80 hover:bg-slate-100 text-slate-700 rounded-xl border border-slate-200/70 text-[10px] font-bold transition-all flex items-center justify-center gap-1.5"
+                              title="Restablecer encuadre y zoom original"
+                            >
+                              <i className="bi bi-arrow-counterclockwise text-xs text-slate-500"></i>
+                              Centrar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowEncuadreDetails(!showEncuadreDetails)}
+                              className={`py-1.5 px-2.5 rounded-xl border text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${
+                                showEncuadreDetails 
+                                  ? 'bg-[#aa1918]/10 text-[#aa1918] border-[#aa1918]/30' 
+                                  : 'bg-slate-50/80 hover:bg-slate-100 text-slate-600 border-slate-200/70'
+                              }`}
+                              title="Ajuste fino de posición X e Y"
+                            >
+                              <i className="bi bi-sliders text-xs"></i>
+                              <span>Ajuste fino</span>
+                            </button>
+                          </div>
+
+                          {/* Sliders de Ajuste Fino X e Y (Desplegable) */}
+                          {showEncuadreDetails && (
+                            <div className="p-2.5 bg-slate-50/80 rounded-xl border border-slate-200/70 space-y-2 animate-in fade-in slide-in-from-top-2 duration-150">
+                              {/* Horizontal X */}
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-center text-[9px] font-bold">
+                                  <span className="text-slate-500 flex items-center gap-1">
+                                    <i className="bi bi-arrows-expand-vertical -rotate-90 text-[10px]"></i>
+                                    Horizontal (X)
+                                  </span>
+                                  <span className="text-[#aa1918] font-mono">
+                                    {parseImagePosition(formData.imagePosition).x}%
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="100"
+                                  value={parseImagePosition(formData.imagePosition).x}
+                                  onChange={(e) => {
+                                    const { y } = parseImagePosition(formData.imagePosition);
+                                    setFormData(prev => ({ ...prev, imagePosition: `${e.target.value}% ${y}%` }));
+                                  }}
+                                  className="w-full accent-[#aa1918] h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                                />
+                              </div>
+
+                              {/* Vertical Y */}
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-center text-[9px] font-bold">
+                                  <span className="text-slate-500 flex items-center gap-1">
+                                    <i className="bi bi-arrows-expand-vertical text-[10px]"></i>
+                                    Vertical (Y)
+                                  </span>
+                                  <span className="text-[#aa1918] font-mono">
+                                    {parseImagePosition(formData.imagePosition).y}%
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="100"
+                                  value={parseImagePosition(formData.imagePosition).y}
+                                  onChange={(e) => {
+                                    const { x } = parseImagePosition(formData.imagePosition);
+                                    setFormData(prev => ({ ...prev, imagePosition: `${x}% ${e.target.value}%` }));
+                                  }}
+                                  className="w-full accent-[#aa1918] h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <input
+                        id="image-upload"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="hidden"
+                      />
+                    </div>
+
+                    {/* 3. Descripción */}
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-0.5">
+                        Descripción
+                      </label>
+                      <textarea
+                        name="description"
+                        value={formData.description}
+                        onChange={handleInputChange}
+                        rows={3}
+                        placeholder="Describe el producto (ingredientes, porciones, detalles especiales)..."
+                        className={`w-full px-4 py-2.5 bg-slate-50/70 border rounded-xl text-xs font-medium text-slate-700 focus:bg-white transition-all outline-none resize-none ${errors.description ? 'border-red-500 focus:border-red-500' : 'border-slate-200/80 focus:border-[#aa1918]'
+                          }`}
+                      />
+                      {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.description}</p>}
+                    </div>
+
+                    {/* 4. Precio */}
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-0.5">
+                            {isSubscription ? 'Precio del Producto' : 'Precio Base'}
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              name="price"
+                              value={formData.price}
+                              onChange={handleInputChange}
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                              placeholder="0.00"
+                              className={`w-full pl-7 pr-4 py-2.5 bg-slate-50/70 border rounded-xl text-sm font-bold text-slate-800 focus:bg-white transition-all outline-none ${errors.price ? 'border-red-500 focus:border-red-500' : 'border-slate-200/80 focus:border-[#aa1918]'
+                                }`}
+                            />
+                          </div>
+                          {errors.price && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.price}</p>}
                         </div>
 
-                        {/* Disponibilidad */}
-                        <label className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl cursor-pointer transition-all border border-slate-100 group">
-                          <span className="font-bold text-slate-700 text-xs">Disponible para la Venta</span>
-                          <div className="relative inline-flex items-center">
+                        {/* Precio Público Toggle (Oculto si el negocio tiene suscripción) */}
+                        {!isSubscription && formData.price && Number(formData.price) > 0 && (
+                          <div className="pt-6">
+                            <div className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50/80 rounded-xl border border-slate-200/60">
+                              <p className="text-xs font-bold text-slate-500">
+                                Precio Público: <span className="text-slate-900 font-black">${formData.commissionType === 'fuddi_assumed_by_customer'
+                                  ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2)
+                                  : Number(formData.price).toFixed(2)}</span>
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setShowCommissionSettings(!showCommissionSettings)}
+                                className="text-[10px] font-black text-blue-600 uppercase tracking-wider hover:text-blue-700 flex items-center gap-1 transition-colors ml-2"
+                              >
+                                {showCommissionSettings ? 'Ocultar' : 'Comisión'}
+                                <i className={`bi ${showCommissionSettings ? 'bi-chevron-up' : 'bi-chevron-down'}`}></i>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Configuración de Comisión Colapsable (Oculto si el negocio tiene suscripción) */}
+                      {!isSubscription && showCommissionSettings && formData.price && Number(formData.price) > 0 && (
+                        <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/70 space-y-3.5 animate-in fade-in zoom-in-95 duration-200">
+                          <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60">
+                            <div className="w-6 h-6 bg-amber-50 border border-amber-100 text-amber-600 rounded-lg flex items-center justify-center text-xs">
+                              <i className="bi bi-percent"></i>
+                            </div>
+                            <h5 className="font-black text-slate-700 text-[10px] uppercase tracking-wider">Comisión Fuddi ({commissionSettings.commissionRate}%)</h5>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_customer' }))}
+                              className={`p-3 rounded-xl border text-left transition-all ${formData.commissionType === 'fuddi_assumed_by_customer'
+                                  ? 'border-[#aa1918] bg-white shadow-xs'
+                                  : 'border-slate-200/80 bg-white/70 hover:border-slate-300'
+                                }`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'border-[#aa1918] bg-[#aa1918]' : 'border-slate-300'
+                                  }`}>
+                                  {formData.commissionType === 'fuddi_assumed_by_customer' && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                                </div>
+                                <span className={`font-bold text-xs ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'text-[#aa1918]' : 'text-slate-700'}`}>Cliente paga</span>
+                              </div>
+                              <p className="text-[9px] text-slate-400 font-medium">Recibes el 100% de tu precio ingresado.</p>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_store' }))}
+                              className={`p-3 rounded-xl border text-left transition-all ${formData.commissionType === 'fuddi_assumed_by_store'
+                                  ? 'border-[#aa1918] bg-white shadow-xs'
+                                  : 'border-slate-200/80 bg-white/70 hover:border-slate-300'
+                                }`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${formData.commissionType === 'fuddi_assumed_by_store' ? 'border-[#aa1918] bg-[#aa1918]' : 'border-slate-300'
+                                  }`}>
+                                  {formData.commissionType === 'fuddi_assumed_by_store' && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                                </div>
+                                <span className={`font-bold text-xs ${formData.commissionType === 'fuddi_assumed_by_store' ? 'text-[#aa1918]' : 'text-slate-700'}`}>Negocio asume</span>
+                              </div>
+                              <p className="text-[9px] text-slate-400 font-medium">Descuenta {commissionSettings.commissionRate}% de tu ganancia.</p>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 5. Categoría y Disponibilidad */}
+                    <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-0.5">Categoría</label>
+                        <input
+                          type="text"
+                          name="category"
+                          list="categories-list"
+                          value={formData.category}
+                          onChange={handleInputChange}
+                          placeholder="Selecciona o escribe una categoría..."
+                          className="w-full px-3.5 py-2.5 bg-slate-50/80 border border-slate-200/80 hover:border-slate-300 focus:border-[#aa1918] focus:bg-white rounded-xl focus:outline-none transition-all text-xs font-bold text-slate-800"
+                        />
+                        <datalist id="categories-list">
+                          {categories.map((cat) => (
+                            <option key={cat} value={cat} />
+                          ))}
+                        </datalist>
+                      </div>
+
+                      <div className="sm:pt-5">
+                        <label className="flex items-center justify-between cursor-pointer p-2.5 bg-slate-50/80 rounded-xl border border-slate-200/60 group hover:bg-slate-100/60 transition-colors">
+                          <div>
+                            <span className="font-bold text-slate-700 text-xs block group-hover:text-slate-900 transition-colors">Disponible para venta</span>
+                            <span className="text-[10px] text-slate-400 font-medium block">Visible en el menú</span>
+                          </div>
+                          <div className="relative inline-flex items-center ml-3">
                             <input
                               type="checkbox"
                               checked={formData.isAvailable}
@@ -2215,670 +2662,394 @@ export default function ProductList({
                           </div>
                         </label>
                       </div>
-
-                      {/* Tarjeta 3: Horarios de Disponibilidad */}
-                      <div className="order-6 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                        <label className="flex items-center justify-between cursor-pointer group">
-                          <div>
-                            <span className="font-bold text-xs text-slate-800 block">Restricción por Horarios</span>
-                            <span className="text-[10px] text-slate-400 font-medium leading-none block mt-0.5">Define días y horas de venta</span>
-                          </div>
-                          <div className="relative inline-flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={scheduleEnabled}
-                              onChange={(e) => setScheduleEnabled(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                          </div>
-                        </label>
-
-                        {scheduleEnabled && (
-                          <div className="space-y-4 pt-3 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                            
-                            {/* Lista de horarios configurados */}
-                            {schedules.length > 0 && (
-                              <div className="space-y-2">
-                                <h5 className="font-bold text-[10px] text-slate-400 uppercase tracking-widest">Horarios Configurados</h5>
-                                <div className="space-y-2">
-                                  {schedules.map(schedule => (
-                                    <div key={schedule.id} className="flex items-center justify-between bg-slate-50/50 p-3 rounded-xl border border-slate-100">
-                                      <div className="flex-1 min-w-0 pr-2">
-                                        <p className="font-bold text-slate-700 text-xs truncate">
-                                          {schedule.days.map(day => dayLabels[day] || day).join(', ')}
-                                        </p>
-                                        <p className="text-[10px] text-slate-500 font-bold mt-0.5">
-                                          {schedule.startTime} - {schedule.endTime}
-                                        </p>
-                                      </div>
-                                      <div className="flex gap-1.5">
-                                        <button
-                                          type="button"
-                                          onClick={() => editSchedule(schedule)}
-                                          className="w-7 h-7 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100 transition-colors"
-                                          title="Editar horario"
-                                        >
-                                          <i className="bi bi-pencil text-xs"></i>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => removeSchedule(schedule.id)}
-                                          className="w-7 h-7 flex items-center justify-center text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-colors"
-                                          title="Eliminar horario"
-                                        >
-                                          <i className="bi bi-trash text-xs"></i>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Formulario para agregar/editar horario inline */}
-                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/60 space-y-3">
-                              <div>
-                                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-0.5">Días de la Semana</label>
-                                <div className="grid grid-cols-4 gap-1.5">
-                                  {daysOfWeek.map(day => (
-                                    <button
-                                      key={day}
-                                      type="button"
-                                      onClick={() => toggleDaySelection(day)}
-                                      className={`py-1.5 px-1 rounded-lg font-bold text-[10px] border transition-all ${
-                                        currentSchedule.days.includes(day)
-                                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                                      }`}
-                                    >
-                                      {dayLabels[day]}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-0.5">Hora Inicio</label>
-                                  <input
-                                    type="time"
-                                    value={currentSchedule.startTime}
-                                    onChange={(e) => setCurrentSchedule(prev => ({ ...prev, startTime: e.target.value }))}
-                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 text-xs font-bold text-slate-800"
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-0.5">Hora Fin</label>
-                                  <input
-                                    type="time"
-                                    value={currentSchedule.endTime}
-                                    onChange={(e) => setCurrentSchedule(prev => ({ ...prev, endTime: e.target.value }))}
-                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 text-xs font-bold text-slate-800"
-                                  />
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={addSchedule}
-                                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 mt-2 shadow-sm shadow-blue-100"
-                              >
-                                <i className={`bi ${editingScheduleId ? 'bi-check-lg' : 'bi-plus-lg'} text-xs`}></i>
-                                {editingScheduleId ? 'Actualizar Horario' : 'Agregar Horario'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
                     </div>
 
-                    {/* COLUMNA DERECHA: NOMBRE, PRECIO, VARIANTES */}
-                    <div className="contents lg:block lg:col-span-7 lg:space-y-6">
-                      
-                      {/* Tarjeta A: Detalles Básicos */}
-                      <div className="order-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Información Básica</h4>
-                        
-                        {/* Nombre del Producto */}
-                        <div className="space-y-1.5">
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre del Producto</label>
+                    {/* 6. Horarios de Disponibilidad */}
+                    <div className="pt-2 border-t border-slate-100 space-y-3">
+                      <label className="flex items-center justify-between cursor-pointer py-1 group">
+                        <div>
+                          <span className="font-bold text-slate-700 text-xs block group-hover:text-slate-900 transition-colors">Restricción por Horarios</span>
+                          <span className="text-[10px] text-slate-400 font-medium block mt-0.5">Venta solo en días/horas específicos</span>
+                        </div>
+                        <div className="relative inline-flex items-center ml-4">
                           <input
-                            type="text"
-                            name="name"
-                            value={formData.name}
-                            onChange={handleInputChange}
-                            placeholder="Ej: Hamburguesa VIP, Tacos de Asada..."
-                            className={`w-full px-4 py-3 bg-slate-50 border rounded-xl text-sm font-bold text-slate-800 focus:bg-white transition-all outline-none ${
-                              errors.name ? 'border-red-500 focus:border-red-500' : 'border-slate-100 focus:border-[#aa1918]'
-                            }`}
+                            type="checkbox"
+                            checked={scheduleEnabled}
+                            onChange={(e) => setScheduleEnabled(e.target.checked)}
+                            className="sr-only peer"
                           />
-                          {errors.name && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.name}</p>}
+                          <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                         </div>
+                      </label>
 
-                        {/* Descripción */}
-                        <div className="space-y-1.5">
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descripción del Producto</label>
-                          <textarea
-                            name="description"
-                            value={formData.description}
-                            onChange={handleInputChange}
-                            rows={3}
-                            placeholder="Describe el producto (ingredientes, porciones, etc.)..."
-                            className={`w-full px-4 py-3 bg-slate-50 border rounded-xl text-xs font-semibold text-slate-700 focus:bg-white transition-all outline-none resize-none ${
-                              errors.description ? 'border-red-500 focus:border-red-500' : 'border-slate-100 focus:border-[#aa1918]'
-                            }`}
-                          />
-                          {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.description}</p>}
-                        </div>
-                      </div>
-
-                      {/* Tarjeta B: Precio y Gestión de Comisión */}
-                      <div className="order-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Precios y Comisiones</h4>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-                          {/* Precio Base */}
-                          <div className="space-y-1.5">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Precio Base</label>
-                            <div className="relative">
-                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                name="price"
-                                value={formData.price}
-                                onChange={handleInputChange}
-                                onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                placeholder="0.00"
-                                className={`w-full pl-8 pr-4 py-3 bg-slate-50 border rounded-xl text-sm font-bold text-slate-800 focus:bg-white transition-all outline-none ${
-                                  errors.price ? 'border-red-500 focus:border-red-500' : 'border-slate-100 focus:border-[#aa1918]'
-                                }`}
-                              />
+                      {scheduleEnabled && (
+                        <div className="space-y-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                          {/* Lista de horarios configurados */}
+                          {schedules.length > 0 && (
+                            <div className="space-y-1.5">
+                              {schedules.map(schedule => (
+                                <div key={schedule.id} className="flex items-center justify-between bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/60">
+                                  <div className="flex-1 min-w-0 pr-2">
+                                    <p className="font-bold text-slate-700 text-xs truncate">
+                                      {schedule.days.map(day => dayLabels[day] || day).join(', ')}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                                      {schedule.startTime} - {schedule.endTime}
+                                    </p>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => editSchedule(schedule)}
+                                      className="w-6 h-6 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                      title="Editar horario"
+                                    >
+                                      <i className="bi bi-pencil text-xs"></i>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeSchedule(schedule.id)}
+                                      className="w-6 h-6 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                      title="Eliminar horario"
+                                    >
+                                      <i className="bi bi-trash text-xs"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                            {errors.price && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.price}</p>}
-                          </div>
+                          )}
 
-                          {/* Precio Público Toggle */}
-                          {formData.price && Number(formData.price) > 0 && (
-                            <div className="pt-7">
-                              <div className="flex items-center gap-3">
-                                <div className="bg-slate-50 px-3.5 py-3 rounded-xl border border-slate-100 flex-1 flex items-center justify-between">
-                                  <p className="text-[10px] font-bold text-slate-500">
-                                    Precio Público: <span className="text-slate-900 font-black">${formData.commissionType === 'fuddi_assumed_by_customer' 
-                                       ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
-                                       : Number(formData.price).toFixed(2)}</span>
-                                  </p>
+                          {/* Formulario inline de horario */}
+                          <div className="p-3 bg-slate-50/60 rounded-xl border border-slate-200/70 space-y-2.5">
+                            <div>
+                              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-0.5">Días</label>
+                              <div className="grid grid-cols-4 gap-1">
+                                {daysOfWeek.map(day => (
                                   <button
+                                    key={day}
                                     type="button"
-                                    onClick={() => setShowCommissionSettings(!showCommissionSettings)}
-                                    className="text-[10px] font-black text-blue-600 uppercase tracking-wider hover:text-blue-700 flex items-center gap-1 transition-colors ml-2"
+                                    onClick={() => toggleDaySelection(day)}
+                                    className={`py-1 px-1 rounded-lg font-bold text-[10px] border transition-all ${currentSchedule.days.includes(day)
+                                        ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                                        : 'bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50'
+                                      }`}
                                   >
-                                    {showCommissionSettings ? 'Ocultar' : 'Detalles'}
-                                    <i className={`bi ${showCommissionSettings ? 'bi-chevron-up' : 'bi-chevron-down'}`}></i>
+                                    {dayLabels[day]}
                                   </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-0.5">
+                                <label className="block text-[9px] font-bold text-slate-400 ml-0.5">Inicio</label>
+                                <input
+                                  type="time"
+                                  value={currentSchedule.startTime}
+                                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, startTime: e.target.value }))}
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200/80 rounded-lg focus:outline-none focus:border-blue-600 text-xs font-bold text-slate-800"
+                                />
+                              </div>
+                              <div className="space-y-0.5">
+                                <label className="block text-[9px] font-bold text-slate-400 ml-0.5">Fin</label>
+                                <input
+                                  type="time"
+                                  value={currentSchedule.endTime}
+                                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, endTime: e.target.value }))}
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200/80 rounded-lg focus:outline-none focus:border-blue-600 text-xs font-bold text-slate-800"
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={addSchedule}
+                              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-1.5 px-3 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 mt-1 shadow-xs"
+                            >
+                              <i className={`bi ${editingScheduleId ? 'bi-check-lg' : 'bi-plus-lg'} text-xs`}></i>
+                              {editingScheduleId ? 'Actualizar Horario' : 'Agregar Horario'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 3. Variantes del Producto */}
+                    <div className="order-5 pt-4 border-t border-slate-100 space-y-4">
+                      <label className="flex items-center justify-between cursor-pointer py-1 group">
+                        <div>
+                          <span className="font-bold text-xs text-slate-800 block group-hover:text-slate-900 transition-colors">Configurar Variantes</span>
+                          <span className="text-[10px] text-slate-400 font-medium block mt-0.5">Diferentes presentaciones, tamaños o sabores</span>
+                        </div>
+                        <div className="relative inline-flex items-center ml-4">
+                          <input
+                            type="checkbox"
+                            checked={hasVariants}
+                            onChange={() => {
+                              const newHasVariants = !hasVariants;
+                              setHasVariants(newHasVariants);
+                              if (!newHasVariants) {
+                                setFormData(prev => ({ ...prev, isCombo: false, countComboUnits: false }));
+                              }
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                        </div>
+                      </label>
+
+                      {hasVariants && (
+                        <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+
+                          {/* Toggle Es un Combo */}
+                          <label className="flex items-center justify-between p-3 bg-orange-50/30 hover:bg-orange-50/50 rounded-xl cursor-pointer transition-all border border-orange-100/60 group">
+                            <div>
+                              <span className="font-bold text-slate-800 text-xs block">Es un Combo</span>
+                              <span className="text-[9px] text-slate-500 font-medium block mt-0.5">Paquete con selección de múltiples variantes</span>
+                            </div>
+                            <div className="relative inline-flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={formData.isCombo}
+                                onChange={() => {
+                                  setFormData(prev => ({ ...prev, isCombo: !prev.isCombo }));
+                                }}
+                                className="sr-only peer"
+                              />
+                              <div className="w-9 h-5 bg-slate-200 peer-checked:bg-orange-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                            </div>
+                          </label>
+
+                          {/* Combo cantidad de opciones */}
+                          {formData.isCombo && (
+                            <div className="space-y-2.5 p-3.5 bg-orange-50/20 rounded-xl border border-orange-100/70 animate-in fade-in zoom-in-95 duration-150">
+                              <div>
+                                <label className="block text-[9px] font-black text-orange-700 uppercase tracking-widest mb-1 ml-0.5">Opciones a Elegir</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={formData.minComboItems}
+                                  onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
+                                  className="w-full sm:w-1/3 px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 font-bold text-xs bg-white text-slate-800"
+                                />
+                              </div>
+
+                              <label className="flex items-center justify-between pt-1 cursor-pointer">
+                                <span className="text-xs font-semibold text-slate-700">Multiplicar insumos por unidades seleccionadas</span>
+                                <input
+                                  type="checkbox"
+                                  checked={!!formData.countComboUnits}
+                                  onChange={() => {
+                                    setFormData(prev => ({ ...prev, countComboUnits: !prev.countComboUnits }));
+                                  }}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-8 h-4 bg-slate-200 peer-checked:bg-orange-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all"></div>
+                              </label>
+                            </div>
+                          )}
+
+                          {/* Listado de variantes */}
+                          {variants.length > 0 && (
+                            <div className="space-y-2">
+                              {variants.map((variant, index) => (
+                                <div
+                                  key={variant.id}
+                                  className={`flex items-center bg-slate-50/70 p-3 rounded-xl border transition-all duration-200 ${variantVisibility[variant.id] !== false
+                                      ? 'border-slate-200/70 hover:bg-white hover:shadow-xs'
+                                      : 'border-slate-200/50 bg-slate-100/40 opacity-70'
+                                    }`}
+                                >
+                                  {/* Imagen de la variante */}
+                                  <div className="w-11 h-11 flex-shrink-0 rounded-lg overflow-hidden bg-white border border-slate-200/80 mr-3 relative">
+                                    {(variantImageFiles[variant.id] || variant.image) ? (
+                                      <img
+                                        src={variantImageFiles[variant.id] ? URL.createObjectURL(variantImageFiles[variant.id]) : variant.image}
+                                        className="w-full h-full object-cover"
+                                        alt={variant.name}
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                        <i className="bi bi-image text-sm"></i>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Datos de la variante */}
+                                  <div className="flex-1 min-w-0 pr-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="font-bold text-slate-800 text-xs truncate">
+                                        {variant.name}
+                                      </p>
+                                      {variantVisibility[variant.id] === false && (
+                                        <span className="text-[8px] font-bold bg-slate-200 text-slate-500 px-1 py-0.2 rounded">
+                                          Oculto
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-baseline gap-2 mt-0.5">
+                                      <span className="text-xs font-black text-slate-900">
+                                        ${variant.price.toFixed(2)}
+                                      </span>
+                                      {!isSubscription && (
+                                        <span className="text-[9px] font-bold text-slate-400">
+                                          Público: ${(Math.round(variant.price * (1 + (commissionSettings.commissionRate / 100)) * 20) / 20).toFixed(2)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Acciones de la variante */}
+                                  <div className="relative variant-action-menu">
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveVariantMenu(activeVariantMenu === variant.id ? null : variant.id)}
+                                      className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/60 transition-all"
+                                    >
+                                      <i className="bi bi-three-dots-vertical text-xs"></i>
+                                    </button>
+
+                                    {activeVariantMenu === variant.id && (
+                                      <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-30 py-1.5 animate-in fade-in zoom-in-95 duration-150">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
+                                            setActiveVariantMenu(null)
+                                          }}
+                                          className="w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                                        >
+                                          <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash text-amber-500' : 'bi-eye text-emerald-500'}`}></i>
+                                          {variantVisibility[variant.id] !== false ? 'Ocultar' : 'Mostrar'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleEditVariant(variant)
+                                            setActiveVariantMenu(null)
+                                          }}
+                                          className="w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                                        >
+                                          <i className="bi bi-pencil text-blue-500"></i>
+                                          Editar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            removeVariant(variant.id)
+                                            setActiveVariantMenu(null)
+                                          }}
+                                          className="w-full px-3 py-2 text-left text-xs font-semibold hover:bg-red-50 flex items-center gap-2 text-red-600"
+                                        >
+                                          <i className="bi bi-trash"></i>
+                                          Eliminar
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Formulario Inline para Añadir / Editar Variante */}
+                          {!(showVariantForm || editingVariantId) ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowVariantForm(true)}
+                              className="w-full py-3 border border-dashed border-slate-300 hover:border-[#aa1918] hover:bg-red-50/10 rounded-xl text-slate-600 hover:text-[#aa1918] transition-all font-bold text-xs flex items-center justify-center gap-1.5"
+                            >
+                              <i className="bi bi-plus-circle text-sm"></i>
+                              Agregar Variante
+                            </button>
+                          ) : (
+                            <div className="space-y-3 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80 animate-in fade-in slide-in-from-top-2 duration-200">
+                              <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/60">
+                                <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                  {editingVariantId ? 'Editar Variante' : 'Nueva Variante'}
+                                </h5>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowVariantForm(false)
+                                    setEditingVariantId(null)
+                                    setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
+                                  }}
+                                  className="text-slate-400 hover:text-slate-600 text-xs"
+                                >
+                                  <i className="bi bi-x-lg"></i>
+                                </button>
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row gap-3 items-start">
+                                {/* Imagen de la variante */}
+                                <div className="w-16 h-16 flex-shrink-0">
+                                  <label htmlFor="variant-image-upload" className="block cursor-pointer h-full">
+                                    <div className="relative h-full bg-white rounded-xl border-2 border-dashed border-slate-200 hover:border-[#aa1918] flex items-center justify-center overflow-hidden group transition-all">
+                                      {currentVariant.imageFile ? (
+                                        <img src={URL.createObjectURL(currentVariant.imageFile)} alt="Preview" className="w-full h-full object-cover" />
+                                      ) : currentVariant.imageUrl ? (
+                                        <img src={currentVariant.imageUrl} alt="Current" className="w-full h-full object-cover" />
+                                      ) : (
+                                        <i className="bi bi-camera text-slate-400 text-sm"></i>
+                                      )}
+                                    </div>
+                                  </label>
+                                  <input
+                                    id="variant-image-upload"
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0]
+                                      if (file) {
+                                        setCurrentVariant(prev => ({ ...prev, imageFile: file }))
+                                      }
+                                    }}
+                                    className="hidden"
+                                  />
+                                </div>
+
+                                {/* Campos de texto */}
+                                <div className="flex-1 space-y-2 w-full">
+                                  <input
+                                    type="text"
+                                    value={currentVariant.name}
+                                    onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
+                                    placeholder="Nombre: ej. Personal, Grande, 1/2 Pollo..."
+                                    className="w-full px-3 py-2 bg-white border border-slate-200/80 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-[#aa1918]"
+                                    autoFocus
+                                  />
+
+                                  <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={currentVariant.price}
+                                        onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
+                                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                        placeholder="Precio"
+                                        className="w-full pl-6 pr-3 py-1.5 bg-white border border-slate-200/80 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-[#aa1918]"
+                                      />
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={addVariant}
+                                      className="px-4 py-1.5 bg-[#aa1918] hover:bg-[#8f1514] text-white rounded-lg text-xs font-bold transition-all"
+                                    >
+                                      {editingVariantId ? 'Guardar' : 'Añadir'}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           )}
                         </div>
-
-                        {/* Configuración de Comisión Colapsable */}
-                        {showCommissionSettings && formData.price && Number(formData.price) > 0 && (
-                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                            <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-200/50">
-                              <div className="w-7 h-7 bg-amber-50 border border-amber-100 text-amber-600 rounded-lg flex items-center justify-center shadow-sm">
-                                <i className="bi bi-percent text-sm"></i>
-                              </div>
-                              <div>
-                                <h5 className="font-black text-slate-700 text-[10px] uppercase tracking-wider">Gestión de Comisión Fuddi ({commissionSettings.commissionRate}%)</h5>
-                                <p className="text-[9px] text-slate-400 font-medium">Define quién cubre el costo administrativo por venta.</p>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <button
-                                type="button"
-                                onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_customer' }))}
-                                className={`p-4 rounded-xl border-2 text-left transition-all duration-300 ${
-                                  formData.commissionType === 'fuddi_assumed_by_customer'
-                                    ? 'border-[#aa1918] bg-white shadow-md shadow-red-100/50'
-                                    : 'border-slate-200/60 bg-white/60 hover:border-slate-300'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 mb-2">
-                                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
-                                    formData.commissionType === 'fuddi_assumed_by_customer' ? 'border-[#aa1918] bg-[#aa1918]' : 'border-slate-300'
-                                  }`}>
-                                    {formData.commissionType === 'fuddi_assumed_by_customer' && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
-                                  </div>
-                                  <span className={`font-bold text-xs ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'text-[#aa1918]' : 'text-slate-600'}`}>Cliente paga</span>
-                                </div>
-                                <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
-                                  Se añade el {commissionSettings.commissionRate}% al precio base. <span className="text-slate-700 font-bold">Tú recibes el 100%</span> de tu precio ingresado.
-                                </p>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_store' }))}
-                                className={`p-4 rounded-xl border-2 text-left transition-all duration-300 ${
-                                  formData.commissionType === 'fuddi_assumed_by_store'
-                                    ? 'border-[#aa1918] bg-white shadow-md shadow-red-100/50'
-                                    : 'border-slate-200/60 bg-white/60 hover:border-slate-300'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 mb-2">
-                                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
-                                    formData.commissionType === 'fuddi_assumed_by_store' ? 'border-[#aa1918] bg-[#aa1918]' : 'border-slate-300'
-                                  }`}>
-                                    {formData.commissionType === 'fuddi_assumed_by_store' && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
-                                  </div>
-                                  <span className={`font-bold text-xs ${formData.commissionType === 'fuddi_assumed_by_store' ? 'text-[#aa1918]' : 'text-slate-600'}`}>Negocio asume</span>
-                                </div>
-                                <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
-                                  El precio ingresado es el precio final al cliente. Fuddi descuenta el {commissionSettings.commissionRate}% de tu ganancia.
-                                </p>
-                              </button>
-                            </div>
-
-                            {/* Desglose de ingresos */}
-                            <div className="bg-white p-4 rounded-xl border border-slate-100 flex items-center justify-between gap-4 text-center sm:text-left shadow-sm">
-                              <div>
-                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Precio al Público</p>
-                                <p className="text-lg font-black text-slate-800 mt-0.5">
-                                  ${formData.commissionType === 'fuddi_assumed_by_customer' 
-                                    ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
-                                    : Number(formData.price).toFixed(2)}
-                                </p>
-                              </div>
-                              <div className="h-8 w-px bg-slate-100"></div>
-                              <div className="text-right">
-                                <p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">Recibes en tu Cuenta</p>
-                                <p className="text-lg font-black text-emerald-600 mt-0.5">
-                                  ${formData.commissionType === 'fuddi_assumed_by_store' 
-                                    ? (Number(formData.price) * (1 - commissionSettings.commissionRate / 100)).toFixed(2) 
-                                    : Number(formData.price).toFixed(2)}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Tarjeta C: Configuración de Variantes */}
-                      <div className="order-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                        <label className="flex items-center justify-between cursor-pointer group">
-                          <div>
-                            <span className="font-bold text-xs text-slate-800 block">Configurar Variantes</span>
-                            <span className="text-[10px] text-slate-400 font-medium leading-none block mt-0.5">Diferentes precios, tamaños o sabores</span>
-                          </div>
-                          <div className="relative inline-flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={hasVariants}
-                              onChange={() => {
-                                const newHasVariants = !hasVariants;
-                                setHasVariants(newHasVariants);
-                                if (!newHasVariants) {
-                                  setFormData(prev => ({ ...prev, isCombo: false, countComboUnits: false }));
-                                }
-                              }}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                          </div>
-                        </label>
-
-                        {hasVariants && (
-                          <div className="space-y-5 pt-4 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                            
-                            {/* Toggle Es un Combo */}
-                            <label className="flex items-center justify-between p-3.5 bg-orange-50/30 hover:bg-orange-50/50 rounded-xl cursor-pointer transition-all border border-orange-100/50 group">
-                              <div>
-                                <span className="font-bold text-slate-800 text-xs block">Es un Combo</span>
-                                <span className="text-[9px] text-slate-500 font-medium block mt-0.5">Permite armar un paquete seleccionando múltiples variantes</span>
-                              </div>
-                              <div className="relative inline-flex items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={formData.isCombo}
-                                  onChange={() => {
-                                    setFormData(prev => ({ ...prev, isCombo: !prev.isCombo }));
-                                  }}
-                                  className="sr-only peer"
-                                />
-                                <div className="w-9 h-5 bg-slate-200 peer-checked:bg-orange-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-                              </div>
-                            </label>
-
-                            {/* Combo cantidad de opciones y Conteo de unidades */}
-                            {formData.isCombo && (
-                              <div className="space-y-3 animate-in fade-in zoom-in-95 duration-200">
-                                <div className="p-4 bg-orange-50/10 rounded-xl border border-orange-100/80 space-y-2">
-                                  <label className="block text-[9px] font-black text-orange-700 uppercase tracking-widest ml-0.5">Cantidad de Opciones a Elegir</label>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    value={formData.minComboItems}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
-                                    className="w-full sm:w-1/2 px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-orange-500 font-bold text-xs bg-white text-slate-800"
-                                  />
-                                  <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
-                                    El cliente deberá seleccionar exactamente esta cantidad de variantes para poder ordenar el combo.
-                                  </p>
-                                </div>
-
-                                {/* Toggle Conteo de Unidades */}
-                                <label className="flex items-center justify-between p-3.5 bg-orange-50/30 hover:bg-orange-50/50 rounded-xl cursor-pointer transition-all border border-orange-100/50 group">
-                                  <div>
-                                    <span className="font-bold text-slate-800 text-xs block">Hacer conteo de unidades</span>
-                                    <span className="text-[9px] text-slate-500 font-medium block mt-0.5">
-                                      Multiplica las cantidades por los ingredientes de cada variante (ej. 2x 5 wantancitos → 10 wantancitos)
-                                    </span>
-                                  </div>
-                                  <div className="relative inline-flex items-center">
-                                    <input
-                                      type="checkbox"
-                                      checked={!!formData.countComboUnits}
-                                      onChange={() => {
-                                        setFormData(prev => ({ ...prev, countComboUnits: !prev.countComboUnits }));
-                                      }}
-                                      className="sr-only peer"
-                                    />
-                                    <div className="w-9 h-5 bg-slate-200 peer-checked:bg-orange-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-                                  </div>
-                                </label>
-                              </div>
-                            )}
-
-                            {/* Listado de variantes - Estilo Premium similar a la lista de productos */}
-                            <div className="space-y-3">
-                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lista de Variantes</label>
-                              
-                              {variants.length > 0 && (
-                                <div className="space-y-3">
-                                  {variants.map((variant, index) => (
-                                    <div
-                                      key={variant.id}
-                                      className={`flex items-center bg-white p-3.5 rounded-2xl border transition-all duration-300 shadow-sm ${
-                                        variantVisibility[variant.id] !== false
-                                          ? 'border-slate-100 hover:shadow-md'
-                                          : 'border-slate-200 bg-slate-50/50'
-                                      }`}
-                                    >
-                                      {/* Imagen de la variante */}
-                                      <div className={`w-14 h-14 flex-shrink-0 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 mr-3.5 relative shadow-inner ${
-                                        variantVisibility[variant.id] === false ? 'grayscale opacity-75' : ''
-                                      }`}>
-                                        {(variantImageFiles[variant.id] || variant.image) ? (
-                                          <img 
-                                            src={variantImageFiles[variant.id] ? URL.createObjectURL(variantImageFiles[variant.id]) : variant.image} 
-                                            className="w-full h-full object-cover" 
-                                            alt={variant.name} 
-                                          />
-                                        ) : (
-                                          <div className="w-full h-full flex items-center justify-center text-slate-300">
-                                            <i className="bi bi-image text-lg"></i>
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* Datos de la variante */}
-                                      <div className={`flex-1 min-w-0 pr-2 ${variantVisibility[variant.id] === false ? 'opacity-60' : ''}`}>
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <p className="font-bold text-slate-800 text-xs leading-tight break-words">
-                                            {variant.name}
-                                          </p>
-                                          {variantVisibility[variant.id] === false && (
-                                            <span className="text-[8px] font-black bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                              Oculto
-                                            </span>
-                                          )}
-                                        </div>
-                                        {variant.description && (
-                                          <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5 leading-tight font-medium">{variant.description}</p>
-                                        )}
-                                        
-                                        <div className="flex items-baseline gap-2 mt-1">
-                                          <span className="text-xs font-black text-emerald-600">
-                                            ${variant.price.toFixed(2)}
-                                          </span>
-                                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                            Público: ${(Math.round(variant.price * (1 + (commissionSettings.commissionRate / 100)) * 20) / 20).toFixed(2)}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      {/* Acciones de la variante */}
-                                      <div className="relative variant-action-menu">
-                                        <button
-                                          type="button"
-                                          onClick={() => setActiveVariantMenu(activeVariantMenu === variant.id ? null : variant.id)}
-                                          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 border border-transparent hover:border-slate-200/60 transition-all"
-                                        >
-                                          <i className="bi bi-three-dots-vertical text-sm"></i>
-                                        </button>
-
-                                        {activeVariantMenu === variant.id && (
-                                          <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-xl border border-slate-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
-                                                setActiveVariantMenu(null)
-                                              }}
-                                              className="w-full px-4 py-2.5 text-left text-xs font-bold hover:bg-slate-50 flex items-center gap-2.5 transition-colors text-slate-700"
-                                            >
-                                              <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash-fill text-amber-500' : 'bi-eye-fill text-emerald-500'} text-sm`}></i>
-                                              {variantVisibility[variant.id] !== false ? 'Ocultar Variante' : 'Mostrar Variante'}
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                handleEditVariant(variant)
-                                                setActiveVariantMenu(null)
-                                              }}
-                                              className="w-full px-4 py-2.5 text-left text-xs font-bold hover:bg-slate-50 flex items-center gap-2.5 transition-colors text-slate-700"
-                                            >
-                                              <i className="bi bi-pencil-fill text-blue-500 text-sm"></i>
-                                              Editar Datos
-                                            </button>
-                                            
-                                            <div className="border-t border-slate-100 my-1.5"></div>
-
-                                            <div className="px-4 py-2 flex items-center justify-between text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                              Mover
-                                              <div className="flex gap-1">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => moveVariant(index, 'up')}
-                                                  disabled={index === 0}
-                                                  className="w-6 h-6 flex items-center justify-center bg-slate-50 rounded hover:bg-slate-100 disabled:opacity-30 border border-slate-100 transition-colors"
-                                                >
-                                                  <i className="bi bi-chevron-up text-[10px]"></i>
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => moveVariant(index, 'down')}
-                                                  disabled={index === variants.length - 1}
-                                                  className="w-6 h-6 flex items-center justify-center bg-slate-50 rounded hover:bg-slate-100 disabled:opacity-30 border border-slate-100 transition-colors"
-                                                >
-                                                  <i className="bi bi-chevron-down text-[10px]"></i>
-                                                </button>
-                                              </div>
-                                            </div>
-
-                                            <div className="border-t border-slate-100 my-1.5"></div>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                removeVariant(variant.id)
-                                                setActiveVariantMenu(null)
-                                              }}
-                                              className="w-full px-4 py-2.5 text-left text-xs font-bold hover:bg-red-50 flex items-center gap-2.5 transition-colors text-red-650"
-                                            >
-                                              <i className="bi bi-trash-fill text-sm"></i>
-                                              Eliminar
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* Formulario Inline para Añadir / Editar Variante */}
-                              {!(showVariantForm || editingVariantId) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setShowVariantForm(true)}
-                                  className="w-full py-3.5 border-2 border-dashed border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10 rounded-2xl text-slate-500 hover:text-[#aa1918] transition-all font-bold text-xs flex items-center justify-center gap-2 group"
-                                >
-                                  <i className="bi bi-plus-circle text-base group-hover:scale-110 transition-transform"></i>
-                                  Agregar Variante
-                                </button>
-                              ) : (
-                                <div className="space-y-4 bg-slate-50 p-4 rounded-2xl border border-slate-200 animate-in fade-in slide-in-from-top-2 duration-300">
-                                  <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60">
-                                    <div className="w-6 h-6 bg-blue-50 border border-blue-100 text-blue-600 rounded-lg flex items-center justify-center shadow-sm">
-                                      <i className={`bi ${editingVariantId ? 'bi-pencil-fill' : 'bi-plus-lg'} text-xs`}></i>
-                                    </div>
-                                    <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                      {editingVariantId ? 'Editar Variante' : 'Nueva Variante'}
-                                    </h5>
-                                  </div>
-
-                                  <div className="flex flex-col sm:flex-row gap-4">
-                                    {/* Imagen de la variante */}
-                                    <div className="w-20 h-20 flex-shrink-0 mx-auto sm:mx-0">
-                                      <label htmlFor="variant-image-upload" className="block cursor-pointer h-full">
-                                        <div 
-                                          onDragEnter={handleDragOverVariantImage}
-                                          onDragOver={handleDragOverVariantImage}
-                                          onDragLeave={handleDragOverVariantImage}
-                                          onDrop={handleDropVariantImage}
-                                          className={`relative h-full bg-white rounded-xl border-2 border-dashed transition-all duration-300 flex items-center justify-center overflow-hidden group shadow-sm ${
-                                            isDraggingVariantImage 
-                                              ? 'border-[#aa1918] bg-red-50/40 ring-2 ring-red-100 scale-105' 
-                                              : 'border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10'
-                                          }`}
-                                        >
-                                          {isDraggingVariantImage && (
-                                            <div className="absolute inset-0 z-30 bg-[#aa1918]/90 flex flex-col items-center justify-center text-white text-center p-1">
-                                              <i className="bi bi-cloud-arrow-up text-xl animate-bounce"></i>
-                                              <p className="text-[8px] font-black uppercase">Suelta aquí</p>
-                                            </div>
-                                          )}
-                                          {currentVariant.imageFile ? (
-                                            <img src={URL.createObjectURL(currentVariant.imageFile)} alt="Preview" className="w-full h-full object-cover" />
-                                          ) : currentVariant.imageUrl ? (
-                                            <img src={currentVariant.imageUrl} alt="Current" className="w-full h-full object-cover" />
-                                          ) : (
-                                            <div className="text-center p-2 space-y-1">
-                                              <i className="bi bi-camera text-lg text-slate-300 group-hover:scale-115 transition-transform block"></i>
-                                              <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider leading-none">Foto</p>
-                                            </div>
-                                          )}
-                                          <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <i className="bi bi-camera text-white text-sm"></i>
-                                          </div>
-                                        </div>
-                                      </label>
-                                      <input
-                                        id="variant-image-upload"
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={(e) => {
-                                          const file = e.target.files?.[0]
-                                          if (file) {
-                                            setCurrentVariant(prev => ({ ...prev, imageFile: file }))
-                                          }
-                                        }}
-                                        className="hidden"
-                                      />
-                                    </div>
-
-                                    {/* Campos de texto de la variante */}
-                                    <div className="flex-1 space-y-3">
-                                      <input
-                                        type="text"
-                                        value={currentVariant.name}
-                                        onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
-                                        placeholder="Nombre: Tamaño Grande, Extra Queso..."
-                                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-[#aa1918] shadow-sm transition-all"
-                                        autoFocus
-                                      />
-                                      
-                                      <textarea
-                                        value={currentVariant.description}
-                                        onChange={(e) => setCurrentVariant(prev => ({ ...prev, description: e.target.value }))}
-                                        placeholder="Descripción corta de la variante (opcional)"
-                                        rows={2}
-                                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-[11px] font-semibold text-slate-600 focus:outline-none focus:border-[#aa1918] shadow-sm transition-all resize-none"
-                                      />
-                                    </div>
-                                  </div>
-
-                                  {/* Precio y botones de la variante */}
-                                  <div className="space-y-2 pt-2 border-t border-slate-200/50">
-                                    <div className="flex gap-2">
-                                      <div className="relative flex-1">
-                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
-                                        <input
-                                          type="number"
-                                          step="0.01"
-                                          min="0"
-                                          value={currentVariant.price}
-                                          onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
-                                          onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                          placeholder="Precio base variante"
-                                          className="w-full pl-7 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-[#aa1918] shadow-sm transition-all"
-                                        />
-                                      </div>
-                                      
-                                      <button
-                                        type="button"
-                                        onClick={addVariant}
-                                        className={`px-5 py-2.5 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md active:scale-95 ${
-                                          editingVariantId 
-                                            ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100' 
-                                            : 'bg-[#aa1918] hover:bg-[#8f1514] shadow-red-100'
-                                        }`}
-                                      >
-                                        {editingVariantId ? 'Guardar' : 'Añadir'}
-                                      </button>
-                                      
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setShowVariantForm(false)
-                                          setEditingVariantId(null)
-                                          setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
-                                        }}
-                                        className="px-4 py-2.5 bg-slate-200 hover:bg-slate-350 text-slate-650 rounded-xl text-xs font-bold transition-all"
-                                      >
-                                        Cancelar
-                                      </button>
-                                    </div>
-
-                                    {/* Precio público de la variante */}
-                                    {currentVariant.price && Number(currentVariant.price) > 0 && (
-                                      <p className="text-[10px] font-bold text-slate-500 ml-1.5 animate-in fade-in slide-in-from-left-1 duration-300">
-                                        Precio al Público: <span className="text-slate-900 font-black">${formData.commissionType === 'fuddi_assumed_by_customer' 
-                                         ? (Math.round(Number(currentVariant.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
-                                         : Number(currentVariant.price).toFixed(2)}</span>
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2922,7 +3093,7 @@ export default function ProductList({
                         {/* Tarjeta 2: Ingredientes Agregados */}
                         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ingredientes del Producto</h4>
-                          
+
                           {ingredients.length > 0 ? (
                             <div className="divide-y divide-slate-100">
                               {ingredients.map((ingredient) => (
@@ -2930,7 +3101,7 @@ export default function ProductList({
                                   <div className="flex-1 pr-4">
                                     <p className="font-bold text-slate-800 text-xs">{ingredient.name}</p>
                                     <p className="text-[10px] text-slate-500 font-bold mt-0.5">
-                                      {ingredient.quantity} unidad(es) × ${ingredient.unitCost.toFixed(2)} = 
+                                      {ingredient.quantity} unidad(es) × ${ingredient.unitCost.toFixed(2)} =
                                       <span className="text-emerald-600 ml-1">${(ingredient.quantity * ingredient.unitCost).toFixed(2)}</span>
                                     </p>
                                   </div>
@@ -3128,11 +3299,10 @@ export default function ProductList({
                                             Margen: ${profit.toFixed(2)}
                                           </span>
                                         )}
-                                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                                          variantIngredients[variant.id]?.length > 0
+                                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${variantIngredients[variant.id]?.length > 0
                                             ? 'bg-blue-50 text-blue-600 border border-blue-100/40'
                                             : 'bg-slate-200 text-slate-500'
-                                        }`}>
+                                          }`}>
                                           {variantIngredients[variant.id]?.length || 0} insumos
                                         </span>
                                       </div>
@@ -3151,7 +3321,7 @@ export default function ProductList({
                                             <div className="min-w-0 pr-3">
                                               <p className="font-bold text-slate-700 text-xs truncate">{ingredient.name}</p>
                                               <p className="text-[10px] text-slate-400 font-bold mt-0.5">
-                                                {ingredient.quantity} × ${ingredient.unitCost.toFixed(2)} = 
+                                                {ingredient.quantity} × ${ingredient.unitCost.toFixed(2)} =
                                                 <span className="text-emerald-600 ml-1">${(ingredient.quantity * ingredient.unitCost).toFixed(2)}</span>
                                               </p>
                                             </div>
@@ -3176,7 +3346,7 @@ export default function ProductList({
                                         <i className="bi bi-plus-circle text-emerald-500"></i>
                                         Añadir Insumo Específico
                                       </h5>
-                                      
+
                                       <div className="space-y-3">
                                         <div className="relative ingredient-input-container">
                                           <div className="relative">
@@ -3295,7 +3465,7 @@ export default function ProductList({
                             {editingGroupIndex === -1 ? 'Crear Grupo de Toppings' : 'Editar Grupo de Toppings'}
                           </h4>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <div className="space-y-1.5">
                             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre Categoría</label>
@@ -3332,7 +3502,7 @@ export default function ProductList({
                         {/* Listado y formulario de toppings individuales */}
                         <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/50">
                           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Toppings en este grupo</label>
-                          
+
                           {/* Lista vertical de toppings */}
                           {currentGroup.options.length > 0 ? (
                             <div className="space-y-2 pr-1 max-h-64 overflow-y-auto custom-scrollbar">
@@ -3343,13 +3513,12 @@ export default function ProductList({
                                 return (
                                   <div
                                     key={oIdx}
-                                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all gap-2 ${
-                                      isEditing
+                                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all gap-2 ${isEditing
                                         ? 'border-blue-200 bg-blue-50/20'
                                         : isAvailable
                                           ? 'border-slate-100 bg-slate-50 hover:bg-slate-100/70'
                                           : 'border-slate-100 bg-slate-50/50 opacity-70'
-                                    }`}
+                                      }`}
                                   >
                                     {isEditing ? (
                                       <div className="flex flex-1 flex-col sm:flex-row gap-2 items-center w-full">
@@ -3411,11 +3580,10 @@ export default function ProductList({
                                           <button
                                             type="button"
                                             onClick={() => handleToggleOptionAvailability(oIdx)}
-                                            className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${
-                                              isAvailable
+                                            className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${isAvailable
                                                 ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 border-transparent'
                                                 : 'text-amber-500 bg-amber-50 border-amber-100 hover:bg-amber-100 hover:text-amber-600'
-                                            }`}
+                                              }`}
                                             title={isAvailable ? 'Ocultar topping' : 'Mostrar topping'}
                                           >
                                             <i className={`bi ${isAvailable ? 'bi-eye' : 'bi-eye-slash'} text-xs`}></i>
@@ -3460,7 +3628,7 @@ export default function ProductList({
                               onChange={(e) => setNewOptionName(e.target.value)}
                               className="w-full sm:flex-1 px-4 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
                             />
-                            
+
                             <div className="relative w-full sm:w-28">
                               <span className="absolute left-3 top-2.5 text-slate-400 text-xs font-bold">$</span>
                               <input
@@ -3473,7 +3641,7 @@ export default function ProductList({
                                 className="w-full pl-6 pr-3 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
                               />
                             </div>
-                            
+
                             <button
                               type="button"
                               onClick={handleAddOptionToGroup}
@@ -3517,18 +3685,17 @@ export default function ProductList({
                                   {group.minSelect === 0 ? 'Opcional' : `Mínimo: ${group.minSelect}`} | Máximo: {group.maxSelect}
                                 </span>
                               </div>
-                              
+
                               <div className="flex flex-wrap gap-1.5">
                                 {group.options.map((o, oIdx) => {
                                   const isAvailable = o.isAvailable !== false
                                   return (
                                     <span
                                       key={oIdx}
-                                      className={`text-[10px] font-bold px-2 py-1 rounded-lg border flex items-center gap-1 shadow-sm transition-all ${
-                                        isAvailable
+                                      className={`text-[10px] font-bold px-2 py-1 rounded-lg border flex items-center gap-1 shadow-sm transition-all ${isAvailable
                                           ? 'bg-slate-50 text-slate-600 border-slate-100/60'
                                           : 'bg-slate-100 text-slate-400 border-slate-200/40 line-through opacity-70'
-                                      }`}
+                                        }`}
                                       title={isAvailable ? 'Disponible' : 'Oculto'}
                                     >
                                       <span>{o.name}</span>
@@ -3541,7 +3708,7 @@ export default function ProductList({
                                 })}
                               </div>
                             </div>
-                            
+
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <button
                                 type="button"
@@ -3595,7 +3762,7 @@ export default function ProductList({
                 >
                   Cancelar
                 </button>
-                
+
                 <button
                   type="submit"
                   disabled={uploading}
@@ -3657,7 +3824,7 @@ export default function ProductList({
       {showJsonImport && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200 overflow-hidden">
-            
+
             {/* Header del Modal */}
             <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <div className="flex items-center gap-3">
@@ -3773,7 +3940,7 @@ export default function ProductList({
                     <div className="mt-3">
                       <p className="text-[11px] font-bold text-slate-400 uppercase">Ejemplo en Arreglo:</p>
                       <pre className="bg-slate-900 text-slate-300 p-3 rounded-xl text-[10px] overflow-x-auto font-mono mt-1 max-h-36">
-{`[
+                        {`[
   {
     "name": "Hamburguesa Clásica",
     "price": 5.50,
@@ -3891,11 +4058,10 @@ export default function ProductList({
                         return (
                           <label
                             key={p.id}
-                            className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${
-                              isChecked
+                            className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${isChecked
                                 ? 'border-emerald-500 bg-emerald-50/50'
                                 : 'border-gray-100 hover:border-gray-200 bg-white'
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center gap-3">
                               <input

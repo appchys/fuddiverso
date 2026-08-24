@@ -463,7 +463,11 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                     src={allImages[currentImgIndex]} 
                                     alt={product.name} 
                                     className="w-full h-full object-cover transition-all duration-700" 
-                                    style={{ objectPosition: allImages[currentImgIndex] === product.image ? (product.imagePosition || 'center') : 'center' }} 
+                                    style={{ 
+                                        objectPosition: allImages[currentImgIndex] === product.image ? (product.imagePosition || 'center') : 'center',
+                                        transformOrigin: allImages[currentImgIndex] === product.image ? (product.imagePosition || 'center') : 'center',
+                                        transform: (allImages[currentImgIndex] === product.image && product.imageScale && product.imageScale > 1) ? `scale(${product.imageScale})` : undefined
+                                    }} 
                                 />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-400">

@@ -2912,7 +2912,167 @@ export async function migrateAdminEmailsField(): Promise<{
 }
 
 
+// Función para obtener todas las sucursales de un negocio (o hermanos si el negocio actual es sucursal)
+export async function getBranchesForBusiness(businessId: string): Promise<Business[]> {
+  try {
+    if (!businessId) return []
+    const currentBiz = await getBusiness(businessId)
+    if (!currentBiz) return []
+
+    const rootId = currentBiz.parentBusinessId || businessId
+    const rootBiz = currentBiz.parentBusinessId ? await getBusiness(rootId) : currentBiz
+
+    const branchesQuery = query(
+      collection(db, 'businesses'),
+      where('parentBusinessId', '==', rootId)
+    )
+    const snapshot = await getDocs(branchesQuery)
+    const branches: Business[] = []
+
+    // Incluir la matriz si existe
+    if (rootBiz) {
+      branches.push(rootBiz)
+    }
+
+    snapshot.forEach(docSnap => {
+      if (docSnap.id !== rootId) {
+        const data = docSnap.data()
+        branches.push({
+          id: docSnap.id,
+          ...data,
+          createdAt: toSafeDate(data.createdAt),
+          updatedAt: toSafeDate(data.updatedAt)
+        } as Business)
+      }
+    })
+
+    return branches
+  } catch (error) {
+    console.error('❌ Error getting branches for business:', error)
+    return []
+  }
+}
+
+// Función para crear una nueva sucursal vinculada a una tienda matriz
+export async function createBusinessBranch(
+  parentBusinessId: string,
+  branchData: {
+    name: string
+    branchName?: string
+    username: string
+    phone?: string
+    email?: string
+    address?: string
+    mapLocation?: { lat: number; lng: number }
+    references?: string
+    image?: string
+    coverImage?: string
+  }
+): Promise<string> {
+  try {
+    const parentBiz = await getBusiness(parentBusinessId)
+    if (!parentBiz) {
+      throw new Error('Tienda matriz no encontrada')
+    }
+
+    // Verificar si el username ya está en uso
+    const usernameQuery = query(
+      collection(db, 'businesses'),
+      where('username', '==', branchData.username.toLowerCase().trim())
+    )
+    const usernameSnap = await getDocs(usernameQuery)
+    if (!usernameSnap.empty) {
+      throw new Error('El nombre de usuario (URL) ya está en uso por otra tienda')
+    }
+
+    const newBranchPayload: any = {
+      name: branchData.name.trim(),
+      branchName: branchData.branchName?.trim() || branchData.name.trim(),
+      username: branchData.username.toLowerCase().trim(),
+      description: parentBiz.description || '',
+      phone: branchData.phone?.trim() || parentBiz.phone || '',
+      email: branchData.email?.trim() || parentBiz.email || '',
+      ownerId: parentBiz.ownerId || '',
+      administrators: parentBiz.administrators || [],
+      adminEmails: parentBiz.adminEmails || [],
+      parentBusinessId: parentBusinessId,
+      isBranch: true,
+      businessType: parentBiz.businessType || 'food_store',
+      category: parentBiz.category || 'Restaurante',
+      categories: parentBiz.categories || [],
+      defaultCommissionType: parentBiz.defaultCommissionType || NEW_BUSINESS_DEFAULT_COMMISSION_TYPE,
+      commissionRate: parentBiz.commissionRate ?? NEW_BUSINESS_DEFAULT_COMMISSION_RATE,
+      hasPackagingFee: parentBiz.hasPackagingFee ?? false,
+      packagingFee: parentBiz.packagingFee ?? 0,
+      image: branchData.image || parentBiz.image || '',
+      coverImage: branchData.coverImage || parentBiz.coverImage || '',
+      locationImage: parentBiz.locationImage || '',
+      mapLocation: branchData.mapLocation || parentBiz.mapLocation || { lat: -2.1894, lng: -79.8891 },
+      references: branchData.references || branchData.address || parentBiz.references || '',
+      schedule: parentBiz.schedule || {
+        monday: { open: '08:00', close: '22:00', isOpen: true },
+        tuesday: { open: '08:00', close: '22:00', isOpen: true },
+        wednesday: { open: '08:00', close: '22:00', isOpen: true },
+        thursday: { open: '08:00', close: '22:00', isOpen: true },
+        friday: { open: '08:00', close: '23:00', isOpen: true },
+        saturday: { open: '08:00', close: '23:00', isOpen: true },
+        sunday: { open: '08:00', close: '22:00', isOpen: true }
+      },
+      pickupSettings: {
+        enabled: true,
+        references: branchData.address || branchData.references || parentBiz.pickupSettings?.references || '',
+        latlong: branchData.mapLocation ? `${branchData.mapLocation.lat}, ${branchData.mapLocation.lng}` : (parentBiz.pickupSettings?.latlong || ''),
+        storePhotoUrl: parentBiz.pickupSettings?.storePhotoUrl || ''
+      },
+      notificationSettings: parentBiz.notificationSettings || {
+        emailOrderClient: true,
+        emailOrderManual: true,
+        emailCheckoutProgress: false,
+        telegramOrderManual: false
+      },
+      telegramChatIds: parentBiz.telegramChatIds || [],
+      isActive: true,
+      isHidden: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }
+
+    const docRef = await addDoc(collection(db, 'businesses'), newBranchPayload)
+
+    // Actualizar la matriz para registrar el ID de la nueva sucursal
+    await updateDoc(doc(db, 'businesses', parentBusinessId), {
+      branches: arrayUnion(docRef.id),
+      updatedAt: serverTimestamp()
+    })
+
+    return docRef.id
+  } catch (error) {
+    console.error('❌ Error creating business branch:', error)
+    throw error
+  }
+}
+
+// Función para desvincular una sucursal
+export async function unlinkBusinessBranch(branchId: string, parentBusinessId: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'businesses', branchId), {
+      parentBusinessId: deleteField(),
+      isBranch: false,
+      updatedAt: serverTimestamp()
+    })
+
+    await updateDoc(doc(db, 'businesses', parentBusinessId), {
+      branches: arrayRemove(branchId),
+      updatedAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('❌ Error unlinking business branch:', error)
+    throw error
+  }
+}
+
 // Función para verificar si un usuario tiene acceso a alguna tienda (como propietario o administrador)
+// e incluir automáticamente todas las sucursales vinculadas a los negocios a los que tiene acceso
 export async function getUserBusinessAccess(userEmail: string, userId: string): Promise<{
   ownedBusinesses: Business[];
   adminBusinesses: Business[];
@@ -2925,17 +3085,56 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
     // Verificar tiendas como administrador
     const adminBusinesses = await getBusinessesByAdministrator(userEmail);
 
-    const hasAccess = ownedBusinesses.length > 0 || adminBusinesses.length > 0;
+    // Buscar sucursales adicionales vinculadas a los negocios que ya posee o administra
+    const allKnownBusinesses = [...ownedBusinesses, ...adminBusinesses];
+    const knownIds = new Set(allKnownBusinesses.map(b => b.id));
+    const parentIdsToQuery = new Set<string>();
 
-    console.log('✅ User business access:', {
+    for (const b of allKnownBusinesses) {
+      parentIdsToQuery.add(b.id);
+      if (b.parentBusinessId) {
+        parentIdsToQuery.add(b.parentBusinessId);
+      }
+    }
+
+    const extraBranches: Business[] = [];
+    for (const pId of Array.from(parentIdsToQuery)) {
+      try {
+        const qBranches = query(
+          collection(db, 'businesses'),
+          where('parentBusinessId', '==', pId)
+        );
+        const bSnap = await getDocs(qBranches);
+        bSnap.forEach(docSnap => {
+          if (!knownIds.has(docSnap.id)) {
+            knownIds.add(docSnap.id);
+            const bData = docSnap.data();
+            extraBranches.push({
+              id: docSnap.id,
+              ...bData,
+              createdAt: toSafeDate(bData.createdAt),
+              updatedAt: toSafeDate(bData.updatedAt)
+            } as Business);
+          }
+        });
+      } catch (err) {
+        console.warn('Could not fetch child branches for parent', pId, err);
+      }
+    }
+
+    // Agregar las sucursales adicionales a adminBusinesses para que estén disponibles
+    const finalAdminBusinesses = [...adminBusinesses, ...extraBranches];
+    const hasAccess = ownedBusinesses.length > 0 || finalAdminBusinesses.length > 0;
+
+    console.log('✅ User business access with branches:', {
       owned: ownedBusinesses.length,
-      admin: adminBusinesses.length,
+      admin: finalAdminBusinesses.length,
       hasAccess
     });
 
     return {
       ownedBusinesses,
-      adminBusinesses,
+      adminBusinesses: finalAdminBusinesses,
       hasAccess
     };
   } catch (error) {

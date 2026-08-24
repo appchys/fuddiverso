@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
 import { formatComboVariantSelection } from '@/lib/combo-utils'
@@ -287,8 +287,35 @@ export default function ManualOrderSidebar({
 
   const businessDefaultCommissionType = effectiveBusiness?.defaultCommissionType
   const businessCommissionRate = effectiveBusiness?.commissionRate
-  const businessSelectorOptions = businesses ?? []
-  const showBusinessSelector = mode === 'create' && businessSelectorOptions.length > 0 && !!onBusinessChange
+
+  // Cargar únicamente las sucursales vinculadas a este mismo negocio
+  const [availableBranches, setAvailableBranches] = useState<Business[]>([])
+
+  useEffect(() => {
+    const currentId = business?.id || effectiveBusinessId
+    if (!currentId) {
+      setAvailableBranches([])
+      return
+    }
+
+    let isMounted = true
+    getBranchesForBusiness(currentId)
+      .then(list => {
+        if (isMounted) {
+          setAvailableBranches(list && list.length > 0 ? list : [])
+        }
+      })
+      .catch(err => {
+        console.error('Error loading branches in ManualOrderSidebar:', err)
+        if (isMounted) setAvailableBranches([])
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [business?.id, effectiveBusinessId])
+
+  const showBusinessSelector = mode === 'create' && availableBranches.length > 1 && !!onBusinessChange
 
   const customProductPricing = useMemo(() => {
     const storePrice = parseFloat(customProductData.price)
@@ -2729,14 +2756,22 @@ export default function ManualOrderSidebar({
           style={{ overscrollBehavior: 'contain' }}
         >
           {showBusinessSelector && (
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-black mb-2">
-                Tienda
-              </label>
+            <div className="mb-6 bg-gradient-to-r from-rose-50/70 to-red-50/40 p-3.5 rounded-xl border border-rose-100/80 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                  <i className="bi bi-shop text-rose-500 text-sm"></i>
+                  Sucursal de Despacho
+                </label>
+                <span className="text-[11px] font-semibold text-rose-600 bg-rose-100/80 px-2 py-0.5 rounded-full">
+                  Menú específico
+                </span>
+              </div>
               <div className="relative">
                 <select
-                  value={business?.id || ''}
+                  value={business?.id || effectiveBusinessId || ''}
                   onChange={(e) => {
+                    const newBizId = e.target.value
+                    if (!newBizId) return
                     setSelectedCategory('all')
                     setManualOrderData(prev => ({
                       ...prev,
@@ -2746,23 +2781,27 @@ export default function ManualOrderSidebar({
                       total: 0,
                       selectedDelivery: null
                     }))
-                    onBusinessChange?.(e.target.value)
+                    onBusinessChange?.(newBizId)
                   }}
-                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-sm font-medium appearance-none cursor-pointer"
+                  className="w-full pl-3 pr-10 py-2.5 bg-white border border-rose-200 rounded-lg text-sm font-bold text-gray-900 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 shadow-sm appearance-none cursor-pointer"
                 >
-                  <option value="">Selecciona una tienda</option>
-                  {businessSelectorOptions.map(store => (
-                    <option key={store.id} value={store.id}>
-                      {store.name}
-                    </option>
-                  ))}
+                  {availableBranches.map(store => {
+                    const branchLabel = store.branchName 
+                      ? store.branchName 
+                      : (store.parentBusinessId ? 'Sucursal' : 'Matriz (Principal)')
+                    return (
+                      <option key={store.id} value={store.id}>
+                        {branchLabel}
+                      </option>
+                    )
+                  })}
                 </select>
-                <i className="bi bi-chevron-down absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+                <i className="bi bi-chevron-down absolute right-3 top-3 text-gray-400 pointer-events-none"></i>
               </div>
               {loadingBusinessProducts && (
-                <p className="mt-2 text-xs text-gray-500 flex items-center">
-                  <span className="inline-block h-3 w-3 mr-2 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin"></span>
-                  Cargando productos de la tienda...
+                <p className="mt-2 text-xs text-rose-600 flex items-center font-medium">
+                  <span className="inline-block h-3 w-3 mr-2 rounded-full border-2 border-rose-200 border-t-rose-600 animate-spin"></span>
+                  Cargando menú de la sucursal...
                 </p>
               )}
             </div>

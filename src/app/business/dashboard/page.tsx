@@ -132,7 +132,7 @@ export default function TodayOrdersPage() {
 
     // Sidebar State
     const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'>('orders')
-    const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion'>('general')
+    const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins' | 'configuracion' | 'sucursales'>('general')
     const [reportsSubTab, setReportsSubTab] = useState<'general' | 'costs'>('general')
     const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
     const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
@@ -391,6 +391,12 @@ export default function TodayOrdersPage() {
     const [productsLoaded, setProductsLoaded] = useState(false)
     const [productsLoading, setProductsLoading] = useState(false)
     
+    // Resetear productos cargados cuando cambie el negocio/sucursal
+    useEffect(() => {
+        setProductsLoaded(false)
+        setProducts([])
+    }, [businessId])
+
     // OPTIMIZED: Load products when needed (products tab, manual order sidebar) OR in background after initial dashboard load (!loading)
     const needsProducts = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen || !loading
     
@@ -1069,7 +1075,8 @@ export default function TodayOrdersPage() {
     useEffect(() => {
         if (!businessId) return
 
-        setLoading(true)
+        // Solo mostrar pantalla de carga en la primera apertura absoluta del dashboard
+        setLoading(prev => business ? false : prev)
         isFirstOrdersLoad.current = true // Reset on business change
 
         // Calculate start and end of today
@@ -1401,6 +1408,11 @@ export default function TodayOrdersPage() {
     }
 
     const handleBusinessChange = (newBusinessId: string) => {
+        if (!newBusinessId || newBusinessId === businessId) return;
+        const found = businesses.find(b => b.id === newBusinessId);
+        if (found) {
+            setBusiness(found);
+        }
         setBusinessId(newBusinessId);
     }
 
@@ -1867,37 +1879,56 @@ export default function TodayOrdersPage() {
                                         </button>
 
                                         {showBusinessDropdown && (
-                                            <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-[60]">
-                                                {businesses.map((biz) => (
-                                                    <button
-                                                        key={biz.id}
-                                                        onClick={() => { handleBusinessChange(biz.id); setShowBusinessDropdown(false); }}
-                                                        className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 ${business?.id === biz.id ? 'bg-red-50' : ''}`}
-                                                    >
-                                                        <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
-                                                            {biz.image ? <img src={biz.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><i className="bi bi-shop"></i></div>}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-gray-900 truncate">{biz.name}</p>
-                                                        </div>
-                                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                                            <a
-                                                                href={`/${biz.username}`}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                title="Visitar perfil"
+                                            <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-[60]">
+                                                <div className="px-4 py-2 border-b border-gray-100">
+                                                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tus Tiendas y Sucursales</p>
+                                                </div>
+                                                <div className="max-h-72 overflow-y-auto">
+                                                    {businesses.map((biz) => {
+                                                        const isSelected = business?.id === biz.id
+                                                        return (
+                                                            <button
+                                                                key={biz.id}
+                                                                onClick={() => { handleBusinessChange(biz.id); setShowBusinessDropdown(false); }}
+                                                                className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-rose-50/50 transition-colors ${isSelected ? 'bg-rose-50/80 font-bold' : ''}`}
                                                             >
-                                                                <i className="bi bi-box-arrow-up-right text-lg"></i>
-                                                            </a>
-                                                            {business?.id === biz.id && <i className="bi bi-check-circle-fill text-red-500"></i>}
-                                                        </div>
-                                                    </button>
-                                                ))}
-                                                <hr className="my-2" />
-                                                <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-red-50 text-red-600">
-                                                    <i className="bi bi-box-arrow-right"></i>
+                                                                <div className="w-9 h-9 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200/80">
+                                                                    {biz.image ? <img src={biz.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400"><i className="bi bi-shop"></i></div>}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-sm font-bold text-gray-900 truncate">
+                                                                        {biz.name}
+                                                                    </p>
+                                                                    {biz.branchName && biz.branchName !== biz.name ? (
+                                                                        <span className="text-[11px] font-semibold text-rose-600 bg-rose-100/60 px-1.5 py-0.2 rounded inline-block truncate max-w-full">
+                                                                            {biz.branchName}
+                                                                        </span>
+                                                                    ) : biz.isBranch ? (
+                                                                        <span className="text-[11px] font-medium text-gray-500">
+                                                                            Sucursal
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                                <div className="flex items-center gap-2 flex-shrink-0">
+                                                                    <a
+                                                                        href={`/${biz.username}`}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-100/50 rounded-lg transition-all"
+                                                                        title="Ver tienda pública"
+                                                                    >
+                                                                        <i className="bi bi-box-arrow-up-right text-sm"></i>
+                                                                    </a>
+                                                                    {isSelected && <i className="bi bi-check-circle-fill text-rose-600 text-base"></i>}
+                                                                </div>
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                                <hr className="my-1 border-gray-100" />
+                                                <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-2.5 text-left hover:bg-rose-50 text-rose-600 text-sm font-bold transition-colors">
+                                                    <i className="bi bi-box-arrow-right text-base"></i>
                                                     <span>Cerrar Sesión</span>
                                                 </button>
                                             </div>
@@ -1971,6 +2002,7 @@ export default function TodayOrdersPage() {
                                     onCategoriesChange={handleCategoriesChange}
                                     initialTab={profileSubTab}
                                     onDirectUpdate={handleDirectUpdate}
+                                    onSwitchBusiness={handleBusinessChange}
                                     onAddAdmin={canManageAdmins ? () => setShowAddAdminModal(true) : undefined}
                                     onRemoveAdmin={handleRemoveAdmin}
                                     onEditAdminPassword={canManageAdmins ? (email) => {
@@ -1986,20 +2018,15 @@ export default function TodayOrdersPage() {
                         </div>
                     ) : activeTab === 'profile' && profileSubTab === 'products' ? (
                         <div className="p-4 sm:p-6">
-                            {productsLoading ? (
-                                <div className="flex justify-center items-center py-12">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
-                                </div>
-                            ) : (
-                                <ProductList
-                                    business={business}
-                                    products={products}
-                                    categories={categories}
-                                    onProductsChange={handleProductsChange}
-                                    onCategoriesChange={handleCategoriesChange}
-                                    onDirectUpdate={handleDirectUpdate}
-                                />
-                            )}
+                            <ProductList
+                                business={business}
+                                onBusinessChange={handleBusinessChange}
+                                products={products}
+                                categories={categories}
+                                onProductsChange={handleProductsChange}
+                                onCategoriesChange={handleCategoriesChange}
+                                onDirectUpdate={handleDirectUpdate}
+                            />
                         </div>
                     ) : (
                         <>
@@ -2405,6 +2432,8 @@ export default function TodayOrdersPage() {
                                 }}
                                 business={business}
                                 businesses={businesses}
+                                onBusinessChange={handleBusinessChange}
+                                loadingBusinessProducts={productsLoading}
                                 products={products}
                                 onOrderCreated={() => {
                                     setManualOrderSidebarOpen(false)

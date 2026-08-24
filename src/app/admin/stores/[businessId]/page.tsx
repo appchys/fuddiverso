@@ -602,22 +602,31 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
                 <input
                   type="number"
                   min={0} max={100} step={0.5}
-                  value={edited.commissionRate ?? 10}
+                  value={edited.defaultCommissionType === 'subscription' ? 0 : (edited.commissionRate ?? 10)}
+                  disabled={edited.defaultCommissionType === 'subscription'}
                   onChange={e => handleField('commissionRate', Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className={`w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${edited.defaultCommissionType === 'subscription' ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
                 />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Tipo de Comisión</label>
                 <select
                   value={edited.defaultCommissionType ?? 'fuddi_assumed_by_customer'}
-                  onChange={e => handleField('defaultCommissionType', e.target.value)}
+                  onChange={e => {
+                    const val = e.target.value as any
+                    if (val === 'subscription') {
+                      setEdited(prev => prev ? { ...prev, defaultCommissionType: val, commissionRate: 0 } : null)
+                    } else {
+                      handleField('defaultCommissionType', val)
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="fuddi_assumed_by_customer">Asumida por cliente</option>
                   <option value="fuddi_assumed_by_store">Asumida por tienda</option>
                   <option value="no_commission">Sin comisión</option>
                   <option value="fixed_commission">Comisión fija</option>
+                  <option value="subscription">Suscripción</option>
                 </select>
               </div>
             </div>

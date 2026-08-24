@@ -1849,6 +1849,11 @@ export default function AdminPedidosPage() {
                 }}
                 business={business}
                 businesses={businesses}
+                onBusinessChange={(newId) => {
+                    setSelectedBusinessId(newId)
+                    const found = businesses.find(b => b.id === newId)
+                    if (found) setBusiness(found)
+                }}
                 products={products}
                 onOrderCreated={() => setManualOrderSidebarOpen(false)}
                 mode={manualSidebarMode}
