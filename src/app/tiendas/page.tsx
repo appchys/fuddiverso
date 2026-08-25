@@ -69,6 +69,7 @@ export default function TiendasPage() {
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [showProductFormModal, setShowProductFormModal] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [isCreatingProductCategory, setIsCreatingProductCategory] = useState(false)
   const [productForm, setProductForm] = useState({
     name: '',
     description: '',
@@ -82,7 +83,16 @@ export default function TiendasPage() {
   const [parsedProducts, setParsedProducts] = useState<any[]>([])
   const [isImporting, setIsImporting] = useState(false)
   
-  // Form state
+  // Bloquear el scroll de la página de fondo al abrir cualquier modal
+  useEffect(() => {
+    if (showProductFormModal || showCreateModal || showBankFormModal || showJsonImportModal) {
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = originalOverflow
+      }
+    }
+  }, [showProductFormModal, showCreateModal, showBankFormModal, showJsonImportModal])
   const [formData, setFormData] = useState({
     name: '',
     username: '',
@@ -1422,12 +1432,16 @@ export default function TiendasPage() {
                         <button
                           type="button"
                           onClick={() => {
+                            const storeCategories = Array.from(
+                              new Set(businessProducts.map(p => (p.category || '').trim()).filter(Boolean))
+                            ).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
                             setEditingProduct(null)
+                            setIsCreatingProductCategory(storeCategories.length === 0)
                             setProductForm({
                               name: '',
                               description: '',
                               price: '',
-                              category: 'General',
+                              category: storeCategories.length > 0 ? storeCategories[0] : '',
                               isAvailable: true
                             })
                             setShowProductFormModal(true)
@@ -1490,13 +1504,20 @@ export default function TiendasPage() {
                               <button
                                 type="button"
                                 onClick={() => {
+                                  const storeCategories = Array.from(
+                                    new Set(businessProducts.map(p => (p.category || '').trim()).filter(Boolean))
+                                  ).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
+                                  const prodCat = (prod.category || '').trim();
+                                  const isSinCat = !prodCat || prodCat.toLowerCase() === 'sin categoría' || prodCat.toLowerCase() === 'sin categoria';
+                                  const exists = !isSinCat && storeCategories.includes(prodCat);
                                   setEditingProduct(prod)
+                                  setIsCreatingProductCategory(storeCategories.length === 0 || (!isSinCat && !exists))
                                   setProductForm({
                                     name: prod.name,
                                     description: prod.description || '',
                                     price: (prod.basePrice || prod.price).toString(),
-                                    category: prod.category || 'Sin categoría',
-                                    isAvailable: prod.isAvailable
+                                    category: isSinCat ? (storeCategories.length > 0 ? storeCategories[0] : '') : prodCat,
+                                    isAvailable: prod.isAvailable !== false
                                   })
                                   setShowProductFormModal(true)
                                 }}
@@ -2125,24 +2146,75 @@ export default function TiendasPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                    Categoría *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    list="product-categories"
-                    value={productForm.category}
-                    onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
-                    disabled={loadingProducts}
-                    placeholder="Ej: Hamburguesas"
-                    className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold"
-                  />
-                  <datalist id="product-categories">
-                    {(selectedBusiness?.categories || ['Platos Fuertes', 'Bebidas', 'Postres']).map(c => (
-                      <option key={c} value={c} />
-                    ))}
-                  </datalist>
+                  {(() => {
+                    const storeCategories = Array.from(
+                      new Set(businessProducts.map(p => (p.category || '').trim()).filter(Boolean))
+                    ).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
+
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                            Categoría *
+                          </label>
+                          {storeCategories.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isCreatingProductCategory) {
+                                  setIsCreatingProductCategory(false);
+                                  setProductForm(prev => ({
+                                    ...prev,
+                                    category: storeCategories[0] || ''
+                                  }));
+                                } else {
+                                  setIsCreatingProductCategory(true);
+                                  setProductForm(prev => ({ ...prev, category: '' }));
+                                }
+                              }}
+                              className="text-[10px] font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                            >
+                              {isCreatingProductCategory ? '← Elegir existente' : '+ Nueva'}
+                            </button>
+                          )}
+                        </div>
+
+                        {isCreatingProductCategory || storeCategories.length === 0 ? (
+                          <input
+                            type="text"
+                            required
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck="false"
+                            value={productForm.category}
+                            onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
+                            disabled={loadingProducts}
+                            placeholder="Ej: Hamburguesas"
+                            className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold"
+                          />
+                        ) : (
+                          <select
+                            value={productForm.category}
+                            onChange={(e) => {
+                              if (e.target.value === '__new__') {
+                                setIsCreatingProductCategory(true);
+                                setProductForm(prev => ({ ...prev, category: '' }));
+                              } else {
+                                setProductForm(prev => ({ ...prev, category: e.target.value }));
+                              }
+                            }}
+                            disabled={loadingProducts}
+                            className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold cursor-pointer"
+                          >
+                            {storeCategories.map(c => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                            <option value="__new__" className="text-blue-600 font-bold">+ Crear nueva categoría...</option>
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

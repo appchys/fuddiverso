@@ -251,6 +251,9 @@ export default function ManualOrderSidebar({
     price: ''
   })
 
+  // Estado para el popover de sucursal en el header
+  const [branchPopoverOpen, setBranchPopoverOpen] = useState(false)
+
   // Estados para Toast
   const [toastMessage, setToastMessage] = useState('')
   const [showToast, setShowToast] = useState(false)
@@ -2738,16 +2741,96 @@ export default function ManualOrderSidebar({
         style={{ overscrollBehavior: 'contain', touchAction: 'pan-x pan-y' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">{mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'}</h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCancel}
-              className="p-2 hover:bg-gray-100 rounded-full"
-            >
-              <i className="bi bi-x-lg"></i>
-            </button>
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
+          <div className="flex items-center gap-3 min-w-0">
+            <h2 className="text-base font-semibold text-gray-900 shrink-0">{mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'}</h2>
+            {/* Selector de sucursal como popover en el header */}
+            {showBusinessSelector && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setBranchPopoverOpen(prev => !prev)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full text-xs font-medium text-gray-600 transition-colors max-w-[160px]"
+                >
+                  <i className="bi bi-geo-alt text-gray-400 shrink-0" style={{ fontSize: '10px' }}></i>
+                  <span className="truncate">
+                    {(() => {
+                      const active = availableBranches.find(b => b.id === (business?.id || effectiveBusinessId))
+                      if (!active) return 'Sucursal'
+                      return active.branchName || (active.parentBusinessId ? 'Sucursal' : 'Matriz')
+                    })()}
+                  </span>
+                  {loadingBusinessProducts
+                    ? <span className="inline-block h-2.5 w-2.5 rounded-full border border-gray-300 border-t-gray-500 animate-spin shrink-0"></span>
+                    : <i className={`bi bi-chevron-${branchPopoverOpen ? 'up' : 'down'} shrink-0 text-gray-400`} style={{ fontSize: '9px' }}></i>
+                  }
+                </button>
+
+                {/* Popover panel */}
+                {branchPopoverOpen && (
+                  <>
+                    {/* Overlay para cerrar */}
+                    <div
+                      className="fixed inset-0 z-[60]"
+                      onClick={() => setBranchPopoverOpen(false)}
+                    />
+                    <div className="absolute left-0 top-full mt-2 z-[61] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden"
+                      style={{ minWidth: '180px', boxShadow: '0 8px 30px rgba(0,0,0,0.12)' }}
+                    >
+                      <div className="px-3 py-2 border-b border-gray-50">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Sucursal</p>
+                      </div>
+                      <div className="py-1">
+                        {availableBranches.map(store => {
+                          const label = store.branchName
+                            ? store.branchName
+                            : (store.parentBusinessId ? 'Sucursal' : 'Matriz (Principal)')
+                          const isActive = store.id === (business?.id || effectiveBusinessId)
+                          return (
+                            <button
+                              key={store.id}
+                              type="button"
+                              onClick={() => {
+                                if (isActive) { setBranchPopoverOpen(false); return }
+                                setSelectedCategory('all')
+                                setManualOrderData(prev => ({
+                                  ...prev,
+                                  selectedProducts: [],
+                                  deliveryType: '',
+                                  selectedLocation: null,
+                                  total: 0,
+                                  selectedDelivery: null
+                                }))
+                                onBusinessChange?.(store.id)
+                                setBranchPopoverOpen(false)
+                              }}
+                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                                isActive
+                                  ? 'bg-gray-50 text-gray-900 font-medium'
+                                  : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                isActive ? 'bg-gray-700' : 'bg-gray-200'
+                              }`} />
+                              <span className="truncate">{label}</span>
+                              {isActive && <i className="bi bi-check2 ml-auto text-gray-600 shrink-0"></i>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
+          <button
+            onClick={handleCancel}
+            className="p-1.5 hover:bg-gray-100 rounded-full transition-colors shrink-0"
+          >
+            <i className="bi bi-x-lg text-sm"></i>
+          </button>
         </div>
 
         {/* Content */}
@@ -2755,57 +2838,7 @@ export default function ManualOrderSidebar({
           className="flex-1 overflow-y-auto p-4 pb-24"
           style={{ overscrollBehavior: 'contain' }}
         >
-          {showBusinessSelector && (
-            <div className="mb-6 bg-gradient-to-r from-rose-50/70 to-red-50/40 p-3.5 rounded-xl border border-rose-100/80 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
-                  <i className="bi bi-shop text-rose-500 text-sm"></i>
-                  Sucursal de Despacho
-                </label>
-                <span className="text-[11px] font-semibold text-rose-600 bg-rose-100/80 px-2 py-0.5 rounded-full">
-                  Menú específico
-                </span>
-              </div>
-              <div className="relative">
-                <select
-                  value={business?.id || effectiveBusinessId || ''}
-                  onChange={(e) => {
-                    const newBizId = e.target.value
-                    if (!newBizId) return
-                    setSelectedCategory('all')
-                    setManualOrderData(prev => ({
-                      ...prev,
-                      selectedProducts: [],
-                      deliveryType: '',
-                      selectedLocation: null,
-                      total: 0,
-                      selectedDelivery: null
-                    }))
-                    onBusinessChange?.(newBizId)
-                  }}
-                  className="w-full pl-3 pr-10 py-2.5 bg-white border border-rose-200 rounded-lg text-sm font-bold text-gray-900 focus:ring-2 focus:ring-rose-500 focus:border-rose-500 shadow-sm appearance-none cursor-pointer"
-                >
-                  {availableBranches.map(store => {
-                    const branchLabel = store.branchName 
-                      ? store.branchName 
-                      : (store.parentBusinessId ? 'Sucursal' : 'Matriz (Principal)')
-                    return (
-                      <option key={store.id} value={store.id}>
-                        {branchLabel}
-                      </option>
-                    )
-                  })}
-                </select>
-                <i className="bi bi-chevron-down absolute right-3 top-3 text-gray-400 pointer-events-none"></i>
-              </div>
-              {loadingBusinessProducts && (
-                <p className="mt-2 text-xs text-rose-600 flex items-center font-medium">
-                  <span className="inline-block h-3 w-3 mr-2 rounded-full border-2 border-rose-200 border-t-rose-600 animate-spin"></span>
-                  Cargando menú de la sucursal...
-                </p>
-              )}
-            </div>
-          )}
+
           {/* Búsqueda de cliente */}
           <div className="mb-6">
             {!clientFound ? (

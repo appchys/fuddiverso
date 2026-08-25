@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds, getBranchesForBusiness } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
@@ -25,6 +26,12 @@ export default function ProductList({
   onDirectUpdate,
   onBusinessChange
 }: ProductListProps) {
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
+
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [formData, setFormData] = useState({
@@ -73,6 +80,20 @@ export default function ProductList({
   const [uploading, setUploading] = useState(false)
   const [isDraggingImage, setIsDraggingImage] = useState(false)
   const [isDraggingVariantImage, setIsDraggingVariantImage] = useState(false)
+  const [isCreatingNewCategory, setIsCreatingNewCategory] = useState(false)
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false)
+  const categoryDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
+        setIsCategoryDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
 
   // Estados para ingredientes
   const [ingredients, setIngredients] = useState<Array<{
@@ -177,6 +198,17 @@ export default function ProductList({
       setSelectedAddonIds([])
     }
   }, [quickAddonProduct])
+
+  // Bloquear el scroll de la página de fondo cuando algún modal esté abierto
+  useEffect(() => {
+    if (showProductForm || showJsonImport || !!quickAddonProduct) {
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = originalOverflow
+      }
+    }
+  }, [showProductForm, showJsonImport, quickAddonProduct])
 
   // Estados para Productos Compartidos
   const [activeSection, setActiveSection] = useState<'mis-productos' | 'compartidos'>('mis-productos')
@@ -286,9 +318,18 @@ export default function ProductList({
     Sunday: 'Dom'
   }
 
+  // Categorías exclusivas que realmente existen en los productos del negocio actual
+  const businessCategories = React.useMemo(() => {
+    const fromProducts = Array.from(
+      new Set(products.map(p => (p.category || '').trim()).filter(Boolean))
+    ).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
+    return fromProducts;
+  }, [products]);
+
   const handleOpenNewProduct = () => {
     setEditingProduct(null)
-    const defaultCategory = categories.length > 0 ? categories[0] : 'General'
+    const defaultCategory = businessCategories.length > 0 ? businessCategories[0] : ''
+    setIsCreatingNewCategory(businessCategories.length === 0)
     const isSub = business?.defaultCommissionType === 'subscription' ||
       business?.defaultCommissionType === 'no_commission' ||
       (typeof business?.commissionRate === 'number' && business?.commissionRate <= 0) ||
@@ -333,36 +374,47 @@ export default function ProductList({
     setShowProductForm(true)
   }
 
-  // Agrupar productos: categorías del negocio + categorías que tengan los productos pero no estén en la lista
+  // Agrupar productos: categorías reales que tienen los productos de este negocio
   const allCategories = React.useMemo(() => {
-    const master = categories || [];
-    const fromProducts = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
-    const extras = fromProducts.filter(c => !master.includes(c));
-    const list = [...master, ...extras];
+    const fromProducts = Array.from(
+      new Set(products.map(p => (p.category || '').trim()).filter(Boolean))
+    ).filter(c => c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
 
     // Si hay productos sin ninguna categoría, añadimos un placeholder si no existe
-    if (products.some(p => !p.category || p.category === 'Sin categoría') && !list.includes('Sin categoría')) {
-      list.push('Sin categoría');
+    if (products.some(p => !p.category || p.category === 'Sin categoría' || p.category === 'Sin categoria')) {
+      fromProducts.push('Sin categoría');
     }
-    return list;
-  }, [products, categories]);
+    return fromProducts;
+  }, [products]);
 
-  // Sincronización automática de categorías huérfanas
+  // Sincronización automática de categorías del negocio según sus productos reales
   useEffect(() => {
     if (products.length > 0 && business?.id && onCategoriesChange && onDirectUpdate) {
-      const fromProducts = Array.from(new Set(products.map(p => p.category).filter(c => c && c !== 'Sin categoría'))) as string[];
-      const missing = fromProducts.filter(c => !categories.includes(c));
+      const fromProducts = Array.from(
+        new Set(products.map(p => (p.category || '').trim()).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria'))
+      );
 
-      if (missing.length > 0) {
-        const updated = [...categories, ...missing];
-        onCategoriesChange(updated);
-        onDirectUpdate('categories', updated);
+      const isDifferent = fromProducts.length !== categories.length ||
+        fromProducts.some(c => !categories.includes(c)) ||
+        categories.some(c => !fromProducts.includes(c));
+
+      if (isDifferent) {
+        onCategoriesChange(fromProducts);
+        onDirectUpdate('categories', fromProducts);
       }
     }
   }, [products, categories, business?.id, onCategoriesChange, onDirectUpdate]);
 
   const handleEditProduct = (product: Product) => {
     setEditingProduct(product)
+    const currentCat = (product.category || '').trim()
+    const isSinCat = !currentCat || currentCat.toLowerCase() === 'sin categoría' || currentCat.toLowerCase() === 'sin categoria'
+    const exists = !isSinCat && businessCategories.includes(currentCat)
+    const categoryToSet = isSinCat
+      ? (businessCategories.length > 0 ? businessCategories[0] : '')
+      : currentCat
+    setIsCreatingNewCategory(businessCategories.length === 0 || (!isSinCat && !exists))
+
     const isSub = business?.defaultCommissionType === 'subscription' ||
       business?.defaultCommissionType === 'no_commission' ||
       (typeof business?.commissionRate === 'number' && business?.commissionRate <= 0) ||
@@ -375,7 +427,7 @@ export default function ProductList({
       name: product.name,
       description: product.description,
       price: (product.basePrice || product.price).toString(),
-      category: product.category || 'Sin categoría',
+      category: categoryToSet,
       isAvailable: product.isAvailable,
       image: null,
       commissionType: commType as CommissionType,
@@ -440,7 +492,8 @@ export default function ProductList({
   const handleCloseForm = () => {
     setShowProductForm(false)
     setEditingProduct(null)
-    const defaultCategory = categories.length > 0 ? categories[0] : 'General'
+    setIsCreatingNewCategory(false)
+    const defaultCategory = businessCategories.length > 0 ? businessCategories[0] : ''
     setFormData({
       name: '',
       description: '',
@@ -1158,7 +1211,6 @@ export default function ProductList({
 
     const newErrors: Record<string, string> = {}
     if (!formData.name.trim()) newErrors.name = 'El nombre es requerido'
-    if (!formData.description.trim()) newErrors.description = 'La descripción es requerida'
     if (!formData.price || isNaN(Number(formData.price)) || Number(formData.price) <= 0) {
       newErrors.price = 'El precio debe ser válido'
     }
@@ -2171,77 +2223,85 @@ export default function ProductList({
         </div>
       )}
 
-      {showProductForm && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-50 rounded-t-[2rem] sm:rounded-[2rem] max-w-4xl w-full h-[95vh] sm:h-auto sm:max-h-[90vh] flex flex-col shadow-2xl border border-white animate-in slide-in-from-bottom sm:zoom-in duration-300 overflow-hidden">
-            <form onSubmit={handleSaveProduct} className="flex flex-col flex-1 overflow-hidden">
+      {showProductForm && isMounted && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex flex-col"
+          style={{ background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(8px)' }}
+        >
+          {/* Contenedor del modal: hoja inferior en móvil, centrado en desktop */}
+          <div
+            className="w-full mx-auto bg-slate-50 flex flex-col rounded-t-[1.75rem] mt-auto shadow-2xl border-t border-white/20 sm:max-w-4xl sm:my-auto sm:rounded-[2rem] sm:max-h-[92vh] sm:shadow-2xl sm:border sm:border-white/80"
+            style={{ maxHeight: 'calc(100dvh - 48px)', minHeight: '40dvh' }}
+          >
+            <form onSubmit={handleSaveProduct} className="flex flex-col min-h-0 flex-1">
+              {/* Handle de arrastre solo en móvil */}
+              <div className="flex justify-center pt-3 pb-0 sm:hidden flex-shrink-0">
+                <div className="w-10 h-1 bg-slate-300 rounded-full"></div>
+              </div>
+
               {/* Encabezado */}
-              <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white flex-shrink-0">
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 tracking-tight">
-                    {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
-                  </h3>
-                  <p className="text-xs text-slate-400 font-medium mt-0.5">
-                    {editingProduct ? 'Modifica los detalles y configuraciones de tu producto' : 'Agrega un nuevo producto a tu menú'}
-                  </p>
-                </div>
+              <div className="px-6 py-4 sm:py-5 border-b border-slate-100 flex justify-between items-center flex-shrink-0">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
+                  {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
+                </h3>
                 <button
                   type="button"
                   onClick={handleCloseForm}
-                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-50 w-9 h-9 rounded-full flex items-center justify-center border border-slate-100 transition-all shadow-sm"
+                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 w-9 h-9 rounded-full flex items-center justify-center border border-slate-200 transition-all flex-shrink-0"
                 >
                   <i className="bi bi-x-lg text-sm"></i>
                 </button>
               </div>
 
-              {/* Cuerpo del Modal - Con Scroll */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+              {/* Cuerpo scrolleable */}
+              <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-6 custom-scrollbar min-h-0">
                 {/* Pestañas de Navegación */}
-                <div className="flex bg-slate-200/50 p-1.5 rounded-2xl max-w-md mx-auto text-xs font-black border border-slate-100/80 mb-8">
+                <div className="flex gap-1 mb-6 border-b border-slate-200">
                   <button
                     type="button"
                     onClick={() => setActiveTab('general')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${activeTab === 'general'
-                        ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
-                        : 'text-slate-500 hover:text-slate-800'
-                      }`}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-all border-b-2 -mb-px ${activeTab === 'general'
+                      ? 'border-[#aa1918] text-[#aa1918]'
+                      : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
+                    }`}
                   >
-                    <i className="bi bi-info-circle text-sm"></i>
+                    <i className="bi bi-info-circle text-xs"></i>
                     General
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActiveTab('ingredients')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${activeTab === 'ingredients'
-                        ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
-                        : 'text-slate-500 hover:text-slate-800'
-                      }`}
+                    onClick={() => setActiveTab('options')}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-all border-b-2 -mb-px ${activeTab === 'options'
+                      ? 'border-[#aa1918] text-[#aa1918]'
+                      : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
+                    }`}
                   >
-                    <i className="bi bi-basket text-sm"></i>
-                    <span>Ingredientes</span>
-                    {ingredients.length > 0 && (
-                      <span className="bg-[#aa1918] text-white px-2 py-0.5 rounded-full text-[9px] font-black leading-none min-w-[16px] h-[16px] flex items-center justify-center">
-                        {ingredients.length}
+                    <i className="bi bi-gear text-xs"></i>
+                    Toppings
+                    {optionGroups.length > 0 && (
+                      <span className="bg-[#aa1918] text-white text-[9px] font-black rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                        {optionGroups.length}
                       </span>
                     )}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActiveTab('options')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${activeTab === 'options'
-                        ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
-                        : 'text-slate-500 hover:text-slate-800'
-                      }`}
+                    onClick={() => setActiveTab('ingredients')}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-all border-b-2 -mb-px ${activeTab === 'ingredients'
+                      ? 'border-[#aa1918] text-[#aa1918]'
+                      : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
+                    }`}
                   >
-                    <i className="bi bi-gear text-sm"></i>
-                    <span>Toppings</span>
-                    {optionGroups.length > 0 && (
-                      <span className="bg-[#aa1918] text-white px-2 py-0.5 rounded-full text-[9px] font-black leading-none min-w-[16px] h-[16px] flex items-center justify-center">
-                        {optionGroups.length}
+                    <i className="bi bi-basket text-xs"></i>
+                    Ingredientes
+                    {ingredients.length > 0 && (
+                      <span className="bg-[#aa1918] text-white text-[9px] font-black rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                        {ingredients.length}
                       </span>
                     )}
                   </button>
                 </div>
+
 
                 {/* PESTAÑA: INFORMACIÓN GENERAL */}
                 {activeTab === 'general' && (
@@ -2626,23 +2686,148 @@ export default function ProductList({
                     </div>
 
                     {/* 5. Categoría y Disponibilidad */}
-                    <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                    <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                       <div className="space-y-1.5">
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-0.5">Categoría</label>
-                        <input
-                          type="text"
-                          name="category"
-                          list="categories-list"
-                          value={formData.category}
-                          onChange={handleInputChange}
-                          placeholder="Selecciona o escribe una categoría..."
-                          className="w-full px-3.5 py-2.5 bg-slate-50/80 border border-slate-200/80 hover:border-slate-300 focus:border-[#aa1918] focus:bg-white rounded-xl focus:outline-none transition-all text-xs font-bold text-slate-800"
-                        />
-                        <datalist id="categories-list">
-                          {categories.map((cat) => (
-                            <option key={cat} value={cat} />
-                          ))}
-                        </datalist>
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-0.5">
+                            Categoría
+                          </label>
+                          {businessCategories.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isCreatingNewCategory) {
+                                  setIsCreatingNewCategory(false);
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    category: businessCategories[0] || ''
+                                  }));
+                                } else {
+                                  setIsCreatingNewCategory(true);
+                                  setFormData(prev => ({ ...prev, category: '' }));
+                                }
+                              }}
+                              className="text-[10px] font-black text-[#aa1918] hover:text-[#881413] hover:underline flex items-center gap-1 transition-colors tracking-tight"
+                            >
+                              {isCreatingNewCategory ? (
+                                <>
+                                  <i className="bi bi-arrow-left-short text-sm"></i>
+                                  <span>Elegir existente</span>
+                                </>
+                              ) : (
+                                <>
+                                  <i className="bi bi-plus-lg text-xs"></i>
+                                  <span>Nueva categoría</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+
+                        {isCreatingNewCategory || businessCategories.length === 0 ? (
+                          <div className="space-y-1.5 animate-in fade-in duration-150">
+                            <div className="relative">
+                              <input
+                                type="text"
+                                name="category"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                spellCheck="false"
+                                value={formData.category}
+                                onChange={handleInputChange}
+                                placeholder="Escribe el nombre de la categoría..."
+                                className="w-full pl-8 pr-3.5 py-2.5 bg-slate-50/80 border border-slate-200/80 hover:border-slate-300 focus:border-[#aa1918] focus:bg-white rounded-xl focus:outline-none transition-all text-xs font-bold text-slate-800"
+                              />
+                              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                <i className="bi bi-plus-circle text-xs"></i>
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-slate-400 font-medium ml-0.5">
+                              {businessCategories.length === 0
+                                ? 'Crea la primera categoría para tu negocio'
+                                : 'Se añadirá a las categorías de tu negocio'}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="relative" ref={categoryDropdownRef}>
+                            {/* Trigger principal estilizado */}
+                            <button
+                              type="button"
+                              onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                              className={`w-full px-3.5 py-2.5 bg-slate-50/90 hover:bg-white border rounded-xl flex items-center justify-between transition-all duration-200 text-left shadow-2xs group ${
+                                isCategoryDropdownOpen
+                                  ? 'border-[#aa1918] ring-2 ring-[#aa1918]/10 bg-white shadow-sm'
+                                  : 'border-slate-200/80 hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                <div className="w-6 h-6 rounded-lg bg-rose-50 border border-rose-100 flex items-center justify-center flex-shrink-0 text-[#aa1918]">
+                                  <i className="bi bi-tag-fill text-[11px]"></i>
+                                </div>
+                                <span className="font-black text-xs text-slate-900 tracking-tight truncate">
+                                  {formData.category || 'Selecciona una categoría'}
+                                </span>
+                              </div>
+                              <i className={`bi bi-chevron-down text-xs text-slate-400 group-hover:text-slate-600 transition-transform duration-200 ${
+                                isCategoryDropdownOpen ? 'rotate-180 text-[#aa1918]' : ''
+                              }`}></i>
+                            </button>
+
+                            {/* Menú desplegable flotante personalizado */}
+                            {isCategoryDropdownOpen && (
+                              <div className="absolute left-0 right-0 top-full mt-1.5 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-xl shadow-slate-200/50 z-50 p-1.5 animate-in fade-in zoom-in-95 duration-150">
+                                <div className="max-h-56 overflow-y-auto space-y-0.5 pr-0.5">
+                                  {businessCategories.map((cat) => {
+                                    const isSelected = formData.category === cat
+                                    return (
+                                      <button
+                                        key={cat}
+                                        type="button"
+                                        onClick={() => {
+                                          setFormData(prev => ({ ...prev, category: cat }))
+                                          setIsCategoryDropdownOpen(false)
+                                        }}
+                                        className={`w-full px-3 py-2 rounded-xl text-left text-xs flex items-center justify-between transition-all ${
+                                          isSelected
+                                            ? 'bg-rose-50 text-[#aa1918] font-black'
+                                            : 'text-slate-700 hover:bg-slate-100/80 hover:text-slate-900 font-bold'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2 truncate">
+                                          <i className={`bi ${isSelected ? 'bi-folder-check-fill text-[#aa1918]' : 'bi-folder2 text-slate-400'} text-xs`}></i>
+                                          <span className="truncate">{cat}</span>
+                                        </div>
+                                        {isSelected && (
+                                          <i className="bi bi-check2 text-sm font-black text-[#aa1918]"></i>
+                                        )}
+                                      </button>
+                                    )
+                                  })}
+
+                                  <div className="my-1 border-t border-slate-100/80"></div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsCreatingNewCategory(true)
+                                      setFormData(prev => ({ ...prev, category: '' }))
+                                      setIsCategoryDropdownOpen(false)
+                                    }}
+                                    className="w-full px-3 py-2 rounded-xl text-left text-xs font-black text-[#aa1918] bg-gradient-to-r from-rose-50/90 to-amber-50/70 hover:from-rose-100 hover:to-amber-100 flex items-center justify-between transition-all border border-rose-200/60 shadow-2xs"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-5 h-5 rounded-md bg-[#aa1918] text-white flex items-center justify-center text-[10px]">
+                                        <i className="bi bi-plus-lg"></i>
+                                      </div>
+                                      <span>Crear nueva categoría</span>
+                                    </div>
+                                    <i className="bi bi-chevron-right text-[10px] text-rose-400"></i>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="sm:pt-5">
@@ -3740,25 +3925,24 @@ export default function ProductList({
                   </div>
                 )}
 
+                {/* Error general */}
+                {errors.submit && (
+                  <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 animate-in fade-in duration-200">
+                    <p className="text-red-600 text-xs font-bold flex items-center gap-1.5">
+                      <i className="bi bi-exclamation-triangle-fill"></i>
+                      {errors.submit}
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* Error general */}
-              {errors.submit && (
-                <div className="px-6 py-2.5 bg-red-50 border-t border-red-100 flex-shrink-0 animate-in fade-in duration-200">
-                  <p className="text-red-600 text-xs font-bold flex items-center gap-1.5">
-                    <i className="bi bi-exclamation-triangle-fill"></i>
-                    {errors.submit}
-                  </p>
-                </div>
-              )}
-
-              {/* Pie de Página (Botones) */}
-              <div className="px-6 py-4.5 border-t border-slate-100 bg-white flex gap-3 flex-shrink-0">
+              {/* Pie fijo: botones de acción */}
+              <div className="px-6 py-4 bg-white border-t border-slate-100 flex gap-3 flex-shrink-0 sm:rounded-b-[2rem]">
                 <button
                   type="button"
                   onClick={handleCloseForm}
                   disabled={uploading}
-                  className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-slate-600 hover:text-slate-800 hover:bg-slate-50 transition-colors font-bold text-xs disabled:opacity-50"
+                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-slate-600 hover:text-slate-800 hover:bg-slate-50 active:bg-slate-100 transition-colors font-bold text-sm disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3766,7 +3950,7 @@ export default function ProductList({
                 <button
                   type="submit"
                   disabled={uploading}
-                  className="flex-1 px-4 py-3 bg-[#aa1918] text-white rounded-xl hover:bg-[#8f1514] transition-colors font-bold text-xs disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-red-150"
+                  className="flex-1 px-4 py-3 bg-[#aa1918] text-white rounded-xl hover:bg-[#8f1514] active:scale-95 transition-all font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 shadow-md"
                 >
                   {uploading ? (
                     <>
@@ -3783,9 +3967,9 @@ export default function ProductList({
               </div>
             </form>
           </div>
-        </div>
-      )
-      }
+        </div>,
+        document.body
+      )}
       <style jsx>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 4px;
@@ -3821,8 +4005,8 @@ export default function ProductList({
       `}</style>
 
       {/* Modal del importador JSON de menú */}
-      {showJsonImport && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+      {showJsonImport && isMounted && createPortal(
+        <div className="fixed inset-0 w-screen h-screen bg-black/60 backdrop-blur-md flex items-center justify-center z-[9999] p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200 overflow-hidden">
 
             {/* Header del Modal */}
@@ -4014,12 +4198,13 @@ export default function ProductList({
             </div>
 
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal para Añadidos Rápidos */}
-      {quickAddonProduct && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      {quickAddonProduct && isMounted && createPortal(
+        <div className="fixed inset-0 w-screen h-screen bg-black/60 backdrop-blur-md flex items-center justify-center z-[9999] p-4 overflow-y-auto">
           <div className="bg-white rounded-[2.5rem] max-w-lg w-full max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-300 flex flex-col">
             {/* Header */}
             <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
@@ -4138,7 +4323,8 @@ export default function ProductList({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Botón flotante para nuevo producto */}
