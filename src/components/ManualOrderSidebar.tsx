@@ -333,7 +333,18 @@ export default function ManualOrderSidebar({
     return calculateCommissionPricing(storePrice, defaultCommissionType, commissionRate)
   }, [customProductData.price, businessDefaultCommissionType, businessCommissionRate])
 
-  const canChangeDelivery = effectiveBusiness?.email === 'munchys.ec@gmail.com';
+  const isMasterAdmin = effectiveBusiness?.email === 'munchys.ec@gmail.com';
+  const canChangeDelivery = true;
+
+  const selectableDeliveries = useMemo(() => {
+    return availableDeliveries.filter(delivery => {
+      if (delivery.estado !== 'activo') return false;
+      if (isMasterAdmin) return true;
+      const isDirectMatch = delivery.businessId === effectiveBusinessId;
+      const isArrayMatch = Array.isArray(delivery.businessIds) && delivery.businessIds.includes(effectiveBusinessId);
+      return isDirectMatch || isArrayMatch;
+    });
+  }, [availableDeliveries, isMasterAdmin, effectiveBusinessId]);
 
   const sidebarRef = useRef<HTMLDivElement>(null)
   const clientCreationPromiseRef = useRef<Promise<any> | null>(null)
@@ -4730,66 +4741,66 @@ export default function ManualOrderSidebar({
               </button>
 
               {/* Lista de deliveries activos */}
-              {availableDeliveries.filter(delivery => delivery.estado === 'activo').map((delivery) => (
-                <button
-                  key={delivery.id}
-                  onClick={() => {
-                    setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }));
-                    setShowDeliveryModal(false);
-                  }}
-                  className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${manualOrderData.selectedDelivery?.id === delivery.id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                    }`}
-                >
-                  {/* Foto del delivery */}
-                  <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden bg-gray-200 relative">
-                    {delivery.fotoUrl ? (
-                      <>
-                        <img
-                          src={delivery.fotoUrl}
-                          alt={delivery.nombres}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              const fallback = parent.querySelector('.avatar-fallback') as HTMLElement;
-                              if (fallback) {
-                                fallback.style.display = 'flex';
+              {selectableDeliveries.length > 0 ? (
+                selectableDeliveries.map((delivery) => (
+                  <button
+                    key={delivery.id}
+                    onClick={() => {
+                      setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }));
+                      setShowDeliveryModal(false);
+                    }}
+                    className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${manualOrderData.selectedDelivery?.id === delivery.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                  >
+                    {/* Foto del delivery */}
+                    <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden bg-gray-200 relative">
+                      {delivery.fotoUrl ? (
+                        <>
+                          <img
+                            src={delivery.fotoUrl}
+                            alt={delivery.nombres}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const parent = target.parentElement;
+                              if (parent) {
+                                const fallback = parent.querySelector('.avatar-fallback') as HTMLElement;
+                                if (fallback) {
+                                  fallback.style.display = 'flex';
+                                }
                               }
-                            }
-                          }}
-                        />
-                        <div className="avatar-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
+                            }}
+                          />
+                          <div className="avatar-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
+                            <i className="bi bi-person text-gray-400 text-lg"></i>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-200">
                           <i className="bi bi-person text-gray-400 text-lg"></i>
                         </div>
-                      </>
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                        <i className="bi bi-person text-gray-400 text-lg"></i>
-                      </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-medium text-gray-900">{delivery.nombres}</p>
+                      <p className="text-xs text-gray-500">{delivery.celular}</p>
+                    </div>
+
+                    {manualOrderData.selectedDelivery?.id === delivery.id && (
+                      <i className="bi bi-check-circle text-blue-500"></i>
                     )}
-                  </div>
-
-                  <div className="flex-1 text-left">
-                    <p className="text-sm font-medium text-gray-900">{delivery.nombres}</p>
-                    <p className="text-xs text-gray-500">{delivery.celular}</p>
-                  </div>
-
-                  {manualOrderData.selectedDelivery?.id === delivery.id && (
-                    <i className="bi bi-check-circle text-blue-500"></i>
-                  )}
-                </button>
-              ))}
-
-              {availableDeliveries.filter(delivery => delivery.estado === 'activo').length === 0 && (
-                <div className="text-center py-8">
-                  <i className="bi bi-person-x text-gray-400 text-4xl mb-3"></i>
-                  <p className="text-sm text-gray-500">No hay deliveries activos disponibles</p>
+                  </button>
+                ))
+              ) : (
+                <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg">
+                  No hay repartidores propios registrados para esta tienda.
                 </div>
               )}
+
             </div>
           </div>
         </div>
