@@ -119,6 +119,7 @@ export default function ProductList({
   const [expandedVariantsForIngredients, setExpandedVariantsForIngredients] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'general' | 'ingredients' | 'options'>('general')
   const [variantVisibility, setVariantVisibility] = useState<Record<string, boolean>>({})
+  const [expandedHiddenCategories, setExpandedHiddenCategories] = useState<Record<string, boolean>>({})
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [activeVariantMenu, setActiveVariantMenu] = useState<string | null>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
@@ -318,13 +319,18 @@ export default function ProductList({
     Sunday: 'Dom'
   }
 
-  // Categorías exclusivas que realmente existen en los productos del negocio actual
+  // Categorías exclusivas que realmente existen en los productos del negocio actual respetando el orden maestro
   const businessCategories = React.useMemo(() => {
     const fromProducts = Array.from(
       new Set(products.map(p => (p.category || '').trim()).filter(Boolean))
     ).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
-    return fromProducts;
-  }, [products]);
+
+    const master = (categories || []).map(c => (c || '').trim()).filter(Boolean);
+    const masterInProducts = master.filter(c => fromProducts.includes(c));
+    const extras = fromProducts.filter(c => !master.includes(c));
+
+    return [...masterInProducts, ...extras];
+  }, [products, categories]);
 
   const handleOpenNewProduct = () => {
     setEditingProduct(null)
@@ -374,33 +380,47 @@ export default function ProductList({
     setShowProductForm(true)
   }
 
-  // Agrupar productos: categorías reales que tienen los productos de este negocio
+  // Agrupar productos: categorías reales respetando el orden definido en categories (business.categories)
   const allCategories = React.useMemo(() => {
     const fromProducts = Array.from(
       new Set(products.map(p => (p.category || '').trim()).filter(Boolean))
-    ).filter(c => c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
+    ).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
+
+    const master = (categories || []).map(c => (c || '').trim()).filter(Boolean);
+    const masterInProducts = master.filter(c => fromProducts.includes(c));
+    const extras = fromProducts.filter(c => !master.includes(c));
+
+    const list = [...masterInProducts, ...extras];
 
     // Si hay productos sin ninguna categoría, añadimos un placeholder si no existe
-    if (products.some(p => !p.category || p.category === 'Sin categoría' || p.category === 'Sin categoria')) {
-      fromProducts.push('Sin categoría');
+    if (products.some(p => !p.category || p.category.trim().toLowerCase() === 'sin categoría' || p.category.trim().toLowerCase() === 'sin categoria')) {
+      list.push('Sin categoría');
     }
-    return fromProducts;
-  }, [products]);
+    return list;
+  }, [products, categories]);
 
-  // Sincronización automática de categorías del negocio según sus productos reales
+  // Sincronización automática de categorías del negocio según sus productos reales sin destruir el orden
   useEffect(() => {
     if (products.length > 0 && business?.id && onCategoriesChange && onDirectUpdate) {
       const fromProducts = Array.from(
         new Set(products.map(p => (p.category || '').trim()).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria'))
       );
 
-      const isDifferent = fromProducts.length !== categories.length ||
-        fromProducts.some(c => !categories.includes(c)) ||
-        categories.some(c => !fromProducts.includes(c));
+      const currentCats = (categories || []).filter(c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria');
+      const hasMissing = fromProducts.some(c => !currentCats.includes(c));
+      const hasObsolete = currentCats.some(c => !fromProducts.includes(c));
 
-      if (isDifferent) {
-        onCategoriesChange(fromProducts);
-        onDirectUpdate('categories', fromProducts);
+      if (hasMissing || hasObsolete) {
+        // Preservar el orden existente para las categorías que aún existen y añadir las nuevas al final
+        const updated = currentCats.filter(c => fromProducts.includes(c));
+        fromProducts.forEach(c => {
+          if (!updated.includes(c)) {
+            updated.push(c);
+          }
+        });
+
+        onCategoriesChange(updated);
+        onDirectUpdate('categories', updated);
       }
     }
   }, [products, categories, business?.id, onCategoriesChange, onDirectUpdate]);
@@ -1430,10 +1450,15 @@ export default function ProductList({
     newCategories[index] = newCategories[targetIndex]
     newCategories[targetIndex] = temp
 
+    // Excluir 'Sin categoría' antes de persistir en business.categories
+    const categoriesToSave = newCategories.filter(
+      c => c && c.toLowerCase() !== 'sin categoría' && c.toLowerCase() !== 'sin categoria'
+    )
+
     // Update local state and persist (esto guarda la nueva lista completa en el negocio)
-    onCategoriesChange(newCategories)
+    onCategoriesChange(categoriesToSave)
     if (onDirectUpdate) {
-      onDirectUpdate('categories', newCategories)
+      onDirectUpdate('categories', categoriesToSave)
     }
   }
 
@@ -1828,6 +1853,209 @@ export default function ProductList({
 
               if (categoryProducts.length === 0) return null
 
+              const visibleProducts = categoryProducts.filter(p => p.isAvailable !== false);
+              const hiddenProducts = categoryProducts.filter(p => p.isAvailable === false);
+              const isHiddenExpanded = !!expandedHiddenCategories[category];
+
+              const renderProductCard = (product: Product, pIndex: number, currentList: Product[]) => (
+                <div
+                  key={product.id}
+                  onClick={() => handleEditProduct(product)}
+                  className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer ${product.isAvailable
+                    ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
+                    : 'border-gray-200 bg-gray-50/50'
+                    }`}
+                >
+                  <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
+                    {/* Imagen cuadrada con diseño redondeado */}
+                    <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
+                      {product.image ? (
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                          style={{ objectPosition: product.imagePosition || 'center' }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                          <i className="bi bi-box-seam text-2xl"></i>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info Content */}
+                    <div className="flex-1 min-w-0 ml-4 pr-10">
+                      <div className="flex flex-col h-full justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+                              {product.name}
+                            </h4>
+                            {!product.isAvailable && (
+                              <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                Oculto
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+                            {product.description}
+                          </p>
+                        </div>
+
+                        <div className="mt-2 flex flex-col">
+                          <div className="flex items-center gap-3">
+                            <span className="text-base sm:text-xl font-black text-emerald-600 tracking-tight">
+                              ${(product.basePrice || product.price).toFixed(2)}
+                            </span>
+                            {product.variants && product.variants.length > 0 && (
+                              <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
+                                <i className="bi bi-stack text-gray-400 text-[10px]"></i>
+                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                                  {product.variants.length} variantes
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          {product.basePrice && product.basePrice !== product.price && (
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+                              Público: ${product.price.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Botones de acción - Desplegable */}
+                  <div className="absolute top-3 right-3 product-action-menu z-20">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setActiveMenu(activeMenu === product.id ? null : product.id)
+                      }}
+                      className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
+                    >
+                      <i className="bi bi-three-dots-vertical text-lg"></i>
+                    </button>
+
+                    {activeMenu === product.id && (
+                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleToggleAvailability(product.id, product.isAvailable)
+                            setActiveMenu(null)
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                        >
+                          <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
+                          {product.isAvailable ? 'Ocultar' : 'Mostrar'}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleEditProduct(product)
+                            setActiveMenu(null)
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                        >
+                          <i className="bi bi-pencil text-blue-600"></i>
+                          Editar
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setQuickAddonProduct(product)
+                            setActiveMenu(null)
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                        >
+                          <i className="bi bi-plus-circle text-emerald-600"></i>
+                          Añadidos rápidos
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDuplicateProduct(product)
+                            setActiveMenu(null)
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                        >
+                          <i className="bi bi-files text-amber-600"></i>
+                          Duplicar
+                        </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
+                            try {
+                              if (navigator.clipboard && window.isSecureContext) {
+                                await navigator.clipboard.writeText(productUrl)
+                              } else {
+                                const textArea = document.createElement('textarea')
+                                textArea.value = productUrl
+                                textArea.style.position = 'fixed'
+                                textArea.style.opacity = '0'
+                                document.body.appendChild(textArea)
+                                textArea.focus()
+                                textArea.select()
+                                document.execCommand('copy')
+                                document.body.removeChild(textArea)
+                              }
+                              setActiveMenu(null)
+                            } catch (err) {
+                              console.error('Error al copiar enlace:', err)
+                            }
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                        >
+                          <i className="bi bi-link-45deg text-purple-600"></i>
+                          Copiar link
+                        </button>
+                        <div className="border-t border-gray-50 my-1"></div>
+                        <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          Mover
+                          <div className="flex gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                moveProduct(product, 'up')
+                              }}
+                              disabled={pIndex === 0}
+                              className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
+                            >
+                              <i className="bi bi-chevron-up"></i>
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                moveProduct(product, 'down')
+                              }}
+                              disabled={pIndex === currentList.length - 1}
+                              className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
+                            >
+                              <i className="bi bi-chevron-down"></i>
+                            </button>
+                          </div>
+                        </div>
+                        <div className="border-t border-gray-50 my-1"></div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteProduct(product.id)
+                            setActiveMenu(null)
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
+                        >
+                          <i className="bi bi-trash"></i>
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+
               return (
                 <div key={category} className="mb-10 last:mb-0">
                   <div className="flex items-center gap-3 mb-6">
@@ -1858,206 +2086,41 @@ export default function ProductList({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-                    {categoryProducts.map((product, pIndex) => (
-                      <div
-                        key={product.id}
-                        onClick={() => handleEditProduct(product)}
-                        className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer ${product.isAvailable
-                          ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-                          : 'border-gray-200 bg-gray-50/50'
-                          }`}
+                  {/* Productos Visibles */}
+                  {visibleProducts.length > 0 && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+                      {visibleProducts.map((product, pIndex) =>
+                        renderProductCard(product, pIndex, visibleProducts)
+                      )}
+                    </div>
+                  )}
+
+                  {/* Sección Colapsable de Productos Ocultos */}
+                  {hiddenProducts.length > 0 && (
+                    <div className={visibleProducts.length > 0 ? 'mt-4' : ''}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedHiddenCategories(prev => ({ ...prev, [category]: !prev[category] }))}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gray-50 hover:bg-gray-100 border border-gray-200/80 text-xs font-bold text-gray-600 hover:text-gray-900 transition-all duration-200 shadow-sm group select-none cursor-pointer"
                       >
-                        <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
-                          {/* Imagen cuadrada con diseño redondeado */}
-                          <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
-                            {product.image ? (
-                              <img
-                                src={product.image}
-                                alt={product.name}
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                style={{ objectPosition: product.imagePosition || 'center' }}
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                <i className="bi bi-box-seam text-2xl"></i>
-                              </div>
-                            )}
-                          </div>
+                        <i className="bi bi-eye-slash text-gray-400 group-hover:text-gray-600 transition-colors text-sm"></i>
+                        <span>Ocultos ({hiddenProducts.length})</span>
+                        <i
+                          className={`bi bi-chevron-down text-xs text-gray-400 group-hover:text-gray-700 transition-transform duration-200 ${
+                            isHiddenExpanded ? 'rotate-180' : ''
+                          }`}
+                        ></i>
+                      </button>
 
-                          {/* Info Content */}
-                          <div className="flex-1 min-w-0 ml-4 pr-10">
-                            <div className="flex flex-col h-full justify-between">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2 mb-1">
-                                  <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
-                                    {product.name}
-                                  </h4>
-                                  {!product.isAvailable && (
-                                    <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                      Oculto
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
-                                  {product.description}
-                                </p>
-                              </div>
-
-                              <div className="mt-2 flex flex-col">
-                                <div className="flex items-center gap-3">
-                                  <span className="text-base sm:text-xl font-black text-emerald-600 tracking-tight">
-                                    ${(product.basePrice || product.price).toFixed(2)}
-                                  </span>
-                                  {product.variants && product.variants.length > 0 && (
-                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                      <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                        {product.variants.length} variantes
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                                {product.basePrice && product.basePrice !== product.price && (
-                                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
-                                    Público: ${product.price.toFixed(2)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Botones de acción - Desplegable */}
-                        <div className="absolute top-3 right-3 product-action-menu z-20">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setActiveMenu(activeMenu === product.id ? null : product.id)
-                            }}
-                            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
-                          >
-                            <i className="bi bi-three-dots-vertical text-lg"></i>
-                          </button>
-
-                          {activeMenu === product.id && (
-                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleToggleAvailability(product.id, product.isAvailable)
-                                  setActiveMenu(null)
-                                }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                              >
-                                <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
-                                {product.isAvailable ? 'Ocultar' : 'Mostrar'}
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleEditProduct(product)
-                                  setActiveMenu(null)
-                                }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                              >
-                                <i className="bi bi-pencil text-blue-600"></i>
-                                Editar
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setQuickAddonProduct(product)
-                                  setActiveMenu(null)
-                                }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                              >
-                                <i className="bi bi-plus-circle text-emerald-600"></i>
-                                Añadidos rápidos
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDuplicateProduct(product)
-                                  setActiveMenu(null)
-                                }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                              >
-                                <i className="bi bi-files text-amber-600"></i>
-                                Duplicar
-                              </button>
-                              <button
-                                onClick={async (e) => {
-                                  e.stopPropagation()
-                                  const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
-                                  try {
-                                    if (navigator.clipboard && window.isSecureContext) {
-                                      await navigator.clipboard.writeText(productUrl)
-                                    } else {
-                                      const textArea = document.createElement('textarea')
-                                      textArea.value = productUrl
-                                      textArea.style.position = 'fixed'
-                                      textArea.style.opacity = '0'
-                                      document.body.appendChild(textArea)
-                                      textArea.focus()
-                                      textArea.select()
-                                      document.execCommand('copy')
-                                      document.body.removeChild(textArea)
-                                    }
-                                    setActiveMenu(null)
-                                  } catch (err) {
-                                    console.error('Error al copiar enlace:', err)
-                                  }
-                                }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                              >
-                                <i className="bi bi-link-45deg text-purple-600"></i>
-                                Copiar link
-                              </button>
-                              <div className="border-t border-gray-50 my-1"></div>
-                              <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                Mover
-                                <div className="flex gap-1">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      moveProduct(product, 'up')
-                                    }}
-                                    disabled={pIndex === 0}
-                                    className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                  >
-                                    <i className="bi bi-chevron-up"></i>
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      moveProduct(product, 'down')
-                                    }}
-                                    disabled={pIndex === categoryProducts.length - 1}
-                                    className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                  >
-                                    <i className="bi bi-chevron-down"></i>
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="border-t border-gray-50 my-1"></div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeleteProduct(product.id)
-                                  setActiveMenu(null)
-                                }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
-                              >
-                                <i className="bi bi-trash"></i>
-                                Eliminar
-                              </button>
-                            </div>
+                      {isHiddenExpanded && (
+                        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 animate-in fade-in slide-in-from-top-1 duration-200">
+                          {hiddenProducts.map((product, pIndex) =>
+                            renderProductCard(product, pIndex, hiddenProducts)
                           )}
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
