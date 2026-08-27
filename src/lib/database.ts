@@ -511,6 +511,14 @@ export function getCachedProductsByBusiness(businessId: string): Product[] | nul
   return null
 }
 
+export function invalidateProductsCache(businessId?: string) {
+  if (businessId) {
+    productsByBusinessCache.delete(businessId)
+  } else {
+    productsByBusinessCache.clear()
+  }
+}
+
 export async function getAllBusinesses(): Promise<Business[]> {
   const now = Date.now()
   if (cachedBusinesses && (now - cachedBusinessesTime < 60000)) {
@@ -913,6 +921,13 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
       slug,
       createdAt: serverTimestamp()
     })
+
+    if (productData.businessId) {
+      invalidateProductsCache(productData.businessId)
+    } else {
+      invalidateProductsCache()
+    }
+
     return productId
   } catch (error) {
     console.error('Error creating product:', error)
@@ -920,10 +935,12 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
   }
 }
 
-export async function getProductsByBusiness(businessId: string): Promise<Product[]> {
-  const cached = getCachedProductsByBusiness(businessId)
-  if (cached) {
-    return cached
+export async function getProductsByBusiness(businessId: string, forceRefresh: boolean = false): Promise<Product[]> {
+  if (!forceRefresh) {
+    const cached = getCachedProductsByBusiness(businessId)
+    if (cached) {
+      return cached
+    }
   }
 
   try {
@@ -1196,6 +1213,17 @@ export async function updateProduct(productId: string, data: Partial<Product>) {
 
     const docRef = doc(db, 'products', productId)
     await updateDoc(docRef, cleanData)
+
+    if (data.businessId) {
+      invalidateProductsCache(data.businessId)
+    } else {
+      // Buscar en el caché el businessId al que pertenecía este producto
+      productsByBusinessCache.forEach((item, bId) => {
+        if (item.products && item.products.some((p: Product) => p.id === productId)) {
+          invalidateProductsCache(bId)
+        }
+      })
+    }
   } catch (error) {
     console.error('Error updating product:', error)
     throw error
@@ -1205,6 +1233,7 @@ export async function updateProduct(productId: string, data: Partial<Product>) {
 export async function deleteProduct(productId: string) {
   try {
     const existing = await getProduct(productId)
+    const businessId = existing?.businessId
 
     if (existing?.image) {
       try {
@@ -1222,6 +1251,12 @@ export async function deleteProduct(productId: string) {
 
     const docRef = doc(db, 'products', productId)
     await deleteDoc(docRef)
+
+    if (businessId) {
+      invalidateProductsCache(businessId)
+    } else {
+      invalidateProductsCache()
+    }
   } catch (error) {
     console.error('Error deleting product:', error)
     throw error
