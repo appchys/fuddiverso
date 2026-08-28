@@ -6,6 +6,7 @@ import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductO
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
+import { evaluateProductStock, checkVariantStockAvailability, isProductEffectivelyAvailable as checkProductEffectiveAvailability } from '@/lib/stock-utils'
 
 interface ProductListProps {
   business: Business | null
@@ -150,69 +151,25 @@ export default function ProductList({
   }, [loadStockSummary])
 
   /**
-   * Evalúa si un producto tiene ingredientes con control de stock limitado y sus existencias actuales
+   * Evalúa si un producto tiene ingredientes con control de stock limitado y sus existencias actuales (incluyendo variantes y combos)
    */
   const getProductStockStatus = useCallback((product: Product) => {
-    const norm = (name: string) => (name || '').toLowerCase().trim()
-
-    // Recopilar todos los ingredientes del producto (base y variantes)
-    const allIngredients: { name: string; quantity: number }[] = []
-    if (product.ingredients && product.ingredients.length > 0) {
-      product.ingredients.forEach(ing => {
-        if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
-      })
-    }
-    if (product.variants && product.variants.length > 0) {
-      product.variants.forEach(variant => {
-        if (variant.ingredients && variant.ingredients.length > 0) {
-          variant.ingredients.forEach(ing => {
-            if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
-          })
-        }
-      })
-    }
-
-    // Filtrar ingredientes que tengan control de stock limitado activo en la biblioteca
-    const limitedIngredients: { name: string; requiredQty: number; currentStock: number; minStock: number }[] = []
-
-    allIngredients.forEach(ing => {
-      const itemStock = stockSummaryMap.get(norm(ing.name))
-      if (itemStock && itemStock.isStockLimited) {
-        const exists = limitedIngredients.find(l => norm(l.name) === norm(ing.name))
-        if (!exists) {
-          limitedIngredients.push({
-            name: ing.name,
-            requiredQty: ing.quantity,
-            currentStock: itemStock.currentStock,
-            minStock: itemStock.minStock ?? 0
-          })
-        }
-      }
-    })
-
-    const hasLimitedIngredients = limitedIngredients.length > 0
-    // Un producto con ingredientes limitados tiene stock si todos sus ingredientes limitados tienen stock > 0
-    const isAvailableByStock = !hasLimitedIngredients || limitedIngredients.every(item => item.currentStock > 0)
-    const outOfStockIngredients = limitedIngredients.filter(item => item.currentStock <= 0)
-
+    const evaluation = evaluateProductStock(product, stockSummaryMap)
     return {
-      hasLimitedIngredients,
-      isAvailableByStock,
-      limitedIngredients,
-      outOfStockIngredients
+      hasLimitedIngredients: evaluation.hasLimitedIngredients,
+      isAvailableByStock: evaluation.isAvailableByStock,
+      outOfStockIngredients: evaluation.outOfStockIngredients,
+      availableVariants: evaluation.availableVariants,
+      outOfStockVariants: evaluation.outOfStockVariants
     }
   }, [stockSummaryMap])
 
   /**
-   * Determina la visibilidad efectiva del producto en la tienda
+   * Determina la visibilidad efectiva del producto en la tienda considerando variantes y combos
    */
   const isProductEffectivelyAvailable = useCallback((product: Product) => {
-    if (product.autoHideByStock) {
-      const stockStatus = getProductStockStatus(product)
-      return stockStatus.isAvailableByStock
-    }
-    return product.isAvailable !== false
-  }, [getProductStockStatus])
+    return checkProductEffectiveAvailability(product, stockSummaryMap)
+  }, [stockSummaryMap])
 
   // Cargar únicamente las sucursales vinculadas a este mismo negocio
   useEffect(() => {
@@ -1375,7 +1332,8 @@ export default function ProductList({
           ...variant,
           image: variantImageUrl,
           ingredients: variantIngredients[variant.id] || undefined,
-          isAvailable: variantVisibility[variant.id] !== false
+          isAvailable: variantVisibility[variant.id] !== false,
+          autoHideByStock: variant.autoHideByStock ?? false
         }
       }))
 
@@ -1997,7 +1955,7 @@ export default function ProductList({
                                   Por stock
                                 </span>
                                 {!stockStatus.isAvailableByStock && (
-                                  <span className="text-[9px] font-black bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-tight flex items-center gap-1" title={stockStatus.outOfStockIngredients.map(i => i.name).join(', ')}>
+                                  <span className="text-[9px] font-black bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-tight flex items-center gap-1" title={stockStatus.outOfStockIngredients.join(', ')}>
                                     <i className="bi bi-exclamation-circle text-[9px]"></i>
                                     Agotado
                                   </span>
@@ -3122,7 +3080,7 @@ export default function ProductList({
                               Decidido por stock
                             </span>
                             <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
-                              Ocultar si se agotan sus insumos limitados
+                              Ocultar si sus insumos limitados llegan al stock mínimo
                             </span>
                           </div>
                           <div className="relative inline-flex items-center ml-3">
@@ -3327,7 +3285,14 @@ export default function ProductList({
                           {/* Listado de variantes */}
                           {variants.length > 0 && (
                             <div className="space-y-2">
-                              {variants.map((variant, index) => (
+                              {variants.map((variant, index) => {
+                                const variantStock = checkVariantStockAvailability(
+                                  { ...formData, ingredients, variants } as any,
+                                  variant,
+                                  stockSummaryMap
+                                )
+
+                                return (
                                 <div
                                   key={variant.id}
                                   className={`flex items-center bg-slate-50/70 p-3 rounded-xl border transition-all duration-200 ${variantVisibility[variant.id] !== false
@@ -3352,15 +3317,45 @@ export default function ProductList({
 
                                   {/* Datos de la variante */}
                                   <div className="flex-1 min-w-0 pr-2">
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <p className="font-bold text-slate-800 text-xs truncate">
                                         {variant.name}
                                       </p>
-                                      {variantVisibility[variant.id] === false && (
-                                        <span className="text-[8px] font-bold bg-slate-200 text-slate-500 px-1 py-0.2 rounded">
-                                          Oculto
-                                        </span>
-                                      )}
+                                      {(() => {
+                                        const isVariantAutoHide = variant.autoHideByStock !== undefined
+                                          ? variant.autoHideByStock
+                                          : (formData.autoHideByStock ?? false)
+
+                                        if (isVariantAutoHide) {
+                                          return (
+                                            <>
+                                              <span className="inline-flex items-center gap-1 text-[8px] font-black bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded border border-rose-100 uppercase tracking-tight">
+                                                <i className="bi bi-boxes text-[8px]"></i>
+                                                Por stock
+                                              </span>
+                                              {!variantStock.isAvailableByStock && (
+                                                <span
+                                                  className="text-[8px] font-black bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded uppercase tracking-tight flex items-center gap-1"
+                                                  title={`Insumos en o bajo mínimo: ${variantStock.outOfStockIngredients.join(', ')}`}
+                                                >
+                                                  <i className="bi bi-exclamation-circle text-[8px]"></i>
+                                                  Agotado
+                                                </span>
+                                              )}
+                                            </>
+                                          )
+                                        }
+
+                                        if (variantVisibility[variant.id] === false) {
+                                          return (
+                                            <span className="text-[8px] font-bold bg-slate-200 text-slate-500 px-1 py-0.2 rounded">
+                                              Oculto
+                                            </span>
+                                          )
+                                        }
+
+                                        return null
+                                      })()}
                                     </div>
                                     <div className="flex items-baseline gap-2 mt-0.5">
                                       <span className="text-xs font-black text-slate-900">
@@ -3384,47 +3379,130 @@ export default function ProductList({
                                       <i className="bi bi-three-dots-vertical text-xs"></i>
                                     </button>
 
-                                    {activeVariantMenu === variant.id && (
-                                      <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-30 py-1.5 animate-in fade-in zoom-in-95 duration-150">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
-                                            setActiveVariantMenu(null)
-                                          }}
-                                          className="w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50 flex items-center gap-2 text-slate-700"
-                                        >
-                                          <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash text-amber-500' : 'bi-eye text-emerald-500'}`}></i>
-                                          {variantVisibility[variant.id] !== false ? 'Ocultar' : 'Mostrar'}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            handleEditVariant(variant)
-                                            setActiveVariantMenu(null)
-                                          }}
-                                          className="w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50 flex items-center gap-2 text-slate-700"
-                                        >
-                                          <i className="bi bi-pencil text-blue-500"></i>
-                                          Editar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            removeVariant(variant.id)
-                                            setActiveVariantMenu(null)
-                                          }}
-                                          className="w-full px-3 py-2 text-left text-xs font-semibold hover:bg-red-50 flex items-center gap-2 text-red-600"
-                                        >
-                                          <i className="bi bi-trash"></i>
-                                          Eliminar
-                                        </button>
-                                      </div>
-                                    )}
+                                    {activeVariantMenu === variant.id && (() => {
+                                      const isVariantAutoHide = variant.autoHideByStock !== undefined
+                                        ? variant.autoHideByStock
+                                        : (formData.autoHideByStock ?? false)
+
+                                      return (
+                                        <div className="absolute right-0 mt-1 w-52 bg-white rounded-2xl shadow-xl border border-slate-100 z-30 py-2 animate-in fade-in zoom-in-95 duration-150">
+                                          {variantStock.hasLimitedIngredients ? (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const newAutoHide = !isVariantAutoHide
+                                                  setVariants(prev => prev.map(v =>
+                                                    v.id === variant.id ? { ...v, autoHideByStock: newAutoHide, ...(newAutoHide ? { isAvailable: true } : {}) } : v
+                                                  ))
+                                                  if (newAutoHide) {
+                                                    setVariantVisibility(prev => ({ ...prev, [variant.id]: true }))
+                                                  }
+                                                  setActiveVariantMenu(null)
+                                                }}
+                                                className={`w-full px-3.5 py-2 text-left text-xs font-bold flex items-center justify-between transition-colors ${
+                                                  isVariantAutoHide
+                                                    ? 'bg-rose-50/80 text-rose-700'
+                                                    : 'text-slate-700 hover:bg-slate-50'
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-2">
+                                                  <i className="bi bi-boxes text-rose-600 text-xs"></i>
+                                                  <span>Decidido por stock</span>
+                                                </div>
+                                                {isVariantAutoHide && (
+                                                  <i className="bi bi-check-lg text-rose-600 text-xs"></i>
+                                                )}
+                                              </button>
+
+                                              <div className="border-t border-slate-100 my-1"></div>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setVariants(prev => prev.map(v =>
+                                                    v.id === variant.id ? { ...v, autoHideByStock: false, isAvailable: true } : v
+                                                  ))
+                                                  setVariantVisibility(prev => ({ ...prev, [variant.id]: true }))
+                                                  setActiveVariantMenu(null)
+                                                }}
+                                                className={`w-full px-3.5 py-1.5 text-left text-xs font-medium flex items-center gap-2 transition-colors ${
+                                                  !isVariantAutoHide && variantVisibility[variant.id] !== false
+                                                    ? 'bg-emerald-50 text-emerald-800 font-bold'
+                                                    : 'text-slate-700 hover:bg-slate-50'
+                                                }`}
+                                              >
+                                                <i className="bi bi-eye text-emerald-600"></i>
+                                                Mostrar (Manual)
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setVariants(prev => prev.map(v =>
+                                                    v.id === variant.id ? { ...v, autoHideByStock: false, isAvailable: false } : v
+                                                  ))
+                                                  setVariantVisibility(prev => ({ ...prev, [variant.id]: false }))
+                                                  setActiveVariantMenu(null)
+                                                }}
+                                                className={`w-full px-3.5 py-1.5 text-left text-xs font-medium flex items-center gap-2 transition-colors ${
+                                                  !isVariantAutoHide && variantVisibility[variant.id] === false
+                                                    ? 'bg-orange-50 text-orange-800 font-bold'
+                                                    : 'text-slate-700 hover:bg-slate-50'
+                                                }`}
+                                              >
+                                                <i className="bi bi-eye-slash text-orange-600"></i>
+                                                Ocultar (Manual)
+                                              </button>
+                                            </>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const newVis = !(variantVisibility[variant.id] !== false)
+                                                setVariantVisibility(prev => ({ ...prev, [variant.id]: newVis }))
+                                                setVariants(prev => prev.map(v => v.id === variant.id ? { ...v, isAvailable: newVis } : v))
+                                                setActiveVariantMenu(null)
+                                              }}
+                                              className="w-full px-3.5 py-2 text-left text-xs font-semibold hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                                            >
+                                              <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash text-amber-500' : 'bi-eye text-emerald-500'}`}></i>
+                                              {variantVisibility[variant.id] !== false ? 'Ocultar' : 'Mostrar'}
+                                            </button>
+                                          )}
+
+                                          <div className="border-t border-slate-100 my-1"></div>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              handleEditVariant(variant)
+                                              setActiveVariantMenu(null)
+                                            }}
+                                            className="w-full px-3.5 py-2 text-left text-xs font-semibold hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                                          >
+                                            <i className="bi bi-pencil text-blue-500"></i>
+                                            Editar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              removeVariant(variant.id)
+                                              setActiveVariantMenu(null)
+                                            }}
+                                            className="w-full px-3.5 py-2 text-left text-xs font-semibold hover:bg-red-50 flex items-center gap-2 text-red-600"
+                                          >
+                                            <i className="bi bi-trash"></i>
+                                            Eliminar
+                                          </button>
+                                        </div>
+                                      )
+                                    })()}
                                   </div>
                                 </div>
-                              ))}
-                            </div>
+                              )
+                            })}
+                          </div>
                           )}
 
                           {/* Formulario Inline para Añadir / Editar Variante */}

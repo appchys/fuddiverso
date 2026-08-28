@@ -201,6 +201,7 @@ export interface ProductVariant {
   commission?: number // Comisión aplicada
   commissionType?: CommissionType // Tipo de gestión de comisión
   isAvailable: boolean
+  autoHideByStock?: boolean // Si es true, la variante se oculta automáticamente si sus ingredientes de stock limitado alcanzan o bajan del stock mínimo
   image?: string
   ingredients?: Ingredient[]
 }
@@ -251,7 +252,7 @@ export interface Product {
   businessName?: string
   businessImage?: string
   ingredients?: Ingredient[]
-  autoHideByStock?: boolean // Si es true, el producto se oculta automáticamente si sus ingredientes de stock limitado se agotan
+  autoHideByStock?: boolean // Si es true, el producto se oculta automáticamente si sus ingredientes de stock limitado alcanzan o bajan del stock mínimo
   scheduleAvailability?: ProductScheduleAvailability // Disponibilidad por horarios/días
   isCombo?: boolean // Si el producto es un combo que requiere seleccionar múltiples variantes
   minComboItems?: number // Cantidad mínima de variantes a seleccionar para el combo

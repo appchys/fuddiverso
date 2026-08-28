@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
+import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
@@ -418,10 +419,10 @@ function RestaurantContent() {
           hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[])
         ])
 
-        // Si algún producto tiene autoHideByStock: true, obtenemos el resumen de stock para filtrar
-        const hasAutoHide = productsData.some(p => p.autoHideByStock)
+        // Si algún producto tiene autoHideByStock o variantes con ingredientes, obtenemos el resumen de stock para filtrar
+        const shouldCheckStock = productsData.some(p => p.autoHideByStock || (p.variants && p.variants.length > 0))
         const stockMap = new Map<string, IngredientStockSummary>()
-        if (hasAutoHide) {
+        if (shouldCheckStock) {
           try {
             const stockSummary = await getIngredientStockSummary(updatedBusiness.id)
             stockSummary.forEach(item => {
@@ -430,43 +431,35 @@ function RestaurantContent() {
               }
             })
           } catch (e) {
-            console.error('Error cargando stock de ingredientes para autoHideByStock en tienda pública:', e)
+            console.error('Error cargando stock de ingredientes en tienda pública:', e)
           }
-        }
-
-        const isProductInStockPublic = (product: Product) => {
-          if (!product.autoHideByStock) return product.isAvailable !== false
-          // Si autoHideByStock es true, verificar ingredientes
-          const norm = (name: string) => (name || '').toLowerCase().trim()
-          const allIngredients: { name: string; quantity: number }[] = []
-          if (product.ingredients && product.ingredients.length > 0) {
-            product.ingredients.forEach(ing => {
-              if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
-            })
-          }
-          if (product.variants && product.variants.length > 0) {
-            product.variants.forEach(variant => {
-              if (variant.ingredients && variant.ingredients.length > 0) {
-                variant.ingredients.forEach(ing => {
-                  if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
-                })
-              }
-            })
-          }
-
-          for (const ing of allIngredients) {
-            const item = stockMap.get(norm(ing.name))
-            if (item && item.isStockLimited && item.currentStock <= 0) {
-              return false // Agotado
-            }
-          }
-          return true
         }
 
         const storePackagingFee = getPackagingFee(updatedBusiness)
         let availableProducts: any[] = productsData
-          .map(product => ({ ...product, packagingFee: storePackagingFee }))
-          .filter(product => isProductInStockPublic(product))
+          .filter(product => isProductEffectivelyAvailable(product, stockMap))
+          .map(product => {
+            const evaluation = evaluateProductStock(product, stockMap)
+            // Si el producto tiene variantes, filtramos solo las que tienen stock disponible
+            if (product.variants && product.variants.length > 0) {
+              const availableVariantsList = product.variants
+                .filter(v => {
+                  const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
+                  return isAvailByStock && v.isAvailable !== false
+                })
+
+              return {
+                ...product,
+                packagingFee: storePackagingFee,
+                variants: availableVariantsList
+              }
+            }
+
+            return {
+              ...product,
+              packagingFee: storePackagingFee
+            }
+          })
 
         // Process shared products if any were fetched
         if (sharedProducts.length > 0) {
