@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize, trackReferralClick } from '@/lib/database'
+import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize, trackReferralClick, getIngredientStockSummary } from '@/lib/database'
 import { getProductPublicPrice, formatPrice, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
@@ -63,12 +63,48 @@ export default function ProductPageByUsername() {
           return
         }
 
-        setProduct(productData)
         const productId = productData.id
-
         const businessData = await getBusinessByProduct(productId)
+
         if (businessData) {
           setBusiness(businessData)
+
+          // Si el producto tiene autoHideByStock, verificar si tiene insumos disponibles
+          if (productData.autoHideByStock) {
+            try {
+              const summary = await getIngredientStockSummary(businessData.id)
+              const stockMap = new Map<string, any>()
+              summary.forEach(item => {
+                if (item.ingredientName) stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+              })
+
+              const norm = (name: string) => (name || '').toLowerCase().trim()
+              const allIngredients: { name: string; quantity: number }[] = []
+              if (productData.ingredients) productData.ingredients.forEach(i => allIngredients.push(i))
+              if (productData.variants) {
+                productData.variants.forEach(v => {
+                  if (v.ingredients) v.ingredients.forEach(i => allIngredients.push(i))
+                })
+              }
+
+              let isAvailableByStock = true
+              for (const ing of allIngredients) {
+                const item = stockMap.get(norm(ing.name))
+                if (item && item.isStockLimited && item.currentStock <= 0) {
+                  isAvailableByStock = false
+                  break
+                }
+              }
+
+              if (!isAvailableByStock) {
+                productData = { ...productData, isAvailable: false }
+              }
+            } catch (e) {
+              console.error('Error evaluando stock de producto individual:', e)
+            }
+          }
+
+          setProduct(productData)
 
           const allProducts = await getProductsByBusiness(businessData.id)
 
@@ -86,6 +122,8 @@ export default function ProductPageByUsername() {
             .slice(0, 10)
 
           setRelatedProducts(otherProducts)
+        } else {
+          setProduct(productData)
         }
 
         if (productData.variants && productData.variants.length > 0) {

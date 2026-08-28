@@ -41,7 +41,7 @@ interface BusinessProfileDashboardProps {
   onRemoveAdmin?: (email: string) => void
   onEditAdminPassword?: (email: string) => void
   onTransferOwnership?: (admin: any) => void
-  userRole?: 'owner' | 'admin' | 'manager' | null
+  userRole?: 'owner' | 'admin' | 'manager' | 'atencion_cliente' | null
   printMode?: 'standard' | 'bluetooth'
   onTogglePrintMode?: () => void
 }

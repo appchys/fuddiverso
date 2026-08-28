@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { BusinessAdministrator } from '@/types'
 
 interface DashboardSidebarProps {
     sidebarOpen: boolean
@@ -28,6 +29,9 @@ interface DashboardSidebarProps {
     } | null
     onLogout: () => void
     currentBusinessName?: string
+    userRole?: 'owner' | 'admin' | 'manager' | 'atencion_cliente' | null
+    permissions?: BusinessAdministrator['permissions']
+    canManageAdmins?: boolean
 }
 
 export default function DashboardSidebar({
@@ -49,8 +53,31 @@ export default function DashboardSidebar({
     onLogout,
     ordersSubTab = 'today',
     setOrdersSubTab,
-    currentBusinessName
+    currentBusinessName,
+    userRole,
+    permissions,
+    canManageAdmins: canManageAdminsProp
 }: DashboardSidebarProps) {
+    const isOwner = userRole === 'owner'
+    const isAtencionCliente = userRole === 'atencion_cliente'
+
+    // Visibilidad de secciones
+    const canViewOrders = isOwner || permissions?.manageOrders !== false
+    const canViewProducts = isOwner || permissions?.manageProducts !== false
+    const canViewPromotions = !isAtencionCliente && (isOwner || permissions?.managePromotions !== false)
+    const canViewSucursales = !isAtencionCliente && (isOwner || userRole === 'admin' || userRole === 'manager')
+
+    const canViewExpenses = !isAtencionCliente && (isOwner || permissions?.viewFinances || userRole === 'admin')
+    const canViewWallet = !isAtencionCliente && (isOwner || permissions?.viewFinances || userRole === 'admin')
+    const canViewFinances = canViewExpenses || canViewWallet
+
+    const canViewInventory = !isAtencionCliente && (isOwner || permissions?.manageInventory || userRole === 'admin' || userRole === 'manager')
+    const canViewStats = !isAtencionCliente && (isOwner || permissions?.viewReports || userRole === 'admin' || userRole === 'manager')
+
+    const canManageAdmins = canManageAdminsProp || isOwner || !!permissions?.manageAdmins
+    const canViewGeneralSettings = !isAtencionCliente && (isOwner || permissions?.editBusiness || userRole === 'admin')
+    const canViewConfiguracion = !isAtencionCliente && (isOwner || permissions?.editBusiness || userRole === 'admin')
+    const canViewAjustes = canViewGeneralSettings || canViewConfiguracion || canManageAdmins
 
     return (
         <aside
@@ -80,274 +107,323 @@ export default function DashboardSidebar({
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
             >
                 {/* SECCIÓN 1: PEDIDOS */}
-                <div className="space-y-1">
-                    <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
-                        <span>Pedidos</span>
-                        <div className="h-px bg-gray-100 flex-1"></div>
+                {canViewOrders && (
+                    <div className="space-y-1">
+                        <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
+                            <span>Pedidos</span>
+                            <div className="h-px bg-gray-100 flex-1"></div>
+                        </div>
+
+                        {/* Pedidos de hoy */}
+                        <button
+                            onClick={() => {
+                                setActiveTab('orders')
+                                setOrdersSubTab?.('today')
+                                setSidebarOpen(false)
+                            }}
+                            className={`
+                                group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                ${activeTab === 'orders' && ordersSubTab === 'today'
+                                    ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                    : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                }
+                            `}
+                        >
+                            <i className={`bi bi-receipt-cutoff text-lg transition-transform group-hover:scale-110 ${
+                                activeTab === 'orders' && ordersSubTab === 'today' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                            }`}></i>
+                            <span className="tracking-tight flex-1 text-left">Pedidos de hoy</span>
+                            <span className={`
+                                px-2 py-0.5 text-xs font-bold rounded-full transition-colors
+                                ${activeTab === 'orders' && ordersSubTab === 'today'
+                                    ? 'bg-white/20 text-white'
+                                    : ordersCount > 0
+                                        ? 'bg-rose-100 text-rose-600 border border-rose-200 animate-pulse'
+                                        : 'bg-gray-100 text-gray-500'
+                                }
+                            `}>
+                                {ordersCount}
+                            </span>
+                        </button>
+
+                        {/* Historial de pedidos */}
+                        <button
+                            onClick={() => {
+                                setActiveTab('orders')
+                                setOrdersSubTab?.('history')
+                                setSidebarOpen(false)
+                            }}
+                            className={`
+                                group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                ${activeTab === 'orders' && ordersSubTab === 'history'
+                                    ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                    : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                }
+                            `}
+                        >
+                            <i className={`bi bi-clock-history text-lg transition-transform group-hover:scale-110 ${
+                                activeTab === 'orders' && ordersSubTab === 'history' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                            }`}></i>
+                            <span className="tracking-tight text-left">Historial de pedidos</span>
+                        </button>
                     </div>
-
-                    {/* Pedidos de hoy */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('orders')
-                            setOrdersSubTab?.('today')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'orders' && ordersSubTab === 'today'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-receipt-cutoff text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'orders' && ordersSubTab === 'today' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight flex-1 text-left">Pedidos de hoy</span>
-                        <span className={`
-                            px-2 py-0.5 text-xs font-bold rounded-full transition-colors
-                            ${activeTab === 'orders' && ordersSubTab === 'today'
-                                ? 'bg-white/20 text-white'
-                                : ordersCount > 0
-                                    ? 'bg-rose-100 text-rose-600 border border-rose-200 animate-pulse'
-                                    : 'bg-gray-100 text-gray-500'
-                            }
-                        `}>
-                            {ordersCount}
-                        </span>
-                    </button>
-
-                    {/* Historial de pedidos */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('orders')
-                            setOrdersSubTab?.('history')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'orders' && ordersSubTab === 'history'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-clock-history text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'orders' && ordersSubTab === 'history' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Historial de pedidos</span>
-                    </button>
-                </div>
+                )}
 
                 {/* SECCIÓN 2: TIENDA */}
-                <div className="space-y-1">
-                    <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
-                        <span>Tienda</span>
-                        <div className="h-px bg-gray-100 flex-1"></div>
+                {(canViewProducts || canViewPromotions || canViewSucursales) && (
+                    <div className="space-y-1">
+                        <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
+                            <span>Tienda</span>
+                            <div className="h-px bg-gray-100 flex-1"></div>
+                        </div>
+
+                        {/* Productos y menú */}
+                        {canViewProducts && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('profile')
+                                    setProfileSubTab('products')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'profile' && profileSubTab === 'products'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-shop text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'profile' && profileSubTab === 'products' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                } Pari`}></i>
+                                <span className="tracking-tight text-left">Productos y menú</span>
+                            </button>
+                        )}
+
+                        {/* Promociones */}
+                        {canViewPromotions && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('profile')
+                                    setProfileSubTab('fidelizacion')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'profile' && profileSubTab === 'fidelizacion'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-gift text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'profile' && profileSubTab === 'fidelizacion' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Promociones</span>
+                            </button>
+                        )}
+
+                        {/* Sucursales */}
+                        {canViewSucursales && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('profile')
+                                    setProfileSubTab('sucursales')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'profile' && profileSubTab === 'sucursales'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-diagram-3 text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'profile' && profileSubTab === 'sucursales' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Sucursales</span>
+                            </button>
+                        )}
                     </div>
-
-                    {/* Productos y menú */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('profile')
-                            setProfileSubTab('products')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'profile' && profileSubTab === 'products'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-shop text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'profile' && profileSubTab === 'products' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Productos y menú</span>
-                    </button>
-
-                    {/* Promociones */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('profile')
-                            setProfileSubTab('fidelizacion')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'profile' && profileSubTab === 'fidelizacion'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-gift text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'profile' && profileSubTab === 'fidelizacion' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Promociones</span>
-                    </button>
-
-                    {/* Sucursales */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('profile')
-                            setProfileSubTab('sucursales')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'profile' && profileSubTab === 'sucursales'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-diagram-3 text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'profile' && profileSubTab === 'sucursales' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Sucursales</span>
-                    </button>
-                </div>
+                )}
 
                 {/* SECCIÓN 3: FINANZAS */}
-                <div className="space-y-1">
-                    <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
-                        <span>Finanzas</span>
-                        <div className="h-px bg-gray-100 flex-1"></div>
+                {canViewFinances && (
+                    <div className="space-y-1">
+                        <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
+                            <span>Finanzas</span>
+                            <div className="h-px bg-gray-100 flex-1"></div>
+                        </div>
+
+                        {/* Gastos */}
+                        {canViewExpenses && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('expenses')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'expenses'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-credit-card-2-front text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'expenses' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Gastos</span>
+                            </button>
+                        )}
+
+                        {/* Saldo */}
+                        {canViewWallet && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('wallet')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'wallet'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-wallet2 text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'wallet' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Saldo</span>
+                            </button>
+                        )}
+
+                        {/* Inventario */}
+                        {canViewInventory && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('inventory')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'inventory'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-boxes text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'inventory' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Inventario</span>
+                            </button>
+                        )}
+
+                        {/* Estadísticas */}
+                        {canViewStats && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('stats')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'stats'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-bar-chart-line text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'stats' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Estadísticas</span>
+                            </button>
+                        )}
                     </div>
-
-                    {/* Gastos */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('expenses')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'expenses'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-credit-card-2-front text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'expenses' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Gastos</span>
-                    </button>
-
-                    {/* Saldo */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('wallet')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'wallet'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-wallet2 text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'wallet' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Saldo</span>
-                    </button>
-
-                    {/* Inventario */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('inventory')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'inventory'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-boxes text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'inventory' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Inventario</span>
-                    </button>
-
-                    {/* Estadísticas */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('stats')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'stats'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-bar-chart-line text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'stats' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Estadísticas</span>
-                    </button>
-                </div>
+                )}
 
                 {/* SECCIÓN 4: AJUSTES */}
-                <div className="space-y-1">
-                    <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
-                        <span>Ajustes</span>
-                        <div className="h-px bg-gray-100 flex-1"></div>
+                {canViewAjustes && (
+                    <div className="space-y-1">
+                        <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
+                            <span>Ajustes</span>
+                            <div className="h-px bg-gray-100 flex-1"></div>
+                        </div>
+
+                        {/* Administradores / Equipo */}
+                        {canManageAdmins && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('admins')
+                                    setProfileSubTab('admins')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins')
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-people text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins') ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Administradores</span>
+                            </button>
+                        )}
+
+                        {/* Ajustes de tienda */}
+                        {canViewGeneralSettings && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('profile')
+                                    setProfileSubTab('general')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'profile' && profileSubTab === 'general'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-shop-window text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'profile' && profileSubTab === 'general' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Ajustes de tienda</span>
+                            </button>
+                        )}
+
+                        {/* Configuración */}
+                        {canViewConfiguracion && (
+                            <button
+                                onClick={() => {
+                                    setActiveTab('profile')
+                                    setProfileSubTab('configuracion')
+                                    setSidebarOpen(false)
+                                }}
+                                className={`
+                                    group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
+                                    ${activeTab === 'profile' && profileSubTab === 'configuracion'
+                                        ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
+                                        : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
+                                    }
+                                `}
+                            >
+                                <i className={`bi bi-gear text-lg transition-transform group-hover:scale-110 ${
+                                    activeTab === 'profile' && profileSubTab === 'configuracion' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
+                                }`}></i>
+                                <span className="tracking-tight text-left">Configuración</span>
+                            </button>
+                        )}
                     </div>
-
-                    {/* Ajustes de tienda */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('profile')
-                            setProfileSubTab('general')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'profile' && profileSubTab === 'general'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-shop-window text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'profile' && profileSubTab === 'general' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Ajustes de tienda</span>
-                    </button>
-
-                    {/* Configuración */}
-                    <button
-                        onClick={() => {
-                            setActiveTab('profile')
-                            setProfileSubTab('configuracion')
-                            setSidebarOpen(false)
-                        }}
-                        className={`
-                            group relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200
-                            ${activeTab === 'profile' && profileSubTab === 'configuracion'
-                                ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/25'
-                                : 'text-gray-700 hover:bg-rose-50/60 hover:text-rose-600'
-                            }
-                        `}
-                    >
-                        <i className={`bi bi-gear text-lg transition-transform group-hover:scale-110 ${
-                            activeTab === 'profile' && profileSubTab === 'configuracion' ? 'text-white' : 'text-gray-400 group-hover:text-rose-500'
-                        }`}></i>
-                        <span className="tracking-tight text-left">Configuración</span>
-                    </button>
-                </div>
+                )}
 
                 {/* Notificaciones del dispositivo (si aplica) */}
                 {!isIOS && needsUserAction && (

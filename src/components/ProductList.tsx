@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup } from '@/types'
-import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds, getBranchesForBusiness } from '@/lib/database'
+import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
 
@@ -40,6 +40,7 @@ export default function ProductList({
     price: '',
     category: categories[0] || '',
     isAvailable: true,
+    autoHideByStock: false,
     image: null as File | null,
     commissionType: 'fuddi_assumed_by_customer' as CommissionType,
     isCombo: false,
@@ -114,6 +115,7 @@ export default function ProductList({
     quantity: number
   }>>>({})
   const [ingredientLibrary, setIngredientLibrary] = useState<IngredientLibraryItem[]>([])
+  const [stockSummaryMap, setStockSummaryMap] = useState<Map<string, IngredientStockSummary>>(new Map())
   const [showIngredientSuggestions, setShowIngredientSuggestions] = useState(false)
   const [ingredientSearchTerm, setIngredientSearchTerm] = useState('')
   const [expandedVariantsForIngredients, setExpandedVariantsForIngredients] = useState<Set<string>>(new Set())
@@ -125,6 +127,92 @@ export default function ProductList({
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const [hasVariants, setHasVariants] = useState(false)
   const [availableBranches, setAvailableBranches] = useState<Business[]>([])
+
+  // Cargar resumen de stock de ingredientes (entradas, salidas, límites y mínimos)
+  const loadStockSummary = useCallback(async () => {
+    if (!business?.id) return
+    try {
+      const summary = await getIngredientStockSummary(business.id)
+      const map = new Map<string, IngredientStockSummary>()
+      summary.forEach(item => {
+        if (item.ingredientName) {
+          map.set(item.ingredientName.toLowerCase().trim(), item)
+        }
+      })
+      setStockSummaryMap(map)
+    } catch (error) {
+      console.error('Error cargando resumen de stock de ingredientes en ProductList:', error)
+    }
+  }, [business?.id])
+
+  useEffect(() => {
+    loadStockSummary()
+  }, [loadStockSummary])
+
+  /**
+   * Evalúa si un producto tiene ingredientes con control de stock limitado y sus existencias actuales
+   */
+  const getProductStockStatus = useCallback((product: Product) => {
+    const norm = (name: string) => (name || '').toLowerCase().trim()
+
+    // Recopilar todos los ingredientes del producto (base y variantes)
+    const allIngredients: { name: string; quantity: number }[] = []
+    if (product.ingredients && product.ingredients.length > 0) {
+      product.ingredients.forEach(ing => {
+        if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
+      })
+    }
+    if (product.variants && product.variants.length > 0) {
+      product.variants.forEach(variant => {
+        if (variant.ingredients && variant.ingredients.length > 0) {
+          variant.ingredients.forEach(ing => {
+            if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
+          })
+        }
+      })
+    }
+
+    // Filtrar ingredientes que tengan control de stock limitado activo en la biblioteca
+    const limitedIngredients: { name: string; requiredQty: number; currentStock: number; minStock: number }[] = []
+
+    allIngredients.forEach(ing => {
+      const itemStock = stockSummaryMap.get(norm(ing.name))
+      if (itemStock && itemStock.isStockLimited) {
+        const exists = limitedIngredients.find(l => norm(l.name) === norm(ing.name))
+        if (!exists) {
+          limitedIngredients.push({
+            name: ing.name,
+            requiredQty: ing.quantity,
+            currentStock: itemStock.currentStock,
+            minStock: itemStock.minStock ?? 0
+          })
+        }
+      }
+    })
+
+    const hasLimitedIngredients = limitedIngredients.length > 0
+    // Un producto con ingredientes limitados tiene stock si todos sus ingredientes limitados tienen stock > 0
+    const isAvailableByStock = !hasLimitedIngredients || limitedIngredients.every(item => item.currentStock > 0)
+    const outOfStockIngredients = limitedIngredients.filter(item => item.currentStock <= 0)
+
+    return {
+      hasLimitedIngredients,
+      isAvailableByStock,
+      limitedIngredients,
+      outOfStockIngredients
+    }
+  }, [stockSummaryMap])
+
+  /**
+   * Determina la visibilidad efectiva del producto en la tienda
+   */
+  const isProductEffectivelyAvailable = useCallback((product: Product) => {
+    if (product.autoHideByStock) {
+      const stockStatus = getProductStockStatus(product)
+      return stockStatus.isAvailableByStock
+    }
+    return product.isAvailable !== false
+  }, [getProductStockStatus])
 
   // Cargar únicamente las sucursales vinculadas a este mismo negocio
   useEffect(() => {
@@ -348,6 +436,7 @@ export default function ProductList({
       price: '',
       category: defaultCategory,
       isAvailable: true,
+      autoHideByStock: false,
       image: null,
       commissionType: defaultCommType as CommissionType,
       isCombo: false,
@@ -449,6 +538,7 @@ export default function ProductList({
       price: (product.basePrice || product.price).toString(),
       category: categoryToSet,
       isAvailable: product.isAvailable,
+      autoHideByStock: product.autoHideByStock ?? false,
       image: null,
       commissionType: commType as CommissionType,
       isCombo: product.isCombo || false,
@@ -480,8 +570,9 @@ export default function ProductList({
     }
     setVariantIngredients(variantIngs as any)
 
-    // Cargar biblioteca de ingredientes
+    // Cargar biblioteca de ingredientes y resumen de stock
     loadIngredientLibrary()
+    loadStockSummary()
 
     // Cargar horarios
     if (product.scheduleAvailability?.enabled === true) {
@@ -520,6 +611,7 @@ export default function ProductList({
       price: '',
       category: defaultCategory,
       isAvailable: true,
+      autoHideByStock: false,
       image: null,
       commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
       isCombo: false,
@@ -1325,6 +1417,7 @@ export default function ProductList({
         variants: hasVariants ? (variants.length > 0 ? variantsWithCommission : undefined) : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
+        autoHideByStock: formData.autoHideByStock ?? false,
         // undefined = eliminar campo en Firestore
         scheduleAvailability: scheduleEnabled
           ? { enabled: true, schedules: schedules.length > 0 ? schedules : [] }
@@ -1391,6 +1484,7 @@ export default function ProductList({
         variants: product.variants,
         ingredients: product.ingredients,
         isAvailable: product.isAvailable,
+        autoHideByStock: product.autoHideByStock ?? false,
         scheduleAvailability: product.scheduleAvailability,
         isCombo: product.isCombo || false,
         minComboItems: product.minComboItems || 1,
@@ -1853,22 +1947,27 @@ export default function ProductList({
 
               if (categoryProducts.length === 0) return null
 
-              const visibleProducts = categoryProducts.filter(p => p.isAvailable !== false);
-              const hiddenProducts = categoryProducts.filter(p => p.isAvailable === false);
+              const visibleProducts = categoryProducts.filter(p => isProductEffectivelyAvailable(p));
+              const hiddenProducts = categoryProducts.filter(p => !isProductEffectivelyAvailable(p));
               const isHiddenExpanded = !!expandedHiddenCategories[category];
 
-              const renderProductCard = (product: Product, pIndex: number, currentList: Product[]) => (
+              const renderProductCard = (product: Product, pIndex: number, currentList: Product[]) => {
+                const stockStatus = getProductStockStatus(product)
+                const isEffectivelyAvailable = isProductEffectivelyAvailable(product)
+                const isDecidedByStock = !!product.autoHideByStock
+
+                return (
                 <div
                   key={product.id}
                   onClick={() => handleEditProduct(product)}
-                  className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer ${product.isAvailable
+                  className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer ${isEffectivelyAvailable
                     ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
                     : 'border-gray-200 bg-gray-50/50'
                     }`}
                 >
-                  <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
+                  <div className={`flex items-center flex-1 min-w-0 ${!isEffectivelyAvailable ? 'opacity-60' : ''}`}>
                     {/* Imagen cuadrada con diseño redondeado */}
-                    <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
+                    <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!isEffectivelyAvailable ? 'grayscale' : ''}`}>
                       {product.image ? (
                         <img
                           src={product.image}
@@ -1891,10 +1990,25 @@ export default function ProductList({
                             <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
                               {product.name}
                             </h4>
-                            {!product.isAvailable && (
-                              <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                Oculto
-                              </span>
+                            {isDecidedByStock ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 text-[9px] font-black bg-rose-50 text-rose-700 px-2 py-0.5 rounded-md border border-rose-100 uppercase tracking-tight">
+                                  <i className="bi bi-boxes text-[10px]"></i>
+                                  Por stock
+                                </span>
+                                {!stockStatus.isAvailableByStock && (
+                                  <span className="text-[9px] font-black bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-tight flex items-center gap-1" title={stockStatus.outOfStockIngredients.map(i => i.name).join(', ')}>
+                                    <i className="bi bi-exclamation-circle text-[9px]"></i>
+                                    Agotado
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              !product.isAvailable && (
+                                <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                  Oculto
+                                </span>
+                              )
                             )}
                           </div>
                           <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
@@ -1939,18 +2053,106 @@ export default function ProductList({
                     </button>
 
                     {activeMenu === product.id && (
-                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleToggleAvailability(product.id, product.isAvailable)
-                            setActiveMenu(null)
-                          }}
-                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                        >
-                          <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
-                          {product.isAvailable ? 'Ocultar' : 'Mostrar'}
-                        </button>
+                      <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+                        {/* Opciones de Disponibilidad */}
+                        {stockStatus.hasLimitedIngredients ? (
+                          <>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const newAutoHide = !isDecidedByStock
+                                try {
+                                  await updateProduct(product.id, {
+                                    autoHideByStock: newAutoHide,
+                                    ...(newAutoHide ? { isAvailable: true } : {})
+                                  })
+                                  onProductsChange(products.map(p =>
+                                    p.id === product.id ? { ...p, autoHideByStock: newAutoHide, ...(newAutoHide ? { isAvailable: true } : {}) } : p
+                                  ))
+                                } catch (err) {
+                                  console.error('Error actualizando autoHideByStock:', err)
+                                }
+                                setActiveMenu(null)
+                              }}
+                              className={`w-full px-4 py-2.5 text-left text-xs font-bold flex items-center justify-between transition-colors ${
+                                isDecidedByStock
+                                  ? 'bg-rose-50/80 text-rose-700'
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <i className="bi bi-boxes text-rose-600 text-sm"></i>
+                                <span>Decidido por stock</span>
+                              </div>
+                              {isDecidedByStock && (
+                                <i className="bi bi-check-lg text-rose-600 text-sm"></i>
+                              )}
+                            </button>
+
+                            <div className="border-t border-gray-100 my-1"></div>
+
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                try {
+                                  await updateProduct(product.id, { autoHideByStock: false, isAvailable: true })
+                                  onProductsChange(products.map(p =>
+                                    p.id === product.id ? { ...p, autoHideByStock: false, isAvailable: true } : p
+                                  ))
+                                } catch (err) {
+                                  console.error('Error forzando mostrar:', err)
+                                }
+                                setActiveMenu(null)
+                              }}
+                              className={`w-full px-4 py-2 text-left text-xs font-medium flex items-center gap-3 transition-colors ${
+                                !isDecidedByStock && product.isAvailable !== false
+                                  ? 'bg-emerald-50/70 text-emerald-800 font-bold'
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <i className="bi bi-eye text-emerald-600"></i>
+                              Mostrar (Manual)
+                            </button>
+
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                try {
+                                  await updateProduct(product.id, { autoHideByStock: false, isAvailable: false })
+                                  onProductsChange(products.map(p =>
+                                    p.id === product.id ? { ...p, autoHideByStock: false, isAvailable: false } : p
+                                  ))
+                                } catch (err) {
+                                  console.error('Error forzando ocultar:', err)
+                                }
+                                setActiveMenu(null)
+                              }}
+                              className={`w-full px-4 py-2 text-left text-xs font-medium flex items-center gap-3 transition-colors ${
+                                !isDecidedByStock && product.isAvailable === false
+                                  ? 'bg-orange-50/70 text-orange-800 font-bold'
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <i className="bi bi-eye-slash text-orange-600"></i>
+                              Ocultar (Manual)
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleToggleAvailability(product.id, product.isAvailable)
+                              setActiveMenu(null)
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                          >
+                            <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
+                            {product.isAvailable ? 'Ocultar' : 'Mostrar'}
+                          </button>
+                        )}
+
+                        <div className="border-t border-gray-100 my-1"></div>
+
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -2055,6 +2257,7 @@ export default function ProductList({
                   </div>
                 </div>
               )
+            }
 
               return (
                 <div key={category} className="mb-10 last:mb-0">
@@ -2893,7 +3096,8 @@ export default function ProductList({
                         )}
                       </div>
 
-                      <div className="sm:pt-5">
+                      <div className="sm:pt-5 space-y-2">
+                        {/* Toggle Manual */}
                         <label className="flex items-center justify-between cursor-pointer p-2.5 bg-slate-50/80 rounded-xl border border-slate-200/60 group hover:bg-slate-100/60 transition-colors">
                           <div>
                             <span className="font-bold text-slate-700 text-xs block group-hover:text-slate-900 transition-colors">Disponible para venta</span>
@@ -2907,6 +3111,28 @@ export default function ProductList({
                               className="sr-only peer"
                             />
                             <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                          </div>
+                        </label>
+
+                        {/* Toggle Control por Stock */}
+                        <label className="flex items-center justify-between cursor-pointer p-2.5 bg-rose-50/40 rounded-xl border border-rose-100 group hover:bg-rose-50/80 transition-colors">
+                          <div>
+                            <span className="font-bold text-rose-900 text-xs flex items-center gap-1.5">
+                              <i className="bi bi-boxes text-rose-600"></i>
+                              Decidido por stock
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+                              Ocultar si se agotan sus insumos limitados
+                            </span>
+                          </div>
+                          <div className="relative inline-flex items-center ml-3">
+                            <input
+                              type="checkbox"
+                              checked={formData.autoHideByStock}
+                              onChange={(e) => setFormData(prev => ({ ...prev, autoHideByStock: e.target.checked }))}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
                           </div>
                         </label>
                       </div>

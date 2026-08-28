@@ -122,15 +122,19 @@ export interface BusinessAdministrator {
   uid: string // UID del usuario en Firebase Auth
   email: string
   name?: string
-  role: 'owner' | 'admin' | 'manager' // Niveles de permisos
+  role: 'owner' | 'admin' | 'manager' | 'atencion_cliente' // Niveles de permisos
   addedAt: Date
   addedBy: string // UID de quien lo agregó
   permissions: {
     manageProducts: boolean
     manageOrders: boolean
-    manageAdmins: boolean
-    viewReports: boolean
-    editBusiness: boolean
+    deleteOrders?: boolean
+    managePromotions?: boolean
+    viewReports?: boolean
+    manageInventory?: boolean
+    viewFinances?: boolean
+    editBusiness?: boolean
+    manageAdmins?: boolean
   }
 }
 
@@ -247,6 +251,7 @@ export interface Product {
   businessName?: string
   businessImage?: string
   ingredients?: Ingredient[]
+  autoHideByStock?: boolean // Si es true, el producto se oculta automáticamente si sus ingredientes de stock limitado se agotan
   scheduleAvailability?: ProductScheduleAvailability // Disponibilidad por horarios/días
   isCombo?: boolean // Si el producto es un combo que requiere seleccionar múltiples variantes
   minComboItems?: number // Cantidad mínima de variantes a seleccionar para el combo

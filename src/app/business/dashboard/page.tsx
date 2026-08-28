@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { Business, Order, Delivery, Product } from '@/types'
+import { Business, Order, Delivery, Product, BusinessAdministrator } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
 import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'
@@ -19,6 +19,7 @@ import {
     getOrdersByBusinessPaginated,
     uploadImage,
     addBusinessAdministrator,
+    updateBusinessAdministrator,
     removeBusinessAdministrator,
     getAllBusinesses,
     getProductsByIds
@@ -69,6 +70,7 @@ const IngredientStockManagement = dynamic(() => import('@/components/IngredientS
 const CostReports = dynamic(() => import('@/components/CostReports'), { ssr: false })
 const BusinessProfileDashboard = dynamic(() => import('@/components/BusinessProfileDashboard'), { ssr: false })
 const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfileEditor'), { ssr: false })
+const AdministratorsManagementView = dynamic(() => import('@/components/AdministratorsManagementView'), { ssr: false })
 const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), { ssr: false })
 const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: false })
 
@@ -631,18 +633,23 @@ export default function TodayOrdersPage() {
     const [uploadingCover, setUploadingCover] = useState(false)
     const [uploadingProfile, setUploadingProfile] = useState(false)
     const [uploadingLocation, setUploadingLocation] = useState(false)
-    const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null)
+    const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | 'atencion_cliente' | null>(null)
+    const [currentUserPermissions, setCurrentUserPermissions] = useState<BusinessAdministrator['permissions'] | null>(null)
     const [savingProfile, setSavingProfile] = useState(false)
     const [showAddAdminModal, setShowAddAdminModal] = useState(false)
     const [newAdminData, setNewAdminData] = useState({
         email: '',
         password: '',
-        role: 'admin' as 'admin' | 'manager',
+        role: 'admin' as 'admin' | 'manager' | 'atencion_cliente',
         permissions: {
             manageProducts: true,
             manageOrders: true,
+            deleteOrders: true,
+            managePromotions: false,
             manageAdmins: false,
             viewReports: true,
+            manageInventory: false,
+            viewFinances: false,
             editBusiness: false
         }
     })
@@ -651,20 +658,46 @@ export default function TodayOrdersPage() {
     const [adminPassword, setAdminPassword] = useState('')
     const [savingAdminPassword, setSavingAdminPassword] = useState(false)
 
-    // Determine user role
+    // Determine user role and permissions
     useEffect(() => {
         if (!business || !user) return
         const isOwner = business.ownerId === user.uid
         if (isOwner) {
             setUserRole('owner')
+            setCurrentUserPermissions({
+                manageOrders: true,
+                deleteOrders: true,
+                manageProducts: true,
+                managePromotions: true,
+                viewReports: true,
+                manageInventory: true,
+                viewFinances: true,
+                editBusiness: true,
+                manageAdmins: true
+            })
         } else {
-            const adminEntry = business.administrators?.find(a => a.email === user.email)
-            setUserRole(adminEntry?.role as any || 'admin')
+            const adminEntry = business.administrators?.find(a => a.email?.toLowerCase() === user.email?.toLowerCase())
+            const role = (adminEntry?.role as any) || 'admin'
+            setUserRole(role)
+            setCurrentUserPermissions(adminEntry?.permissions || null)
         }
     }, [business, user])
 
+    // Redirigir a orders si atencion_cliente intenta acceder a rutas restringidas
+    useEffect(() => {
+        if (userRole === 'atencion_cliente') {
+            const restrictedTabs = ['stats', 'wallet', 'expenses', 'inventory', 'reports', 'admins']
+            const restrictedProfileSubTabs = ['general', 'configuracion', 'sucursales', 'admins', 'fidelizacion']
+            if (restrictedTabs.includes(activeTab)) {
+                setActiveTab('orders')
+            } else if (activeTab === 'profile' && restrictedProfileSubTabs.includes(profileSubTab)) {
+                setActiveTab('orders')
+            }
+        }
+    }, [userRole, activeTab, profileSubTab])
+
     const canManageAdmins = userRole === 'owner' || !!business?.administrators?.some(admin =>
-        admin.email === user?.email && admin.permissions?.manageAdmins
+        admin.email?.toLowerCase() === user?.email?.toLowerCase() && admin.permissions?.manageAdmins
     )
 
     const handleEditProfile = () => {
@@ -792,80 +825,17 @@ export default function TodayOrdersPage() {
         }
     }
 
-    const handleAddAdmin = async () => {
-        if (!business || !newAdminData.email.trim()) return
+    const handleAddAdminData = async (adminData: {
+        email: string
+        password?: string
+        role: 'admin' | 'manager' | 'atencion_cliente'
+        permissions: BusinessAdministrator['permissions']
+    }) => {
+        if (!business) return
+        const currentUser = auth.currentUser
+        if (!currentUser) throw new Error('Usuario no autenticado')
 
-        setAddingAdmin(true)
-        try {
-            const currentUser = auth.currentUser
-            if (!currentUser) throw new Error('Usuario no autenticado')
-
-            if (newAdminData.password.trim()) {
-                const token = await currentUser.getIdToken()
-                const response = await fetch('/api/business/admin-password', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        businessId: business.id,
-                        email: newAdminData.email.trim(),
-                        password: newAdminData.password,
-                        role: newAdminData.role,
-                        permissions: newAdminData.permissions
-                    })
-                })
-                const result = await response.json()
-
-                if (!response.ok) {
-                    throw new Error(result.error || 'Error al crear el acceso del administrador')
-                }
-            } else {
-                await addBusinessAdministrator(
-                    business.id,
-                    newAdminData.email.trim(),
-                    newAdminData.role,
-                    newAdminData.permissions,
-                    currentUser.uid
-                )
-            }
-
-            const updatedBusiness = await getBusiness(business.id)
-            if (updatedBusiness) {
-                setBusiness(updatedBusiness)
-                setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
-            }
-
-            setNewAdminData({
-                email: '',
-                password: '',
-                role: 'admin',
-                permissions: {
-                    manageProducts: true,
-                    manageOrders: true,
-                    manageAdmins: false,
-                    viewReports: true,
-                    editBusiness: false
-                }
-            })
-            setShowAddAdminModal(false)
-            alert('Administrador agregado exitosamente')
-        } catch (error: any) {
-            alert(error.message || 'Error al agregar administrador')
-        } finally {
-            setAddingAdmin(false)
-        }
-    }
-
-    const handleSaveAdminPassword = async () => {
-        if (!business || !passwordAdminEmail || !adminPassword.trim()) return
-
-        setSavingAdminPassword(true)
-        try {
-            const currentUser = auth.currentUser
-            if (!currentUser) throw new Error('Usuario no autenticado')
-
+        if (adminData.password && adminData.password.trim()) {
             const token = await currentUser.getIdToken()
             const response = await fetch('/api/business/admin-password', {
                 method: 'POST',
@@ -875,29 +845,80 @@ export default function TodayOrdersPage() {
                 },
                 body: JSON.stringify({
                     businessId: business.id,
-                    email: passwordAdminEmail,
-                    password: adminPassword
+                    email: adminData.email.trim(),
+                    password: adminData.password,
+                    role: adminData.role,
+                    permissions: adminData.permissions
                 })
             })
             const result = await response.json()
-
             if (!response.ok) {
-                throw new Error(result.error || 'Error al guardar la contrasena')
+                throw new Error(result.error || 'Error al crear el acceso del administrador')
             }
+        } else {
+            await addBusinessAdministrator(
+                business.id,
+                adminData.email.trim(),
+                adminData.role,
+                adminData.permissions,
+                currentUser.uid
+            )
+        }
 
-            const updatedBusiness = await getBusiness(business.id)
-            if (updatedBusiness) {
-                setBusiness(updatedBusiness)
-                setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
-            }
+        const updatedBusiness = await getBusiness(business.id)
+        if (updatedBusiness) {
+            setBusiness(updatedBusiness)
+            setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+        }
+    }
 
-            setPasswordAdminEmail(null)
-            setAdminPassword('')
-            alert('Contrasena actualizada exitosamente')
-        } catch (error: any) {
-            alert(error.message || 'Error al guardar la contrasena')
-        } finally {
-            setSavingAdminPassword(false)
+    const handleUpdateAdminData = async (adminData: {
+        email: string
+        role: 'admin' | 'manager' | 'atencion_cliente'
+        permissions: BusinessAdministrator['permissions']
+    }) => {
+        if (!business) return
+        await updateBusinessAdministrator(
+            business.id,
+            adminData.email.trim(),
+            adminData.role,
+            adminData.permissions
+        )
+
+        const updatedBusiness = await getBusiness(business.id)
+        if (updatedBusiness) {
+            setBusiness(updatedBusiness)
+            setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+        }
+    }
+
+    const handleSaveAdminPasswordData = async (email: string, password: string) => {
+        if (!business) return
+        const currentUser = auth.currentUser
+        if (!currentUser) throw new Error('Usuario no autenticado')
+
+        const token = await currentUser.getIdToken()
+        const response = await fetch('/api/business/admin-password', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                businessId: business.id,
+                email: email.trim(),
+                password: password
+            })
+        })
+        const result = await response.json()
+        if (!response.ok) {
+            throw new Error(result.error || 'Error al guardar la contraseña')
+        }
+
+        const updatedBusiness = await getBusiness(business.id)
+        if (updatedBusiness) {
+            setBusiness(updatedBusiness)
+            setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
         }
     }
 
@@ -910,7 +931,6 @@ export default function TodayOrdersPage() {
                 setBusiness(updatedBusiness)
                 setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
             }
-            alert('Administrador removido exitosamente')
         } catch (error: any) {
             alert(error.message || 'Error al remover administrador')
         }
@@ -1268,6 +1288,30 @@ export default function TodayOrdersPage() {
             updateOrdersState()
         })
 
+        // Listener 5: Multi-store active orders where this business is a participant
+        const qMultiStore = query(
+            collection(db, 'orders'),
+            where('businessIds', 'array-contains', businessId),
+            where('status', 'in', ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'])
+        )
+        const unsubMultiStore = onSnapshot(qMultiStore, (snapshot) => {
+            handleDocChanges(snapshot)
+            snapshot.docs.forEach(doc => {
+                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+            })
+            snapshot.docChanges().forEach(change => {
+                if (change.type === 'removed') {
+                    const orderData = change.doc.data() as Order
+                    if (!isOrderForToday(orderData)) {
+                        ordersMap.delete(change.doc.id)
+                    }
+                }
+            })
+            updateOrdersState()
+        }, (error) => {
+            console.error("Error in unsubMultiStore:", error)
+        })
+
         // REMOVED: loadLegacyScheduledToday — the 4 listeners above already cover all scheduled date formats
         // REMOVED: setInterval polling for first load — now set directly in updateOrdersState
 
@@ -1276,6 +1320,7 @@ export default function TodayOrdersPage() {
             unsubActive()
             unsubScheduled()
             unsubScheduledString()
+            unsubMultiStore()
         }
     }, [businessId])
 
@@ -1720,7 +1765,13 @@ export default function TodayOrdersPage() {
         )
     }
 
-    const canManageRestrictedOrderActions = business?.id === MUNCHYS_BUSINESS_ID
+    const canDeleteOrders = userRole === 'owner' ||
+        userRole === 'atencion_cliente' ||
+        userRole === 'admin' ||
+        userRole === 'manager' ||
+        currentUserPermissions?.deleteOrders !== false ||
+        currentUserPermissions?.manageOrders !== false ||
+        business?.id === MUNCHYS_BUSINESS_ID
     const canChangeDelivery = true
 
     return (
@@ -1757,6 +1808,9 @@ export default function TodayOrdersPage() {
                     ordersSubTab={ordersSubTab}
                     setOrdersSubTab={setOrdersSubTab}
                     currentBusinessName={businesses.find(b => b.id === businessId)?.name}
+                    userRole={userRole}
+                    permissions={currentUserPermissions || undefined}
+                    canManageAdmins={canManageAdmins}
                 />
 
                 <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
@@ -1940,7 +1994,22 @@ export default function TodayOrdersPage() {
                     </header>
 
                     {/* Main Content Area: Conditional Rendering */}
-                    {activeTab === 'stats' ? (
+                    {activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins') ? (
+                        <div className="p-4 sm:p-6">
+                            {business && (
+                                <AdministratorsManagementView
+                                    business={business}
+                                    currentUserEmail={user?.email}
+                                    currentUserRole={userRole}
+                                    onAddAdmin={handleAddAdminData}
+                                    onUpdateAdmin={handleUpdateAdminData}
+                                    onSaveAdminPassword={handleSaveAdminPasswordData}
+                                    onRemoveAdmin={handleRemoveAdmin}
+                                    onTransferOwnership={handleTransferOwnership}
+                                />
+                            )}
+                        </div>
+                    ) : activeTab === 'stats' ? (
                         <div className="p-4 sm:p-6">
                             <StatisticsView key={business?.id} orders={[...orders, ...historicalOrders]} businessId={business?.id} />
                         </div>
@@ -2044,7 +2113,7 @@ export default function TodayOrdersPage() {
                                             setManualSidebarMode('edit')
                                             setManualOrderSidebarOpen(true)
                                         }}
-                                        onOrderDelete={canManageRestrictedOrderActions ? (id) => handleDeleteOrder(id) : undefined}
+                                        onOrderDelete={canDeleteOrders ? (id) => handleDeleteOrder(id) : undefined}
                                         onOrderStatusChange={handleStatusChange}
                                         getStatusColor={getStatusColor}
                                         getStatusText={getStatusText}
@@ -2078,7 +2147,7 @@ export default function TodayOrdersPage() {
                                         }}
                                         businessPhone={business?.phone}
                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
-                                        canDeleteOrders={canManageRestrictedOrderActions}
+                                        canDeleteOrders={canDeleteOrders}
                                     />
                                     {historyLoading && (
                                         <div className="flex justify-center py-8">
@@ -2225,7 +2294,7 @@ export default function TodayOrdersPage() {
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
-                                                        canDeleteOrders={canManageRestrictedOrderActions}
+                                                        canDeleteOrders={canDeleteOrders}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                         clientsWithNotes={clientsWithNotes}
@@ -2253,7 +2322,7 @@ export default function TodayOrdersPage() {
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
-                                                        canDeleteOrders={canManageRestrictedOrderActions}
+                                                        canDeleteOrders={canDeleteOrders}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                         clientsWithNotes={clientsWithNotes}
@@ -2371,7 +2440,7 @@ export default function TodayOrdersPage() {
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
-                                                        canDeleteOrders={canManageRestrictedOrderActions}
+                                                        canDeleteOrders={canDeleteOrders}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                         clientsWithNotes={clientsWithNotes}

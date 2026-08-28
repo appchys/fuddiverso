@@ -56,3 +56,6 @@ Este documento detalla los estilos predeterminados de diseño, tipografía, espa
   - **Botón Notificar (WhatsApp)**: `flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer`
   - **Botón Editar**: `flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors`
   - **Botón Eliminar**: `flex items-center justify-center p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors`
+
+La aplicación debe verse minimalista y limpia, evitando el uso de colores fuertes y llamativos. Los colores deben ser suaves y agradables a la vista. No es necesario agregar textos explicativos en cada sección, la interfaz debe ser intuitiva y fácil de entender. 
+

@@ -181,6 +181,29 @@ export default function ManualOrderSidebar({
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [showNameSearchModal, setShowNameSearchModal] = useState(false)
   const [nameSearchTerm, setNameSearchTerm] = useState('')
+  const [tableNumber, setTableNumber] = useState<number>(0)
+
+  const handleCycleTable = () => {
+    const currentNum = manualOrderData.customerName.trim().startsWith('Mesa ')
+      ? parseInt(manualOrderData.customerName.replace('Mesa ', '').trim(), 10)
+      : tableNumber
+    const nextTable = currentNum === 1 ? 2 : currentNum === 2 ? 3 : 1
+    setTableNumber(nextTable)
+    setClientFound(true)
+    setShowCreateClient(false)
+    setShowNameSearchModal(false)
+    setShowSearchResults(false)
+    setManualOrderData(prev => ({
+      ...prev,
+      customerId: '',
+      customerPhone: '',
+      customerName: `Mesa ${nextTable}`,
+      customerNotes: '',
+      customerLocations: [],
+      selectedLocation: null,
+      deliveryType: 'pickup'
+    }))
+  }
 
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
@@ -251,9 +274,6 @@ export default function ManualOrderSidebar({
     price: ''
   })
 
-  // Estado para el popover de sucursal en el header
-  const [branchPopoverOpen, setBranchPopoverOpen] = useState(false)
-
   // Estados para Toast
   const [toastMessage, setToastMessage] = useState('')
   const [showToast, setShowToast] = useState(false)
@@ -291,7 +311,7 @@ export default function ManualOrderSidebar({
   const businessDefaultCommissionType = effectiveBusiness?.defaultCommissionType
   const businessCommissionRate = effectiveBusiness?.commissionRate
 
-  // Cargar únicamente las sucursales vinculadas a este mismo negocio
+  // Cargar sucursales vinculadas
   const [availableBranches, setAvailableBranches] = useState<Business[]>([])
 
   useEffect(() => {
@@ -318,7 +338,28 @@ export default function ManualOrderSidebar({
     }
   }, [business?.id, effectiveBusinessId])
 
-  const showBusinessSelector = mode === 'create' && availableBranches.length > 1 && !!onBusinessChange
+  // Todas las tiendas accesibles por el usuario (incluye todas donde es owner, admin o atención al cliente, más sus sucursales)
+  const allAccessibleStores = useMemo(() => {
+    const list = [...(businesses || []), ...(availableBranches || [])]
+    const unique = list.filter((b, i, self) => 
+      b && b.id && i === self.findIndex(x => x?.id === b.id) && !b.isHidden
+    )
+    return unique.length > 0 ? unique : (business ? [business] : [])
+  }, [businesses, availableBranches, business])
+
+  const showBusinessSelector = mode === 'create' && allAccessibleStores.length > 1 && !!onBusinessChange
+
+  const handleCycleStore = () => {
+    if (!allAccessibleStores || allAccessibleStores.length <= 1) return
+    const currentId = business?.id || effectiveBusinessId
+    const currentIndex = allAccessibleStores.findIndex(s => s.id === currentId)
+    const nextIndex = (currentIndex + 1) % allAccessibleStores.length
+    const nextStore = allAccessibleStores[nextIndex]
+    if (nextStore?.id) {
+      setSelectedCategory('all')
+      onBusinessChange?.(nextStore.id)
+    }
+  }
 
   const customProductPricing = useMemo(() => {
     const storePrice = parseFloat(customProductData.price)
@@ -2101,6 +2142,8 @@ export default function ManualOrderSidebar({
 
     // 5. Crear Item de la orden (precio de tienda, 0 comisión)
     const unitPrice = baseProductPrice + optionsPrice;
+    const currentStore = allAccessibleStores.find(s => s.id === (product.businessId || effectiveBusinessId)) || effectiveBusiness;
+
     const newItem: OrderItem = {
       name: product.name,
       variant: finalVariantName,
@@ -2109,6 +2152,10 @@ export default function ManualOrderSidebar({
       price: unitPrice,
       productId: product.id,
       quantity: product.isCombo ? 1 : customizingQuantity,
+      image: product.image || '',
+      originalBusinessId: product.originalBusinessId || product.businessId || currentStore?.id || effectiveBusinessId,
+      originalBusinessName: product.originalBusinessName || currentStore?.name || effectiveBusiness?.name || '',
+      originalBusinessImage: product.originalBusinessImage || currentStore?.logo || currentStore?.profileImage || null,
       basePrice: unitPrice,
       commission: 0,
       commissionType: 'no_commission',
@@ -2137,6 +2184,7 @@ export default function ManualOrderSidebar({
   const addVariantToOrderDirectly = (product: Product, variant: ProductVariant) => {
     const storeProductPrice = getManualOrderStorePrice(variant);
     const finalVariantName = variant.name;
+    const currentStore = allAccessibleStores.find(s => s.id === (product.businessId || effectiveBusinessId)) || effectiveBusiness;
 
     const newItem: OrderItem = {
       name: product.name,
@@ -2146,6 +2194,10 @@ export default function ManualOrderSidebar({
       price: storeProductPrice,
       productId: product.id,
       quantity: customizingQuantity,
+      image: product.image || '',
+      originalBusinessId: product.originalBusinessId || product.businessId || currentStore?.id || effectiveBusinessId,
+      originalBusinessName: product.originalBusinessName || currentStore?.name || effectiveBusiness?.name || '',
+      originalBusinessImage: product.originalBusinessImage || currentStore?.logo || currentStore?.profileImage || null,
       basePrice: storeProductPrice,
       commission: 0,
       commissionType: 'no_commission',
@@ -2177,6 +2229,7 @@ export default function ManualOrderSidebar({
   const addProductToOrder = (product: Product, variant?: ProductVariant) => {
     const item = variant || product
     const storeProductPrice = getManualOrderStorePrice(item)
+    const currentStore = allAccessibleStores.find(s => s.id === (product.businessId || effectiveBusinessId)) || effectiveBusiness
 
     const newItem: OrderItem = {
       name: product.name,                    // Nombre base del producto
@@ -2187,11 +2240,9 @@ export default function ManualOrderSidebar({
       productId: product.id,
       quantity: 1,
       image: product.image || '',
-      ...(product.isShared && {
-        originalBusinessId: product.originalBusinessId,
-        originalBusinessName: product.originalBusinessName,
-        originalBusinessImage: product.originalBusinessImage
-      }),
+      originalBusinessId: product.originalBusinessId || product.businessId || currentStore?.id || effectiveBusinessId,
+      originalBusinessName: product.originalBusinessName || currentStore?.name || effectiveBusiness?.name || '',
+      originalBusinessImage: product.originalBusinessImage || currentStore?.logo || currentStore?.profileImage || null,
       basePrice: storeProductPrice,
       commission: 0,
       commissionType: 'no_commission',
@@ -2560,13 +2611,24 @@ export default function ManualOrderSidebar({
         notaImageUrl
       }
 
+      // Soportar órdenes multi-tienda
+      const distinctBusinessIds = Array.from(
+        new Set(orderData.items.map((i: any) => i.originalBusinessId || effectiveBusinessId).filter(Boolean))
+      ) as string[]
+      orderData.businessIds = distinctBusinessIds
+      if (distinctBusinessIds.length > 1) {
+        orderData.isMultiStore = true
+      }
+
       // Log para debugging
       console.log('[ManualOrder] Order data being created:', {
         hasDelivery: !!orderData.delivery,
         deliveryType: orderData.delivery?.type,
         deliveryPhoto: orderData.delivery?.photo,
         selectedLocationPhoto: manualOrderData.selectedLocation?.photo,
-        fullDeliveryObject: orderData.delivery
+        fullDeliveryObject: orderData.delivery,
+        isMultiStore: orderData.isMultiStore,
+        businessIds: orderData.businessIds
       });
 
       // Detectar si es un checkout (por la bandera _isFromCheckout o el ID que empieza con 'checkout-')
@@ -2582,6 +2644,8 @@ export default function ManualOrderSidebar({
           if (mode === 'edit' && editOrder?.id && !isFromCheckout) {
             const updatePayload: any = {
               businessId: effectiveBusinessId,
+              businessIds: orderData.businessIds,
+              ...(orderData.isMultiStore ? { isMultiStore: true } : {}),
               items: orderData.items,
               customer: orderData.customer,
               delivery: orderData.delivery,
@@ -2634,17 +2698,25 @@ export default function ManualOrderSidebar({
               } catch (e) { console.error('Error updating checkout session:', e) }
             }
 
-            // Registrar consumo
+            // Registrar consumo agrupado por tienda
             try {
-              const cartItems = orderData.items.map((item: any) => ({
-                productId: item.productId,
-                variant: item.variant || item.name,
-                name: item.name,
-                quantity: item.quantity
-              }))
-              if (cartItems.length > 0) {
-                const orderDateStr = new Date().toISOString().split('T')[0]
-                await registerOrderConsumption(effectiveBusinessId, cartItems, orderDateStr, orderId)
+              const orderDateStr = new Date().toISOString().split('T')[0]
+              const itemsByStore: Record<string, any[]> = {}
+              orderData.items.forEach((item: any) => {
+                const storeId = item.originalBusinessId || effectiveBusinessId
+                if (!itemsByStore[storeId]) itemsByStore[storeId] = []
+                itemsByStore[storeId].push({
+                  productId: item.productId,
+                  variant: item.variant || item.name,
+                  name: item.name,
+                  quantity: item.quantity
+                })
+              })
+
+              for (const [storeId, cartItems] of Object.entries(itemsByStore)) {
+                if (cartItems.length > 0) {
+                  await registerOrderConsumption(storeId, cartItems, orderDateStr, orderId)
+                }
               }
             } catch (e) { console.error('Error registering consumption:', e) }
 
@@ -2695,6 +2767,7 @@ export default function ManualOrderSidebar({
     setNotaImagePreview('')
     setClientFound(false)
     setShowCreateClient(false)
+    setTableNumber(0)
     setIsEditingDeliveryCost(false)
     setTempDeliveryCost('')
     setUseCredits(false)
@@ -2710,9 +2783,13 @@ export default function ManualOrderSidebar({
 
   // Determinar si la información requerida está completa
   const isInfoComplete = useMemo(() => {
+    const isTable = manualOrderData.customerName.trim().startsWith('Mesa ')
+    const hasCustomer = isTable
+      ? manualOrderData.customerName.trim() !== ''
+      : (manualOrderData.customerName.trim() !== '' && manualOrderData.customerPhone.trim() !== '')
+
     return (
-      manualOrderData.customerName.trim() !== '' &&
-      manualOrderData.customerPhone.trim() !== '' &&
+      hasCustomer &&
       manualOrderData.selectedProducts.length > 0 &&
       manualOrderData.deliveryType !== '' &&
       (manualOrderData.timingType === 'immediate' || (manualOrderData.scheduledDate !== '' && manualOrderData.scheduledTime !== ''))
@@ -2755,85 +2832,28 @@ export default function ManualOrderSidebar({
         <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
           <div className="flex items-center gap-3 min-w-0">
             <h2 className="text-base font-semibold text-gray-900 shrink-0">{mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'}</h2>
-            {/* Selector de sucursal como popover en el header */}
+            {/* Selector de tienda/sucursal alternable (rotativo al clic) */}
             {showBusinessSelector && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setBranchPopoverOpen(prev => !prev)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full text-xs font-medium text-gray-600 transition-colors max-w-[160px]"
-                >
-                  <i className="bi bi-geo-alt text-gray-400 shrink-0" style={{ fontSize: '10px' }}></i>
-                  <span className="truncate">
-                    {(() => {
-                      const active = availableBranches.find(b => b.id === (business?.id || effectiveBusinessId))
-                      if (!active) return 'Sucursal'
-                      return active.branchName || (active.parentBusinessId ? 'Sucursal' : 'Matriz')
-                    })()}
-                  </span>
-                  {loadingBusinessProducts
-                    ? <span className="inline-block h-2.5 w-2.5 rounded-full border border-gray-300 border-t-gray-500 animate-spin shrink-0"></span>
-                    : <i className={`bi bi-chevron-${branchPopoverOpen ? 'up' : 'down'} shrink-0 text-gray-400`} style={{ fontSize: '9px' }}></i>
-                  }
-                </button>
-
-                {/* Popover panel */}
-                {branchPopoverOpen && (
-                  <>
-                    {/* Overlay para cerrar */}
-                    <div
-                      className="fixed inset-0 z-[60]"
-                      onClick={() => setBranchPopoverOpen(false)}
-                    />
-                    <div className="absolute left-0 top-full mt-2 z-[61] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden"
-                      style={{ minWidth: '180px', boxShadow: '0 8px 30px rgba(0,0,0,0.12)' }}
-                    >
-                      <div className="px-3 py-2 border-b border-gray-50">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Sucursal</p>
-                      </div>
-                      <div className="py-1">
-                        {availableBranches.map(store => {
-                          const label = store.branchName
-                            ? store.branchName
-                            : (store.parentBusinessId ? 'Sucursal' : 'Matriz (Principal)')
-                          const isActive = store.id === (business?.id || effectiveBusinessId)
-                          return (
-                            <button
-                              key={store.id}
-                              type="button"
-                              onClick={() => {
-                                if (isActive) { setBranchPopoverOpen(false); return }
-                                setSelectedCategory('all')
-                                setManualOrderData(prev => ({
-                                  ...prev,
-                                  selectedProducts: [],
-                                  deliveryType: '',
-                                  selectedLocation: null,
-                                  total: 0,
-                                  selectedDelivery: null
-                                }))
-                                onBusinessChange?.(store.id)
-                                setBranchPopoverOpen(false)
-                              }}
-                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
-                                isActive
-                                  ? 'bg-gray-50 text-gray-900 font-medium'
-                                  : 'text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                isActive ? 'bg-gray-700' : 'bg-gray-200'
-                              }`} />
-                              <span className="truncate">{label}</span>
-                              {isActive && <i className="bi bi-check2 ml-auto text-gray-600 shrink-0"></i>}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </>
+              <button
+                type="button"
+                onClick={handleCycleStore}
+                title="Clic para cambiar a la siguiente tienda"
+                className="group flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 hover:bg-blue-50 active:bg-blue-100 border border-gray-200 hover:border-blue-200 rounded-full text-xs font-medium text-gray-700 hover:text-blue-700 transition-all max-w-[210px] shadow-sm"
+              >
+                <i className="bi bi-shop text-gray-500 group-hover:text-blue-600 shrink-0 transition-colors" style={{ fontSize: '11px' }}></i>
+                <span className="truncate">
+                  {(() => {
+                    const active = allAccessibleStores.find(b => b.id === (business?.id || effectiveBusinessId))
+                    if (!active) return 'Tienda'
+                    return active.branchName ? `${active.name} (${active.branchName})` : active.name
+                  })()}
+                </span>
+                {loadingBusinessProducts ? (
+                  <span className="inline-block h-2.5 w-2.5 rounded-full border border-gray-300 border-t-gray-500 animate-spin shrink-0"></span>
+                ) : (
+                  <i className="bi bi-arrow-repeat text-gray-400 group-hover:text-blue-500 group-hover:rotate-180 transition-transform duration-300 shrink-0 text-xs"></i>
                 )}
-              </div>
+              </button>
             )}
           </div>
           <button
@@ -2850,242 +2870,308 @@ export default function ManualOrderSidebar({
           style={{ overscrollBehavior: 'contain' }}
         >
 
-          {/* Búsqueda de cliente */}
+          {/* Búsqueda de cliente / Mesa */}
           <div className="mb-6">
-            {!clientFound ? (
-              <>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="block text-sm font-medium text-black">
-                    Teléfono del cliente
-                  </label>
-                  {!showNameSearchModal && (
-                    <button
-                      type="button"
-                      onClick={() => setShowNameSearchModal(true)}
-                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 px-2 py-1 rounded transition-colors"
-                    >
-                      <i className="bi bi-search me-1"></i>
-                      Buscar por nombre
-                    </button>
-                  )}
-                </div>
+            {(() => {
+              const isTableSelected = manualOrderData.customerName.trim().startsWith('Mesa ')
 
-                {/* Expansión de búsqueda por nombre */}
-                {showNameSearchModal && (
-                  <div className="mb-3 p-3 border border-blue-200 bg-blue-50 rounded-md relative z-20">
+              if (!clientFound || isTableSelected) {
+                return (
+                  <>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-medium text-blue-800">
-                        Búsqueda por nombre
+                      <label className="block text-sm font-medium text-black">
+                        Teléfono del cliente
                       </label>
-                      <button
-                        onClick={() => {
-                          setShowNameSearchModal(false)
-                          setNameSearchTerm('')
-                          setShowSearchResults(false)
-                        }}
-                        className="text-blue-500 hover:text-blue-700 p-1"
-                        type="button"
-                      >
-                        <i className="bi bi-x-lg"></i>
-                      </button>
-                    </div>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={nameSearchTerm}
-                        onChange={(e) => handleNameSearchDebounced(e.target.value)}
-                        placeholder="Escriba el nombre a buscar..."
-                        className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
-                        autoFocus
-                      />
-                      {searchingClient && nameSearchTerm && (
-                        <div className="absolute right-3 top-2.5">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                        </div>
+                      {!showNameSearchModal && !isTableSelected && (
+                        <button
+                          type="button"
+                          onClick={() => setShowNameSearchModal(true)}
+                          className="text-xs text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 px-2 py-1 rounded transition-colors"
+                        >
+                          <i className="bi bi-search me-1"></i>
+                          Buscar por nombre
+                        </button>
                       )}
-                      {/* Dropdown de resultados de búsqueda por nombre */}
-                      {showSearchResults && nameSearchTerm.length >= 2 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-64 overflow-y-auto">
-                          {searchResults.length > 0 ? (
-                            searchResults.map((client) => (
-                              <button
-                                key={client.id}
-                                onClick={() => {
-                                  handleSelectClient(client)
-                                  setShowNameSearchModal(false)
-                                  setNameSearchTerm('')
-                                }}
-                                className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
-                                type="button"
-                              >
-                                <p className="font-medium text-gray-900 flex items-center gap-1.5">
-                                  {client.nombres}
-                                  {client.telegramChatId && (
-                                    <i className="bi bi-patch-check-fill text-[#229ED9] text-xs shrink-0" title="Cliente con Telegram vinculado"></i>
-                                  )}
-                                  {client.notas && (
-                                    <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse" title={`Nota: ${client.notas}`}></i>
-                                  )}
-                                </p>
-                                <p className="text-xs text-gray-500">{client.celular}</p>
-                              </button>
-                            ))
-                          ) : (
-                            !searchingClient && (
-                              <div className="p-3 text-center text-sm text-gray-500">
-                                No se encontraron clientes
-                              </div>
-                            )
+                    </div>
+
+                    {/* Expansión de búsqueda por nombre */}
+                    {showNameSearchModal && !isTableSelected && (
+                      <div className="mb-3 p-3 border border-blue-200 bg-blue-50 rounded-md relative z-20">
+                        <div className="flex justify-between items-center mb-2">
+                          <label className="text-sm font-medium text-blue-800">
+                            Búsqueda por nombre
+                          </label>
+                          <button
+                            onClick={() => {
+                              setShowNameSearchModal(false)
+                              setNameSearchTerm('')
+                              setShowSearchResults(false)
+                            }}
+                            className="text-blue-500 hover:text-blue-700 p-1"
+                            type="button"
+                          >
+                            <i className="bi bi-x-lg"></i>
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={nameSearchTerm}
+                            onChange={(e) => handleNameSearchDebounced(e.target.value)}
+                            placeholder="Escriba el nombre a buscar..."
+                            className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            autoFocus
+                          />
+                          {searchingClient && nameSearchTerm && (
+                            <div className="absolute right-3 top-2.5">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                            </div>
+                          )}
+                          {/* Dropdown de resultados de búsqueda por nombre */}
+                          {showSearchResults && nameSearchTerm.length >= 2 && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                              {searchResults.length > 0 ? (
+                                searchResults.map((client) => (
+                                  <button
+                                    key={client.id}
+                                    onClick={() => {
+                                      handleSelectClient(client)
+                                      setShowNameSearchModal(false)
+                                      setNameSearchTerm('')
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
+                                    type="button"
+                                  >
+                                    <p className="font-medium text-gray-900 flex items-center gap-1.5">
+                                      {client.nombres}
+                                      {client.telegramChatId && (
+                                        <i className="bi bi-patch-check-fill text-[#229ED9] text-xs shrink-0" title="Cliente con Telegram vinculado"></i>
+                                      )}
+                                      {client.notas && (
+                                        <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse" title={`Nota: ${client.notas}`}></i>
+                                      )}
+                                    </p>
+                                    <p className="text-xs text-gray-500">{client.celular}</p>
+                                  </button>
+                                ))
+                              ) : (
+                                !searchingClient && (
+                                  <div className="p-3 text-center text-sm text-gray-500">
+                                    No se encontraron clientes
+                                  </div>
+                                )
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                      </div>
+                    )}
 
-                <div className="relative">
-                  <div className="relative">
-                    <input
-                      type="tel"
-                      value={manualOrderData.customerPhone}
-                      onChange={(e) => {
-                        const val = normalizePastedPhoneInput(e.target.value)
-                        setManualOrderData(prev => ({ ...prev, customerPhone: val }))
-                        handlePhoneSearchInstant(val)
-                      }}
-                      placeholder="Ej: 0912345678"
-                      className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono tracking-wide"
-                      onPaste={(e) => {
-                        e.preventDefault()
-                        const text = e.clipboardData.getData('text') || ''
-                        const normalizedPhone = normalizePastedPhoneInput(text)
-                        
-                        if (normalizedPhone) {
-                          setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
-                          handlePhoneSearchInstant(normalizedPhone)
-                        }
-                      }}
-                    />
-                    <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
-                      <button
-                        onClick={handlePasteFromClipboard}
-                        className="p-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors flex-shrink-0"
-                        type="button"
-                        title="Pegar desde portapapeles"
-                      >
-                        <i className="bi bi-clipboard"></i>
-                      </button>
-                      {searchingClient && !showNameSearchModal && (
-                        <div className="flex items-center justify-center w-6 h-6">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    <div className="flex items-center gap-2">
+                      {isTableSelected ? (
+                        /* Tarjeta de Mesa en la misma posición y tamaño exacto del campo de número */
+                        <div className="flex-1 h-10 px-3 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between transition-all">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-blue-900">
+                              {manualOrderData.customerName}
+                            </span>
+                            <span className="text-[11px] text-blue-600 font-medium hidden sm:inline">
+                              Consumo en local
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setClientFound(false)
+                              setTableNumber(0)
+                              setManualOrderData(prev => ({
+                                ...prev,
+                                customerId: '',
+                                customerPhone: '',
+                                customerName: '',
+                                customerNotes: '',
+                                deliveryType: ''
+                              }))
+                            }}
+                            className="p-1 text-blue-400 hover:text-blue-700 hover:bg-blue-100 rounded transition-colors flex items-center justify-center"
+                            title="Quitar mesa"
+                          >
+                            <i className="bi bi-x-lg text-xs"></i>
+                          </button>
+                        </div>
+                      ) : (
+                        /* Campo de número de teléfono */
+                        <div className="relative flex-1">
+                          <input
+                            type="tel"
+                            value={manualOrderData.customerPhone}
+                            onChange={(e) => {
+                              const val = normalizePastedPhoneInput(e.target.value)
+                              setManualOrderData(prev => ({ ...prev, customerPhone: val }))
+                              handlePhoneSearchInstant(val)
+                            }}
+                            placeholder="Ej: 0912345678"
+                            className="w-full h-10 px-3 py-2 pr-12 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono tracking-wide text-sm"
+                            onPaste={(e) => {
+                              e.preventDefault()
+                              const text = e.clipboardData.getData('text') || ''
+                              const normalizedPhone = normalizePastedPhoneInput(text)
+                              
+                              if (normalizedPhone) {
+                                setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
+                                handlePhoneSearchInstant(normalizedPhone)
+                              }
+                            }}
+                          />
+                          <div className="absolute right-0 top-0 h-full flex items-center pr-2 space-x-1">
+                            <button
+                              onClick={handlePasteFromClipboard}
+                              className="p-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors flex-shrink-0"
+                              type="button"
+                              title="Pegar desde portapapeles"
+                            >
+                              <i className="bi bi-clipboard"></i>
+                            </button>
+                            {searchingClient && !showNameSearchModal && (
+                              <div className="flex items-center justify-center w-6 h-6">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
+
+                      {/* Botón Mesa: Mismo tamaño y posición, en azul si está asignada la mesa */}
+                      <button
+                        type="button"
+                        onClick={handleCycleTable}
+                        title={isTableSelected ? `Cambiar a siguiente mesa (${manualOrderData.customerName})` : 'Asignar mesa'}
+                        className={`h-10 px-3 rounded-md transition-all flex items-center justify-center border flex-shrink-0 ${
+                          isTableSelected
+                            ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white border-blue-600 shadow-sm'
+                            : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        <svg className={`w-5 h-5 ${isTableSelected ? 'text-white' : 'text-gray-700'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="8" width="16" height="3" rx="1" />
+                          <path d="M6 11v7" />
+                          <path d="M18 11v7" />
+                          <path d="M9 8V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
+                    {!isTableSelected && showCreateClient && manualOrderData.customerPhone.length >= 9 && (
+                      <div className="mt-3">
+                        <input
+                          type="text"
+                          value={manualOrderData.customerName}
+                          onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
+                          placeholder="Nombre del cliente"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                    )}
+
+                    {!isTableSelected && showCreateClient && manualOrderData.customerPhone.length >= 9 && (
+                      <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                        <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado. Llene el nombre para crearlo.</p>
+                        <button
+                          onClick={handleCreateClient}
+                          disabled={creatingClient || !manualOrderData.customerName}
+                          className="w-full bg-blue-600 text-white px-3 py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                          type="button"
+                        >
+                          {creatingClient ? 'Creando...' : 'Crear Cliente'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )
+              }
+
+              /* Tarjeta de cliente normal registrado */
+              return (
+                <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-800 flex items-center gap-1.5">
+                        <span className="font-medium">{manualOrderData.customerName}</span>
+                        {Boolean(manualOrderData.customerTelegramChatId) && (
+                          <i className="bi bi-patch-check-fill text-[#229ED9] text-xs shrink-0" title="Cliente con Telegram vinculado"></i>
+                        )}
+                        {manualOrderData.customerNotes && (
+                          <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" title={`Nota: ${manualOrderData.customerNotes}`}></i>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        {manualOrderData.customerPhone && (
+                          <p className="text-xs text-gray-500 opacity-85 font-mono tracking-wide">
+                            {manualOrderData.customerPhone}
+                          </p>
+                        )}
+                        {userCredits.available > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <i className="bi bi-wallet2"></i> Saldo: ${userCredits.available.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleViewClientInfo()
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-center"
+                        title="Ver historial y datos"
+                      >
+                        <i className="bi bi-eye text-base"></i>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleEditClient()
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-center"
+                        title="Editar cliente"
+                      >
+                        <i className="bi bi-pencil text-base"></i>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setClientFound(false)
+                          setShowCreateClient(false)
+                          setTableNumber(0)
+                          setManualOrderData(prev => ({
+                            ...prev,
+                            customerId: '',
+                            customerPhone: '',
+                            customerName: '',
+                            customerNotes: '',
+                            customerLocations: [],
+                            selectedLocation: null
+                          }))
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center"
+                        title="Cambiar cliente"
+                      >
+                        <i className="bi bi-x-lg text-base"></i>
+                      </button>
                     </div>
                   </div>
                 </div>
+              )
+            })()}
+          </div>
 
-                {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
-                {showCreateClient && manualOrderData.customerPhone.length >= 9 && (
-                  <div className="mt-3">
-                    <input
-                      type="text"
-                      value={manualOrderData.customerName}
-                      onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
-                      placeholder="Nombre del cliente"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                )}
-
-                {showCreateClient && manualOrderData.customerPhone.length >= 9 && (
-                  <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                    <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado. Llene el nombre para crearlo.</p>
-                    <button
-                      onClick={handleCreateClient}
-                      disabled={creatingClient || !manualOrderData.customerName}
-                      className="w-full bg-blue-600 text-white px-3 py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
-                      type="button"
-                    >
-                      {creatingClient ? 'Creando...' : 'Crear Cliente'}
-                    </button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md transition-colors">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-800 flex items-center gap-1.5">
-                      <span className="font-medium">{manualOrderData.customerName}</span>
-                      {Boolean(manualOrderData.customerTelegramChatId) && (
-                        <i className="bi bi-patch-check-fill text-[#229ED9] text-xs shrink-0" title="Cliente con Telegram vinculado"></i>
-                      )}
-                      {manualOrderData.customerNotes && (
-                        <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" title={`Nota: ${manualOrderData.customerNotes}`}></i>
-                      )}
-                    </p>
-                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                      {manualOrderData.customerPhone && (
-                        <p className="text-xs text-gray-500 opacity-85 font-mono tracking-wide">
-                          {manualOrderData.customerPhone}
-                        </p>
-                      )}
-                      {userCredits.available > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          <i className="bi bi-wallet2"></i> Saldo: ${userCredits.available.toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleViewClientInfo()
-                      }}
-                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-center"
-                      title="Ver historial y datos"
-                    >
-                      <i className="bi bi-eye text-base"></i>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEditClient()
-                      }}
-                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-center"
-                      title="Editar cliente"
-                    >
-                      <i className="bi bi-pencil text-base"></i>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setClientFound(false)
-                        setShowCreateClient(false)
-                        setManualOrderData(prev => ({
-                          ...prev,
-                          customerId: '',
-                          customerPhone: '',
-                          customerName: '',
-                          customerNotes: '',
-                          customerLocations: [],
-                          selectedLocation: null
-                        }))
-                      }}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center"
-                      title="Cambiar cliente"
-                    >
-                      <i className="bi bi-x-lg text-base"></i>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
+          {/* Productos - selección */}
+          <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-black">Productos</h3>
               {setActiveTab && setProfileSubTab && (
@@ -3211,77 +3297,101 @@ export default function ManualOrderSidebar({
             )}
           </div>
 
-          {/* Productos seleccionados - siempre visible */
-          }
+          {/* Productos seleccionados - siempre visible */}
           {manualOrderData.selectedProducts.length > 0 && (
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-black mb-3">Productos seleccionados</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-black">Productos seleccionados</h3>
+                {new Set(manualOrderData.selectedProducts.map(p => p.originalBusinessId || effectiveBusinessId).filter(Boolean)).size > 1 && (
+                  <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                    Orden Multi-tienda ({new Set(manualOrderData.selectedProducts.map(p => p.originalBusinessId || effectiveBusinessId).filter(Boolean)).size} tiendas)
+                  </span>
+                )}
+              </div>
               <div className="space-y-2">
-                {manualOrderData.selectedProducts.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">
-                        {item.name}
-                        {item.variant && <span className="text-xs text-blue-600 ml-2">({item.variant})</span>}
-                      </p>
-                      <p className="text-xs text-gray-500">${item.price} c/u</p>
+                {manualOrderData.selectedProducts.map((item, index) => {
+                  const itemStoreId = item.originalBusinessId || effectiveBusinessId
+                  const isMultiStoreOrder = new Set(manualOrderData.selectedProducts.map(p => p.originalBusinessId || effectiveBusinessId).filter(Boolean)).size > 1
+
+                  return (
+                    <div key={index} className="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-100 rounded-md">
+                      <div className="flex-1 min-w-0 pr-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-sm font-medium text-gray-900 leading-tight">
+                            {item.name}
+                            {item.variant && <span className="text-xs text-blue-600 ml-1.5 font-normal">({item.variant})</span>}
+                          </p>
+                          {isMultiStoreOrder && item.originalBusinessName && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                              {item.originalBusinessName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">${item.price} c/u</p>
+                      </div>
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <button
+                          onClick={() => updateProductQuantity(index, item.quantity - 1)}
+                          className="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded-full flex items-center justify-center transition-colors"
+                          type="button"
+                        >
+                          <i className="bi bi-dash text-xs"></i>
+                        </button>
+                        <span className="text-sm font-medium w-6 text-center">{item.quantity}</span>
+                        <button
+                          onClick={() => updateProductQuantity(index, item.quantity + 1)}
+                          className="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded-full flex items-center justify-center transition-colors"
+                          type="button"
+                        >
+                          <i className="bi bi-plus text-xs"></i>
+                        </button>
+                        <button
+                          onClick={() => removeProduct(index)}
+                          className="w-6 h-6 bg-red-100 hover:bg-red-200 text-red-600 rounded-full flex items-center justify-center ml-1 transition-colors"
+                          type="button"
+                          title="Eliminar producto"
+                        >
+                          <i className="bi bi-trash text-xs"></i>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => updateProductQuantity(index, item.quantity - 1)}
-                        className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center"
-                      >
-                        <i className="bi bi-dash text-xs"></i>
-                      </button>
-                      <span className="text-sm font-medium w-8 text-center">{item.quantity}</span>
-                      <button
-                        onClick={() => updateProductQuantity(index, item.quantity + 1)}
-                        className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center"
-                      >
-                        <i className="bi bi-plus text-xs"></i>
-                      </button>
-                      <button
-                        onClick={() => removeProduct(index)}
-                        className="w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center ml-2"
-                      >
-                        <i className="bi bi-trash text-xs"></i>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
 
-          {/* Tipo de entrega - siempre visible */}
-          <div className="mb-6">
-            <h3 className="text-sm font-medium text-black mb-3">Tipo de entrega</h3>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setManualOrderData(prev => ({ ...prev, deliveryType: 'pickup' }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.deliveryType === 'pickup'
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <i className="bi bi-shop text-lg"></i>
-                <span className="text-xs font-medium">Recoger en tienda</span>
-              </button>
+          {/* Tipo de entrega - oculto si es mesa, autoasignado a pickup */}
+          {!manualOrderData.customerName.trim().startsWith('Mesa ') && (
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-black mb-3">Tipo de entrega</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setManualOrderData(prev => ({ ...prev, deliveryType: 'pickup' }))}
+                  className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.deliveryType === 'pickup'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                >
+                  <i className="bi bi-shop text-lg"></i>
+                  <span className="text-xs font-medium">Recoger en tienda</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleDeliverySelect}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.deliveryType === 'delivery'
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <i className="bi bi-scooter text-lg"></i>
-                <span className="text-xs font-medium">Delivery</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleDeliverySelect}
+                  className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.deliveryType === 'delivery'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                >
+                  <i className="bi bi-scooter text-lg"></i>
+                  <span className="text-xs font-medium">Delivery</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Ubicaciones del cliente */}
           {manualOrderData.deliveryType === 'delivery' && (

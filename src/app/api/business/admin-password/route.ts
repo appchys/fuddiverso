@@ -3,7 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore'
 import { ensureAdminAuth, ensureAdminDb } from '@/lib/firebase-admin'
 import type { BusinessAdministrator } from '@/types'
 
-type AdminRole = 'admin' | 'manager'
+type AdminRole = 'admin' | 'manager' | 'atencion_cliente'
 
 interface RequestBody {
   businessId?: string
@@ -16,8 +16,12 @@ interface RequestBody {
 const defaultPermissions: BusinessAdministrator['permissions'] = {
   manageProducts: true,
   manageOrders: true,
+  deleteOrders: true,
+  managePromotions: false,
   manageAdmins: false,
   viewReports: true,
+  manageInventory: false,
+  viewFinances: false,
   editBusiness: false
 }
 
@@ -103,20 +107,20 @@ export async function POST(request: NextRequest) {
       createdAuthUser = true
     }
 
-    const role = body.role || 'admin'
-    const permissions = body.permissions || defaultPermissions
     const existingAdmin = administrators.find(admin => admin.email.toLowerCase() === email)
+    const role = body.role || existingAdmin?.role || 'admin'
+    const permissions = body.permissions || existingAdmin?.permissions || defaultPermissions
     const updatedAdmin: BusinessAdministrator = {
       uid: targetUser.uid,
       email,
-      role: existingAdmin?.role || role,
+      role,
       addedAt: existingAdmin?.addedAt || new Date(),
       addedBy: existingAdmin?.addedBy || requesterUid,
-      permissions: existingAdmin?.permissions || permissions
+      permissions
     }
 
     const updatedAdmins = existingAdmin
-      ? administrators.map(admin => admin.email.toLowerCase() === email ? { ...admin, uid: targetUser.uid } : admin)
+      ? administrators.map(admin => admin.email.toLowerCase() === email ? { ...admin, uid: targetUser.uid, role, permissions } : admin)
       : [...administrators, updatedAdmin]
 
     await businessRef.update({

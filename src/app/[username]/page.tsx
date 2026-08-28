@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts, getBranchesForBusiness } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
@@ -418,10 +418,55 @@ function RestaurantContent() {
           hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[])
         ])
 
+        // Si algún producto tiene autoHideByStock: true, obtenemos el resumen de stock para filtrar
+        const hasAutoHide = productsData.some(p => p.autoHideByStock)
+        const stockMap = new Map<string, IngredientStockSummary>()
+        if (hasAutoHide) {
+          try {
+            const stockSummary = await getIngredientStockSummary(updatedBusiness.id)
+            stockSummary.forEach(item => {
+              if (item.ingredientName) {
+                stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+              }
+            })
+          } catch (e) {
+            console.error('Error cargando stock de ingredientes para autoHideByStock en tienda pública:', e)
+          }
+        }
+
+        const isProductInStockPublic = (product: Product) => {
+          if (!product.autoHideByStock) return product.isAvailable !== false
+          // Si autoHideByStock es true, verificar ingredientes
+          const norm = (name: string) => (name || '').toLowerCase().trim()
+          const allIngredients: { name: string; quantity: number }[] = []
+          if (product.ingredients && product.ingredients.length > 0) {
+            product.ingredients.forEach(ing => {
+              if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
+            })
+          }
+          if (product.variants && product.variants.length > 0) {
+            product.variants.forEach(variant => {
+              if (variant.ingredients && variant.ingredients.length > 0) {
+                variant.ingredients.forEach(ing => {
+                  if (ing.name) allIngredients.push({ name: ing.name, quantity: Number(ing.quantity) || 1 })
+                })
+              }
+            })
+          }
+
+          for (const ing of allIngredients) {
+            const item = stockMap.get(norm(ing.name))
+            if (item && item.isStockLimited && item.currentStock <= 0) {
+              return false // Agotado
+            }
+          }
+          return true
+        }
+
         const storePackagingFee = getPackagingFee(updatedBusiness)
         let availableProducts: any[] = productsData
           .map(product => ({ ...product, packagingFee: storePackagingFee }))
-          .filter(product => product.isAvailable)
+          .filter(product => isProductInStockPublic(product))
 
         // Process shared products if any were fetched
         if (sharedProducts.length > 0) {

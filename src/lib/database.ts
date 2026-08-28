@@ -718,7 +718,7 @@ export async function deleteBusiness(businessId: string): Promise<void> {
 export async function addBusinessAdministrator(
   businessId: string,
   adminEmail: string,
-  role: 'admin' | 'manager',
+  role: 'admin' | 'manager' | 'atencion_cliente',
   permissions: any,
   addedByUid: string
 ) {
@@ -764,6 +764,49 @@ export async function addBusinessAdministrator(
     return true
   } catch (error) {
     console.error('Error adding administrator:', error)
+    throw error
+  }
+}
+
+export async function updateBusinessAdministrator(
+  businessId: string,
+  adminEmail: string,
+  role: 'admin' | 'manager' | 'atencion_cliente',
+  permissions: any
+) {
+  try {
+    const businessRef = doc(db, 'businesses', businessId)
+    const businessDoc = await getDoc(businessRef)
+
+    if (!businessDoc.exists()) {
+      throw new Error('Negocio no encontrado')
+    }
+
+    const businessData = businessDoc.data() as Business
+    const currentAdmins = businessData.administrators || []
+
+    const updatedAdmins = currentAdmins.map(admin => {
+      if (admin.email.toLowerCase() === adminEmail.toLowerCase()) {
+        return {
+          ...admin,
+          role,
+          permissions
+        }
+      }
+      return admin
+    })
+
+    const adminEmails = updatedAdmins.map(admin => admin.email)
+
+    await updateDoc(businessRef, {
+      administrators: updatedAdmins,
+      adminEmails,
+      updatedAt: serverTimestamp()
+    })
+
+    return true
+  } catch (error) {
+    console.error('Error updating administrator:', error)
     throw error
   }
 }
@@ -4182,6 +4225,9 @@ export interface IngredientLibraryItem {
   unitCost: number
   lastUsed: Date
   usageCount: number
+  isStockLimited?: boolean
+  availableStock?: number
+  minStock?: number
 }
 
 /**
@@ -4201,7 +4247,10 @@ export async function getIngredientLibrary(businessId: string): Promise<Ingredie
         name: data.name,
         unitCost: data.unitCost,
         lastUsed: toSafeDate(data.lastUsed),
-        usageCount: data.usageCount || 0
+        usageCount: data.usageCount || 0,
+        isStockLimited: data.isStockLimited ?? false,
+        availableStock: data.availableStock !== undefined ? Number(data.availableStock) : undefined,
+        minStock: data.minStock !== undefined ? Number(data.minStock) : 0
       })
     })
 
@@ -4257,7 +4306,7 @@ export async function addOrUpdateIngredientInLibrary(
 export async function updateIngredientLibraryItem(
   businessId: string,
   ingredientId: string,
-  data: { name?: string; unitCost?: number }
+  data: Partial<IngredientLibraryItem>
 ): Promise<void> {
   try {
     const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', ingredientId)
@@ -4267,6 +4316,77 @@ export async function updateIngredientLibraryItem(
     })
   } catch (error) {
     console.error('Error updating ingredient library item:', error)
+    throw error
+  }
+}
+
+/**
+ * Guardar la configuración de stock de un ingrediente (Ilimitado / Limitado con disponibilidad y mínimo)
+ */
+export async function saveIngredientStockConfig(
+  businessId: string,
+  ingredientName: string,
+  libraryId: string | undefined,
+  config: {
+    isStockLimited: boolean
+    minStock: number
+    targetStock?: number
+    currentStock?: number
+  }
+): Promise<void> {
+  try {
+    let targetLibraryId = libraryId
+
+    if (!targetLibraryId) {
+      const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
+      const q = query(libraryRef, where('name', '==', ingredientName.trim()))
+      const snapshot = await getDocs(q)
+      if (!snapshot.empty) {
+        targetLibraryId = snapshot.docs[0].id
+      } else {
+        const newDoc = await addDoc(libraryRef, {
+          name: ingredientName.trim(),
+          unitCost: 0,
+          isStockLimited: config.isStockLimited,
+          minStock: config.minStock,
+          lastUsed: serverTimestamp(),
+          usageCount: 1,
+          createdAt: serverTimestamp()
+        })
+        targetLibraryId = newDoc.id
+      }
+    }
+
+    if (targetLibraryId) {
+      const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', targetLibraryId)
+      await updateDoc(docRef, {
+        isStockLimited: config.isStockLimited,
+        minStock: config.minStock,
+        lastUsed: serverTimestamp()
+      })
+    }
+
+    // Si es limitado y se especificó un targetStock que difiere del currentStock, registramos un movimiento de ajuste
+    if (config.isStockLimited && config.targetStock !== undefined && config.currentStock !== undefined) {
+      const diff = config.targetStock - config.currentStock
+      if (Math.abs(diff) > 0.0001) {
+        const normalize = (name: string) => name.trim().toLowerCase()
+        const ingredientId = `ing_${normalize(ingredientName).replace(/\s+/g, '_')}`
+        const today = new Date().toISOString().split('T')[0]
+
+        await recordStockMovement({
+          ingredientId,
+          ingredientName: ingredientName.trim(),
+          type: 'adjustment',
+          quantity: diff,
+          date: today,
+          notes: `Configuración de stock inicial (${config.targetStock})`,
+          businessId
+        })
+      }
+    }
+  } catch (error) {
+    console.error('Error saving ingredient stock config:', error)
     throw error
   }
 }
@@ -6123,6 +6243,8 @@ export interface IngredientStockSummary {
   currentStock: number
   unit: string
   unitCost?: number
+  isStockLimited?: boolean
+  minStock?: number
   movements: IngredientStockMovement[]
 }
 
@@ -6273,6 +6395,8 @@ export async function getIngredientStockSummary(
         currentStock: 0,
         unit: 'unidad',
         unitCost: item.unitCost,
+        isStockLimited: item.isStockLimited ?? false,
+        minStock: item.minStock ?? 0,
         movements: []
       })
     })
@@ -6289,6 +6413,8 @@ export async function getIngredientStockSummary(
           ingredientName: m.ingredientName.trim(),
           currentStock: 0,
           unit: 'unidad', // Valor por defecto
+          isStockLimited: false,
+          minStock: 0,
           movements: []
         })
       }

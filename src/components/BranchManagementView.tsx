@@ -7,7 +7,7 @@ import { getBranchesForBusiness, createBusinessBranch, unlinkBusinessBranch } fr
 interface BranchManagementViewProps {
   currentBusiness: Business
   onSwitchBusiness?: (businessId: string) => void
-  userRole?: 'owner' | 'admin' | 'manager' | null
+  userRole?: 'owner' | 'admin' | 'manager' | 'atencion_cliente' | null
 }
 
 export default function BranchManagementView({

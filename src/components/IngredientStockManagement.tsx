@@ -10,6 +10,7 @@ import {
   IngredientStockSummary,
   getIngredientLibrary,
   updateIngredientLibraryItem,
+  saveIngredientStockConfig,
   addFavoriteIngredient,
   removeFavoriteIngredient,
   getFavoriteIngredients
@@ -38,6 +39,16 @@ export default function IngredientStockManagement({ business }: IngredientStockM
     name: '',
     unitCost: ''
   })
+
+  // Estados para Modal de Configuración de Stock (Limitado / Ilimitado)
+  const [showStockConfigModal, setShowStockConfigModal] = useState(false)
+  const [stockConfigIngredient, setStockConfigIngredient] = useState<IngredientStockSummary | null>(null)
+  const [stockConfigData, setStockConfigData] = useState({
+    isStockLimited: false,
+    availableStock: '',
+    minStock: ''
+  })
+  const [savingStockConfig, setSavingStockConfig] = useState(false)
 
   const [newMovement, setNewMovement] = useState({
     ingredientName: '',
@@ -238,6 +249,45 @@ export default function IngredientStockManagement({ business }: IngredientStockM
     }
   }
 
+  const openStockConfigForIngredient = (ing: IngredientStockSummary, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setStockConfigIngredient(ing)
+    setStockConfigData({
+      isStockLimited: ing.isStockLimited ?? false,
+      availableStock: Math.round(ing.currentStock).toString(),
+      minStock: (ing.minStock ?? 0).toString()
+    })
+    setShowStockConfigModal(true)
+  }
+
+  const handleSaveStockConfig = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!business?.id || !stockConfigIngredient) return
+
+    setSavingStockConfig(true)
+    try {
+      await saveIngredientStockConfig(
+        business.id,
+        stockConfigIngredient.ingredientName,
+        stockConfigIngredient.libraryId,
+        {
+          isStockLimited: stockConfigData.isStockLimited,
+          minStock: parseFloat(stockConfigData.minStock) || 0,
+          targetStock: stockConfigData.isStockLimited ? (parseFloat(stockConfigData.availableStock) || 0) : undefined,
+          currentStock: stockConfigIngredient.currentStock
+        }
+      )
+      setShowStockConfigModal(false)
+      await loadStockSummary()
+      if (selectedIngredient) await loadIngredientDetails()
+    } catch (error) {
+      console.error('Error guardando configuración de stock:', error)
+      alert('Error al guardar la configuración de stock')
+    } finally {
+      setSavingStockConfig(false)
+    }
+  }
+
   const selectedIngredientData = useMemo(() => {
     return stockSummary.find(s => s.ingredientId === selectedIngredient)
   }, [stockSummary, selectedIngredient])
@@ -268,7 +318,7 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                   className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative cursor-pointer ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
                     }`}
                 >
-                                     <div className="flex-1 pr-4">
+                  <div className="flex-1 pr-4">
                     <p className={`font-bold text-sm ${selectedIngredient === ing.ingredientId ? 'text-red-700' : 'text-gray-900'}`}>
                       {ing.ingredientName}
                     </p>
@@ -278,9 +328,25 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                   </div>
 
                   <div className={`text-right ${selectedIngredient === ing.ingredientId ? 'text-red-600' : 'text-gray-900'} flex items-center gap-2`}>
-                    <div>
-                      <p className="text-sm font-bold">{Math.round(ing.currentStock)}</p>
-                      <p className="text-[10px] opacity-70 uppercase font-bold">{ing.unit || 'uds'}</p>
+                    <div className="flex flex-col items-end">
+                      {ing.isStockLimited ? (
+                        <>
+                          <div className="flex items-center gap-1">
+                            <p className={`text-sm font-black ${ing.currentStock <= (ing.minStock ?? 0) ? 'text-amber-600' : ''}`}>
+                              {Math.round(ing.currentStock)}
+                            </p>
+                            {ing.currentStock <= (ing.minStock ?? 0) && (
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Stock en o por debajo del mínimo"></span>
+                            )}
+                          </div>
+                          <p className="text-[10px] opacity-70 uppercase font-bold">{ing.unit || 'uds'}</p>
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold">
+                          <i className="bi bi-infinity text-xs"></i>
+                          Ilimitado
+                        </span>
+                      )}
                     </div>
 
                     {/* Action Buttons Container */}
@@ -308,7 +374,18 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                         </button>
 
                         {openMenuId === ing.ingredientId && (
-                          <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[140px] z-50">
+                          <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[170px] z-50">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openStockConfigForIngredient(ing, e)
+                                setOpenMenuId(null)
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-2 transition-colors font-medium"
+                            >
+                              <i className="bi bi-sliders text-rose-500"></i>
+                              Configurar stock
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -356,7 +433,7 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                       className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative cursor-pointer ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
                         }`}
                     >
-                                     <div className="flex-1 pr-4">
+                      <div className="flex-1 pr-4">
                         <p className={`font-bold text-sm ${selectedIngredient === ing.ingredientId ? 'text-red-700' : 'text-gray-900'}`}>
                           {ing.ingredientName}
                         </p>
@@ -366,9 +443,25 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                       </div>
 
                       <div className={`text-right ${selectedIngredient === ing.ingredientId ? 'text-red-600' : 'text-gray-900'} flex items-center gap-2`}>
-                        <div>
-                          <p className="text-sm font-bold">{Math.round(ing.currentStock)}</p>
-                          <p className="text-[10px] opacity-70 uppercase font-bold">{ing.unit || 'uds'}</p>
+                        <div className="flex flex-col items-end">
+                          {ing.isStockLimited ? (
+                            <>
+                              <div className="flex items-center gap-1">
+                                <p className={`text-sm font-black ${ing.currentStock <= (ing.minStock ?? 0) ? 'text-amber-600' : ''}`}>
+                                  {Math.round(ing.currentStock)}
+                                </p>
+                                {ing.currentStock <= (ing.minStock ?? 0) && (
+                                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Stock en o por debajo del mínimo"></span>
+                                )}
+                              </div>
+                              <p className="text-[10px] opacity-70 uppercase font-bold">{ing.unit || 'uds'}</p>
+                            </>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold">
+                              <i className="bi bi-infinity text-xs"></i>
+                              Ilimitado
+                            </span>
+                          )}
                         </div>
 
                         {/* Action Buttons Container */}
@@ -396,7 +489,18 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                             </button>
 
                             {openMenuId === ing.ingredientId && (
-                              <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[140px] z-50">
+                              <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[170px] z-50">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openStockConfigForIngredient(ing, e)
+                                    setOpenMenuId(null)
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-2 transition-colors font-medium"
+                                >
+                                  <i className="bi bi-sliders text-rose-500"></i>
+                                  Configurar stock
+                                </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
@@ -538,6 +642,167 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                   className="w-full bg-red-600 text-white px-8 py-4 rounded-xl font-bold uppercase text-xs hover:bg-red-700 shadow-lg shadow-red-100 transition-all active:scale-95"
                 >
                   Guardar Movimiento
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Configurar Stock (Ilimitado / Limitado) */}
+      {showStockConfigModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden border border-white/20">
+            <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/30">
+              <div>
+                <h3 className="text-2xl font-black text-gray-900 tracking-tight">Configurar Stock</h3>
+                <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mt-1">
+                  {stockConfigIngredient?.ingredientName || 'Insumo'}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowStockConfigModal(false)}
+                className="w-10 h-10 flex items-center justify-center rounded-2xl hover:bg-gray-100 text-gray-400 transition-colors"
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStockConfig} className="p-8 space-y-6">
+              {/* Selector de Tipo de Stock */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Tipo de Control</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Opción Ilimitado */}
+                  <button
+                    type="button"
+                    onClick={() => setStockConfigData({ ...stockConfigData, isStockLimited: false })}
+                    className={`p-4 rounded-2xl border text-left transition-all flex flex-col gap-2 ${
+                      !stockConfigData.isStockLimited
+                        ? 'border-emerald-500 bg-emerald-50/50 shadow-sm ring-2 ring-emerald-500/20'
+                        : 'border-gray-200 bg-gray-50/50 hover:bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <i className={`bi bi-infinity text-xl ${!stockConfigData.isStockLimited ? 'text-emerald-600' : 'text-gray-400'}`}></i>
+                      {!stockConfigData.isStockLimited && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      )}
+                    </div>
+                    <div>
+                      <p className={`text-sm font-black ${!stockConfigData.isStockLimited ? 'text-emerald-900' : 'text-gray-700'}`}>
+                        Ilimitado
+                      </p>
+                      <p className="text-[10px] font-medium text-gray-500 leading-tight mt-0.5">
+                        Por defecto. Sin tope.
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Opción Limitado */}
+                  <button
+                    type="button"
+                    onClick={() => setStockConfigData({ ...stockConfigData, isStockLimited: true })}
+                    className={`p-4 rounded-2xl border text-left transition-all flex flex-col gap-2 ${
+                      stockConfigData.isStockLimited
+                        ? 'border-rose-500 bg-rose-50/50 shadow-sm ring-2 ring-rose-500/20'
+                        : 'border-gray-200 bg-gray-50/50 hover:bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <i className={`bi bi-box-seam text-lg ${stockConfigData.isStockLimited ? 'text-rose-600' : 'text-gray-400'}`}></i>
+                      {stockConfigData.isStockLimited && (
+                        <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                      )}
+                    </div>
+                    <div>
+                      <p className={`text-sm font-black ${stockConfigData.isStockLimited ? 'text-rose-900' : 'text-gray-700'}`}>
+                        Limitado
+                      </p>
+                      <p className="text-[10px] font-medium text-gray-500 leading-tight mt-0.5">
+                        Control con alertas.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Campos condicionales cuando es Limitado */}
+              {stockConfigData.isStockLimited && (
+                <div className="space-y-4 pt-2 border-t border-gray-100 animate-in slide-in-from-top-2 duration-300">
+                  {/* Stock Disponible */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center ml-1">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                        Stock Disponible Actual
+                      </label>
+                      <span className="text-[10px] font-bold text-rose-500">
+                        {stockConfigIngredient?.unit || 'uds'}
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required={stockConfigData.isStockLimited}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-gray-900 font-bold focus:bg-white focus:border-rose-500 transition-all outline-none"
+                      placeholder="0"
+                      value={stockConfigData.availableStock}
+                      onChange={e => setStockConfigData({ ...stockConfigData, availableStock: e.target.value })}
+                    />
+                    <p className="text-[10px] text-gray-400 font-medium ml-1">
+                      Cantidad de unidades disponibles para este ingrediente.
+                    </p>
+                  </div>
+
+                  {/* Stock Mínimo */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center ml-1">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                        Stock Mínimo (Alerta)
+                      </label>
+                      <span className="text-[10px] font-bold text-amber-500">
+                        Aviso
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required={stockConfigData.isStockLimited}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-gray-900 font-bold focus:bg-white focus:border-rose-500 transition-all outline-none"
+                      placeholder="0"
+                      value={stockConfigData.minStock}
+                      onChange={e => setStockConfigData({ ...stockConfigData, minStock: e.target.value })}
+                    />
+                    <p className="text-[10px] text-gray-400 font-medium ml-1">
+                      El sistema alertará cuando las existencias alcancen o bajen de esta cantidad.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Botones de acción */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowStockConfigModal(false)}
+                  disabled={savingStockConfig}
+                  className="w-1/3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-xl text-xs uppercase tracking-wider transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingStockConfig}
+                  className="flex-1 bg-gradient-to-r from-rose-500 to-red-600 text-white font-black py-4 rounded-xl text-xs uppercase tracking-wider hover:from-rose-600 hover:to-red-700 shadow-lg shadow-rose-500/25 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {savingStockConfig ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>Guardar Configuración</span>
+                  )}
                 </button>
               </div>
             </form>
