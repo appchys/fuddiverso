@@ -53,6 +53,7 @@ import {
   Settlement
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
+import { logDebug } from './debug-log'
 
 const NEW_BUSINESS_DEFAULT_COMMISSION_RATE = 10
 const NEW_BUSINESS_DEFAULT_COMMISSION_TYPE = 'fuddi_assumed_by_customer' as const
@@ -1410,6 +1411,32 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       updatedAt: serverTimestamp()
     }
 
+    // Asegurar que timing.scheduledDate sea un Timestamp de Firestore nativo si está presente
+    if (standardizedOrder.timing?.scheduledDate) {
+      const rawSd = standardizedOrder.timing.scheduledDate
+      if (!(rawSd instanceof Timestamp)) {
+        if (rawSd instanceof Date) {
+          standardizedOrder.timing.scheduledDate = Timestamp.fromDate(rawSd)
+        } else if (rawSd && typeof rawSd === 'object' && typeof rawSd.seconds === 'number') {
+          standardizedOrder.timing.scheduledDate = new Timestamp(rawSd.seconds, rawSd.nanoseconds || 0)
+        } else if (rawSd && typeof rawSd.toDate === 'function') {
+          standardizedOrder.timing.scheduledDate = Timestamp.fromDate(rawSd.toDate())
+        } else if (typeof rawSd === 'string') {
+          const dateMatch = rawSd.match(/^(\d{4})-(\d{2})-(\d{2})/)
+          if (dateMatch) {
+            const [, y, m, d] = dateMatch.map(Number)
+            const [h, min] = (standardizedOrder.timing.scheduledTime || '00:00').split(':').map(Number)
+            standardizedOrder.timing.scheduledDate = Timestamp.fromDate(new Date(y, (m || 1) - 1, d || 1, h || 0, min || 0))
+          } else {
+            const parsed = new Date(rawSd)
+            if (!isNaN(parsed.getTime())) {
+              standardizedOrder.timing.scheduledDate = Timestamp.fromDate(parsed)
+            }
+          }
+        }
+      }
+    }
+
     // Si es una orden manual, asegurarse que no tenga comisión y tenga la estructura de statusHistory
     if (standardizedOrder.createdByAdmin) {
       if (Array.isArray(standardizedOrder.items)) {
@@ -1452,6 +1479,21 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
     const shortId = generateShortOrderCode(6)
     const docRef = doc(db, 'orders', shortId)
     await setDoc(docRef, standardizedOrder)
+
+    // Registrar log persistente en debug_logs
+    logDebug('order_creation', `Orden creada en Firestore: ${shortId}`, {
+      orderId: shortId,
+      businessId: standardizedOrder.businessId,
+      createdByAdmin: standardizedOrder.createdByAdmin,
+      timing: standardizedOrder.timing,
+      customerPhone: standardizedOrder.customer?.phone,
+      deliveryType: standardizedOrder.delivery?.type,
+      total: standardizedOrder.total
+    }, {
+      businessId: standardizedOrder.businessId,
+      orderId: shortId,
+      level: 'info'
+    }).catch(() => {})
 
     // Registrar o verificar automáticamente que el cliente exista en la colección 'clients'
     try {

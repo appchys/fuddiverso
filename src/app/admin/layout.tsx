@@ -113,6 +113,7 @@ function AdminLayoutContent({
     { href: '/admin/stores', label: 'Configuración Tiendas', icon: 'bi-shop' },
     { href: '/admin/coverage-groups', label: 'Grupos de Cobertura', icon: 'bi-tags-fill' },
     { href: '/admin/coverage-zones', label: 'Zonas de Cobertura', icon: 'bi-geo-alt-fill' },
+    { href: '/admin/logs', label: 'Logs del Sistema', icon: 'bi-journal-text' },
   ]
 
   useEffect(() => {

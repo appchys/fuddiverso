@@ -11,6 +11,8 @@ import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
+import { Timestamp } from 'firebase/firestore'
+import { logDebug } from '@/lib/debug-log'
 
 
 interface Client {
@@ -549,32 +551,68 @@ export default function ManualOrderSidebar({
       const timingType = eo.timing?.type || 'immediate'
       let scheduledDate = ''
       let scheduledTime = eo.timing?.scheduledTime || ''
+      const isFromCheckout = Boolean(eo._isFromCheckout || eo.id?.startsWith('checkout-'))
+
       if (timingType === 'scheduled') {
         const sd = eo.timing?.scheduledDate
-        let date: Date | null = null
         if (sd) {
-          if (typeof sd === 'object' && 'seconds' in sd) {
-            date = new Date(sd.seconds * 1000)
-          } else if (typeof (sd as any)?.toDate === 'function') {
-            date = (sd as any).toDate()
+          if (typeof sd === 'string') {
+            const dateMatch = sd.match(/^(\d{4})-(\d{2})-(\d{2})/)
+            if (dateMatch) {
+              scheduledDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+            } else {
+              const d = new Date(sd)
+              if (!isNaN(d.getTime())) {
+                const yyyy = d.getFullYear()
+                const mm = String(d.getMonth() + 1).padStart(2, '0')
+                const dd = String(d.getDate()).padStart(2, '0')
+                scheduledDate = `${yyyy}-${mm}-${dd}`
+              }
+            }
           } else if (sd instanceof Date) {
-            date = sd
-          } else {
-            const d = new Date(sd)
-            date = isNaN(d.getTime()) ? null : d
+            const yyyy = sd.getFullYear()
+            const mm = String(sd.getMonth() + 1).padStart(2, '0')
+            const dd = String(sd.getDate()).padStart(2, '0')
+            scheduledDate = `${yyyy}-${mm}-${dd}`
+          } else if (typeof sd === 'object') {
+            const d = typeof sd.toDate === 'function'
+              ? sd.toDate()
+              : ('seconds' in sd ? new Date(sd.seconds * 1000) : null)
+            if (d && !isNaN(d.getTime())) {
+              const yyyy = d.getFullYear()
+              const mm = String(d.getMonth() + 1).padStart(2, '0')
+              const dd = String(d.getDate()).padStart(2, '0')
+              scheduledDate = `${yyyy}-${mm}-${dd}`
+            }
           }
         }
-        if (date) {
-          const yyyy = date.getFullYear()
-          const mm = String(date.getMonth() + 1).padStart(2, '0')
-          const dd = String(date.getDate()).padStart(2, '0')
-          scheduledDate = `${yyyy}-${mm}-${dd}`
-          if (!scheduledTime) {
-            const hh = String(date.getHours()).padStart(2, '0')
-            const mi = String(date.getMinutes()).padStart(2, '0')
-            scheduledTime = `${hh}:${mi}`
-          }
+
+        // Si no hay fecha programada válida o es anterior a hoy, asignar hoy
+        const nowObj = new Date()
+        const todayStr = `${nowObj.getFullYear()}-${String(nowObj.getMonth() + 1).padStart(2, '0')}-${String(nowObj.getDate()).padStart(2, '0')}`
+        if (!scheduledDate || scheduledDate < todayStr) {
+          scheduledDate = todayStr
         }
+
+        if (!scheduledTime) {
+          const nowPlus1Hour = new Date(nowObj.getTime() + 60 * 60 * 1000)
+          const hh = String(nowPlus1Hour.getHours()).padStart(2, '0')
+          const mi = String(nowPlus1Hour.getMinutes()).padStart(2, '0')
+          scheduledTime = `${hh}:${mi}`
+        }
+      }
+
+      if (isFromCheckout) {
+        logDebug('manual_order', 'Prefill de orden desde Checkout', {
+          checkoutSessionId: eo.checkoutSessionId,
+          incomingTiming: eo.timing,
+          parsedTimingType: timingType,
+          parsedScheduledDate: scheduledDate,
+          parsedScheduledTime: scheduledTime
+        }, {
+          businessId: effectiveBusinessId,
+          level: 'info'
+        })
       }
 
       const selectedProducts = (eo.items || []).map((it: any) => ({
@@ -754,8 +792,14 @@ export default function ManualOrderSidebar({
     const now = new Date()
     const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000) // +1 hora
 
-    const date = now.toISOString().split('T')[0] // Formato YYYY-MM-DD
-    const time = oneHourLater.toTimeString().slice(0, 5) // Formato HH:MM
+    const yyyy = now.getFullYear()
+    const mm = String(now.getMonth() + 1).padStart(2, '0')
+    const dd = String(now.getDate()).padStart(2, '0')
+    const date = `${yyyy}-${mm}-${dd}` // Formato YYYY-MM-DD local
+
+    const hh = String(oneHourLater.getHours()).padStart(2, '0')
+    const mi = String(oneHourLater.getMinutes()).padStart(2, '0')
+    const time = `${hh}:${mi}`
 
     return { date, time }
   }
@@ -2538,9 +2582,11 @@ export default function ManualOrderSidebar({
           })
         },
         timing: (() => {
-          // Si estamos editando y el tipo es inmediato, intentar preservar el tiempo original
+          // Si estamos editando una orden existente normal (no de checkout) y es inmediata, preservar timing original
           if (
-            mode === 'edit' && 
+            mode === 'edit' &&
+            !editOrder?._isFromCheckout &&
+            !editOrder?.id?.startsWith('checkout-') &&
             editOrder?.timing?.type === 'immediate' && 
             manualOrderData.timingType === 'immediate' &&
             editOrder.timing.scheduledDate &&
@@ -2553,31 +2599,35 @@ export default function ManualOrderSidebar({
             }
           }
 
-          // Para pedidos programados o nuevos pedidos inmediatos
-          return {
-            type: manualOrderData.timingType,
-            ...(manualOrderData.timingType === 'scheduled' && {
-              scheduledDate: manualOrderData.scheduledDate ? (() => {
-                const [year, month, day] = manualOrderData.scheduledDate.split('-').map(Number);
-                const [hours, minutes] = manualOrderData.scheduledTime ? manualOrderData.scheduledTime.split(':').map(Number) : [0, 0];
-                return {
-                  seconds: Math.floor(new Date(year, month - 1, day, hours, minutes).getTime() / 1000),
-                  nanoseconds: 0
-                };
-              })() : null,
+          // Para pedidos programados
+          if (manualOrderData.timingType === 'scheduled') {
+            let scheduledTimestamp: Timestamp | null = null
+            if (manualOrderData.scheduledDate) {
+              const [year, month, day] = manualOrderData.scheduledDate.split('-').map(Number)
+              const [hours, minutes] = manualOrderData.scheduledTime
+                ? manualOrderData.scheduledTime.split(':').map(Number)
+                : [0, 0]
+              const localScheduledDate = new Date(year, (month || 1) - 1, day || 1, hours || 0, minutes || 0)
+              scheduledTimestamp = Timestamp.fromDate(localScheduledDate)
+            }
+
+            return {
+              type: 'scheduled',
+              scheduledDate: scheduledTimestamp,
               scheduledTime: manualOrderData.scheduledTime || ''
-            }),
-            ...(manualOrderData.timingType === 'immediate' && {
-              // Para NUEVOS pedidos inmediatos, guardar fecha actual y hora actual + tiempo definido (o 30 min)
-              scheduledDate: firestoreTimestamp,
-              scheduledTime: (() => {
-                const baseDeliveryTime = effectiveBusiness?.deliveryTime || 30;
-                const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000);
-                const hh = String(deliveryTime.getHours()).padStart(2, '0');
-                const mm = String(deliveryTime.getMinutes()).padStart(2, '0');
-                return `${hh}:${mm}`;
-              })()
-            })
+            }
+          }
+
+          // Para NUEVOS pedidos inmediatos o desde checkout: fecha de hoy con Timestamp de Firestore y hora calculada
+          const baseDeliveryTime = effectiveBusiness?.deliveryTime || 30
+          const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000)
+          const hh = String(deliveryTime.getHours()).padStart(2, '0')
+          const mm = String(deliveryTime.getMinutes()).padStart(2, '0')
+
+          return {
+            type: 'immediate',
+            scheduledDate: Timestamp.fromDate(now),
+            scheduledTime: `${hh}:${mm}`
           }
         })(),
         payment: {
@@ -2634,6 +2684,24 @@ export default function ManualOrderSidebar({
       // Detectar si es un checkout (por la bandera _isFromCheckout o el ID que empieza con 'checkout-')
       const isFromCheckout = editOrder?._isFromCheckout || editOrder?.id?.startsWith('checkout-');
 
+      logDebug('manual_order', isFromCheckout ? 'Procesando guardado de orden desde Checkout' : 'Creando orden manual', {
+        mode,
+        isFromCheckout,
+        checkoutSessionId: editOrder?.checkoutSessionId,
+        customer: orderData.customer,
+        timingType: orderData.timing?.type,
+        scheduledDate: orderData.timing?.scheduledDate,
+        scheduledTime: orderData.timing?.scheduledTime,
+        inputTimingType: manualOrderData.timingType,
+        inputScheduledDate: manualOrderData.scheduledDate,
+        inputScheduledTime: manualOrderData.scheduledTime,
+        total: orderData.total
+      }, {
+        businessId: effectiveBusinessId,
+        businessName: effectiveBusiness?.name,
+        level: 'info'
+      })
+
       // ENFOQUE OPTIMISTA: Cerramos y reseteamos de inmediato
       onClose();
       handleReset();
@@ -2663,9 +2731,18 @@ export default function ManualOrderSidebar({
               ...updatePayload,
               id: editOrder.id
             })
-            console.log('[ManualOrder] Orden actualizada con éxito en segundo plano');
+            logDebug('manual_order', 'Orden actualizada con éxito', {
+              orderId: editOrder.id,
+              timing: updatePayload.timing
+            }, { businessId: effectiveBusinessId, level: 'info' })
           } else {
             const orderId = await createOrder(orderData as any)
+            logDebug('manual_order', 'Orden creada exitosamente', {
+              orderId,
+              isFromCheckout,
+              checkoutSessionId: editOrder?.checkoutSessionId,
+              timing: orderData.timing
+            }, { businessId: effectiveBusinessId, orderId, level: 'info' })
             
             // Descontar saldo/créditos de billetera si se usaron
             const creditToDeduct = (orderData as any).creditUsed || 0

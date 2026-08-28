@@ -38,6 +38,7 @@ import DailyCheckInBanner from '@/components/DailyCheckInBanner'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
+import { logDebug } from '@/lib/debug-log'
 
 import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
 
@@ -1260,16 +1261,30 @@ export default function AdminPedidosPage() {
     }
 
     const handleOpenManualOrderFromCheckout = (checkoutSession: CheckoutSession) => {
+        logDebug('checkout', 'Admin presiona Completar en sesión de checkout activo (pedidos)', {
+            checkoutSessionId: checkoutSession.id,
+            customerData: checkoutSession.customerData,
+            timingData: checkoutSession.timingData,
+            deliveryData: checkoutSession.deliveryData,
+            cartItemsCount: checkoutSession.cartItems?.length || 0,
+            businessId: checkoutSession.businessId || business?.id
+        }, {
+            businessId: checkoutSession.businessId || business?.id,
+            businessName: business?.name,
+            level: 'info'
+        })
+
         const tempOrder: any = {
             id: `checkout-${checkoutSession.id}`,
-            businessId: checkoutSession.businessId || checkoutSession.cartItems?.[0]?.originalBusinessId || '',
+            businessId: checkoutSession.businessId || checkoutSession.cartItems?.[0]?.originalBusinessId || business?.id || '',
             customer: checkoutSession.customerData,
             delivery: {
-                type: checkoutSession.deliveryData.type,
-                address: checkoutSession.deliveryData.address,
-                references: checkoutSession.deliveryData.references,
-                deliveryCost: parseFloat(checkoutSession.deliveryData.tarifa || '0'),
-                latlong: checkoutSession.deliveryData.latlong
+                type: checkoutSession.deliveryData?.type || 'delivery',
+                address: checkoutSession.deliveryData?.address || '',
+                references: checkoutSession.deliveryData?.references || '',
+                deliveryCost: parseFloat(checkoutSession.deliveryData?.tarifa || '0'),
+                latlong: checkoutSession.deliveryData?.latlong || '',
+                photo: (checkoutSession.deliveryData as any)?.photo || ''
             },
             timing: checkoutSession.timingData,
             payment: {
