@@ -21,7 +21,7 @@ const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), 
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
-// Componente para imágenes con carga progresiva - usa next/image con fill
+// Componente para imágenes con carga progresiva y soporte offline/producción
 const ProgressiveImage: React.FC<{
   src: string
   alt: string
@@ -40,34 +40,44 @@ const ProgressiveImage: React.FC<{
   width,
   height,
   priority = false,
-  sizes = '100vw',
   style
 }) => {
-    const [isLoaded, setIsLoaded] = useState(false)
+  const [isLoaded, setIsLoaded] = useState(false)
+  const imgRef = useRef<HTMLImageElement>(null)
 
-    return (
-      <>
-        {/* Placeholder mientras carga - siempre visible hasta que la imagen cargue */}
-        {!isLoaded && fill && (
-          <div className="absolute inset-0 bg-gray-200 animate-pulse" />
-        )}
+  useEffect(() => {
+    // Si la imagen ya está en caché del navegador
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setIsLoaded(true)
+    }
+  }, [src])
 
-        {/* Imagen con next/image */}
-        <Image
-          src={src}
-          alt={alt}
-          fill={fill}
-          width={!fill ? width : undefined}
-          height={!fill ? height : undefined}
-          priority={priority}
-          sizes={sizes}
-          className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
-          style={style}
-          onLoad={() => setIsLoaded(true)}
-        />
-      </>
-    )
-  }
+  return (
+    <>
+      {/* Placeholder mientras carga */}
+      {!isLoaded && fill && (
+        <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+      )}
+
+      {/* Imagen directa de alto rendimiento */}
+      <img
+        ref={imgRef}
+        src={src}
+        alt={alt}
+        width={!fill ? width : undefined}
+        height={!fill ? height : undefined}
+        loading={priority ? 'eager' : 'lazy'}
+        decoding="async"
+        className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${
+          fill ? 'absolute inset-0 w-full h-full object-cover' : ''
+        } ${className}`}
+        style={style}
+        onLoad={() => setIsLoaded(true)}
+        onError={() => setIsLoaded(true)}
+      />
+    </>
+  )
+}
 
 export default function HomePage() {
   return (

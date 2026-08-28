@@ -16,7 +16,18 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   ],
   runtimeCaching: [
     {
-      urlPattern: /^https?:\/\/.*\.(png|jpg|jpeg|svg|gif|webp)$/i,
+      urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/i,
+      handler: 'StaleWhileRevalidate',
+      options: {
+        cacheName: 'firebase-image-cache',
+        expiration: {
+          maxEntries: 200,
+          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 días
+        },
+      },
+    },
+    {
+      urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)(?:\?.*)?$/i,
       handler: 'CacheFirst',
       options: {
         cacheName: 'image-cache',
@@ -32,10 +43,11 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 const nextConfig = {
   serverExternalPackages: ['firebase-admin'],
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'firebasestorage.googleapis.com',
+        hostname: '**',
       },
     ],
   },
