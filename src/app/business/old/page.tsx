@@ -155,7 +155,7 @@ export default function BusinessDashboard() {
       }
     }
   }, [loading, selectedBusinessId]);
-  const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
+  const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | 'atencion_cliente' | null>(null) // Nuevo estado
   const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
   const [editingOrderForSidebar, setEditingOrderForSidebar] = useState<Order | null>(null)
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)

@@ -106,14 +106,15 @@ export default function AdministratorsManagementView({
     }
 
     const handleOpenEditModal = (admin: BusinessAdministrator) => {
-        const role = (admin.role as any) === 'atencion_cliente' ? 'atencion_cliente' : (admin.role || 'admin')
+        const role: 'admin' | 'manager' | 'atencion_cliente' = 
+            admin.role === 'manager' ? 'manager' : admin.role === 'admin' ? 'admin' : 'atencion_cliente'
         setEditingAdmin(admin)
         setFormData({
             email: admin.email,
             password: '',
             role,
             permissions: {
-                ...ROLE_PRESETS[role as keyof typeof ROLE_PRESETS]?.permissions,
+                ...ROLE_PRESETS[role]?.permissions,
                 ...admin.permissions
             }
         })
