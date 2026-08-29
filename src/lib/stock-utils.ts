@@ -166,9 +166,59 @@ export function isProductEffectivelyAvailable(
   product: Product,
   stockMap: Map<string, IngredientStockSummary>
 ): boolean {
+  if (product.isAvailable === false) return false
   if (product.autoHideByStock) {
     const evaluation = evaluateProductStock(product, stockMap)
     return evaluation.isAvailableByStock
   }
-  return product.isAvailable !== false
+  return true
+}
+
+/**
+ * Determina si un ítem en el carrito está efectivamente disponible (combinando disponibilidad manual y control por stock)
+ */
+export function isCartItemEffectivelyAvailable(
+  item: any,
+  allProducts: Product[],
+  stockMap?: Map<string, IngredientStockSummary>
+): boolean {
+  if (!item) return false
+  if (item.esPremio || item.qrCodeId) return true
+  if (!allProducts || allProducts.length === 0) return true // Si aún no han cargado productos de la BD, no bloquear preventivamente
+
+  const rawId = item.productId || item.id || ''
+  const baseId = typeof rawId === 'string' && rawId.includes('-') ? rawId.split('-')[0] : rawId
+
+  const dbProduct = allProducts.find(p => p.id === (item.productId || item.id))
+    ?? allProducts.find(p => typeof item.id === 'string' && item.id.startsWith(p.id + '-'))
+    ?? allProducts.find(p => p.id === baseId)
+
+  if (!dbProduct) return false
+  if (dbProduct.isAvailable === false) return false
+
+  // Evaluar variantes
+  if (item.variantName && !item.variantName.startsWith('Combo:')) {
+    const variant = dbProduct.variants?.find(v => v.name === item.variantName)
+    if (!variant || variant.isAvailable === false) return false
+
+    if (stockMap && stockMap.size > 0) {
+      const isVariantAutoHide = variant.autoHideByStock !== undefined
+        ? variant.autoHideByStock
+        : (dbProduct.autoHideByStock ?? false)
+
+      if (isVariantAutoHide) {
+        const variantStock = checkVariantStockAvailability(dbProduct, variant, stockMap)
+        if (!variantStock.isAvailableByStock) return false
+      }
+    }
+    return true
+  }
+
+  // Evaluar producto base o combo
+  if (stockMap && stockMap.size > 0 && dbProduct.autoHideByStock) {
+    const evaluation = evaluateProductStock(dbProduct, stockMap)
+    if (!evaluation.isAvailableByStock) return false
+  }
+
+  return true
 }

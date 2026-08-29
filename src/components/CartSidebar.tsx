@@ -16,10 +16,13 @@ import {
     registerClientForgotPin,
     createClient,
     updateClient,
-    getProductsByBusiness
+    getProductsByBusiness,
+    getIngredientStockSummary,
+    IngredientStockSummary
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import { formatPrice, getProductPublicPrice, getPriceMetadata, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
+import { isCartItemEffectivelyAvailable } from '@/lib/stock-utils'
 import { CheckoutContent } from '@/components/CheckoutContent'
 import OrderSidebar from '@/components/OrderSidebar'
 
@@ -64,8 +67,9 @@ export default function CartSidebar({
 
     const [qrCodes, setQrCodes] = useState<QRCode[]>([])
 
-    // Estados y lógica para Añadidos Rápidos
+    // Estados y lógica para Añadidos Rápidos y Stock
     const [allProducts, setAllProducts] = useState<Product[]>([])
+    const [stockMap, setStockMap] = useState<Map<string, IngredientStockSummary>>(new Map())
 
     useEffect(() => {
         if (products && products.length > 0) {
@@ -85,6 +89,27 @@ export default function CartSidebar({
             void fetchProducts()
         }
     }, [isOpen, business?.id, products])
+
+    // Cargar mapa de stock cuando el carrito esté abierto
+    useEffect(() => {
+        if (isOpen && business?.id) {
+            const fetchStock = async () => {
+                try {
+                    const summary = await getIngredientStockSummary(business.id)
+                    const map = new Map<string, IngredientStockSummary>()
+                    summary.forEach(item => {
+                        if (item.ingredientName) {
+                            map.set(item.ingredientName.toLowerCase().trim(), item)
+                        }
+                    })
+                    setStockMap(map)
+                } catch (e) {
+                    console.error('Error fetching stock summary in CartSidebar:', e)
+                }
+            }
+            void fetchStock()
+        }
+    }, [isOpen, business?.id])
 
     const quickAddonsToShow = useMemo(() => {
         if (!allProducts || allProducts.length === 0 || !cart || cart.length === 0) return []
@@ -115,19 +140,8 @@ export default function CartSidebar({
 
     const hasUnavailableItems = useMemo(() => {
         if (allProducts.length === 0 || !cart || cart.length === 0) return false;
-        return cart.some((item: any) => {
-            if (item.esPremio || item.qrCodeId) return false;
-            const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
-                ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
-            if (!dbProduct) return true;
-            if (!dbProduct.isAvailable) return true;
-            if (item.variantName && !item.variantName.startsWith("Combo:")) {
-                const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
-                if (variant && variant.isAvailable === false) return true;
-            }
-            return false;
-        });
-    }, [cart, allProducts]);
+        return cart.some((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap));
+    }, [cart, allProducts, stockMap]);
 
     const handleProductClick = (productToAdd: Product) => {
         if (productToAdd.variants && productToAdd.variants.length > 0) {
@@ -793,22 +807,7 @@ export default function CartSidebar({
                                                     ? item.name
                                                     : (item.variantName ? item.variantName : (item.productName || item.name));
 
-                                                // Verificar disponibilidad en tiempo real contra la base de datos
-                                                // item.productId contiene el ID original cuando el item tiene toppings (item.id = productId + hash)
-                                                // Fallback para items sin productId: busca por prefijo del id (ej: "abc123-SalsasHoney" → busca "abc123")
-                                                const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
-                                                    ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
-                                                const isAvailable = (() => {
-                                                    if (item.esPremio || item.qrCodeId) return true;
-                                                    if (allProducts.length === 0) return true; // Asumir disponible si no ha cargado
-                                                    if (!dbProduct) return false; // Borrado
-                                                    if (!dbProduct.isAvailable) return false; // Ocultado
-                                                    if (item.variantName && !item.variantName.startsWith("Combo:")) {
-                                                        const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
-                                                        if (variant && variant.isAvailable === false) return false;
-                                                    }
-                                                    return true;
-                                                })();
+                                                const isAvailable = isCartItemEffectivelyAvailable(item, allProducts, stockMap);
 
                                                 return (
                                                     <div
@@ -1003,31 +1002,9 @@ export default function CartSidebar({
                                     <div className="space-y-3">
                                         <button
                                             type="button"
-                                            disabled={cart.some((item: any) => {
-                                                if (item.esPremio || item.qrCodeId) return false;
-                                                const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
-                                                    ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
-                                                if (!dbProduct) return true;
-                                                if (!dbProduct.isAvailable) return true;
-                                                if (item.variantName && !item.variantName.startsWith("Combo:")) {
-                                                    const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
-                                                    if (variant && variant.isAvailable === false) return true;
-                                                }
-                                                return false;
-                                            })}
+                                            disabled={cart.some((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))}
                                             className={`block w-full py-4 rounded-2xl text-center font-bold text-lg transition-all duration-200 transform ${
-                                                cart.some((item: any) => {
-                                                    if (item.esPremio || item.qrCodeId) return false;
-                                                    const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
-                                                        ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
-                                                    if (!dbProduct) return true;
-                                                    if (!dbProduct.isAvailable) return true;
-                                                    if (item.variantName && !item.variantName.startsWith("Combo:")) {
-                                                        const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
-                                                        if (variant && variant.isAvailable === false) return true;
-                                                    }
-                                                    return false;
-                                                })
+                                                cart.some((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))
                                                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none active:scale-100'
                                                     : 'bg-gray-900 text-white hover:bg-gray-800 shadow-xl shadow-gray-200 active:scale-[0.98]'
                                             }`}

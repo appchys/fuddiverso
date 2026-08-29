@@ -31,7 +31,9 @@ import {
   useUserCredits,
   useUserCreditsFlexible,
   getOrdersByClient,
-  getProductsByBusiness
+  getProductsByBusiness,
+  getIngredientStockSummary,
+  IngredientStockSummary
 } from '@/lib/database'
 import { Business, Product } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -42,6 +44,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
+import { isCartItemEffectivelyAvailable } from '@/lib/stock-utils'
 import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot, isAnyDeliveryAvailable, getNextOpeningDate, getStoreOpeningLabel } from '@/lib/store-utils'
 import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
@@ -668,6 +671,7 @@ export function CheckoutContent({
   })
 
   const [allProducts, setAllProducts] = useState<Product[]>([])
+  const [stockMap, setStockMap] = useState<Map<string, IngredientStockSummary>>(new Map())
 
   useEffect(() => {
     if (products && products.length > 0) {
@@ -682,6 +686,23 @@ export function CheckoutContent({
         .catch((e) => console.error('Error fetching products in CheckoutContent:', e))
     }
   }, [products, embeddedBusinessId, searchParams])
+
+  useEffect(() => {
+    const businessId = embeddedBusinessId || searchParams?.get('businessId') || business?.id
+    if (businessId) {
+      getIngredientStockSummary(businessId)
+        .then((summary) => {
+          const map = new Map<string, IngredientStockSummary>()
+          summary.forEach((item) => {
+            if (item.ingredientName) {
+              map.set(item.ingredientName.toLowerCase().trim(), item)
+            }
+          })
+          setStockMap(map)
+        })
+        .catch((e) => console.error('Error fetching stock summary in CheckoutContent:', e))
+    }
+  }, [embeddedBusinessId, searchParams, business?.id])
 
   // Sincronizar si cambian los props embebidos o localStorage
   useEffect(() => {
@@ -1792,19 +1813,9 @@ export function CheckoutContent({
 
   // Computed readiness for final confirmation (pure check — no side effects)
   const readyToConfirm = (() => {
-    // Validar disponibilidad de productos frescos desde la base de datos
+    // Validar disponibilidad de productos frescos desde la base de datos y control de stock
     if (allProducts.length > 0) {
-      const hasUnavailable = cartItems.some((item: any) => {
-        if (item.esPremio || item.qrCodeId) return false
-        const dbProduct = allProducts.find((p) => p.id === getProductId(item))
-        if (!dbProduct) return true
-        if (!dbProduct.isAvailable) return true
-        if (item.variantName && !item.variantName.startsWith("Combo:")) {
-          const variant = dbProduct.variants?.find((v) => v.name === item.variantName)
-          if (variant && variant.isAvailable === false) return true
-        }
-        return false
-      })
+      const hasUnavailable = cartItems.some((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))
       if (hasUnavailable) return false
     }
 
@@ -1916,19 +1927,9 @@ export function CheckoutContent({
   const handleSubmit = async () => {
     if (!validateStep(currentStep)) return
 
-    // Validar disponibilidad fresca antes de procesar
+    // Validar disponibilidad fresca (manual + stock) antes de procesar
     if (allProducts.length > 0) {
-      const unavailableDbItems = cartItems.filter((item: any) => {
-        if (item.esPremio || item.qrCodeId) return false
-        const dbProduct = allProducts.find((p) => p.id === getProductId(item))
-        if (!dbProduct) return true
-        if (!dbProduct.isAvailable) return true
-        if (item.variantName && !item.variantName.startsWith("Combo:")) {
-          const variant = dbProduct.variants?.find((v) => v.name === item.variantName)
-          if (variant && variant.isAvailable === false) return true
-        }
-        return false
-      })
+      const unavailableDbItems = cartItems.filter((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))
 
       if (unavailableDbItems.length > 0) {
         alert('Tu carrito contiene productos que ya no están disponibles. Por favor regresa al carrito y elimínalos para continuar.')
