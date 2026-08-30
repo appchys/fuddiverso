@@ -748,6 +748,18 @@ export default function StoreRatingsView({
         </form>
       </div>
 
+      {/* Cabecera sutil: Todas las opiniones */}
+      <div className="flex items-center justify-between px-1 pt-1 pb-0.5">
+        <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+          Todas las opiniones
+        </span>
+        {ratingsList.length > 0 && (
+          <span className="text-[11px] font-bold text-gray-400">
+            {ratingsList.length}
+          </span>
+        )}
+      </div>
+
       {/* Listado de Opiniones */}
       <div className="space-y-3">
         {loadingRatings ? (

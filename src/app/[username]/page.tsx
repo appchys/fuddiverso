@@ -329,6 +329,30 @@ function RestaurantContent() {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const [branches, setBranches] = useState<Business[]>([])
   const [showBranchModal, setShowBranchModal] = useState(false)
+  const [showStatusPopover, setShowStatusPopover] = useState(false)
+  const statusPopoverRef = useRef<HTMLDivElement>(null)
+  const hasInitializedStatusPopoverRef = useRef(false)
+
+  // Abrir popover automáticamente al inicio si la tienda está cerrada
+  useEffect(() => {
+    if (business && !hasInitializedStatusPopoverRef.current) {
+      hasInitializedStatusPopoverRef.current = true
+      if (!isStoreOpen(business)) {
+        setShowStatusPopover(true)
+      }
+    }
+  }, [business])
+
+  // Cerrar popover al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (statusPopoverRef.current && !statusPopoverRef.current.contains(e.target as Node)) {
+        setShowStatusPopover(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Cargar estado de favorito
   useEffect(() => {
@@ -1240,7 +1264,7 @@ function RestaurantContent() {
         </div>
 
         {/* Contenido debajo de la portada - Diseño Premium */}
-        <div className="max-w-3xl mx-auto px-4 pt-14 sm:pt-16 pb-6 text-center relative">
+        <div className="max-w-3xl mx-auto px-4 pt-10 sm:pt-12 pb-3 sm:pb-4 text-center relative">
           {/* Botones de acción (Favorito y Compartir) sutiles debajo de la portada alineados a la derecha */}
           <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
             {/* Botón Favorito */}
@@ -1273,9 +1297,76 @@ function RestaurantContent() {
 
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">
-                {business.name}
-              </h1>
+              <div className="relative inline-block mb-1">
+                <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight text-center">
+                  {business.name}
+                </h1>
+
+                {/* Punto indicador de Estado con Popover sin afectar la centralidad del nombre */}
+                <div
+                  className="absolute left-full ml-1.5 sm:ml-2 top-1/2 -translate-y-1/2 inline-flex items-center"
+                  ref={statusPopoverRef}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setShowStatusPopover(!showStatusPopover)}
+                    onMouseEnter={() => setShowStatusPopover(true)}
+                    className="relative flex items-center justify-center p-1 rounded-full hover:bg-gray-100/80 transition-all cursor-pointer focus:outline-none"
+                    aria-label={isStoreOpen(business) ? 'Tienda abierta' : 'Tienda cerrada'}
+                    title={isStoreOpen(business) ? 'Abierto ahora' : 'Cerrado ahora'}
+                  >
+                    <span
+                      className={`w-3.5 h-3.5 rounded-full transition-all ${
+                        isStoreOpen(business)
+                          ? 'bg-emerald-500 ring-4 ring-emerald-100 animate-pulse'
+                          : 'bg-rose-500 ring-4 ring-rose-100'
+                      }`}
+                    />
+                  </button>
+
+                  {/* Popover flotante de estado y horario con tonalidad dinámica (verde/rojiza) y piquito */}
+                  {showStatusPopover && (
+                    <div
+                      onMouseLeave={() => setShowStatusPopover(false)}
+                      className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 z-40 w-max min-w-[170px] max-w-[240px] backdrop-blur-xs rounded-xl px-3 py-2 shadow-md text-left animate-in fade-in zoom-in-95 duration-150 border ${
+                        isStoreOpen(business)
+                          ? 'bg-emerald-50/95 border-emerald-200 text-emerald-800'
+                          : 'bg-rose-50/95 border-rose-200 text-rose-700'
+                      }`}
+                    >
+                      {/* Piquito apuntando al punto indicador */}
+                      <div
+                        className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border-t border-l ${
+                          isStoreOpen(business)
+                            ? 'bg-emerald-50 border-emerald-200'
+                            : 'bg-rose-50 border-rose-200'
+                        }`}
+                      />
+
+                      {isStoreOpen(business) ? (
+                        <div className="relative z-10 flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                          <span>Abierto ahora</span>
+                        </div>
+                      ) : (
+                        <div className="relative z-10 space-y-0.5">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-rose-700">
+                            <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                            <span>Cerrado ahora</span>
+                          </div>
+                          {getNextOpeningMessage(business) && (
+                            <div className="flex items-center gap-1 text-[11px] font-semibold text-rose-600/90 pt-0.5">
+                              <i className="bi bi-clock text-[10px] text-rose-400 shrink-0"></i>
+                              <span>{getNextOpeningMessage(business)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {business.description && (
                 <div className="mt-2 max-w-2xl mx-auto text-center">
                   <p
@@ -1304,17 +1395,9 @@ function RestaurantContent() {
                 </div>
               )}
 
-              {/* Indicadores de Estado, Sucursal y Próxima Apertura */}
-              <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4">
-                <span className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm transition-all ${isStoreOpen(business)
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                  : 'bg-rose-50 text-rose-700 border border-rose-100'
-                  }`}>
-                  <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
-                  {isStoreOpen(business) ? 'Abierto Ahora' : 'Cerrado'}
-                </span>
-
-                {branches.length > 1 && (
+              {/* Selector de Sucursales (si tiene más de 1) */}
+              {branches.length > 1 && (
+                <div className="flex justify-center mt-3">
                   <button
                     onClick={() => setShowBranchModal(true)}
                     className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 shadow-sm transition-all cursor-pointer"
@@ -1325,18 +1408,11 @@ function RestaurantContent() {
                     </span>
                     <i className="bi bi-chevron-down text-[10px] ml-0.5 opacity-70"></i>
                   </button>
-                )}
-
-                {!isStoreOpen(business) && getNextOpeningMessage(business) && (
-                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200/80 shadow-xs animate-in fade-in zoom-in-95 duration-300">
-                    <i className="bi bi-clock text-gray-400"></i>
-                    {getNextOpeningMessage(business)}
-                  </span>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Navegación por Pestañas - Icono Arriba y Texto Abajo */}
-              <div className={`grid ${isOwner ? 'grid-cols-4' : 'grid-cols-3'} gap-1 bg-gray-100/90 p-1.5 rounded-2xl border border-gray-200/60 mt-5 max-w-lg mx-auto`}>
+              <div className={`grid ${isOwner ? 'grid-cols-4' : 'grid-cols-3'} gap-1 bg-gray-100/90 p-1.5 rounded-2xl border border-gray-200/60 mt-3.5 max-w-lg mx-auto`}>
                 <button
                   onClick={() => setActiveTab('catalogo')}
                   className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${activeTab === 'catalogo'
@@ -1522,7 +1598,7 @@ function RestaurantContent() {
         </div>
       ) : (
         /* Vista de Catálogo (actual) */
-        <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
+        <div className="max-w-7xl mx-auto px-4 pt-3 sm:pt-4 pb-8 sm:pb-12">
 
           {Object.entries(productsByCategory).length === 0 ? (
             <div className="text-center py-20 px-6 bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
@@ -1562,7 +1638,7 @@ function RestaurantContent() {
             Object.entries(productsByCategory).map(([category, categoryProducts]) => (
               <div key={category} className="mb-12">
                 {category.toLowerCase() !== 'sin categoría' && category.toLowerCase() !== 'sin categoria' && (
-                  <div className="flex items-center gap-3 mb-6">
+                  <div className="flex items-center gap-3 mb-3.5 sm:mb-4">
                     <h3 className="text-lg sm:text-xl font-bold text-gray-800 tracking-wide uppercase">{category}</h3>
                   </div>
                 )}
