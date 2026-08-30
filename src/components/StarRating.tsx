@@ -4,9 +4,10 @@ interface StarRatingProps {
   rating: number;
   size?: 'sm' | 'md' | 'lg';
   showGrayStars?: boolean;
+  showRatingText?: boolean;
 }
 
-export default function StarRating({ rating, size = 'md', showGrayStars = false }: StarRatingProps) {
+export default function StarRating({ rating, size = 'md', showGrayStars = false, showRatingText = true }: StarRatingProps) {
   const sizeClasses = {
     sm: 'text-sm',
     md: 'text-base',
@@ -34,7 +35,7 @@ export default function StarRating({ rating, size = 'md', showGrayStars = false 
           <i key={star} className={`bi ${starClass} mr-0.5`}></i>
         );
       })}
-      {!showGrayStars && (
+      {!showGrayStars && showRatingText && (
         <span className="ml-1 text-gray-600 text-sm">
           {rating.toFixed(1)}
         </span>

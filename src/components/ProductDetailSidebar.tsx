@@ -10,7 +10,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import dynamic from 'next/dynamic'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { formatComboVariantSelection } from '@/lib/combo-utils'
-import { Flame, Star, MessageSquare, Phone, ArrowRight, ArrowUp, Loader2, Copy, Check, Share2, Heart, Camera, X, Pencil, Trash2 } from 'lucide-react'
+import { Flame, Star, MessageSquare, Phone, ArrowRight, ArrowUp, Loader2, Copy, Check, Share2, Heart, Camera, X, Pencil, Trash2, ShoppingBag } from 'lucide-react'
 import StarRating from '@/components/StarRating'
 import { formatRelativeTime } from '@/lib/date-utils'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -979,80 +979,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                 )}
                             </div>
 
-                            <div className="flex items-start justify-between gap-4 mb-1">
+                            <div className="mb-1">
                                 <h2 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">{product.name}</h2>
-
-                                {/* Acciones: Calificaciones & Recomendar alineados a la derecha */}
-                                <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
-                                    {/* 1. Botón de Estrella / Calificaciones (Cambia a pestaña de opiniones) */}
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            setActiveTab(prev => prev === 'reviews' ? 'options' : 'reviews')
-                                        }}
-                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl transition-all active:scale-90 ${
-                                            activeTab === 'reviews'
-                                                ? 'bg-amber-100 text-amber-600 ring-2 ring-amber-400/40 shadow-sm'
-                                                : productRatingAvg > 0
-                                                    ? 'text-amber-500 hover:bg-amber-50'
-                                                    : 'text-gray-400 hover:text-amber-500 hover:bg-gray-50'
-                                        }`}
-                                        title={activeTab === 'reviews' ? 'Ver opciones' : 'Ver opiniones y comentarios'}
-                                    >
-                                        <Star
-                                            size={20}
-                                            strokeWidth={activeTab === 'reviews' ? 2.5 : 1.8}
-                                            color={activeTab === 'reviews' || productRatingAvg > 0 ? '#F59E0B' : 'currentColor'}
-                                            className={`transition-transform hover:scale-110 ${
-                                                activeTab === 'reviews' || productRatingAvg > 0 ? 'fill-amber-500 text-amber-500' : 'fill-none'
-                                            }`}
-                                        />
-                                        {productRatingAvg > 0 ? (
-                                            <span className="text-xs font-extrabold text-gray-700">
-                                                {productRatingAvg.toFixed(1)}
-                                            </span>
-                                        ) : null}
-                                    </button>
-
-                                    {/* 2. Botón de Recomendar (Fueguito) (Cambia a pestaña de recomendación) */}
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            if (activeTab === 'referral') {
-                                                setActiveTab('options')
-                                            } else {
-                                                setActiveTab('referral')
-                                                setReferralPhoneError('')
-                                                setReferralCopied(false)
-                                                if ((user?.id || user?.celular) && !referralLink) {
-                                                    generateReferralForUser(user)
-                                                }
-                                            }
-                                        }}
-                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl transition-all active:scale-90 ${
-                                            activeTab === 'referral'
-                                                ? 'bg-amber-100 text-amber-600 ring-2 ring-amber-400/40 shadow-sm'
-                                                : localHasRecommended
-                                                    ? 'text-amber-500 hover:bg-amber-50'
-                                                    : 'text-gray-400 hover:text-amber-500 hover:bg-gray-50'
-                                        }`}
-                                        title={activeTab === 'referral' ? 'Ver opciones' : 'Recomendar'}
-                                    >
-                                        <Flame
-                                            size={20}
-                                            strokeWidth={activeTab === 'referral' || localHasRecommended ? 2.5 : 1.8}
-                                            color={activeTab === 'referral' || localHasRecommended ? '#F59E0B' : 'currentColor'}
-                                            className={`transition-transform hover:scale-110 ${
-                                                activeTab === 'referral' || localHasRecommended ? 'fill-amber-500 text-amber-500' : 'fill-none'
-                                            }`}
-                                        />
-                                        {localReferralCount !== undefined && localReferralCount > 0 && (
-                                            <span className="text-xs font-extrabold text-gray-700">
-                                                {localReferralCount}
-                                            </span>
-                                        )}
-                                    </button>
-                                </div>
                             </div>
 
                             {product.description && (
@@ -1065,6 +993,72 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                     <span>Incluye recargo por empaque</span>
                                 </div>
                             )}
+
+                            {/* Barra de 3 Pestañas: Comprar | Calificar | Recomendar */}
+                            <div className="grid grid-cols-3 gap-1 bg-gray-100/90 p-1 rounded-2xl border border-gray-200/60 mt-3.5">
+                                {/* Pestaña 1: Comprar */}
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('options')}
+                                    className={`py-2 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                                        activeTab === 'options'
+                                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
+                                            : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                                    }`}
+                                >
+                                    <ShoppingBag
+                                        size={13}
+                                        className={activeTab === 'options' ? 'text-gray-900' : 'text-gray-400'}
+                                    />
+                                    <span>Comprar</span>
+                                </button>
+
+                                {/* Pestaña 2: Calificar */}
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('reviews')}
+                                    className={`py-2 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                                        activeTab === 'reviews'
+                                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
+                                            : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                                    }`}
+                                >
+                                    <Star
+                                        size={13}
+                                        className={activeTab === 'reviews' || productRatingAvg > 0 ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}
+                                    />
+                                    <span>Calificar</span>
+                                    {productRatingAvg > 0 && (
+                                        <span className="text-[10px] text-amber-600 font-extrabold bg-amber-50 px-1 py-0.2 rounded-md">
+                                            {productRatingAvg.toFixed(1)}
+                                        </span>
+                                    )}
+                                </button>
+
+                                {/* Pestaña 3: Recomendar */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setActiveTab('referral')
+                                        setReferralPhoneError('')
+                                        setReferralCopied(false)
+                                        if ((user?.id || user?.celular) && !referralLink) {
+                                            generateReferralForUser(user)
+                                        }
+                                    }}
+                                    className={`py-2 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                                        activeTab === 'referral'
+                                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
+                                            : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                                    }`}
+                                >
+                                    <Flame
+                                        size={13}
+                                        className={activeTab === 'referral' || localHasRecommended ? 'fill-orange-500 text-orange-500' : 'text-gray-400'}
+                                    />
+                                    <span>Recomendar</span>
+                                </button>
+                            </div>
                         </div>
 
                         {activeTab === 'options' ? (
@@ -1462,21 +1456,6 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         ) : activeTab === 'reviews' ? (
                             /* Opiniones y Comentarios Tab */
                             <div className="space-y-4 animate-in fade-in duration-200">
-                                {/* Cabecera / Selector de regreso */}
-                                <div className="flex items-center justify-between pt-1">
-                                    <span className="text-xs font-black uppercase tracking-wider text-gray-900">
-                                        Opiniones del producto
-                                    </span>
-
-                                    <button
-                                        onClick={() => setActiveTab('options')}
-                                        className="text-xs font-black text-gray-900 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 active:scale-95 border border-gray-200/80"
-                                    >
-                                        <i className="bi bi-arrow-left text-xs"></i>
-                                        <span>Comprar</span>
-                                    </button>
-                                </div>
-
                                 {/* Resumen de Calificación */}
                                 <div className="bg-gradient-to-br from-amber-50/80 to-orange-50/40 border border-amber-200/60 rounded-2xl p-4 flex items-center justify-between">
                                     <div>
@@ -1484,18 +1463,17 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                             {productRatingAvg > 0 ? productRatingAvg.toFixed(1) : '5.0'}
                                         </p>
                                         <div className="mt-1.5">
-                                            <StarRating rating={productRatingAvg > 0 ? productRatingAvg : 5} size="sm" showGrayStars={productRatingCount === 0} />
+                                            <StarRating
+                                                rating={productRatingAvg > 0 ? productRatingAvg : 5}
+                                                size="sm"
+                                                showGrayStars={productRatingCount === 0}
+                                                showRatingText={false}
+                                            />
                                         </div>
-                                    </div>
-
-                                    <div className="text-right">
-                                        <p className="text-xs font-black text-gray-900">
+                                        <p className="text-xs font-bold text-gray-600 mt-1">
                                             {productRatingCount > 0
                                                 ? `${productRatingCount} ${productRatingCount === 1 ? 'opinión' : 'opiniones'}`
                                                 : 'Sin opiniones aún'}
-                                        </p>
-                                        <p className="text-[11px] font-medium text-gray-500 mt-0.5">
-                                            Clientes que ordenaron
                                         </p>
                                     </div>
                                 </div>
@@ -1852,26 +1830,6 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         ) : (
                             /* Recomendar Tab */
                             <div className="space-y-4 animate-in fade-in duration-200">
-                                {/* Cabecera / Selector de regreso */}
-                                <div className="flex items-center justify-between pt-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-black uppercase tracking-wider text-gray-900">
-                                            Recomienda y Gana
-                                        </span>
-                                        <span className="text-[11px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/60">
-                                            +$0.25
-                                        </span>
-                                    </div>
-
-                                    <button
-                                        onClick={() => setActiveTab('options')}
-                                        className="text-xs font-black text-gray-900 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 active:scale-95 border border-gray-200/80"
-                                    >
-                                        <i className="bi bi-arrow-left text-xs"></i>
-                                        <span>Ver opciones</span>
-                                    </button>
-                                </div>
-
                                 {/* Banner Recompensa */}
                                 <div className="bg-gradient-to-br from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 flex items-center justify-between">
                                     <div>
@@ -2102,9 +2060,9 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                     </div>
                 )}
 
-                {/* Fixed Footer for Actions - Solo visible en opciones */}
-                {activeTab === 'options' && (
-                    <div className="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 animate-in fade-in slide-in-from-bottom duration-200">
+                {/* Fixed Footer for Actions - Solo visible en opciones si hay selección de combo o hay carrito */}
+                {activeTab === 'options' && ((product.isCombo && Object.values(comboSelection).reduce((a, b) => a + b, 0) > 0) || cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0) > 0) && (
+                    <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5 bg-white border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 animate-in fade-in slide-in-from-bottom duration-200">
                         {(() => {
                         const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
                         const cartItemsCount = cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0)
@@ -2127,9 +2085,9 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                         router.push(`/${business.username || `restaurant/${business.id}`}`)
                                     }
                                 }}
-                                className="flex-1 bg-gray-900 text-white rounded-2xl shadow-lg hover:bg-black transition-all duration-300 transform active:scale-95 overflow-hidden"
+                                className="w-full bg-gray-900 text-white rounded-2xl shadow-lg hover:bg-black transition-all duration-300 transform active:scale-95 overflow-hidden"
                             >
-                                <div className="flex items-center justify-center gap-3 px-5 py-4">
+                                <div className="flex items-center justify-center gap-3 px-5 py-3">
                                     <div className="relative">
                                         <i className="bi bi-cart3 text-xl"></i>
                                         <span className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-[9px] font-black flex items-center justify-center border-2 border-gray-900 shadow-lg">
@@ -2145,121 +2103,106 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         )
 
                         return (
-                            <div className="space-y-4">
-                                {product.isCombo && comboPrice > 0 && (
-                                    <div className="flex items-center justify-between gap-4">
-                                        <div className="flex-1 min-w-0">
-                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Tu selección</span>
-                                            <p className="text-xs font-bold text-gray-600 line-clamp-2 leading-tight uppercase">
-                                                {selectedVariantsStr}
+                            <div className="space-y-2.5">
+                                {product.isCombo && totalComboSelected > 0 && (
+                                    <div className="flex items-center justify-between gap-3">
+                                        {/* Izquierda: Combo que se está armando con espacio amplio y precio debajo */}
+                                        <div className="flex-1 min-w-0 pr-1">
+                                            <p className="text-xs font-bold text-gray-700 line-clamp-2 leading-snug uppercase">
+                                                {selectedVariantsStr || product.name}
                                             </p>
+                                            <span className="text-2xl font-black text-red-600 tracking-tight block leading-none mt-0.5">
+                                                {formatPrice(comboPrice > 0 ? comboPrice : getProductPublicPrice(product, business))}
+                                            </span>
                                         </div>
-                                        <div className="text-right flex-shrink-0">
-                                            <span className="text-2xl font-black text-red-600 tracking-tight block leading-none">{formatPrice(comboPrice)}</span>
-                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Combo</span>
+
+                                        {/* Derecha: Botón Agregar / Armar compacto */}
+                                        <div className="flex-shrink-0">
+                                            <button
+                                                onClick={() => {
+                                                    if (!isComboComplete) return;
+
+                                                    const comboMeta = Object.entries(comboSelection).reduce((acc, [variantName, qty]) => {
+                                                        const variant = availableVariants.find(v => v.name === variantName);
+                                                        if (variant && qty > 0) {
+                                                            const meta = getPriceMetadata(variant);
+                                                            return {
+                                                                basePrice: acc.basePrice + (meta.basePrice * qty),
+                                                                commission: acc.commission + (meta.commission * qty),
+                                                                publicPrice: acc.publicPrice + (meta.publicPrice * qty),
+                                                                storeReceives: acc.storeReceives + (meta.storeReceives * qty),
+                                                            };
+                                                        }
+                                                        return acc;
+                                                    }, { basePrice: 0, commission: 0, publicPrice: 0, storeReceives: 0 });
+
+                                                    const itemToAdd = {
+                                                        id: `${product.id}-combo-${Date.now()}`,
+                                                        name: product.name,
+                                                        variantName: `Combo: ${selectedVariantsStr}`,
+                                                        productName: product.name,
+                                                        price: comboMeta.publicPrice,
+                                                        basePrice: comboMeta.basePrice,
+                                                        commission: comboMeta.commission,
+                                                        storeReceives: comboMeta.storeReceives,
+                                                        commissionType: product.commissionType || 'no_commission',
+                                                        image: product.image,
+                                                        imagePosition: product.imagePosition || 'center 50%',
+                                                        description: product.description,
+                                                        businessId: business.id,
+                                                        businessName: business.name,
+                                                        businessImage: business.image,
+                                                        category: product.category,
+                                                        isCombo: true,
+                                                        comboSelection: comboSelection,
+                                                        ...(product.isShared && {
+                                                            originalBusinessId: product.originalBusinessId,
+                                                            originalBusinessName: product.originalBusinessName,
+                                                            originalBusinessImage: product.originalBusinessImage
+                                                        })
+                                                    };
+
+                                                    const currentCart = [...cart];
+                                                    currentCart.push({ ...itemToAdd, quantity: 1 });
+                                                    setCart(currentCart);
+                                                    updateCartInStorage(business.id, currentCart);
+                                                    showNotification(`${product.name} (Combo) agregado`);
+                                                    setComboSelection({});
+                                                    onClose();
+                                                    onOpenCart?.();
+                                                }}
+                                                disabled={!isComboComplete}
+                                                className={`relative overflow-hidden px-4 py-2.5 sm:px-5 sm:py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all border shadow-sm active:scale-95 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
+                                                    isComboComplete
+                                                        ? 'bg-red-600 border-red-600 text-white shadow-red-500/20 shadow-md hover:bg-red-700'
+                                                        : 'bg-gray-100 border-gray-200 text-gray-700'
+                                                }`}
+                                            >
+                                                {/* Barra de progreso animada de fondo */}
+                                                <div 
+                                                    className="absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out bg-gradient-to-r from-red-600 to-red-500"
+                                                    style={{ width: `${comboProgressPercent}%` }}
+                                                />
+
+                                                {/* Contenido sobrepuesto con capas Z */}
+                                                <div className="relative z-10 flex items-center gap-1.5">
+                                                    <i className={`bi ${isComboComplete ? 'bi-bag-plus-fill text-sm text-white' : 'bi-stars text-sm text-gray-900'}`}></i>
+                                                    <span className={`font-black text-xs uppercase tracking-wider whitespace-nowrap ${isComboComplete ? 'text-white' : 'text-gray-900'}`}>
+                                                        {isComboComplete ? 'Agregar' : 'Armar'}
+                                                    </span>
+                                                    {!isComboComplete && (
+                                                        <span className="text-[10px] font-black tracking-tight px-1.5 py-0.5 rounded-md border transition-all bg-white border-gray-200 text-gray-800 shadow-sm ml-0.5">
+                                                            {totalComboSelected}/{minComboItems}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </button>
                                         </div>
                                     </div>
                                 )}
 
-                                <div className="flex items-center gap-3">
-                                    {product.isCombo ? (
-                                        <button
-                                            onClick={() => {
-                                                if (!isComboComplete) return;
-
-                                                const comboMeta = Object.entries(comboSelection).reduce((acc, [variantName, qty]) => {
-                                                    const variant = availableVariants.find(v => v.name === variantName);
-                                                    if (variant && qty > 0) {
-                                                        const meta = getPriceMetadata(variant);
-                                                        return {
-                                                            basePrice: acc.basePrice + (meta.basePrice * qty),
-                                                            commission: acc.commission + (meta.commission * qty),
-                                                            publicPrice: acc.publicPrice + (meta.publicPrice * qty),
-                                                            storeReceives: acc.storeReceives + (meta.storeReceives * qty),
-                                                        };
-                                                    }
-                                                    return acc;
-                                                }, { basePrice: 0, commission: 0, publicPrice: 0, storeReceives: 0 });
-
-                                                const itemToAdd = {
-                                                    id: `${product.id}-combo-${Date.now()}`,
-                                                    name: product.name,
-                                                    variantName: `Combo: ${selectedVariantsStr}`,
-                                                    productName: product.name,
-                                                    price: comboMeta.publicPrice,
-                                                    basePrice: comboMeta.basePrice,
-                                                    commission: comboMeta.commission,
-                                                    storeReceives: comboMeta.storeReceives,
-                                                    commissionType: product.commissionType || 'no_commission',
-                                                    image: product.image,
-                                                    imagePosition: product.imagePosition || 'center 50%',
-                                                    description: product.description,
-                                                    businessId: business.id,
-                                                    businessName: business.name,
-                                                    businessImage: business.image,
-                                                    category: product.category,
-                                                    isCombo: true,
-                                                    comboSelection: comboSelection,
-                                                    ...(product.isShared && {
-                                                        originalBusinessId: product.originalBusinessId,
-                                                        originalBusinessName: product.originalBusinessName,
-                                                        originalBusinessImage: product.originalBusinessImage
-                                                    })
-                                                };
-
-                                                const currentCart = [...cart];
-                                                currentCart.push({ ...itemToAdd, quantity: 1 });
-                                                setCart(currentCart);
-                                                updateCartInStorage(business.id, currentCart);
-                                                showNotification(`${product.name} (Combo) agregado`);
-                                                setComboSelection({});
-                                                onClose();
-                                                onOpenCart?.();
-                                            }}
-                                            disabled={!isComboComplete}
-                                            className={`relative overflow-hidden flex-1 h-14 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border shadow-sm active:scale-95 disabled:cursor-not-allowed flex items-center justify-between px-5 ${
-                                                isComboComplete
-                                                    ? 'bg-red-600 border-red-600 text-white shadow-red-500/20 shadow-lg'
-                                                    : 'bg-gray-100 border-gray-200 text-gray-700'
-                                            }`}
-                                        >
-                                            {/* Barra de progreso animada de fondo */}
-                                            <div 
-                                                className="absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out bg-gradient-to-r from-red-600 to-red-500"
-                                                style={{ width: `${comboProgressPercent}%` }}
-                                            />
-
-                                            {/* Contenido sobrepuesto con capas Z */}
-                                            <div className="relative z-10 flex items-center justify-between w-full">
-                                                <div className="flex items-center gap-2.5">
-                                                    <i className={`bi ${isComboComplete ? 'bi-bag-plus-fill text-base text-white' : 'bi-stars text-base text-gray-900'}`}></i>
-                                                    <span className={`font-black text-xs uppercase tracking-wider ${isComboComplete ? 'text-white' : 'text-gray-900'}`}>
-                                                        {isComboComplete ? 'Agregar Combo' : 'Arma tu combo'}
-                                                    </span>
-                                                </div>
-                                                <span className={`text-[11px] font-black tracking-tight px-2.5 py-0.5 rounded-full border transition-all ${
-                                                    isComboComplete 
-                                                        ? 'bg-white/20 border-white/30 text-white shadow-sm' 
-                                                        : 'bg-white border-gray-200/80 text-gray-800 shadow-sm'
-                                                }`}>
-                                                    {totalComboSelected}/{minComboItems}
-                                                </span>
-                                            </div>
-                                        </button>
-                                    ) : (
-                                        <button
-                                            onClick={onClose}
-                                            className={`flex-shrink-0 flex items-center justify-center bg-gray-100 text-gray-500 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98] ${cartItemsCount > 0 ? 'w-12 h-14' : 'flex-1 py-4'}`}
-                                            title="Cerrar"
-                                        >
-                                            {cartItemsCount > 0
-                                                ? <i className="bi bi-x-lg text-base"></i>
-                                                : 'Cerrar'
-                                            }
-                                        </button>
-                                    )}
-                                    {cartButton}
-                                </div>
+                                {/* Botón Ver carrito ubicado debajo de todo */}
+                                {cartButton}
                             </div>
                         )
                     })()}
