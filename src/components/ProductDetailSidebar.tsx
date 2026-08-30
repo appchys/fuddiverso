@@ -488,8 +488,24 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         }
     }
 
+    const normalizePhoneDigits = (phoneStr?: string | null) => (phoneStr || '').replace(/\D/g, '')
+    const currentProductClientPhone = user?.celular || (typeof window !== 'undefined' ? localStorage.getItem('loginPhone') : '') || ''
+    const currentProductClientDigits = normalizePhoneDigits(currentProductClientPhone)
+
     const startEditingReview = (item: ProductRatingItem, e?: React.MouseEvent) => {
         if (e) e.stopPropagation()
+        const reviewPhoneDigits = normalizePhoneDigits(item.clientPhone)
+        const canManage = Boolean(
+            currentProductClientDigits &&
+            reviewPhoneDigits &&
+            (currentProductClientDigits === reviewPhoneDigits || currentProductClientDigits.endsWith(reviewPhoneDigits) || reviewPhoneDigits.endsWith(currentProductClientDigits))
+        ) || (item.id.startsWith('local_') && Boolean(currentProductClientDigits))
+
+        if (!canManage) {
+            showNotification('Solo el autor puede editar esta opinión', 'error')
+            return
+        }
+
         setEditingReviewId(item.id)
         setEditRatingScore(item.rating || 5)
         setEditCommentText(item.comment || '')
@@ -501,6 +517,18 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     const handleSaveEditReview = async (item: ProductRatingItem, e?: React.FormEvent) => {
         if (e) e.preventDefault()
         if (!business?.id || !product?.id) return
+        const reviewPhoneDigits = normalizePhoneDigits(item.clientPhone)
+        const canManage = Boolean(
+            currentProductClientDigits &&
+            reviewPhoneDigits &&
+            (currentProductClientDigits === reviewPhoneDigits || currentProductClientDigits.endsWith(reviewPhoneDigits) || reviewPhoneDigits.endsWith(currentProductClientDigits))
+        ) || (item.id.startsWith('local_') && Boolean(currentProductClientDigits))
+
+        if (!canManage) {
+            showNotification('Solo el autor puede editar esta opinión', 'error')
+            return
+        }
+
         const docId = item.ratingDocId || item.id.split('_')[0]
         setIsSavingEdit(true)
 
@@ -557,6 +585,18 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     const handleDeleteReview = async (item: ProductRatingItem, e?: React.MouseEvent) => {
         if (e) e.stopPropagation()
         if (!business?.id || !product?.id) return
+        const reviewPhoneDigits = normalizePhoneDigits(item.clientPhone)
+        const canManage = Boolean(
+            currentProductClientDigits &&
+            reviewPhoneDigits &&
+            (currentProductClientDigits === reviewPhoneDigits || currentProductClientDigits.endsWith(reviewPhoneDigits) || reviewPhoneDigits.endsWith(currentProductClientDigits))
+        ) || (item.id.startsWith('local_') && Boolean(currentProductClientDigits))
+
+        if (!canManage) {
+            showNotification('Solo el autor puede eliminar esta opinión', 'error')
+            return
+        }
+
         if (!confirm('¿Deseas eliminar tu opinión?')) return
 
         const docId = item.ratingDocId || item.id.split('_')[0]
@@ -994,45 +1034,47 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                 </div>
                             )}
 
-                            {/* Barra de 3 Pestañas: Comprar | Calificar | Recomendar */}
+                            {/* Barra de 3 Pestañas: Comprar | Opiniones | Recomendar */}
                             <div className="grid grid-cols-3 gap-1 bg-gray-100/90 p-1 rounded-2xl border border-gray-200/60 mt-3.5">
                                 {/* Pestaña 1: Comprar */}
                                 <button
                                     type="button"
                                     onClick={() => setActiveTab('options')}
-                                    className={`py-2 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                                    className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${
                                         activeTab === 'options'
                                             ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
                                             : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
                                     }`}
                                 >
                                     <ShoppingBag
-                                        size={13}
+                                        size={17}
                                         className={activeTab === 'options' ? 'text-gray-900' : 'text-gray-400'}
                                     />
                                     <span>Comprar</span>
                                 </button>
 
-                                {/* Pestaña 2: Calificar */}
+                                {/* Pestaña 2: Opiniones */}
                                 <button
                                     type="button"
                                     onClick={() => setActiveTab('reviews')}
-                                    className={`py-2 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                                    className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${
                                         activeTab === 'reviews'
                                             ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
                                             : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
                                     }`}
                                 >
-                                    <Star
-                                        size={13}
-                                        className={activeTab === 'reviews' || productRatingAvg > 0 ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}
-                                    />
-                                    <span>Calificar</span>
-                                    {productRatingAvg > 0 && (
-                                        <span className="text-[10px] text-amber-600 font-extrabold bg-amber-50 px-1 py-0.2 rounded-md">
-                                            {productRatingAvg.toFixed(1)}
-                                        </span>
-                                    )}
+                                    <div className="relative flex items-center justify-center">
+                                        <Star
+                                            size={17}
+                                            className={activeTab === 'reviews' || productRatingAvg > 0 ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}
+                                        />
+                                        {productRatingAvg > 0 && (
+                                            <span className="absolute -top-1.5 -right-3 text-[9px] text-amber-700 font-extrabold bg-amber-100 px-1 py-0.2 rounded-full leading-none">
+                                                {productRatingAvg.toFixed(1)}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span>Opiniones</span>
                                 </button>
 
                                 {/* Pestaña 3: Recomendar */}
@@ -1046,14 +1088,14 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                             generateReferralForUser(user)
                                         }
                                     }}
-                                    className={`py-2 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                                    className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${
                                         activeTab === 'referral'
                                             ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
                                             : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
                                     }`}
                                 >
                                     <Flame
-                                        size={13}
+                                        size={17}
                                         className={activeTab === 'referral' || localHasRecommended ? 'fill-orange-500 text-orange-500' : 'text-gray-400'}
                                     />
                                     <span>Recomendar</span>
@@ -1494,7 +1536,12 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                             const isLiked = effectiveUserIdentifier ? likes.includes(effectiveUserIdentifier) : false
                                             const likesCount = likes.length
                                             const repliesCount = item.replies?.length || 0
-                                            const isOwnReview = (!!user?.celular && item.clientPhone === user.celular) || (!!user?.nombres && item.clientName?.startsWith(user.nombres)) || (item.clientName?.includes('(Tú)')) || (item.id.startsWith('local_'))
+                                            const reviewPhoneDigits = normalizePhoneDigits(item.clientPhone)
+                                            const isOwnReview = Boolean(
+                                                currentProductClientDigits &&
+                                                reviewPhoneDigits &&
+                                                (currentProductClientDigits === reviewPhoneDigits || currentProductClientDigits.endsWith(reviewPhoneDigits) || reviewPhoneDigits.endsWith(currentProductClientDigits))
+                                            ) || (item.id.startsWith('local_') && Boolean(currentProductClientDigits))
 
                                             if (isEditing) {
                                                 return (
@@ -1736,15 +1783,15 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                         >
                                                             {/* Lista de respuestas existentes */}
                                                             {item.replies && item.replies.length > 0 && (
-                                                                <div className="space-y-2 pl-2 border-l-2 border-amber-200">
+                                                                <div className="space-y-2 pl-2 border-l-2 border-gray-200">
                                                                     {item.replies.map((reply: any, rIdx: number) => (
                                                                         <div
                                                                             key={reply.id || rIdx}
-                                                                            className="bg-gray-50/80 p-2.5 rounded-xl text-xs space-y-1"
+                                                                            className="bg-gray-50/80 border border-gray-100 p-2.5 rounded-xl text-xs space-y-1"
                                                                         >
                                                                             <div className="flex items-center justify-between">
                                                                                 <div className="flex items-center gap-1.5">
-                                                                                    <div className="w-5 h-5 rounded-full bg-amber-100/80 text-amber-800 font-black text-[9px] flex items-center justify-center border border-amber-200/60 flex-shrink-0 overflow-hidden">
+                                                                                    <div className="w-5 h-5 rounded-full bg-gray-200 text-gray-800 font-black text-[9px] flex items-center justify-center flex-shrink-0 overflow-hidden">
                                                                                         {reply.userPhoto ? (
                                                                                             <img
                                                                                                 src={reply.userPhoto}

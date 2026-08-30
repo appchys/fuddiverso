@@ -4700,9 +4700,10 @@ export interface ProductRating {
 export interface BusinessRating {
   id?: string;
   businessId: string;
-  orderId: string;
+  orderId?: string;
   rating: number;
   comment?: string;
+  image?: string;
   clientName?: string;
   clientPhone?: string;
   clientEmail?: string;
@@ -4917,16 +4918,17 @@ export async function saveStoreRating(
   businessId: string,
   rating: number,
   comment: string = '',
-  clientInfo: { name?: string; phone?: string; email?: string; photoURL?: string } = {}
+  clientInfo: { name?: string; phone?: string; email?: string; photoURL?: string; image?: string } = {}
 ): Promise<string> {
   try {
     // If no phone, fallback to auto ID (shouldn't happen with current UI)
     if (!clientInfo.phone) {
       const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
-      const ratingData = {
+      const ratingData: any = {
         businessId,
         rating,
         comment,
+        image: clientInfo.image || '',
         clientName: clientInfo.name || 'Cliente',
         clientPhone: '',
         clientEmail: clientInfo.email || '',
@@ -4950,6 +4952,7 @@ export async function saveStoreRating(
       businessId,
       rating,
       comment,
+      image: clientInfo.image || '',
       clientName: clientInfo.name || 'Cliente',
       clientPhone: clientInfo.phone,
       clientEmail: clientInfo.email || '',
@@ -5007,16 +5010,15 @@ export async function toggleLikeStoreRating(
     });
 
     if (isNewLike && data.clientPhone && data.clientPhone !== clientPhone) {
-      const [actorName, businessName] = await Promise.all([
-        getClientDisplayNameByPhone(clientPhone),
-        getBusinessNameForNotification(businessId)
-      ]);
+      const isStoreLike = clientPhone.startsWith('business_') || clientPhone.startsWith('store_');
+      const businessName = await getBusinessNameForNotification(businessId);
+      const actorName = isStoreLike ? businessName : await getClientDisplayNameByPhone(clientPhone);
 
       await createClientNotification({
         userId: data.clientPhone,
         type: 'rating_like',
-        title: 'A alguien le gusto tu resena',
-        message: `${actorName} reacciono a tu resena de ${businessName}.`,
+        title: isStoreLike ? `A ${businessName} le gustó tu reseña` : 'A alguien le gustó tu reseña',
+        message: `${actorName} reaccionó a tu reseña de ${businessName}.`,
         businessId,
         businessName,
         ratingId,
@@ -5268,7 +5270,20 @@ export async function updateBusinessRatingStats(businessId: string): Promise<voi
     let ratingCount = 0;
 
     snapshot.forEach((doc) => {
-      const data = doc.data();
+      const data = doc.data() as any;
+      // Ignorar calificaciones exclusivas de productos
+      if (data.isProductOnlyRating) return;
+      if (
+        data.productRatings &&
+        Array.isArray(data.productRatings) &&
+        data.productRatings.length > 0 &&
+        !data.storeRated &&
+        !data.isStoreRating &&
+        (!data.comment || data.comment.trim() === '')
+      ) {
+        return;
+      }
+
       if (data.rating) {
         totalRating += data.rating;
         ratingCount++;
@@ -5412,6 +5427,7 @@ export async function addProductRatingComment(
       rating,
       comment: '',
       image: imageUrl || '',
+      isProductOnlyRating: true,
       clientName: clientInfo.name || 'Cliente',
       clientPhone: clientInfo.phone || '',
       clientPhotoURL: clientInfo.photoURL || '',
@@ -5427,7 +5443,6 @@ export async function addProductRatingComment(
       ]
     });
 
-    await updateBusinessRatingStats(businessId);
     return docRef.id;
   } catch (error) {
     console.error('Error adding product rating comment:', error);
@@ -5481,7 +5496,6 @@ export async function updateProductRatingComment(
     }
 
     await updateDoc(ratingRef, updatePayload);
-    await updateBusinessRatingStats(businessId);
   } catch (error) {
     console.error('Error updating product rating comment:', error);
     throw error;
@@ -5513,8 +5527,6 @@ export async function deleteProductRatingComment(
         updatedAt: serverTimestamp()
       });
     }
-
-    await updateBusinessRatingStats(businessId);
   } catch (error) {
     console.error('Error deleting product rating comment:', error);
     throw error;
@@ -5526,7 +5538,7 @@ export async function deleteProductRatingComment(
  */
 export async function getBusinessRatings(
   businessId: string,
-  limitCount: number = 10
+  limitCount: number = 100
 ): Promise<BusinessRating[]> {
   try {
     const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
@@ -5537,10 +5549,30 @@ export async function getBusinessRatings(
     );
 
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as BusinessRating[];
+    const results: BusinessRating[] = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data() as any;
+      // Filtrar calificaciones que son exclusivamente para productos
+      if (data.isProductOnlyRating) return;
+      if (
+        data.productRatings &&
+        Array.isArray(data.productRatings) &&
+        data.productRatings.length > 0 &&
+        !data.storeRated &&
+        !data.isStoreRating &&
+        (!data.comment || data.comment.trim() === '')
+      ) {
+        return;
+      }
+
+      results.push({
+        id: doc.id,
+        ...data
+      } as BusinessRating);
+    });
+
+    return results;
   } catch (error) {
     console.error('Error getting business ratings:', error);
     return [];

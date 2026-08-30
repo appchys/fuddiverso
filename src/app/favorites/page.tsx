@@ -17,23 +17,39 @@ export default function FavoritesPage() {
   const [showLoginModal, setShowLoginModal] = useState(false)
 
   useEffect(() => {
-    // Si no está autenticado, esperamos un poco (AuthContext puede estar inicializando)
-    if (isAuthenticated === false) {
-      setShowLoginModal(true)
-      setLoading(false)
-      return
-    }
-
-    if (user) {
-      loadFavorites()
-    }
+    loadFavorites()
   }, [user, isAuthenticated])
+
+  const getFavoriteIds = (): Set<string> => {
+    const favSet = new Set<string>()
+    if (typeof window === 'undefined') return favSet
+    const loginPhone = localStorage.getItem('loginPhone')
+    const keys = [
+      user?.id ? `followedBusinesses_${user.id}` : null,
+      user?.celular ? `followedBusinesses_${user.celular}` : null,
+      loginPhone ? `followedBusinesses_${loginPhone}` : null,
+      'followedBusinesses_guest'
+    ].filter(Boolean) as string[]
+
+    keys.forEach(k => {
+      const saved = localStorage.getItem(k)
+      if (saved) {
+        try {
+          const arr = JSON.parse(saved)
+          if (Array.isArray(arr)) {
+            arr.forEach((id: string) => favSet.add(id))
+          }
+        } catch (e) {}
+      }
+    })
+
+    return favSet
+  }
 
   const loadFavorites = async () => {
     try {
       setLoading(true)
-      const saved = localStorage.getItem(`followedBusinesses_${user?.id}`)
-      const favIds = saved ? new Set(JSON.parse(saved)) : new Set()
+      const favIds = getFavoriteIds()
 
       if (favIds.size === 0) {
         setBusinesses([])
@@ -53,18 +69,31 @@ export default function FavoritesPage() {
 
   const handleLoginSuccess = () => {
     setShowLoginModal(false)
+    loadFavorites()
   }
 
   const handleUnfollow = (id: string, e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!user) return
     
-    // Remove from local storage
-    const saved = localStorage.getItem(`followedBusinesses_${user.id}`)
-    const favIds = saved ? new Set<string>(JSON.parse(saved)) : new Set<string>()
-    favIds.delete(id)
-    localStorage.setItem(`followedBusinesses_${user.id}`, JSON.stringify(Array.from(favIds)))
+    if (typeof window === 'undefined') return
+    const loginPhone = localStorage.getItem('loginPhone')
+    const keys = [
+      user?.id ? `followedBusinesses_${user.id}` : null,
+      user?.celular ? `followedBusinesses_${user.celular}` : null,
+      loginPhone ? `followedBusinesses_${loginPhone}` : null,
+      'followedBusinesses_guest'
+    ].filter(Boolean) as string[]
+
+    keys.forEach(k => {
+      const saved = localStorage.getItem(k)
+      if (saved) {
+        try {
+          const arr = JSON.parse(saved).filter((item: string) => item !== id)
+          localStorage.setItem(k, JSON.stringify(arr))
+        } catch (e) {}
+      }
+    })
     
     // Update state
     setBusinesses(prev => prev.filter(b => b.id !== id))

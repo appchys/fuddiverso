@@ -226,11 +226,9 @@ service cloud.firestore {
 
 
     // Colección de movimientos de stock de ingredientes
-    // Acceso restringido a usuarios autenticados del negocio
     match /ingredientStockMovements/{document} {
-      // Lectura: usuarios autenticados pueden leer movimientos de su negocio
-      allow read: if request.auth != null &&
-        request.auth.uid != null;
+      // Lectura: pública (necesaria para que la tienda pública verifique stock y disponibilidad de productos)
+      allow read: if true;
       
       // Escritura: permitir creación pública (descuento automático de stock) 
       // pero actualización/eliminación solo a usuarios autenticados

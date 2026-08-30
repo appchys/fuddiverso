@@ -12,6 +12,7 @@ import { db } from '@/lib/firebase'
 import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
+import { Store, LayoutGrid, Share2, Settings, Star, Heart, ChevronDown } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const CartSidebar = dynamic(() => import('@/components/CartSidebar'), { ssr: false })
@@ -20,6 +21,7 @@ const CheckoutContent = dynamic(() => import('@/components/CheckoutContent').the
 const UserSidebar = dynamic(() => import('@/components/UserSidebar'), { ssr: false })
 const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), { ssr: false })
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
+const StoreRatingsView = dynamic(() => import('@/components/StoreRatingsView'), { ssr: false })
 const ReferralModal = dynamic(() => import('@/components/ReferralModal'), { ssr: false })
 const ProductDetailSidebar = dynamic(() => import('@/components/ProductDetailSidebar'), { ssr: false })
 
@@ -264,7 +266,7 @@ export default function RestaurantPage() {
 }
 
 function RestaurantContent() {
-  const { user: clientUser } = useAuth()
+  const { user, user: clientUser } = useAuth()
   const params = useParams()
   const username = typeof params?.username === 'string' ? params.username : Array.isArray(params?.username) ? params.username[0] : ''
 
@@ -308,7 +310,7 @@ function RestaurantContent() {
   const [premioAgregado, setPremioAgregado] = useState(false)
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'catalogo' | 'perfil'>('catalogo')
+  const [activeTab, setActiveTab] = useState<'catalogo' | 'perfil' | 'calificaciones'>('catalogo')
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [otherBusinesses, setOtherBusinesses] = useState<Business[]>([])
@@ -323,8 +325,29 @@ function RestaurantContent() {
   const [referralCounts, setReferralCounts] = useState<Record<string, number>>({})
   const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
   const [isOwner, setIsOwner] = useState(false)
+  const [isFavorite, setIsFavorite] = useState(false)
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const [branches, setBranches] = useState<Business[]>([])
   const [showBranchModal, setShowBranchModal] = useState(false)
+
+  // Cargar estado de favorito
+  useEffect(() => {
+    if (!business?.id) return
+    const userKey = user?.id || (typeof window !== 'undefined' ? (localStorage.getItem('loginPhone') || 'guest') : 'guest')
+    const saved = typeof window !== 'undefined'
+      ? (localStorage.getItem(`followedBusinesses_${userKey}`) || (user?.id ? localStorage.getItem(`followedBusinesses_${user.id}`) : null) || localStorage.getItem('followedBusinesses_guest'))
+      : null
+    if (saved) {
+      try {
+        const favIds = JSON.parse(saved)
+        setIsFavorite(Array.isArray(favIds) && favIds.includes(business.id))
+      } catch (e) {
+        setIsFavorite(false)
+      }
+    } else {
+      setIsFavorite(false)
+    }
+  }, [business?.id, user?.id])
 
   // Cargar sucursales de la marca si existen
   useEffect(() => {
@@ -1063,6 +1086,42 @@ function RestaurantContent() {
     }
   };
 
+  const handleToggleFavorite = () => {
+    if (!business?.id) return
+    const userKey = user?.id || (typeof window !== 'undefined' ? (localStorage.getItem('loginPhone') || 'guest') : 'guest')
+    const saved = typeof window !== 'undefined'
+      ? (localStorage.getItem(`followedBusinesses_${userKey}`) || (user?.id ? localStorage.getItem(`followedBusinesses_${user.id}`) : null) || localStorage.getItem('followedBusinesses_guest'))
+      : null
+    let favIds: string[] = []
+    if (saved) {
+      try {
+        favIds = JSON.parse(saved)
+        if (!Array.isArray(favIds)) favIds = []
+      } catch (e) {
+        favIds = []
+      }
+    }
+
+    const currentlyFav = favIds.includes(business.id)
+    const nextFavIds = currentlyFav
+      ? favIds.filter(id => id !== business.id)
+      : [...favIds, business.id]
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`followedBusinesses_${userKey}`, JSON.stringify(nextFavIds))
+      if (user?.id && userKey !== user.id) {
+        localStorage.setItem(`followedBusinesses_${user.id}`, JSON.stringify(nextFavIds))
+      }
+      const loginPhone = localStorage.getItem('loginPhone')
+      if (loginPhone && userKey !== loginPhone) {
+        localStorage.setItem(`followedBusinesses_${loginPhone}`, JSON.stringify(nextFavIds))
+      }
+    }
+
+    setIsFavorite(!currentlyFav)
+    showNotification(!currentlyFav ? 'Añadido a tus favoritos ❤️' : 'Eliminado de tus favoritos')
+  };
+
   // Estado de carga simple sin skeletons estructurales
   if (loading || !business) {
     return (
@@ -1181,39 +1240,62 @@ function RestaurantContent() {
         </div>
 
         {/* Contenido debajo de la portada - Diseño Premium */}
-        <div className="max-w-3xl mx-auto px-4 pt-14 sm:pt-16 pb-6 text-center">
+        <div className="max-w-3xl mx-auto px-4 pt-14 sm:pt-16 pb-6 text-center relative">
+          {/* Botones de acción (Favorito y Compartir) sutiles debajo de la portada alineados a la derecha */}
+          <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
+            {/* Botón Favorito */}
+            <button
+              onClick={handleToggleFavorite}
+              className={`w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white shadow-xs transition-all active:scale-95 cursor-pointer ${
+                isFavorite
+                  ? 'text-red-600 shadow-sm'
+                  : 'text-gray-400 hover:text-gray-900'
+              }`}
+              title={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+              aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+            >
+              <Heart
+                size={16}
+                className={isFavorite ? 'fill-red-600 text-red-600' : 'text-gray-400'}
+              />
+            </button>
+
+            {/* Botón Compartir */}
+            <button
+              onClick={copyStoreLink}
+              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 shadow-xs transition-all active:scale-95 cursor-pointer"
+              title="Compartir tienda"
+              aria-label="Compartir tienda"
+            >
+              <Share2 size={16} />
+            </button>
+          </div>
+
           <div className="flex flex-col items-center">
             <div className="w-full">
               <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">
                 {business.name}
               </h1>
-              <div 
-                className="flex justify-center items-center gap-2 mb-3 cursor-pointer hover:opacity-80 transition-all active:scale-95 group"
-                onClick={() => {
-                  setIsRatingModalOpen(true);
-                }}
-              >
-                <div className="flex items-center gap-1.5 bg-white/50 backdrop-blur-sm px-3 py-1 rounded-full border border-gray-100 shadow-sm group-hover:border-yellow-200 group-hover:bg-yellow-50/30 transition-all">
-                  <StarRating rating={business.ratingAverage || 5.0} size="md" showGrayStars={!business.ratingCount || business.ratingCount === 0} />
-                  <div className="flex items-center gap-1 border-l border-gray-200 pl-2">
-                    {business.ratingCount && (
-                      <span className="text-xs font-black text-gray-900 leading-none">{business.ratingCount}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
               {business.description && (
                 <div className="mt-2 max-w-2xl mx-auto text-center">
-                  <p className="text-gray-500 text-sm sm:text-base leading-relaxed inline-block">
+                  <p
+                    onClick={() => business.description.length > 120 && setIsDescriptionExpanded(!isDescriptionExpanded)}
+                    className={`text-gray-500 text-sm sm:text-base leading-relaxed ${
+                      business.description.length > 120 ? 'cursor-pointer select-none hover:text-gray-700 transition-colors' : ''
+                    }`}
+                  >
                     {business.description.length > 120 ? (
                       <>
-                        <span>{business.description.slice(0, 120)}...</span>{' '}
-                        <button
-                          onClick={() => setActiveTab('perfil')}
-                          className="text-red-500 text-sm sm:text-base font-medium hover:text-red-600 transition-colors inline-block ml-1"
-                        >
-                          Leer más
-                        </button>
+                        <span>
+                          {isDescriptionExpanded
+                            ? business.description
+                            : `${business.description.slice(0, 120)}...`}
+                        </span>
+                        <i
+                          className={`bi bi-chevron-down text-xs ml-1.5 inline-block text-gray-400 align-middle transition-transform duration-200 ${
+                            isDescriptionExpanded ? 'rotate-180 text-gray-700' : ''
+                          }`}
+                        />
                       </>
                     ) : (
                       <span>{business.description}</span>
@@ -1246,49 +1328,71 @@ function RestaurantContent() {
                 )}
 
                 {!isStoreOpen(business) && getNextOpeningMessage(business) && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200/80 shadow-xs animate-in fade-in zoom-in-95 duration-300">
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200/80 shadow-xs animate-in fade-in zoom-in-95 duration-300">
                     <i className="bi bi-clock text-gray-400"></i>
                     {getNextOpeningMessage(business)}
                   </span>
                 )}
               </div>
 
-              {/* Navegación por Pestañas - Estilo Pill Compacto */}
-              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 mt-5 max-w-lg mx-auto">
-                <button
-                  onClick={() => setActiveTab('perfil')}
-                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 active:scale-95 ${activeTab === 'perfil'
-                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-black/5'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100/60'
-                    }`}
-                >
-                  <i className={`bi bi-shop text-sm ${activeTab === 'perfil' ? 'text-red-500' : ''}`}></i>
-                  Perfil
-                </button>
+              {/* Navegación por Pestañas - Icono Arriba y Texto Abajo */}
+              <div className={`grid ${isOwner ? 'grid-cols-4' : 'grid-cols-3'} gap-1 bg-gray-100/90 p-1.5 rounded-2xl border border-gray-200/60 mt-5 max-w-lg mx-auto`}>
                 <button
                   onClick={() => setActiveTab('catalogo')}
-                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 active:scale-95 ${activeTab === 'catalogo'
-                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-black/5'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100/60'
+                  className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${activeTab === 'catalogo'
+                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
                     }`}
                 >
-                  <i className={`bi bi-grid text-sm ${activeTab === 'catalogo' ? 'text-red-500' : ''}`}></i>
-                  Catálogo
+                  <LayoutGrid
+                    size={17}
+                    className={activeTab === 'catalogo' ? 'text-gray-900' : 'text-gray-400'}
+                  />
+                  <span>Catálogo</span>
                 </button>
                 <button
-                  onClick={copyStoreLink}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-gray-100/60 transition-all duration-200 active:scale-95"
+                  onClick={() => setActiveTab('perfil')}
+                  className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${activeTab === 'perfil'
+                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                    }`}
                 >
-                  <i className="bi bi-share text-sm"></i>
-                  Compartir
+                  <Store
+                    size={17}
+                    className={activeTab === 'perfil' ? 'text-gray-900' : 'text-gray-400'}
+                  />
+                  <span>Perfil</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('calificaciones')}
+                  className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${activeTab === 'calificaciones'
+                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                    }`}
+                >
+                  <div className="relative flex items-center justify-center">
+                    <Star
+                      size={17}
+                      className={activeTab === 'calificaciones' || (business.ratingAverage || 0) > 0 ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}
+                    />
+                    {(business.ratingAverage || 0) > 0 && (
+                      <span className="absolute -top-1.5 -right-3 text-[9px] text-amber-700 font-extrabold bg-amber-100 px-1 py-0.2 rounded-full leading-none">
+                        {business.ratingAverage?.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <span>Opiniones</span>
                 </button>
                 {isOwner && (
                   <Link
                     href="/business/dashboard"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-gray-100/60 transition-all duration-200 active:scale-95"
+                    className="py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black text-gray-500 hover:text-gray-900 hover:bg-white/50 transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
                   >
-                    <i className="bi bi-gear text-sm"></i>
-                    Administrar
+                    <Settings
+                      size={17}
+                      className="text-gray-400"
+                    />
+                    <span>Administrar</span>
                   </Link>
                 )}
               </div>
@@ -1404,45 +1508,21 @@ function RestaurantContent() {
             </div>
           </div>
         </div>
+      ) : activeTab === 'calificaciones' ? (
+        /* Vista de Calificaciones de la Tienda */
+        <div className="max-w-2xl mx-auto px-4 py-8 sm:py-10">
+          <StoreRatingsView
+            business={business}
+            clientPhone={clientPhone}
+            clientUser={clientUser}
+            businessUser={isOwner ? { uid: localStorage.getItem('ownerId') } : null}
+            businessOwnerId={business?.ownerId || null}
+            onSuccess={(msg) => showNotification(msg)}
+          />
+        </div>
       ) : (
         /* Vista de Catálogo (actual) */
         <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
-          <div className="flex items-center gap-4 mb-10">
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
-                Nuestro Menú
-              </h2>
-              {getPackagingFee(business) > 0 && (
-                <div className="relative inline-flex items-center">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setShowHeaderFeeTooltip(prev => !prev)
-                    }}
-                    onMouseEnter={() => setShowHeaderFeeTooltip(true)}
-                    onMouseLeave={() => setShowHeaderFeeTooltip(false)}
-                    className="p-0 bg-transparent border-none text-amber-500 hover:text-amber-600 transition-colors focus:outline-none flex items-center justify-center cursor-pointer align-super"
-                    aria-label="Precios incluyen recargo por empaque"
-                    title="Precios incluyen recargo por empaque"
-                  >
-                    <i className="bi bi-asterisk text-xs sm:text-sm font-black"></i>
-                  </button>
-                  {showHeaderFeeTooltip && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-amber-900 text-amber-50 text-xs font-bold rounded-xl shadow-xl whitespace-nowrap z-20 flex items-center gap-2 animate-fadeIn"
-                    >
-                      <i className="bi bi-asterisk text-xs text-amber-300"></i>
-                      <span>Precios incluyen recargo por empaque</span>
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-amber-900"></div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
-          </div>
 
           {Object.entries(productsByCategory).length === 0 ? (
             <div className="text-center py-20 px-6 bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
