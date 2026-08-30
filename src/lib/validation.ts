@@ -55,39 +55,44 @@ export const PHONE_VALIDATION_MESSAGES = {
  * Formatos soportados:
  * - +593959036708 -> 0959036708
  * - +593 95 903 6708 -> 0959036708
- * - +593 95 903 6708 -> 0959036708
+ * - 00593 95 903 6708 -> 0959036708
  * - 0959036708 -> 0959036708 (ya normalizado)
  * - 959036708 -> 0959036708 (sin el 0 inicial)
  */
 export const normalizeEcuadorianPhone = (phone: string): string => {
   if (!phone) return ''
   
-  // Remover todos los espacios, guiones y otros caracteres especiales
-  let cleaned = phone.replace(/[\s\-\(\)]/g, '')
-  
-  // Si empieza con +593, remover el código de país
-  if (cleaned.startsWith('+593')) {
+  // Remover todos los espacios, puntos, guiones, paréntesis y caracteres no numéricos excepto '+'
+  let cleaned = phone.replace(/[\s\-\(\)\.\/\\]/g, '')
+
+  // Si empieza con 00593 (código internacional alternativo)
+  if (cleaned.startsWith('00593')) {
+    cleaned = cleaned.substring(5)
+  }
+  // Si empieza con +593
+  else if (cleaned.startsWith('+593')) {
     cleaned = cleaned.substring(4)
-    // Agregar el 0 al inicio si no está presente
-    if (!cleaned.startsWith('0')) {
-      cleaned = '0' + cleaned
-    }
   }
-  // Si empieza con 593 (sin +), remover el código de país
-  else if (cleaned.startsWith('593') && cleaned.length > 10) {
+  // Si empieza con 593 y tiene 11 o más caracteres
+  else if (cleaned.startsWith('593') && cleaned.length >= 11) {
     cleaned = cleaned.substring(3)
-    // Agregar el 0 al inicio si no está presente
-    if (!cleaned.startsWith('0')) {
-      cleaned = '0' + cleaned
-    }
   }
+  // Si empieza con +
+  else if (cleaned.startsWith('+')) {
+    cleaned = cleaned.substring(1)
+  }
+
+  // Quitar cualquier carácter no numérico restante
+  cleaned = cleaned.replace(/\D/g, '')
+
   // Si tiene 9 dígitos y empieza con 9, agregar el 0 inicial
-  else if (cleaned.length === 9 && cleaned.startsWith('9')) {
+  if (cleaned.length === 9 && cleaned.startsWith('9')) {
     cleaned = '0' + cleaned
   }
-  
-  // Mantener solo los dígitos
-  cleaned = cleaned.replace(/\D/g, '')
+  // Si tiene 11 dígitos y empieza con 009, quitar el 0 sobrante
+  else if (cleaned.length === 11 && cleaned.startsWith('009')) {
+    cleaned = cleaned.substring(1)
+  }
   
   return cleaned
 }

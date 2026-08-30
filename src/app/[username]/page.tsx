@@ -727,30 +727,33 @@ function RestaurantContent() {
     setGeneratedReferralLink('')
     setReferralModalOpen(true)
 
-    try {
-      const { code, isNew } = await generateReferralLink(
-        product.id,
-        business.id,
-        clientUser?.id || clientPhone || undefined,
-        product.name,
-        product.image,
-        business.name,
-        business.username,
-        product.slug
-      )
+    // Si el usuario ya está autenticado, pre-generar el enlace
+    const effectiveUserId = clientUser?.id || clientPhone
+    if (effectiveUserId) {
+      try {
+        const { code, isNew } = await generateReferralLink(
+          product.id,
+          business.id,
+          effectiveUserId,
+          product.name,
+          product.image,
+          business.name,
+          business.username,
+          product.slug
+        )
 
-      const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
-      setGeneratedReferralLink(referralUrl)
-      setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
-      if (isNew) {
-        setReferralCounts(prev => ({
-          ...prev,
-          [product.id]: (prev[product.id] || 0) + 1
-        }))
+        const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
+        setGeneratedReferralLink(referralUrl)
+        setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
+        if (isNew) {
+          setReferralCounts(prev => ({
+            ...prev,
+            [product.id]: (prev[product.id] || 0) + 1
+          }))
+        }
+      } catch (error) {
+        console.error('Error generating referral:', error)
       }
-    } catch (error) {
-      console.error('Error generating referral:', error)
-      showNotification('Error al generar link de referido', 'error')
     }
   }
 
@@ -1709,6 +1712,19 @@ function RestaurantContent() {
           isOpen={true}
           onClose={() => setIsUserSidebarOpen(false)}
           onLogin={() => setShowLoginModal(true)}
+        />
+      )}
+
+      {referralModalOpen && (
+        <ReferralModal
+          isOpen={true}
+          onClose={() => setReferralModalOpen(false)}
+          product={selectedProductForReferral}
+          referralLink={generatedReferralLink}
+          businessName={business?.name || ''}
+          businessId={business?.id}
+          businessUsername={business?.username}
+          productSlug={selectedProductForReferral?.slug}
         />
       )}
 

@@ -4690,10 +4690,11 @@ export async function calculateCostReport(
 // Types for ratings
 export interface ProductRating {
   productId: string;
-  productName: string;
+  productName?: string;
   productImage?: string;
   rating: number;
   comment?: string;
+  image?: string;
 }
 
 export interface BusinessRating {
@@ -5291,14 +5292,17 @@ export async function updateBusinessRatingStats(businessId: string): Promise<voi
 
 export interface ProductRatingItem {
   id: string;
+  ratingDocId?: string;
   orderId: string;
   clientName?: string;
   clientPhone?: string;
   clientPhotoURL?: string;
   rating: number;
   comment?: string;
+  image?: string;
   createdAt: any;
   replies?: any[];
+  likes?: string[];
 }
 
 export async function getProductRatings(
@@ -5323,14 +5327,17 @@ export async function getProductRatings(
         if (pRating && pRating.rating > 0) {
           productRatingsList.push({
             id: `${docSnap.id}_${productId}`,
+            ratingDocId: docSnap.id,
             orderId: data.orderId || '',
             clientName: data.clientName || 'Cliente',
             clientPhone: data.clientPhone || '',
-            clientPhotoURL: data.clientPhotoURL || '',
+            clientPhotoURL: data.clientPhotoURL || (data as any).clientPhotoUrl || (data as any).photoURL || (data as any).foto || (data as any).photo || '',
             rating: pRating.rating,
             comment: pRating.comment || '',
+            image: pRating.image || (data as any).image || '',
             createdAt: data.createdAt,
-            replies: data.replies || []
+            replies: data.replies || [],
+            likes: (data as any).likes || []
           });
         }
       }
@@ -5348,6 +5355,169 @@ export async function getProductRatings(
   } catch (error) {
     console.error('Error fetching product ratings:', error);
     return { ratings: [], averageRating: 0, ratingCount: 0 };
+  }
+}
+
+/**
+ * Toggle like for a rating
+ */
+export async function toggleRatingLike(
+  businessId: string,
+  ratingId: string,
+  userIdentifier: string
+): Promise<{ isLiked: boolean; likesCount: number }> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const docSnap = await getDoc(ratingRef);
+    if (!docSnap.exists()) return { isLiked: false, likesCount: 0 };
+
+    const data = docSnap.data();
+    const likes: string[] = Array.isArray(data.likes) ? data.likes : [];
+    const isLiked = likes.includes(userIdentifier);
+
+    if (isLiked) {
+      await updateDoc(ratingRef, {
+        likes: arrayRemove(userIdentifier),
+        updatedAt: serverTimestamp()
+      });
+      return { isLiked: false, likesCount: Math.max(0, likes.length - 1) };
+    } else {
+      await updateDoc(ratingRef, {
+        likes: arrayUnion(userIdentifier),
+        updatedAt: serverTimestamp()
+      });
+      return { isLiked: true, likesCount: likes.length + 1 };
+    }
+  } catch (error) {
+    console.error('Error toggling rating like:', error);
+    throw error;
+  }
+}
+
+/**
+ * Add a direct rating/comment for a specific product
+ */
+export async function addProductRatingComment(
+  businessId: string,
+  productId: string,
+  rating: number,
+  comment: string,
+  clientInfo: { name?: string; phone?: string; photoURL?: string } = {},
+  imageUrl: string = ''
+): Promise<string> {
+  try {
+    const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+    const docRef = await addDoc(ratingsRef, {
+      businessId,
+      rating,
+      comment: '',
+      image: imageUrl || '',
+      clientName: clientInfo.name || 'Cliente',
+      clientPhone: clientInfo.phone || '',
+      clientPhotoURL: clientInfo.photoURL || '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      productRatings: [
+        {
+          productId,
+          rating,
+          comment: comment.trim(),
+          image: imageUrl || ''
+        }
+      ]
+    });
+
+    await updateBusinessRatingStats(businessId);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding product rating comment:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update a specific product rating/comment
+ */
+export async function updateProductRatingComment(
+  businessId: string,
+  ratingId: string,
+  productId: string,
+  newRating: number,
+  newComment: string,
+  newImage?: string
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const docSnap = await getDoc(ratingRef);
+    if (!docSnap.exists()) return;
+
+    const data = docSnap.data() as BusinessRating;
+    let productRatings = data.productRatings || [];
+
+    const pIndex = productRatings.findIndex(p => p.productId === productId);
+    if (pIndex >= 0) {
+      productRatings[pIndex] = {
+        ...productRatings[pIndex],
+        rating: newRating,
+        comment: newComment.trim(),
+        ...(newImage !== undefined ? { image: newImage } : {})
+      };
+    } else {
+      productRatings.push({
+        productId,
+        rating: newRating,
+        comment: newComment.trim(),
+        image: newImage || ''
+      });
+    }
+
+    const updatePayload: any = {
+      productRatings,
+      rating: newRating,
+      updatedAt: serverTimestamp()
+    };
+    if (newImage !== undefined) {
+      updatePayload.image = newImage;
+    }
+
+    await updateDoc(ratingRef, updatePayload);
+    await updateBusinessRatingStats(businessId);
+  } catch (error) {
+    console.error('Error updating product rating comment:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete a product rating comment document
+ */
+export async function deleteProductRatingComment(
+  businessId: string,
+  ratingId: string,
+  productId: string
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const docSnap = await getDoc(ratingRef);
+    if (!docSnap.exists()) return;
+
+    const data = docSnap.data() as BusinessRating;
+    const productRatings = data.productRatings || [];
+
+    if (productRatings.length <= 1) {
+      await deleteDoc(ratingRef);
+    } else {
+      const filtered = productRatings.filter(p => p.productId !== productId);
+      await updateDoc(ratingRef, {
+        productRatings: filtered,
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    await updateBusinessRatingStats(businessId);
+  } catch (error) {
+    console.error('Error deleting product rating comment:', error);
+    throw error;
   }
 }
 

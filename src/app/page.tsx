@@ -442,34 +442,38 @@ function HomePageContent() {
 
     // Abrir modal de inmediato para máxima fluidez en la interfaz (0ms)
     setSelectedProductForReferral(product)
+    setSelectedProductBusiness(business)
     setReferralBusinessName(business.name)
     setGeneratedReferralLink('')
     setReferralModalOpen(true)
 
-    try {
-      const { code, isNew } = await generateReferralLink(
-        product.id,
-        business.id,
-        user?.id || undefined,
-        product.name,
-        product.image,
-        business.name,
-        business.username,
-        product.slug
-      )
+    // Si el usuario ya está autenticado, pre-generar enlace
+    if (user?.id || user?.celular) {
+      try {
+        const { code, isNew } = await generateReferralLink(
+          product.id,
+          business.id,
+          user.id || user.celular,
+          product.name,
+          product.image,
+          business.name,
+          business.username,
+          product.slug
+        )
 
-      const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
-      setGeneratedReferralLink(referralUrl)
-      setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
-      // Actualizar contador local solo si es nuevo
-      if (isNew) {
-        setReferralCounts(prev => ({
-          ...prev,
-          [product.id]: (prev[product.id] || 0) + 1
-        }))
+        const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
+        setGeneratedReferralLink(referralUrl)
+        setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
+        // Actualizar contador local solo si es nuevo
+        if (isNew) {
+          setReferralCounts(prev => ({
+            ...prev,
+            [product.id]: (prev[product.id] || 0) + 1
+          }))
+        }
+      } catch (error) {
+        console.error('Error generating referral:', error)
       }
-    } catch (error) {
-      console.error('Error generating referral:', error)
     }
   }
 
@@ -1988,6 +1992,9 @@ function HomePageContent() {
           product={selectedProductForReferral}
           referralLink={generatedReferralLink}
           businessName={referralBusinessName}
+          businessId={selectedProductBusiness?.id}
+          businessUsername={selectedProductBusiness?.username}
+          productSlug={selectedProductForReferral?.slug}
         />
       )}
 

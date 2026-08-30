@@ -4,15 +4,20 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Product, Business } from '@/types'
-import { normalizeEcuadorianPhone } from '@/lib/validation'
-import { unredeemQRCodePrize, getProductsByBusiness, getProductRatings } from '@/lib/database'
+import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
+import { unredeemQRCodePrize, getProductsByBusiness, getProductRatings, ProductRatingItem, generateReferralLink, searchClientByPhone, createClient, updateClient, addProductRatingComment, addStoreRatingReply, toggleRatingLike, updateProductRatingComment, deleteProductRatingComment } from '@/lib/database'
+import { useAuth } from '@/contexts/AuthContext'
 import dynamic from 'next/dynamic'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { formatComboVariantSelection } from '@/lib/combo-utils'
-import { Flame, Star } from 'lucide-react'
+import { Flame, Star, MessageSquare, Phone, ArrowRight, ArrowUp, Loader2, Copy, Check, Share2, Heart, Camera, X, Pencil, Trash2 } from 'lucide-react'
+import StarRating from '@/components/StarRating'
+import { formatRelativeTime } from '@/lib/date-utils'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { storage } from '@/lib/firebase'
+import { optimizeImage } from '@/lib/image-utils'
 
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
-const ProductRatingModal = dynamic(() => import('@/components/ProductRatingModal'), { ssr: false })
 
 interface ProductDetailSidebarProps {
     isOpen: boolean
@@ -29,10 +34,13 @@ interface ProductDetailSidebarProps {
 
 export default function ProductDetailSidebar({ isOpen, onClose, product, business, onProductSelect, onOpenCart, onGenerateReferral, hasRecommended, referralCount, onOpenRatingModal }: ProductDetailSidebarProps) {
     const router = useRouter()
+    const { user, login } = useAuth()
     const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
-    const [isProductRatingModalOpen, setIsProductRatingModalOpen] = useState(false)
     const [productRatingAvg, setProductRatingAvg] = useState<number>(0)
     const [productRatingCount, setProductRatingCount] = useState<number>(0)
+    const [productRatingsList, setProductRatingsList] = useState<ProductRatingItem[]>([])
+    const [loadingRatings, setLoadingRatings] = useState(false)
+    const [activeTab, setActiveTab] = useState<'options' | 'reviews' | 'referral'>('options')
     const [selectedVariant, setSelectedVariant] = useState<string | null>(null)
     const [quantity, setQuantity] = useState(1)
     const [comboSelection, setComboSelection] = useState<Record<string, number>>({})
@@ -44,6 +52,57 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         type: 'success'
     })
     const [copySuccess, setCopySuccess] = useState(false)
+
+    // Estados de recomendación/referidos internos
+    const [referralLink, setReferralLink] = useState('')
+    const [referralPhone, setReferralPhone] = useState('')
+    const [referralPhoneError, setReferralPhoneError] = useState('')
+    const [referralLoading, setReferralLoading] = useState(false)
+    const [referralCopied, setReferralCopied] = useState(false)
+    const [localHasRecommended, setLocalHasRecommended] = useState(hasRecommended || false)
+    const [localReferralCount, setLocalReferralCount] = useState<number | undefined>(referralCount)
+
+    // Estados para enviar nueva opinión/comentario
+    const [newReviewComment, setNewReviewComment] = useState('')
+    const [newReviewRating, setNewReviewRating] = useState(5)
+    const [isSubmittingReview, setIsSubmittingReview] = useState(false)
+    const [reviewImageFile, setReviewImageFile] = useState<File | null>(null)
+    const [reviewImagePreview, setReviewImagePreview] = useState<string | null>(null)
+    const reviewFileInputRef = useRef<HTMLInputElement>(null)
+
+    // Estados para interacción con tarjetas de opinión (Me gusta y Comentar)
+    const [activeCardId, setActiveCardId] = useState<string | null>(null)
+    const [replyInputText, setReplyInputText] = useState<{ [ratingId: string]: string }>({})
+    const [isSendingReply, setIsSendingReply] = useState<{ [ratingId: string]: boolean }>({})
+
+    // Estados para edición de opiniones
+    const [editingReviewId, setEditingReviewId] = useState<string | null>(null)
+    const [editRatingScore, setEditRatingScore] = useState(5)
+    const [editCommentText, setEditCommentText] = useState('')
+    const [editImageFile, setEditImageFile] = useState<File | null>(null)
+    const [editImagePreview, setEditImagePreview] = useState<string | null>(null)
+    const [editImageRemoved, setEditImageRemoved] = useState(false)
+    const [isSavingEdit, setIsSavingEdit] = useState(false)
+    const editFileInputRef = useRef<HTMLInputElement>(null)
+
+    // Estados para visor modal de fotos de opiniones
+    const [viewingPhotoModalUrl, setViewingPhotoModalUrl] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!viewingPhotoModalUrl) return
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setViewingPhotoModalUrl(null)
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [viewingPhotoModalUrl])
+
+    // Estados para modal de autor de opinión (usuarios no autenticados)
+    const [showGuestReviewModal, setShowGuestReviewModal] = useState(false)
+    const [guestName, setGuestName] = useState('')
+    const [guestPhone, setGuestPhone] = useState('')
+    const [guestError, setGuestError] = useState('')
+    const [guestLoading, setGuestLoading] = useState(false)
     const [otherProducts, setOtherProducts] = useState<Product[]>([])
     const sidebarContentRef = useRef<HTMLDivElement>(null)
     const [currentImgIndex, setCurrentImgIndex] = useState(0)
@@ -74,25 +133,451 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         if (!isOpen || !product?.id || !business?.id) {
             setProductRatingAvg(0)
             setProductRatingCount(0)
+            setProductRatingsList([])
+            setActiveTab('options')
             return
         }
 
+        setActiveTab('options')
         let isMounted = true
+        setLoadingRatings(true)
         getProductRatings(business.id, product.id)
             .then((res) => {
                 if (isMounted) {
                     setProductRatingAvg(res.averageRating)
                     setProductRatingCount(res.ratingCount)
+                    setProductRatingsList(res.ratings || [])
+                    setLoadingRatings(false)
                 }
             })
             .catch((err) => {
                 console.error('Error fetching product ratings in sidebar:', err)
+                if (isMounted) setLoadingRatings(false)
             })
 
         return () => {
             isMounted = false
         }
     }, [isOpen, product?.id, business?.id])
+
+    // Sincronizar estados locales de recomendación
+    useEffect(() => {
+        setLocalHasRecommended(hasRecommended || false)
+        setLocalReferralCount(referralCount)
+    }, [hasRecommended, referralCount, product?.id])
+
+    // Generar enlace de referido para un usuario
+    const generateReferralForUser = async (targetUser: any) => {
+        if (!product?.id || !business?.id) return
+        try {
+            setReferralLoading(true)
+            const effectiveId = targetUser?.id || targetUser?.celular || ''
+            const { code, isNew } = await generateReferralLink(
+                product.id,
+                business.id,
+                effectiveId,
+                product.name,
+                product.image,
+                business.name,
+                business.username,
+                product.slug
+            )
+            const origin = typeof window !== 'undefined' ? window.location.origin : ''
+            const url = `${origin}/${business.username}/${product.slug || product.id}?ref=${code}`
+            setReferralLink(url)
+            setLocalHasRecommended(true)
+            if (isNew) {
+                setLocalReferralCount(prev => (prev || 0) + 1)
+            }
+        } catch (err) {
+            console.error('Error generating referral in sidebar:', err)
+        } finally {
+            setReferralLoading(false)
+        }
+    }
+
+    const handleReferralPhoneSubmit = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault()
+        const clean = referralPhone.trim()
+        if (!clean) {
+            setReferralPhoneError('Ingresa tu número de celular')
+            return
+        }
+        const normalized = normalizeEcuadorianPhone(clean)
+        if (!validateEcuadorianPhone(normalized)) {
+            setReferralPhoneError('Ingresa un número válido de 10 dígitos (ej: 0991234567)')
+            return
+        }
+
+        setReferralLoading(true)
+        setReferralPhoneError('')
+        try {
+            let client = await searchClientByPhone(normalized)
+            if (client) {
+                login(client)
+            } else {
+                const newClient = await createClient({
+                    celular: normalized,
+                    nombres: 'Cliente',
+                    fecha_de_registro: new Date().toISOString()
+                })
+                if (newClient) {
+                    client = newClient
+                    login(newClient)
+                }
+            }
+            await generateReferralForUser(client || { id: normalized, celular: normalized })
+        } catch (err) {
+            console.error('Error submitting referral phone in sidebar:', err)
+            setReferralPhoneError('Error al generar enlace. Intenta nuevamente.')
+            setReferralLoading(false)
+        }
+    }
+
+    const handleCopyReferral = async () => {
+        if (!referralLink) return
+        try {
+            await navigator.clipboard.writeText(referralLink)
+            setReferralCopied(true)
+            setTimeout(() => setReferralCopied(false), 2000)
+        } catch (err) {
+            console.error('Error copying referral link:', err)
+        }
+    }
+
+    const handleShareWhatsApp = () => {
+        if (!referralLink) return
+        const text = `¡Mira este producto en ${business?.name || 'la tienda'}! ${product?.name} - ${referralLink}`
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+    }
+
+    const handleShareFacebook = () => {
+        if (!referralLink) return
+        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(referralLink)}`, '_blank')
+    }
+
+    const handleReviewImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        if (!file.type.startsWith('image/')) {
+            showNotification('Selecciona una imagen válida', 'error')
+            return
+        }
+
+        // Preview local
+        setReviewImageFile(file)
+        const previewUrl = URL.createObjectURL(file)
+        setReviewImagePreview(previewUrl)
+    }
+
+    const publishReview = async (clientName: string, clientPhone: string, clientPhotoURL: string, text: string, rating: number) => {
+        if (!product?.id || !business?.id) return
+        setIsSubmittingReview(true)
+        try {
+            let uploadedImageUrl = ''
+            if (reviewImageFile) {
+                try {
+                    const optimizedBlob = await optimizeImage(reviewImageFile, 1200, 0.8, 'image/jpeg')
+                    const storagePath = `ratings/${business.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`
+                    const storageRef = ref(storage, storagePath)
+                    const snapshot = await uploadBytes(storageRef, optimizedBlob)
+                    uploadedImageUrl = await getDownloadURL(snapshot.ref)
+                } catch (uploadErr) {
+                    console.error('Error uploading rating image:', uploadErr)
+                }
+            }
+
+            await addProductRatingComment(
+                business.id,
+                product.id,
+                rating,
+                text,
+                { name: clientName, phone: clientPhone, photoURL: clientPhotoURL },
+                uploadedImageUrl
+            )
+
+            // Actualización optimista inmediata
+            const newReviewItem: ProductRatingItem = {
+                id: `local_${Date.now()}`,
+                orderId: '',
+                clientName: `${clientName} (Tú)`,
+                clientPhone,
+                clientPhotoURL,
+                rating,
+                comment: text,
+                image: uploadedImageUrl || reviewImagePreview || '',
+                createdAt: new Date()
+            }
+
+            setProductRatingsList(prev => [newReviewItem, ...prev])
+            setProductRatingCount(prev => prev + 1)
+            setProductRatingAvg(prev => {
+                const newTotal = (prev * productRatingCount) + rating
+                return Math.round((newTotal / (productRatingCount + 1)) * 10) / 10
+            })
+
+            setNewReviewComment('')
+            setNewReviewRating(5)
+            setReviewImageFile(null)
+            setReviewImagePreview(null)
+            if (reviewFileInputRef.current) reviewFileInputRef.current.value = ''
+            showNotification('¡Opinión publicada con éxito!')
+        } catch (err) {
+            console.error('Error submitting product review:', err)
+            showNotification('Error al publicar opinión', 'error')
+        } finally {
+            setIsSubmittingReview(false)
+        }
+    }
+
+    const handleSendProductReview = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault()
+        const text = newReviewComment.trim()
+        if (!text || !product?.id || !business?.id) return
+
+        // Si el usuario no está autenticado, abrir modal minimalista para pedir nombre y celular
+        if (!user?.celular && !user?.id) {
+            setGuestError('')
+            setShowGuestReviewModal(true)
+            return
+        }
+
+        // Usuario autenticado: publicar directamente
+        await publishReview(user?.nombres || 'Cliente', user?.celular || '', (user as any)?.photoURL || (user as any)?.foto || '', text, newReviewRating)
+    }
+
+    const handleGuestReviewSubmit = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault()
+        const trimmedName = guestName.trim()
+        const trimmedPhone = guestPhone.trim()
+
+        if (!trimmedName) {
+            setGuestError('Ingresa tu nombre')
+            return
+        }
+        if (!trimmedPhone) {
+            setGuestError('Ingresa tu número de celular')
+            return
+        }
+        const normalized = normalizeEcuadorianPhone(trimmedPhone)
+        if (!validateEcuadorianPhone(normalized)) {
+            setGuestError('Ingresa un celular válido de 10 dígitos (ej: 0991234567)')
+            return
+        }
+
+        setGuestLoading(true)
+        setGuestError('')
+        try {
+            let client = await searchClientByPhone(normalized)
+            if (client) {
+                // Si el cliente ya existe y el nombre ingresado es distinto, actualizarlo silenciosamente
+                if (trimmedName && client.nombres !== trimmedName) {
+                    try {
+                        await updateClient(client.id, { nombres: trimmedName })
+                        client.nombres = trimmedName
+                    } catch (updateErr) {
+                        console.error('Error silently updating client name:', updateErr)
+                    }
+                }
+                login(client)
+            } else {
+                const newClient = await createClient({
+                    celular: normalized,
+                    nombres: trimmedName,
+                    fecha_de_registro: new Date().toISOString()
+                })
+                if (newClient) {
+                    client = newClient
+                    login(newClient)
+                }
+            }
+
+            setShowGuestReviewModal(false)
+            await publishReview(trimmedName, normalized, client?.photoURL || '', newReviewComment.trim(), newReviewRating)
+            setGuestName('')
+            setGuestPhone('')
+        } catch (err) {
+            console.error('Error in guest review submission:', err)
+            setGuestError('Error al publicar. Intenta nuevamente.')
+        } finally {
+            setGuestLoading(false)
+        }
+    }
+
+    const handleToggleLike = async (item: ProductRatingItem, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation()
+        if (!business?.id) return
+        const effectiveUserIdentifier = user?.celular || user?.id
+
+        if (!effectiveUserIdentifier) {
+            setGuestError('')
+            setShowGuestReviewModal(true)
+            return
+        }
+
+        const docId = item.ratingDocId || item.id.split('_')[0]
+        const likes = item.likes || []
+        const isCurrentlyLiked = likes.includes(effectiveUserIdentifier)
+        const nextLikes = isCurrentlyLiked
+            ? likes.filter(u => u !== effectiveUserIdentifier)
+            : [...likes, effectiveUserIdentifier]
+
+        // Actualización optimista inmediata
+        setProductRatingsList(prev => prev.map(r => r.id === item.id ? { ...r, likes: nextLikes } : r))
+
+        try {
+            await toggleRatingLike(business.id, docId, effectiveUserIdentifier)
+        } catch (err) {
+            console.error('Error toggling like:', err)
+            // Rollback en caso de error
+            setProductRatingsList(prev => prev.map(r => r.id === item.id ? { ...r, likes } : r))
+        }
+    }
+
+    const handleSendReply = async (item: ProductRatingItem, e?: React.FormEvent) => {
+        if (e) e.preventDefault()
+        const text = (replyInputText[item.id] || '').trim()
+        if (!text || !business?.id) return
+        const effectiveUserIdentifier = user?.celular || user?.id
+
+        if (!effectiveUserIdentifier) {
+            setGuestError('')
+            setShowGuestReviewModal(true)
+            return
+        }
+
+        const docId = item.ratingDocId || item.id.split('_')[0]
+        const userName = user?.nombres || 'Cliente'
+        const userPhone = user?.celular || ''
+        const userPhoto = (user as any)?.photoURL || (user as any)?.foto || ''
+
+        setIsSendingReply(prev => ({ ...prev, [item.id]: true }))
+
+        const newReplyObj = {
+            id: `reply_${Date.now()}`,
+            userPhone,
+            userName,
+            userPhoto,
+            comment: text,
+            createdAt: new Date()
+        }
+
+        // Actualización optimista
+        setProductRatingsList(prev => prev.map(r => {
+            if (r.id === item.id) {
+                return { ...r, replies: [...(r.replies || []), newReplyObj] }
+            }
+            return r
+        }))
+        setReplyInputText(prev => ({ ...prev, [item.id]: '' }))
+
+        try {
+            await addStoreRatingReply(business.id, docId, {
+                userPhone,
+                userName,
+                userPhoto,
+                comment: text
+            })
+            showNotification('Respuesta enviada')
+        } catch (err) {
+            console.error('Error sending reply:', err)
+            showNotification('Error al enviar respuesta', 'error')
+        } finally {
+            setIsSendingReply(prev => ({ ...prev, [item.id]: false }))
+        }
+    }
+
+    const startEditingReview = (item: ProductRatingItem, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation()
+        setEditingReviewId(item.id)
+        setEditRatingScore(item.rating || 5)
+        setEditCommentText(item.comment || '')
+        setEditImagePreview(item.image || null)
+        setEditImageFile(null)
+        setEditImageRemoved(false)
+    }
+
+    const handleSaveEditReview = async (item: ProductRatingItem, e?: React.FormEvent) => {
+        if (e) e.preventDefault()
+        if (!business?.id || !product?.id) return
+        const docId = item.ratingDocId || item.id.split('_')[0]
+        setIsSavingEdit(true)
+
+        try {
+            let finalImageUrl = editImagePreview || item.image || ''
+            if (editImageFile) {
+                const optimizedBlob = await optimizeImage(editImageFile, 1200, 0.8, 'image/jpeg')
+                const storagePath = `ratings/${business.id}/${Date.now()}_edit.jpg`
+                const storageRef = ref(storage, storagePath)
+                const snapshot = await uploadBytes(storageRef, optimizedBlob)
+                finalImageUrl = await getDownloadURL(snapshot.ref)
+            } else if (editImageRemoved) {
+                finalImageUrl = ''
+            }
+
+            await updateProductRatingComment(
+                business.id,
+                docId,
+                product.id,
+                editRatingScore,
+                editCommentText,
+                finalImageUrl
+            )
+
+            // Actualización local
+            setProductRatingsList(prev => prev.map(r => {
+                if (r.id === item.id) {
+                    return {
+                        ...r,
+                        rating: editRatingScore,
+                        comment: editCommentText.trim(),
+                        image: finalImageUrl
+                    }
+                }
+                return r
+            }))
+
+            setProductRatingsList(currentList => {
+                const totalRating = currentList.reduce((sum, r) => sum + r.rating, 0)
+                setProductRatingAvg(currentList.length > 0 ? Math.round((totalRating / currentList.length) * 10) / 10 : 0)
+                return currentList
+            })
+
+            setEditingReviewId(null)
+            showNotification('Opinión actualizada')
+        } catch (err) {
+            console.error('Error updating review:', err)
+            showNotification('Error al actualizar opinión', 'error')
+        } finally {
+            setIsSavingEdit(false)
+        }
+    }
+
+    const handleDeleteReview = async (item: ProductRatingItem, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation()
+        if (!business?.id || !product?.id) return
+        if (!confirm('¿Deseas eliminar tu opinión?')) return
+
+        const docId = item.ratingDocId || item.id.split('_')[0]
+
+        // Eliminación optimista
+        setProductRatingsList(prev => {
+            const next = prev.filter(r => r.id !== item.id)
+            const totalRating = next.reduce((sum, r) => sum + r.rating, 0)
+            setProductRatingCount(next.length)
+            setProductRatingAvg(next.length > 0 ? Math.round((totalRating / next.length) * 10) / 10 : 0)
+            return next
+        })
+        showNotification('Opinión eliminada')
+
+        try {
+            await deleteProductRatingComment(business.id, docId, product.id)
+        } catch (err) {
+            console.error('Error deleting review:', err)
+            showNotification('Error al eliminar opinión', 'error')
+        }
+    }
 
     const availableVariants = useMemo(() => {
         return product?.variants?.filter(v => v.isAvailable !== false) || []
@@ -497,25 +982,29 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             <div className="flex items-start justify-between gap-4 mb-1">
                                 <h2 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">{product.name}</h2>
 
-                                {/* Acciones: Comentar & Recomendar alineados a la derecha */}
-                                <div className="flex items-center gap-3.5 flex-shrink-0 pt-0.5">
-                                    {/* 1. Botón de Calificaciones del Producto */}
+                                {/* Acciones: Calificaciones & Recomendar alineados a la derecha */}
+                                <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
+                                    {/* 1. Botón de Estrella / Calificaciones (Cambia a pestaña de opiniones) */}
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            setIsProductRatingModalOpen(true)
+                                            setActiveTab(prev => prev === 'reviews' ? 'options' : 'reviews')
                                         }}
-                                        className={`flex items-center gap-1.5 transition-all active:scale-90 ${
-                                            productRatingAvg > 0 ? 'text-amber-500 font-bold' : 'text-gray-700 hover:text-amber-500'
+                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl transition-all active:scale-90 ${
+                                            activeTab === 'reviews'
+                                                ? 'bg-amber-100 text-amber-600 ring-2 ring-amber-400/40 shadow-sm'
+                                                : productRatingAvg > 0
+                                                    ? 'text-amber-500 hover:bg-amber-50'
+                                                    : 'text-gray-400 hover:text-amber-500 hover:bg-gray-50'
                                         }`}
-                                        title="Calificaciones y opiniones de este producto"
+                                        title={activeTab === 'reviews' ? 'Ver opciones' : 'Ver opiniones y comentarios'}
                                     >
                                         <Star
                                             size={20}
-                                            strokeWidth={1.8}
-                                            color={productRatingAvg > 0 ? '#F59E0B' : 'currentColor'}
+                                            strokeWidth={activeTab === 'reviews' ? 2.5 : 1.8}
+                                            color={activeTab === 'reviews' || productRatingAvg > 0 ? '#F59E0B' : 'currentColor'}
                                             className={`transition-transform hover:scale-110 ${
-                                                productRatingAvg > 0 ? 'fill-amber-500 text-amber-500' : 'fill-none'
+                                                activeTab === 'reviews' || productRatingAvg > 0 ? 'fill-amber-500 text-amber-500' : 'fill-none'
                                             }`}
                                         />
                                         {productRatingAvg > 0 ? (
@@ -525,32 +1014,41 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                         ) : null}
                                     </button>
 
-                                    {/* 2. Botón de Recomendar (Fueguito) */}
+                                    {/* 2. Botón de Recomendar (Fueguito) (Cambia a pestaña de recomendación) */}
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            if (onGenerateReferral) {
-                                                onGenerateReferral()
+                                            if (activeTab === 'referral') {
+                                                setActiveTab('options')
                                             } else {
-                                                handleCopyProductLink()
+                                                setActiveTab('referral')
+                                                setReferralPhoneError('')
+                                                setReferralCopied(false)
+                                                if ((user?.id || user?.celular) && !referralLink) {
+                                                    generateReferralForUser(user)
+                                                }
                                             }
                                         }}
-                                        className={`flex items-center gap-1.5 transition-all active:scale-90 ${
-                                            hasRecommended ? 'text-amber-500 font-bold' : 'text-gray-700 hover:text-amber-500'
+                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl transition-all active:scale-90 ${
+                                            activeTab === 'referral'
+                                                ? 'bg-amber-100 text-amber-600 ring-2 ring-amber-400/40 shadow-sm'
+                                                : localHasRecommended
+                                                    ? 'text-amber-500 hover:bg-amber-50'
+                                                    : 'text-gray-400 hover:text-amber-500 hover:bg-gray-50'
                                         }`}
-                                        title="Recomendar"
+                                        title={activeTab === 'referral' ? 'Ver opciones' : 'Recomendar'}
                                     >
                                         <Flame
                                             size={20}
-                                            strokeWidth={hasRecommended ? 2.5 : 1.8}
-                                            color={hasRecommended ? '#F59E0B' : 'currentColor'}
+                                            strokeWidth={activeTab === 'referral' || localHasRecommended ? 2.5 : 1.8}
+                                            color={activeTab === 'referral' || localHasRecommended ? '#F59E0B' : 'currentColor'}
                                             className={`transition-transform hover:scale-110 ${
-                                                hasRecommended ? 'fill-amber-500' : ''
+                                                activeTab === 'referral' || localHasRecommended ? 'fill-amber-500 text-amber-500' : 'fill-none'
                                             }`}
                                         />
-                                        {referralCount !== undefined && referralCount > 0 && (
+                                        {localReferralCount !== undefined && localReferralCount > 0 && (
                                             <span className="text-xs font-extrabold text-gray-700">
-                                                {referralCount}
+                                                {localReferralCount}
                                             </span>
                                         )}
                                     </button>
@@ -569,16 +1067,20 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             )}
                         </div>
 
-                        {/* Variants & Actions */}
-                        <div className="space-y-4">
+                        {activeTab === 'options' ? (
+                            <>
+                                {/* Variants & Actions */}
+                                <div className="space-y-4 animate-in fade-in duration-200">
                             {product.optionGroups && product.optionGroups.length > 0 ? (
                                 <div className="space-y-6">
                                     {/* 1. Si hay opciones y también variantes, renderizarlas como un radio list */}
                                     {product.variants && product.variants.length > 0 && (
                                         <div>
-                                            <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">
-                                                Selecciona una opción
-                                            </label>
+                                            <div className="flex items-center justify-between pt-1 mb-3">
+                                                <span className="text-xs font-black uppercase tracking-wider text-gray-900">
+                                                    Selecciona una opción
+                                                </span>
+                                            </div>
                                             <div className="space-y-2">
                                                 {availableVariants.map((variant) => {
                                                     const isSelected = selectedVariant === variant.name;
@@ -732,9 +1234,11 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                 </div>
                             ) : product.variants && product.variants.length > 0 ? (
                                 <div>
-                                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">
-                                        Opciones
-                                    </label>
+                                    <div className="flex items-center justify-between pt-1 mb-3">
+                                        <span className="text-xs font-black uppercase tracking-wider text-gray-900">
+                                            Opciones
+                                        </span>
+                                    </div>
                                     <div className="space-y-3">
                                         {availableVariants.map((variant) => {
                                             const cartItem = cart.find(item => item.id === product.id && item.variantName === variant.name);
@@ -898,71 +1402,710 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             )}
                         </div>
 
-                        {/* Other Products Section */}
-                        {otherProducts.length > 0 && (
-                            <div className="mt-8 border-t border-gray-100 pt-6">
-                                <h4 className="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight">
-                                    Otros productos de {business.name}
-                                </h4>
-                                <div className="relative">
-                                    <div
-                                        className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-4"
-                                        style={{
-                                            scrollbarWidth: 'none',
-                                            msOverflowStyle: 'none',
-                                            WebkitOverflowScrolling: 'touch'
-                                        }}
-                                    >
-                                        {otherProducts.map((otherProduct) => (
+                                {/* Other Products Section */}
+                                {otherProducts.length > 0 && (
+                                    <div className="mt-8 border-t border-gray-100 pt-6">
+                                        <h4 className="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight">
+                                            Otros productos de {business.name}
+                                        </h4>
+                                        <div className="relative">
                                             <div
-                                                key={otherProduct.id}
-                                                onClick={() => onProductSelect(otherProduct)}
-                                                className="group cursor-pointer bg-gray-50 rounded-xl p-2 border border-blue-50 hover:border-blue-200 transition-all hover:bg-white hover:shadow-sm flex-shrink-0 snap-start w-[140px]"
+                                                className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-4"
+                                                style={{
+                                                    scrollbarWidth: 'none',
+                                                    msOverflowStyle: 'none',
+                                                    WebkitOverflowScrolling: 'touch'
+                                                }}
                                             >
-                                                <div className="aspect-square rounded-lg overflow-hidden bg-white mb-2 relative">
-                                                    {otherProduct.image ? (
-                                                        <img
-                                                            src={otherProduct.image}
-                                                            alt={otherProduct.name}
-                                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                                                            style={{ objectPosition: otherProduct.imagePosition || 'center' }}
+                                                {otherProducts.map((otherProduct) => (
+                                                    <div
+                                                        key={otherProduct.id}
+                                                        onClick={() => onProductSelect(otherProduct)}
+                                                        className="group cursor-pointer bg-gray-50 rounded-xl p-2 border border-blue-50 hover:border-blue-200 transition-all hover:bg-white hover:shadow-sm flex-shrink-0 snap-start w-[140px]"
+                                                    >
+                                                        <div className="aspect-square rounded-lg overflow-hidden bg-white mb-2 relative">
+                                                            {otherProduct.image ? (
+                                                                <img
+                                                                    src={otherProduct.image}
+                                                                    alt={otherProduct.name}
+                                                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                                                    style={{ objectPosition: otherProduct.imagePosition || 'center' }}
+                                                                />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center text-gray-200">
+                                                                    <i className="bi bi-image text-2xl"></i>
+                                                                </div>
+                                                            )}
+                                                            {otherProduct.price > 0 && (
+                                                                <div className="absolute top-1 right-1 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm">
+                                                                    {formatPrice(getProductPublicPrice(otherProduct))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <h5 className="text-xs font-black text-gray-900 tracking-tight line-clamp-2 leading-tight group-hover:text-red-600 transition-colors h-[2.5em]">
+                                                            {otherProduct.name}
+                                                        </h5>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            {otherProducts.length > 2 && (
+                                                <div className="absolute right-0 top-0 bottom-4 w-12 pointer-events-none bg-gradient-to-l from-white via-white/50 to-transparent flex items-center justify-end pr-1">
+                                                    <div className="animate-pulse bg-white/80 p-1 rounded-full shadow-sm backdrop-blur-sm">
+                                                        <i className="bi bi-chevron-right text-gray-400 text-xs"></i>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        ) : activeTab === 'reviews' ? (
+                            /* Opiniones y Comentarios Tab */
+                            <div className="space-y-4 animate-in fade-in duration-200">
+                                {/* Cabecera / Selector de regreso */}
+                                <div className="flex items-center justify-between pt-1">
+                                    <span className="text-xs font-black uppercase tracking-wider text-gray-900">
+                                        Opiniones del producto
+                                    </span>
+
+                                    <button
+                                        onClick={() => setActiveTab('options')}
+                                        className="text-xs font-black text-gray-900 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 active:scale-95 border border-gray-200/80"
+                                    >
+                                        <i className="bi bi-arrow-left text-xs"></i>
+                                        <span>Comprar</span>
+                                    </button>
+                                </div>
+
+                                {/* Resumen de Calificación */}
+                                <div className="bg-gradient-to-br from-amber-50/80 to-orange-50/40 border border-amber-200/60 rounded-2xl p-4 flex items-center justify-between">
+                                    <div>
+                                        <p className="text-3xl font-black text-gray-900 tracking-tight leading-none">
+                                            {productRatingAvg > 0 ? productRatingAvg.toFixed(1) : '5.0'}
+                                        </p>
+                                        <div className="mt-1.5">
+                                            <StarRating rating={productRatingAvg > 0 ? productRatingAvg : 5} size="sm" showGrayStars={productRatingCount === 0} />
+                                        </div>
+                                    </div>
+
+                                    <div className="text-right">
+                                        <p className="text-xs font-black text-gray-900">
+                                            {productRatingCount > 0
+                                                ? `${productRatingCount} ${productRatingCount === 1 ? 'opinión' : 'opiniones'}`
+                                                : 'Sin opiniones aún'}
+                                        </p>
+                                        <p className="text-[11px] font-medium text-gray-500 mt-0.5">
+                                            Clientes que ordenaron
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Listado de Opiniones */}
+                                <div className="space-y-3">
+                                    {loadingRatings ? (
+                                        <div className="py-12 flex flex-col items-center justify-center text-gray-400 gap-2">
+                                            <i className="bi bi-arrow-repeat animate-spin text-xl text-amber-500"></i>
+                                            <span className="text-xs font-medium">Cargando opiniones...</span>
+                                        </div>
+                                    ) : productRatingsList.length > 0 ? (
+                                        productRatingsList.map((item) => {
+                                            const isSelected = activeCardId === item.id
+                                            const isEditing = editingReviewId === item.id
+                                            const effectiveUserIdentifier = user?.celular || user?.id || ''
+                                            const likes = item.likes || []
+                                            const isLiked = effectiveUserIdentifier ? likes.includes(effectiveUserIdentifier) : false
+                                            const likesCount = likes.length
+                                            const repliesCount = item.replies?.length || 0
+                                            const isOwnReview = (!!user?.celular && item.clientPhone === user.celular) || (!!user?.nombres && item.clientName?.startsWith(user.nombres)) || (item.clientName?.includes('(Tú)')) || (item.id.startsWith('local_'))
+
+                                            if (isEditing) {
+                                                return (
+                                                    <div
+                                                        key={item.id}
+                                                        className="bg-white rounded-2xl p-4 border border-amber-300 ring-2 ring-amber-100 shadow-md space-y-3 animate-in fade-in duration-200"
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs font-black uppercase tracking-wider text-gray-900">
+                                                                Editar opinión
+                                                            </span>
+                                                            <div className="flex items-center gap-1">
+                                                                {[1, 2, 3, 4, 5].map((star) => (
+                                                                    <button
+                                                                        key={star}
+                                                                        type="button"
+                                                                        onClick={() => setEditRatingScore(star)}
+                                                                        className="p-0.5 text-amber-400 hover:scale-110 active:scale-95 transition-transform"
+                                                                    >
+                                                                        <i className={`bi ${editRatingScore >= star ? 'bi-star-fill' : 'bi-star text-gray-300'} text-sm`}></i>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        <textarea
+                                                            value={editCommentText}
+                                                            onChange={(e) => setEditCommentText(e.target.value)}
+                                                            placeholder="Escribe tu opinión..."
+                                                            rows={2}
+                                                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs text-gray-900 font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all resize-none"
                                                         />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center text-gray-200">
-                                                            <i className="bi bi-image text-2xl"></i>
+
+                                                        {/* Foto preview o agregar foto en edición */}
+                                                        {editImagePreview && !editImageRemoved && (
+                                                            <div className="relative inline-block">
+                                                                <img
+                                                                    src={editImagePreview}
+                                                                    alt="Foto"
+                                                                    className="w-14 h-14 object-cover rounded-xl border border-gray-200 shadow-sm"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setEditImageFile(null)
+                                                                        setEditImagePreview(null)
+                                                                        setEditImageRemoved(true)
+                                                                    }}
+                                                                    className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow hover:bg-red-600 transition-colors"
+                                                                    title="Eliminar foto"
+                                                                >
+                                                                    <X size={12} />
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        <div className="flex items-center justify-between pt-1">
+                                                            <input
+                                                                type="file"
+                                                                ref={editFileInputRef}
+                                                                onChange={(e) => {
+                                                                    const file = e.target.files?.[0]
+                                                                    if (file && file.type.startsWith('image/')) {
+                                                                        setEditImageFile(file)
+                                                                        setEditImagePreview(URL.createObjectURL(file))
+                                                                        setEditImageRemoved(false)
+                                                                    }
+                                                                }}
+                                                                accept="image/*"
+                                                                className="hidden"
+                                                            />
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => editFileInputRef.current?.click()}
+                                                                className="px-2.5 py-1.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:text-gray-900 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                                            >
+                                                                <Camera size={14} />
+                                                                <span>{editImagePreview ? 'Cambiar foto' : 'Foto'}</span>
+                                                            </button>
+
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setEditingReviewId(null)}
+                                                                    className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200 transition-all"
+                                                                >
+                                                                    Cancelar
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={isSavingEdit}
+                                                                    onClick={(e) => handleSaveEditReview(item, e)}
+                                                                    className="px-3 py-1.5 rounded-xl bg-gray-900 text-white text-xs font-black hover:bg-black transition-all flex items-center gap-1 shadow-sm disabled:opacity-50"
+                                                                >
+                                                                    {isSavingEdit ? (
+                                                                        <Loader2 size={12} className="animate-spin" />
+                                                                    ) : (
+                                                                        <Check size={13} />
+                                                                    )}
+                                                                    <span>Guardar</span>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            }
+
+                                            return (
+                                                <div
+                                                    key={item.id}
+                                                    onClick={() => setActiveCardId(isSelected ? null : item.id)}
+                                                    className={`bg-white rounded-2xl p-4 border transition-all cursor-pointer space-y-2.5 ${
+                                                        isSelected
+                                                            ? 'border-amber-300 ring-2 ring-amber-100/70 shadow-md'
+                                                            : 'border-gray-100 shadow-sm hover:border-gray-200'
+                                                    }`}
+                                                >
+                                                    {/* Cabecera de la tarjeta */}
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-2.5">
+                                                            <div className="w-8 h-8 rounded-full bg-amber-100/80 text-amber-800 font-black text-xs flex items-center justify-center border border-amber-200/60 flex-shrink-0 overflow-hidden">
+                                                                {item.clientPhotoURL ? (
+                                                                    <img
+                                                                        src={item.clientPhotoURL}
+                                                                        alt={item.clientName || 'Cliente'}
+                                                                        className="w-full h-full object-cover"
+                                                                        onError={(e) => {
+                                                                            (e.target as HTMLElement).style.display = 'none'
+                                                                        }}
+                                                                    />
+                                                                ) : (
+                                                                    <span>{item.clientName?.charAt(0)?.toUpperCase() || 'C'}</span>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-black text-gray-900 leading-none">
+                                                                    {item.clientName || 'Cliente'}
+                                                                </p>
+                                                                <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
+                                                                    {item.createdAt ? formatRelativeTime(item.createdAt) : 'Calificó en pedido'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2">
+                                                            <StarRating rating={item.rating} size="sm" />
+                                                            {isOwnReview && (
+                                                                <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-gray-100">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => startEditingReview(item, e)}
+                                                                        className="p-1 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                                                                        title="Editar opinión"
+                                                                    >
+                                                                        <Pencil size={13} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => handleDeleteReview(item, e)}
+                                                                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                        title="Eliminar opinión"
+                                                                    >
+                                                                        <Trash2 size={13} />
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Comentario principal (sin comillas) */}
+                                                    {item.comment && item.comment.trim() ? (
+                                                        <p className="text-xs text-gray-700 font-medium leading-relaxed px-0.5">
+                                                            {item.comment}
+                                                        </p>
+                                                    ) : null}
+
+                                                    {/* Foto adjunta de la opinión */}
+                                                    {item.image && (
+                                                        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 max-w-[200px]">
+                                                            <img
+                                                                src={item.image}
+                                                                alt="Foto adjunta"
+                                                                className="w-full h-28 object-cover hover:scale-105 transition-transform duration-300 cursor-pointer"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    setViewingPhotoModalUrl(item.image!)
+                                                                }}
+                                                            />
                                                         </div>
                                                     )}
-                                                    {otherProduct.price > 0 && (
-                                                        <div className="absolute top-1 right-1 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm">
-                                                            {formatPrice(getProductPublicPrice(otherProduct))}
+
+                                                    {/* Barra de Opciones: Me gusta y Comentar (sin fondo ni bordes) */}
+                                                    <div className="flex items-center gap-4 pt-0 -mt-0.5">
+                                                        {/* Botón Me Gusta */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleToggleLike(item, e)}
+                                                            className={`flex items-center gap-1.5 py-0.5 text-xs font-bold transition-all active:scale-95 ${
+                                                                isLiked
+                                                                    ? 'text-rose-600'
+                                                                    : 'text-gray-500 hover:text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <Heart
+                                                                size={14}
+                                                                className={isLiked ? 'fill-rose-500 text-rose-500' : 'text-gray-400'}
+                                                            />
+                                                            <span>
+                                                                {likesCount > 0 ? likesCount : ''} Me gusta
+                                                            </span>
+                                                        </button>
+
+                                                        {/* Botón Comentar / Responder */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                setActiveCardId(item.id)
+                                                            }}
+                                                            className={`flex items-center gap-1.5 py-1 text-xs font-bold transition-all active:scale-95 ${
+                                                                isSelected
+                                                                    ? 'text-amber-600'
+                                                                    : 'text-gray-500 hover:text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <MessageSquare size={15} className={isSelected ? 'text-amber-600' : 'text-gray-400'} />
+                                                            <span>
+                                                                {repliesCount > 0 ? `${repliesCount} ${repliesCount === 1 ? 'respuesta' : 'respuestas'}` : 'Comentar'}
+                                                            </span>
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Sección Expandida: Respuestas y Casillero para responder */}
+                                                    {isSelected && (
+                                                        <div
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="pt-2 border-t border-gray-100 space-y-2.5 animate-in fade-in duration-200"
+                                                        >
+                                                            {/* Lista de respuestas existentes */}
+                                                            {item.replies && item.replies.length > 0 && (
+                                                                <div className="space-y-2 pl-2 border-l-2 border-amber-200">
+                                                                    {item.replies.map((reply: any, rIdx: number) => (
+                                                                        <div
+                                                                            key={reply.id || rIdx}
+                                                                            className="bg-gray-50/80 p-2.5 rounded-xl text-xs space-y-1"
+                                                                        >
+                                                                            <div className="flex items-center justify-between">
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <div className="w-5 h-5 rounded-full bg-amber-100/80 text-amber-800 font-black text-[9px] flex items-center justify-center border border-amber-200/60 flex-shrink-0 overflow-hidden">
+                                                                                        {reply.userPhoto ? (
+                                                                                            <img
+                                                                                                src={reply.userPhoto}
+                                                                                                alt={reply.userName || 'Cliente'}
+                                                                                                className="w-full h-full object-cover"
+                                                                                                onError={(e) => {
+                                                                                                    (e.target as HTMLElement).style.display = 'none'
+                                                                                                }}
+                                                                                            />
+                                                                                        ) : (
+                                                                                            <span>{reply.userName?.charAt(0)?.toUpperCase() || 'C'}</span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <span className="font-black text-gray-800 text-[11px]">
+                                                                                        {reply.userName || 'Cliente'}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <span className="text-[10px] text-gray-400">
+                                                                                    {reply.createdAt ? formatRelativeTime(reply.createdAt) : ''}
+                                                                                </span>
+                                                                            </div>
+                                                                            <p className="text-gray-600 font-medium leading-relaxed pl-6.5">
+                                                                                {reply.comment}
+                                                                            </p>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
+                                                            {/* Input para responder */}
+                                                            <form
+                                                                onSubmit={(e) => handleSendReply(item, e)}
+                                                                className="flex items-center gap-2 pt-1"
+                                                            >
+                                                                <input
+                                                                    type="text"
+                                                                    value={replyInputText[item.id] || ''}
+                                                                    onChange={(e) =>
+                                                                        setReplyInputText({
+                                                                            ...replyInputText,
+                                                                            [item.id]: e.target.value
+                                                                        })
+                                                                    }
+                                                                    placeholder="Escribe una respuesta..."
+                                                                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
+                                                                />
+                                                                <button
+                                                                    type="submit"
+                                                                    disabled={
+                                                                        !replyInputText[item.id]?.trim() ||
+                                                                        isSendingReply[item.id]
+                                                                    }
+                                                                    className="w-8 h-8 bg-gray-900 hover:bg-black text-white rounded-xl flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 active:scale-95 shadow-sm"
+                                                                    title="Enviar respuesta"
+                                                                >
+                                                                    {isSendingReply[item.id] ? (
+                                                                        <Loader2 size={12} className="animate-spin" />
+                                                                    ) : (
+                                                                        <ArrowUp size={14} strokeWidth={2.5} />
+                                                                    )}
+                                                                </button>
+                                                            </form>
                                                         </div>
                                                     )}
                                                 </div>
-                                                <h5 className="text-xs font-black text-gray-900 tracking-tight line-clamp-2 leading-tight group-hover:text-red-600 transition-colors h-[2.5em]">
-                                                    {otherProduct.name}
-                                                </h5>
+                                            )
+                                        })
+                                    ) : (
+                                        <div className="py-10 text-center flex flex-col items-center justify-center bg-gray-50/60 rounded-2xl border border-dashed border-gray-200 p-6">
+                                            <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center text-xl mb-2.5 border border-amber-100">
+                                                ⭐
                                             </div>
-                                        ))}
-                                    </div>
-                                    {otherProducts.length > 2 && (
-                                        <div className="absolute right-0 top-0 bottom-4 w-12 pointer-events-none bg-gradient-to-l from-white via-white/50 to-transparent flex items-center justify-end pr-1">
-                                            <div className="animate-pulse bg-white/80 p-1 rounded-full shadow-sm backdrop-blur-sm">
-                                                <i className="bi bi-chevron-right text-gray-400 text-xs"></i>
-                                            </div>
+                                            <h5 className="text-xs font-black text-gray-900 uppercase tracking-wider">
+                                                Aún no hay opiniones
+                                            </h5>
+                                            <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed font-medium">
+                                                Las opiniones se registran cuando los clientes califican el producto al recibir su pedido.
+                                            </p>
                                         </div>
                                     )}
                                 </div>
                             </div>
+                        ) : (
+                            /* Recomendar Tab */
+                            <div className="space-y-4 animate-in fade-in duration-200">
+                                {/* Cabecera / Selector de regreso */}
+                                <div className="flex items-center justify-between pt-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-black uppercase tracking-wider text-gray-900">
+                                            Recomienda y Gana
+                                        </span>
+                                        <span className="text-[11px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/60">
+                                            +$0.25
+                                        </span>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setActiveTab('options')}
+                                        className="text-xs font-black text-gray-900 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 active:scale-95 border border-gray-200/80"
+                                    >
+                                        <i className="bi bi-arrow-left text-xs"></i>
+                                        <span>Ver opciones</span>
+                                    </button>
+                                </div>
+
+                                {/* Banner Recompensa */}
+                                <div className="bg-gradient-to-br from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 flex items-center justify-between">
+                                    <div>
+                                        <p className="text-[11px] font-black uppercase tracking-wider text-amber-100">
+                                            Gana saldo en tu cuenta
+                                        </p>
+                                        <p className="text-2xl font-black tracking-tight leading-tight mt-0.5">
+                                            $0.25 por venta
+                                        </p>
+                                    </div>
+                                    <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-white backdrop-blur-sm">
+                                        <Flame size={26} className="fill-white" />
+                                    </div>
+                                </div>
+
+                                {/* Contenido según autenticación / enlace */}
+                                {!user?.celular && !referralLink ? (
+                                    /* Paso 1: Pedir Celular */
+                                    <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-3">
+                                        <div>
+                                            <h4 className="text-sm font-black text-gray-900 leading-tight">
+                                                Asocia tu celular
+                                            </h4>
+                                            <p className="text-xs font-medium text-gray-500 mt-1">
+                                                Ingresa tu número para acreditar tus recompensas automáticamente.
+                                            </p>
+                                        </div>
+
+                                        <form onSubmit={handleReferralPhoneSubmit} className="space-y-3 pt-1">
+                                            <div>
+                                                <div className="relative">
+                                                    <Phone size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                                                    <input
+                                                        type="tel"
+                                                        value={referralPhone}
+                                                        onChange={(e) => {
+                                                            setReferralPhone(e.target.value)
+                                                            if (referralPhoneError) setReferralPhoneError('')
+                                                        }}
+                                                        placeholder="0999999999"
+                                                        className={`w-full pl-10 pr-4 py-3 bg-gray-50 border rounded-2xl text-sm font-bold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all ${
+                                                            referralPhoneError ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-200'
+                                                        }`}
+                                                        disabled={referralLoading}
+                                                        autoFocus
+                                                    />
+                                                </div>
+                                                {referralPhoneError && (
+                                                    <p className="text-xs text-red-600 font-medium mt-1.5">{referralPhoneError}</p>
+                                                )}
+                                            </div>
+
+                                            <button
+                                                type="submit"
+                                                disabled={referralLoading || !referralPhone.trim()}
+                                                className="w-full py-3 bg-gray-900 hover:bg-black text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-900/10 active:scale-[0.98] disabled:opacity-50"
+                                            >
+                                                {referralLoading ? (
+                                                    <>
+                                                        <Loader2 size={16} className="animate-spin" />
+                                                        <span>Generando enlace...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span>Obtener enlace</span>
+                                                        <ArrowRight size={16} />
+                                                    </>
+                                                )}
+                                            </button>
+                                        </form>
+                                    </div>
+                                ) : (
+                                    /* Paso 2: Enlace listo y Compartir */
+                                    <div className="space-y-3">
+                                        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5">
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                                                Tu enlace de referido
+                                            </p>
+                                            {referralLink ? (
+                                                <p className="text-xs font-mono text-gray-800 break-all select-all leading-tight bg-white p-2.5 rounded-xl border border-gray-200/70">
+                                                    {referralLink}
+                                                </p>
+                                            ) : (
+                                                <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
+                                                    <Loader2 size={14} className="animate-spin text-amber-500" />
+                                                    <span>Generando tu enlace único...</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Botones de Acción */}
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button
+                                                onClick={handleCopyReferral}
+                                                disabled={!referralLink}
+                                                className={`py-3 rounded-2xl font-black text-xs transition-all flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50 ${
+                                                    referralCopied
+                                                        ? 'bg-emerald-600 text-white'
+                                                        : 'bg-gray-900 hover:bg-black text-white'
+                                                }`}
+                                            >
+                                                {referralCopied ? <Check size={16} /> : <Copy size={16} />}
+                                                <span>{referralCopied ? '¡Copiado!' : 'Copiar'}</span>
+                                            </button>
+
+                                            <button
+                                                onClick={handleShareWhatsApp}
+                                                disabled={!referralLink}
+                                                className="py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs rounded-2xl transition-all flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50"
+                                            >
+                                                <i className="bi bi-whatsapp text-base leading-none"></i>
+                                                <span>WhatsApp</span>
+                                            </button>
+
+                                            <button
+                                                onClick={handleShareFacebook}
+                                                disabled={!referralLink}
+                                                className="py-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-2xl transition-all flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50"
+                                            >
+                                                <i className="bi bi-facebook text-base leading-none"></i>
+                                                <span>Facebook</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {/* Spacer for fixed footer */}
-                        <div className="h-32"></div>
+                        <div className={activeTab === 'options' || activeTab === 'reviews' ? "h-32" : "h-6"}></div>
                     </div>
                 </div>
 
-                {/* Fixed Footer for Actions */}
-                <div className="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40">
-                    {(() => {
+                {/* Footer para Opiniones (Casillero minimalista para comentar con foto adjunta) */}
+                {activeTab === 'reviews' && (
+                    <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-4 bg-white/95 backdrop-blur-md border-t border-gray-100 shadow-[0_-10px_30px_rgba(0,0,0,0.06)] z-40 animate-in fade-in slide-in-from-bottom duration-200">
+                        <form onSubmit={handleSendProductReview} className="space-y-2">
+                            {/* Selector de estrellas */}
+                            <div className="flex items-center justify-between px-1">
+                                <span className="text-[11px] font-bold text-gray-500">
+                                    Tu calificación:
+                                </span>
+                                <div className="flex items-center gap-1">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                        <button
+                                            key={star}
+                                            type="button"
+                                            onClick={() => setNewReviewRating(star)}
+                                            className="p-0.5 transition-transform hover:scale-125 active:scale-95 text-amber-400"
+                                            title={`${star} estrellas`}
+                                        >
+                                            <i className={`bi ${newReviewRating >= star ? 'bi-star-fill' : 'bi-star text-gray-300'} text-base`}></i>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Mini vista previa de la foto adjunta */}
+                            {reviewImagePreview && (
+                                <div className="relative inline-block px-1">
+                                    <img
+                                        src={reviewImagePreview}
+                                        alt="Vista previa"
+                                        className="w-12 h-12 object-cover rounded-xl border border-gray-200 shadow-sm"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setReviewImageFile(null)
+                                            setReviewImagePreview(null)
+                                            if (reviewFileInputRef.current) reviewFileInputRef.current.value = ''
+                                        }}
+                                        className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow hover:bg-red-600 transition-colors"
+                                        title="Quitar foto"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Input con botón de cámara al lado derecho y botón de enviar */}
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="file"
+                                    ref={reviewFileInputRef}
+                                    onChange={handleReviewImageChange}
+                                    accept="image/*"
+                                    className="hidden"
+                                />
+
+                                <input
+                                    type="text"
+                                    value={newReviewComment}
+                                    onChange={(e) => setNewReviewComment(e.target.value)}
+                                    placeholder="Escribe una opinión..."
+                                    disabled={isSubmittingReview}
+                                    className="flex-1 bg-gray-50 border border-gray-200/80 rounded-2xl px-4 py-2.5 text-xs text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent font-medium transition-all"
+                                />
+
+                                <button
+                                    type="button"
+                                    onClick={() => reviewFileInputRef.current?.click()}
+                                    disabled={isSubmittingReview}
+                                    className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-all active:scale-95 flex-shrink-0 ${
+                                        reviewImagePreview
+                                            ? 'bg-amber-50 border-amber-300 text-amber-600'
+                                            : 'bg-gray-50 hover:bg-gray-100 border-gray-200/80 text-gray-500 hover:text-gray-900'
+                                    }`}
+                                    title="Adjuntar foto"
+                                >
+                                    <Camera size={18} />
+                                </button>
+
+                                <button
+                                    type="submit"
+                                    disabled={(!newReviewComment.trim() && !reviewImageFile) || isSubmittingReview}
+                                    className="w-10 h-10 rounded-2xl bg-gray-900 hover:bg-black text-white flex items-center justify-center transition-all shadow-md active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                                    title="Publicar opinión"
+                                >
+                                    {isSubmittingReview ? (
+                                        <Loader2 size={16} className="animate-spin" />
+                                    ) : (
+                                        <ArrowUp size={18} strokeWidth={2.5} />
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                )}
+
+                {/* Fixed Footer for Actions - Solo visible en opciones */}
+                {activeTab === 'options' && (
+                    <div className="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 animate-in fade-in slide-in-from-bottom duration-200">
+                        {(() => {
                         const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
                         const cartItemsCount = cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0)
                         const totalComboSelected = product.isCombo ? Object.values(comboSelection).reduce((a, b) => a + b, 0) : 0;
@@ -1120,7 +2263,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             </div>
                         )
                     })()}
-                        </div>
+                    </div>
+                )}
                 </div>
             </div>
 
@@ -1156,12 +2300,161 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                     onSuccess={() => {}}
                 />
             )}
-            <ProductRatingModal
-                isOpen={isProductRatingModalOpen}
-                onClose={() => setIsProductRatingModalOpen(false)}
-                product={product}
-                businessId={business?.id || null}
-            />
+
+            {/* Modal Minimalista para Nombre y Celular en Opiniones */}
+            {showGuestReviewModal && (
+                <div className="fixed inset-0 z-[200] overflow-hidden flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !guestLoading && setShowGuestReviewModal(false)} />
+
+                    <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 z-10 animate-in zoom-in-95 duration-200">
+                        <button
+                            onClick={() => setShowGuestReviewModal(false)}
+                            disabled={guestLoading}
+                            className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+                            aria-label="Cerrar"
+                        >
+                            <i className="bi bi-x-lg text-sm"></i>
+                        </button>
+
+                        {/* Cabecera */}
+                        <div className="text-center mb-4">
+                            <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-2.5">
+                                <Star size={24} className="fill-amber-500" />
+                            </div>
+                            <h3 className="text-lg font-black text-gray-900 tracking-tight leading-tight">
+                                Publicar tu opinión
+                            </h3>
+                            <p className="text-xs font-medium text-gray-500 mt-1">
+                                Ingresa tus datos para firmar tu reseña
+                            </p>
+                        </div>
+
+                        {/* Mini preview del comentario */}
+                        <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100 mb-4 space-y-1.5">
+                            <div className="flex items-center gap-1">
+                                {[1, 2, 3, 4, 5].map((s) => (
+                                    <i
+                                        key={s}
+                                        className={`bi ${newReviewRating >= s ? 'bi-star-fill text-amber-400' : 'bi-star text-gray-300'} text-xs`}
+                                    ></i>
+                                ))}
+                                <span className="text-[11px] font-bold text-gray-600 ml-1.5">
+                                    {newReviewRating}.0
+                                </span>
+                            </div>
+                            {newReviewComment.trim() ? (
+                                <p className="text-xs text-gray-700 font-medium line-clamp-2">
+                                    {newReviewComment.trim()}
+                                </p>
+                            ) : null}
+                            {reviewImagePreview && (
+                                <div className="pt-1">
+                                    <img
+                                        src={reviewImagePreview}
+                                        alt="Foto adjunta"
+                                        className="w-12 h-12 object-cover rounded-xl border border-gray-200 shadow-sm"
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Formulario */}
+                        <form onSubmit={handleGuestReviewSubmit} className="space-y-3">
+                            <div>
+                                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                                    Tu nombre
+                                </label>
+                                <input
+                                    type="text"
+                                    value={guestName}
+                                    onChange={(e) => {
+                                        setGuestName(e.target.value)
+                                        if (guestError) setGuestError('')
+                                    }}
+                                    placeholder="Ej. Juan Pérez"
+                                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
+                                    disabled={guestLoading}
+                                    autoFocus
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                                    Tu celular
+                                </label>
+                                <div className="relative">
+                                    <Phone size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    <input
+                                        type="tel"
+                                        value={guestPhone}
+                                        onChange={(e) => {
+                                            setGuestPhone(e.target.value)
+                                            if (guestError) setGuestError('')
+                                        }}
+                                        placeholder="0999999999"
+                                        className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-semibold text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
+                                        disabled={guestLoading}
+                                    />
+                                </div>
+                            </div>
+
+                            {guestError && (
+                                <p className="text-xs text-red-600 font-medium">{guestError}</p>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={guestLoading || !guestName.trim() || !guestPhone.trim()}
+                                className="w-full py-3 bg-gray-900 hover:bg-black text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shadow-md shadow-gray-900/10 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+                            >
+                                {guestLoading ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span>Publicando...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>Publicar opinión</span>
+                                        <ArrowUp size={16} strokeWidth={2.5} />
+                                    </>
+                                )}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Visor de Foto a pantalla completa */}
+            {viewingPhotoModalUrl && (
+                <div
+                    className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200"
+                    onClick={() => setViewingPhotoModalUrl(null)}
+                >
+                    {/* Botón flotante de cierre siempre visible por encima de todo */}
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setViewingPhotoModalUrl(null)
+                        }}
+                        className="fixed top-4 right-4 sm:top-6 sm:right-6 z-[220] w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 text-white backdrop-blur-xl border border-white/30 flex items-center justify-center transition-all shadow-2xl active:scale-95 cursor-pointer"
+                        title="Cerrar imagen (Esc)"
+                    >
+                        <X size={22} strokeWidth={2.5} />
+                    </button>
+
+                    <div
+                        className="relative z-[205] max-w-4xl max-h-[85vh] flex items-center justify-center animate-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <img
+                            src={viewingPhotoModalUrl}
+                            alt="Foto ampliada"
+                            className="max-h-[85vh] max-w-[92vw] sm:max-w-[85vw] object-contain rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.8)] border border-white/10"
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
