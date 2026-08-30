@@ -930,22 +930,38 @@ export function CheckoutContent({
       return
     }
 
+    const isValidLatLong = (latlong?: string | null): boolean => {
+      if (!latlong || typeof latlong !== 'string' || latlong.startsWith('pluscode:')) return false;
+      const parts = latlong.split(',').map(n => parseFloat(n.trim()));
+      return parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]);
+    };
+
     const loadUserLocations = async () => {
       setLoadingLocations(true)
       try {
-        const locations = await getClientLocations(user.id)
+        const rawLocations = await getClientLocations(user.id)
+        // Filtrar estrictamente solo ubicaciones con coordenadas válidas para el cliente
+        const locations = (rawLocations || []).filter(l => isValidLatLong(l?.latlong))
         setClientLocations(locations)
 
         if (locations && locations.length > 0) {
           let matched: ClientLocation | null = null
 
-          // 1. Intentar por userSelectedLocationId
-          const savedId = localStorage.getItem('userSelectedLocationId')
-          if (savedId) {
-            matched = locations.find(l => l.id === savedId) || null
+          // 1. Prioridad máxima: Ubicación marcada como favorita
+          const favoriteLoc = locations.find(l => l.isFavorite)
+          if (favoriteLoc) {
+            matched = favoriteLoc
           }
 
-          // 2. Intentar por userSelectedLocation (JSON)
+          // 2. Intentar por userSelectedLocationId
+          if (!matched) {
+            const savedId = localStorage.getItem('userSelectedLocationId')
+            if (savedId) {
+              matched = locations.find(l => l.id === savedId) || null
+            }
+          }
+
+          // 3. Intentar por userSelectedLocation (JSON)
           if (!matched) {
             const savedLocStr = localStorage.getItem('userSelectedLocation')
             if (savedLocStr) {
@@ -956,14 +972,14 @@ export function CheckoutContent({
             }
           }
 
-          // 3. Intentar coincidencia de coordenadas (userCoordinates)
+          // 4. Intentar coincidencia de coordenadas (userCoordinates)
           if (!matched) {
             const storedCoordsStr = localStorage.getItem('userCoordinates')
             if (storedCoordsStr) {
               try {
                 const stored = JSON.parse(storedCoordsStr)
                 matched = locations.find(l => {
-                  if (!l.latlong) return false
+                  if (!isValidLatLong(l.latlong)) return false
                   const [lat, lng] = l.latlong.split(',').map((n: string) => parseFloat(n.trim()))
                   return Math.abs(lat - stored.lat) < 0.0001 && Math.abs(lng - stored.lng) < 0.0001
                 }) || null
@@ -971,12 +987,12 @@ export function CheckoutContent({
             }
           }
 
-          // 4. Fallback a la primera ubicación guardada
+          // 5. Fallback a la primera ubicación guardada válida
           if (!matched && locations.length > 0) {
             matched = locations[0]
           }
 
-          if (matched && !selectedLocation) {
+          if (matched && (!selectedLocation || !isValidLatLong(selectedLocation.latlong) || (favoriteLoc && selectedLocation.id !== favoriteLoc.id))) {
             handleLocationSelect(matched)
           }
         }
@@ -997,10 +1013,16 @@ export function CheckoutContent({
     const handleLocationChanged = async () => {
       if (!user?.id) return
       try {
-        const locations = await getClientLocations(user.id)
+        const rawLocations = await getClientLocations(user.id)
+        const locations = (rawLocations || []).filter(l => {
+          if (!l?.latlong || typeof l.latlong !== 'string' || l.latlong.startsWith('pluscode:')) return false;
+          const parts = l.latlong.split(',').map(n => parseFloat(n.trim()));
+          return parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]);
+        })
         setClientLocations(locations)
+        const favoriteLoc = locations.find(l => l.isFavorite)
         const savedId = localStorage.getItem('userSelectedLocationId')
-        const matched = locations.find(l => l.id === savedId)
+        const matched = (savedId ? locations.find(l => l.id === savedId) : null) || favoriteLoc || locations[0]
         if (matched) {
           handleLocationSelect(matched)
         }
@@ -1405,17 +1427,22 @@ export function CheckoutContent({
 
   // Función unificada para seleccionar una ubicación del cliente
   const handleLocationSelect = async (location: ClientLocation) => {
+    if (!location || !location.latlong || location.latlong.startsWith('pluscode:')) {
+      console.warn('Attempted to select location without valid coordinates in checkout:', location)
+      return
+    }
+    const [latCheck, lngCheck] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
+    if (isNaN(latCheck) || isNaN(lngCheck)) {
+      console.warn('Attempted to select location with invalid NaN coordinates in checkout:', location)
+      return
+    }
+
     try {
       if (location.id) {
         localStorage.setItem('userSelectedLocationId', location.id)
       }
       localStorage.setItem('userSelectedLocation', JSON.stringify(location))
-      if (location.latlong) {
-        const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
-        if (!isNaN(lat) && !isNaN(lng)) {
-          localStorage.setItem('userCoordinates', JSON.stringify({ lat, lng }))
-        }
-      }
+      localStorage.setItem('userCoordinates', JSON.stringify({ lat: latCheck, lng: lngCheck }))
     } catch (e) {
       console.warn('Error persisting selected location in checkout:', e)
     }
@@ -2746,8 +2773,14 @@ export function CheckoutContent({
                       }
 
                       const savedId = typeof window !== 'undefined' ? localStorage.getItem('userSelectedLocationId') : null;
-                      const matched = clientLocations.find(l => l.id === savedId) || clientLocations[0];
-                      const targetLoc = selectedLocation || matched;
+                      const validLocs = clientLocations.filter(l => {
+                        if (!l?.latlong || typeof l.latlong !== 'string' || l.latlong.startsWith('pluscode:')) return false;
+                        const [lat, lng] = l.latlong.split(',').map(coord => parseFloat(coord.trim()));
+                        return !isNaN(lat) && !isNaN(lng);
+                      });
+                      const favoriteLoc = validLocs.find(l => l.isFavorite);
+                      const matched = (savedId ? validLocs.find(l => l.id === savedId) : null) || favoriteLoc || validLocs[0];
+                      const targetLoc = (selectedLocation && selectedLocation.latlong && !selectedLocation.latlong.startsWith('pluscode:')) ? selectedLocation : matched;
 
                       setDeliveryData(prev => ({
                         ...prev,
@@ -3568,8 +3601,15 @@ export function CheckoutContent({
           clientLocations={clientLocations}
           onSelect={handleLocationSelect}
           onLocationCreated={(newLocation) => {
-            setClientLocations(prev => [...prev, newLocation]);
-            handleLocationSelect(newLocation);
+            const hasCoords = newLocation.latlong && !newLocation.latlong.startsWith('pluscode:') && (() => {
+              const [lat, lng] = newLocation.latlong.split(',').map(coord => parseFloat(coord.trim()));
+              return !isNaN(lat) && !isNaN(lng);
+            })();
+            if (hasCoords) {
+              setClientLocations(prev => [...prev.filter(l => l.id !== newLocation.id), newLocation]);
+              handleLocationSelect(newLocation);
+            }
+            closeLocationModal();
           }}
           clientId={effectiveClientId}
           businessId={business?.id}
@@ -3582,9 +3622,20 @@ export function CheckoutContent({
             }
           }}
           onLocationUpdated={(updatedLoc) => {
-            setClientLocations(prev => prev.map(l => l.id === updatedLoc.id ? updatedLoc : l));
-            if (selectedLocation?.id === updatedLoc.id) {
-              setSelectedLocation(updatedLoc);
+            const hasCoords = updatedLoc.latlong && !updatedLoc.latlong.startsWith('pluscode:') && (() => {
+              const [lat, lng] = updatedLoc.latlong.split(',').map(coord => parseFloat(coord.trim()));
+              return !isNaN(lat) && !isNaN(lng);
+            })();
+            if (hasCoords) {
+              setClientLocations(prev => prev.map(l => l.id === updatedLoc.id ? updatedLoc : (updatedLoc.isFavorite ? { ...l, isFavorite: false } : l)));
+              if (updatedLoc.isFavorite || selectedLocation?.id === updatedLoc.id) {
+                handleLocationSelect(updatedLoc);
+              }
+            } else {
+              setClientLocations(prev => prev.filter(l => l.id !== updatedLoc.id));
+              if (selectedLocation?.id === updatedLoc.id) {
+                setSelectedLocation(null);
+              }
             }
           }}
         />

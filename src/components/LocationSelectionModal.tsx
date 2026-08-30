@@ -42,7 +42,7 @@ export default function LocationSelectionModal({
     const [isAddingNewLocation, setIsAddingNewLocation] = useState(initialAddingState)
     const [editingLocation, setEditingLocation] = useState<ClientLocation | null>(null)
     const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-    const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1' })
+    const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1.25' })
     const [isRequestingLocation, setIsRequestingLocation] = useState(false)
     const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
     const [gpsAttempts, setGpsAttempts] = useState(0)
@@ -58,7 +58,7 @@ export default function LocationSelectionModal({
         setIsManualMode(false)
         setGpsAttempts(0)
         setLocationPermissionError(null)
-        setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
+        setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25' })
         setLocationImageFile(null)
         setLocationImagePreview('')
         setIsSubmitting(false)
@@ -128,7 +128,7 @@ export default function LocationSelectionModal({
                     const { latitude, longitude } = position.coords;
                     const latlong = `${latitude}, ${longitude}`
 
-                    let tarifa = '1'
+                    let tarifa = '1.25'
                     // Calcular tarifa inicial
                     if (businessId) {
                         const fee = await calculateDeliveryFee({ lat: latitude, lng: longitude })
@@ -180,7 +180,7 @@ export default function LocationSelectionModal({
 
     const resolveDeliveryFeeValue = useCallback(async (lat: number, lng: number) => {
         setIsResolvingDeliveryFee(true)
-        let tarifa = '1'
+        let tarifa = '1.25'
         try {
             if (businessId) {
                 const fee = await calculateDeliveryFee({ lat, lng })
@@ -300,7 +300,7 @@ export default function LocationSelectionModal({
             };
 
             onLocationCreated(newLocation);
-            setNewLocationData({ latlong: '', referencia: '', tarifa: '1' }); // Reset
+            setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25' }); // Reset
             setLocationImageFile(null);
             setLocationImagePreview('');
             setIsAddingNewLocation(false); // Volver a la lista o cerrar? El padre cierra el modal al seleccionar

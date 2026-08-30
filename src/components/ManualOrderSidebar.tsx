@@ -1738,7 +1738,7 @@ export default function ManualOrderSidebar({
     // Limpiar formulario y cerrar modal de inmediato
     setNewLocationData({
       referencia: '',
-      tarifa: '1',
+      tarifa: '1.25',
       latlong: '',
       photo: '',
       sector: ''
@@ -1917,7 +1917,7 @@ export default function ManualOrderSidebar({
     // Limpiar formulario y cerrar de inmediato
     setEditingLocationId(null)
     setShowNewLocationForm(false)
-    setNewLocationData({ referencia: '', tarifa: '1', latlong: '', photo: '', sector: '' })
+    setNewLocationData({ referencia: '', tarifa: '1.25', latlong: '', photo: '', sector: '' })
     setLocationImageFile(null)
     setLocationImagePreview('')
     setShowMapSelection(false)
@@ -4446,7 +4446,7 @@ export default function ManualOrderSidebar({
                     setShowNewLocationForm(false);
                     setNewLocationData({
                       referencia: '',
-                      tarifa: '1',
+                      tarifa: '1.25',
                       latlong: '',
                       photo: '',
                       sector: ''
@@ -4851,7 +4851,7 @@ export default function ManualOrderSidebar({
                       setShowNewLocationForm(false);
                       setNewLocationData({
                         referencia: '',
-                        tarifa: '1',
+                        tarifa: '1.25',
                         latlong: '',
                         photo: '',
                         sector: ''

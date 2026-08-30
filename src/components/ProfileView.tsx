@@ -124,7 +124,12 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
 
     // 1. Cargar Ubicaciones
     try {
-      const locs = await getClientLocations(user.id)
+      const rawLocs = await getClientLocations(user.id)
+      const locs = (rawLocs || []).filter(l => {
+        if (!l?.latlong || typeof l.latlong !== 'string' || l.latlong.startsWith('pluscode:')) return false
+        const parts = l.latlong.split(',').map((n: string) => parseFloat(n.trim()))
+        return parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])
+      })
       setLocations(locs)
     } catch (e) {
       console.error('Error loading locations:', e)

@@ -1238,17 +1238,44 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
         }
     }, [])
 
+    // Helper para verificar coordenadas válidas
+    const isValidLatLong = (latlong?: string | null): boolean => {
+        if (!latlong || typeof latlong !== 'string' || latlong.startsWith('pluscode:')) return false
+        const parts = latlong.split(',').map(n => parseFloat(n.trim()))
+        return parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])
+    }
+
     // Cuando el usuario inicia sesión, cargar sus ubicaciones guardadas
     useEffect(() => {
         if (user?.id) {
-            getClientLocations(user.id).then(locs => {
+            getClientLocations(user.id).then(rawLocs => {
+                // Filtrar estrictamente solo ubicaciones con coordenadas válidas para el cliente
+                const locs = (rawLocs || []).filter(l => isValidLatLong(l?.latlong))
                 setUserLocations(locs)
 
                 // Persistence Logic: Try to restore last selected location
                 let foundMatch = false
-                const storedCoordsStr = localStorage.getItem('userCoordinates')
+                const storedCoordsStr = typeof window !== 'undefined' ? localStorage.getItem('userCoordinates') : null
+                const savedId = typeof window !== 'undefined' ? localStorage.getItem('userSelectedLocationId') : null
 
-                if (storedCoordsStr && locs && locs.length > 0) {
+                // 1. Prioridad máxima: Ubicación marcada como favorita
+                const favoriteLoc = locs.find(l => l.isFavorite)
+                if (favoriteLoc) {
+                    handleSelectLocation(favoriteLoc)
+                    foundMatch = true
+                }
+
+                // 2. Intentar por savedId si es una ubicación válida y no había favorita
+                if (!foundMatch && savedId && locs && locs.length > 0) {
+                    const idMatch = locs.find(l => l.id === savedId)
+                    if (idMatch) {
+                        handleSelectLocation(idMatch)
+                        foundMatch = true
+                    }
+                }
+
+                // 3. Intentar coincidencia de coordenadas
+                if (!foundMatch && storedCoordsStr && locs && locs.length > 0) {
                     try {
                         const stored = JSON.parse(storedCoordsStr)
                         // Find match with strict tolerance
@@ -1266,6 +1293,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                     }
                 }
 
+                // 4. Fallback a la primera ubicación válida
                 if (!foundMatch && locs && locs.length > 0) {
                     handleSelectLocation(locs[0])
                 }
@@ -1599,13 +1627,18 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     }, [user])
 
     const handleLocationCreated = (newLocation: ClientLocation) => {
-        setUserLocations(prev => [...prev, newLocation])
-        handleSelectLocation(newLocation)
+        if (isValidLatLong(newLocation.latlong)) {
+            setUserLocations(prev => [...prev.filter(l => l.id !== newLocation.id), newLocation])
+            handleSelectLocation(newLocation)
+        }
         setIsLocationModalOpen(false)
         setIsAddingNewLocation(false)
     }
 
     const handleSelectLocation = (loc: any) => {
+        if (!loc || !isValidLatLong(loc.latlong)) {
+            return
+        }
         try {
             const [lat, lng] = loc.latlong.split(',').map((n: string) => parseFloat(n.trim()))
             const newLocation = {
@@ -2470,7 +2503,17 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                     });
                 }}
                 onLocationUpdated={(updatedLoc) => {
-                    setUserLocations(prev => prev.map(l => l.id === updatedLoc.id ? updatedLoc : l));
+                    if (isValidLatLong(updatedLoc.latlong)) {
+                        setUserLocations(prev => prev.map(l => l.id === updatedLoc.id ? updatedLoc : (updatedLoc.isFavorite ? { ...l, isFavorite: false } : l)));
+                        if (updatedLoc.isFavorite || savedLocation?.referencia === updatedLoc.referencia || (typeof window !== 'undefined' && localStorage.getItem('userSelectedLocationId') === updatedLoc.id)) {
+                            handleSelectLocation(updatedLoc);
+                        }
+                    } else {
+                        setUserLocations(prev => prev.filter(l => l.id !== updatedLoc.id));
+                        if (savedLocation?.referencia === updatedLoc.referencia || (typeof window !== 'undefined' && localStorage.getItem('userSelectedLocationId') === updatedLoc.id)) {
+                            setSavedLocation(null);
+                        }
+                    }
                 }}
             />
 
