@@ -1270,9 +1270,9 @@ function RestaurantContent() {
             {/* Botón Favorito */}
             <button
               onClick={handleToggleFavorite}
-              className={`w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white shadow-xs transition-all active:scale-95 cursor-pointer ${
+              className={`w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white transition-all active:scale-95 cursor-pointer ${
                 isFavorite
-                  ? 'text-red-600 shadow-sm'
+                  ? 'text-red-600'
                   : 'text-gray-400 hover:text-gray-900'
               }`}
               title={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
@@ -1287,7 +1287,7 @@ function RestaurantContent() {
             {/* Botón Compartir */}
             <button
               onClick={copyStoreLink}
-              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 shadow-xs transition-all active:scale-95 cursor-pointer"
+              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 transition-all active:scale-95 cursor-pointer"
               title="Compartir tienda"
               aria-label="Compartir tienda"
             >
@@ -1297,14 +1297,19 @@ function RestaurantContent() {
 
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <div className="relative inline-block mb-1">
-                <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight text-center">
+              <div className="relative inline-flex items-center justify-center mb-1">
+                {/* Elemento invisible compensador a la izquierda con el mismo offset óptico */}
+                <div className="invisible shrink-0 pointer-events-none p-1 translate-y-[4px]" aria-hidden="true">
+                  <span className="w-3.5 h-3.5 block" />
+                </div>
+
+                <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight text-center px-1.5">
                   {business.name}
                 </h1>
 
-                {/* Punto indicador de Estado con Popover sin afectar la centralidad del nombre */}
+                {/* Punto indicador de Estado perfectamente calibrado al centro óptico de las letras */}
                 <div
-                  className="absolute left-full ml-1.5 sm:ml-2 top-1/2 -translate-y-1/2 inline-flex items-center"
+                  className="relative inline-flex items-center shrink-0 translate-y-[4px]"
                   ref={statusPopoverRef}
                 >
                   <button
@@ -1412,13 +1417,14 @@ function RestaurantContent() {
               )}
 
               {/* Navegación por Pestañas - Icono Arriba y Texto Abajo */}
-              <div className={`grid ${isOwner ? 'grid-cols-4' : 'grid-cols-3'} gap-1 bg-gray-100/90 p-1.5 rounded-2xl border border-gray-200/60 mt-3.5 max-w-lg mx-auto`}>
+              <div className={`grid ${isOwner ? 'grid-cols-4' : 'grid-cols-3'} gap-1.5 mt-3.5 max-w-lg mx-auto`}>
                 <button
                   onClick={() => setActiveTab('catalogo')}
-                  className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${activeTab === 'catalogo'
-                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
-                    }`}
+                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                    activeTab === 'catalogo'
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
                 >
                   <LayoutGrid
                     size={17}
@@ -1428,10 +1434,11 @@ function RestaurantContent() {
                 </button>
                 <button
                   onClick={() => setActiveTab('perfil')}
-                  className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${activeTab === 'perfil'
-                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
-                    }`}
+                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                    activeTab === 'perfil'
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
                 >
                   <Store
                     size={17}
@@ -1441,10 +1448,11 @@ function RestaurantContent() {
                 </button>
                 <button
                   onClick={() => setActiveTab('calificaciones')}
-                  className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${activeTab === 'calificaciones'
-                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
-                    }`}
+                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                    activeTab === 'calificaciones'
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
                 >
                   <div className="relative flex items-center justify-center">
                     <Star
@@ -1462,7 +1470,7 @@ function RestaurantContent() {
                 {isOwner && (
                   <Link
                     href="/business/dashboard"
-                    className="py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black text-gray-500 hover:text-gray-900 hover:bg-white/50 transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                    className="py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
                   >
                     <Settings
                       size={17}
@@ -1478,111 +1486,159 @@ function RestaurantContent() {
       </div>
 
       {activeTab === 'perfil' ? (
-        /* Vista de Perfil */
-        <div className="max-w-4xl mx-auto px-4 py-12">
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-            <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center gap-3">
-              <i className="bi bi-shop text-red-500"></i>
-              Sobre nosotros
-            </h2>
+        /* Vista de Perfil - Rediseño coherente con Opiniones */
+        <div className="max-w-2xl mx-auto px-4 pt-3 sm:pt-4 pb-8 sm:pb-12 space-y-4 animate-in fade-in duration-200">
+          {/* 1. Sobre Nosotros */}
+          {business.description && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+                  Sobre nosotros
+                </span>
+              </div>
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-xs">
+                <p className="text-xs sm:text-sm font-medium text-gray-600 leading-relaxed">
+                  {business.description}
+                </p>
+              </div>
+            </div>
+          )}
 
-            <div className="space-y-8">
-              {business.description && (
-                <div>
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Descripción</h3>
-                  <p className="text-gray-700 leading-relaxed">{business.description}</p>
-                </div>
-              )}
+          {/* 2. Horario de Atención */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+                Horario de atención
+              </span>
+              <div className="flex items-center gap-1.5 text-xs font-bold">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                  }`}
+                />
+                <span className={isStoreOpen(business) ? 'text-emerald-700' : 'text-rose-600'}>
+                  {isStoreOpen(business) ? 'Abierto ahora' : 'Cerrado ahora'}
+                </span>
+              </div>
+            </div>
 
-              {/* Ubicación: Solo si el retiro está habilitado */}
-              {business.pickupSettings?.enabled && (
-                <div>
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Ubicación y Retiro</h3>
-                  <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 space-y-6">
-                    <div className="flex flex-col md:flex-row gap-6">
-                      {/* Foto del negocio */}
-                      {(business.pickupSettings.storePhotoUrl || business.locationImage) && (
-                        <div className="w-full md:w-1/3 aspect-video md:aspect-square rounded-xl overflow-hidden bg-gray-200 border border-gray-100 shadow-sm">
-                          <img
-                            src={business.pickupSettings.storePhotoUrl || business.locationImage}
-                            alt={business.name}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      )}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+                {(() => {
+                  const daysMap: Record<number, string> = {
+                    0: 'sunday',
+                    1: 'monday',
+                    2: 'tuesday',
+                    3: 'wednesday',
+                    4: 'thursday',
+                    5: 'friday',
+                    6: 'saturday'
+                  }
+                  const todayKey = daysMap[new Date().getDay()]
 
-                      <div className="flex-1 space-y-4">
-                        {business.pickupSettings.references && (
-                          <div>
-                            <p className="text-xs font-bold text-gray-400 uppercase mb-1">Referencias</p>
-                            <p className="text-gray-700 flex items-start gap-2 italic">
-                              <i className="bi bi-geo-alt-fill text-red-500 mt-1"></i>
-                              {business.pickupSettings.references}
-                            </p>
-                          </div>
-                        )}
+                  return Object.entries({
+                    monday: 'Lunes',
+                    tuesday: 'Martes',
+                    wednesday: 'Miércoles',
+                    thursday: 'Jueves',
+                    friday: 'Viernes',
+                    saturday: 'Sábado',
+                    sunday: 'Domingo'
+                  }).map(([key, label]) => {
+                    const daySchedule = business.schedule?.[key as keyof typeof business.schedule] as any
+                    const isToday = key === todayKey
 
-                        {business.pickupSettings.latlong && (
-                          <a
-                            href={`https://www.google.com/maps/search/?api=1&query=${business.pickupSettings.latlong}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 bg-white hover:bg-gray-50 transition-all shadow-sm"
-                          >
-                            <i className="bi bi-map-fill text-red-500"></i>
-                            Ver en Google Maps
-                          </a>
-                        )}
+                    return (
+                      <div
+                        key={key}
+                        className={`flex justify-between items-center text-xs py-2 px-2.5 rounded-xl transition-colors ${
+                          isToday
+                            ? 'bg-amber-50/70 text-gray-900 font-bold border border-amber-200/50'
+                            : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 font-bold">
+                          {label}
+                          {isToday && (
+                            <span className="text-[10px] text-amber-700 font-extrabold uppercase tracking-tight">
+                              (Hoy)
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={`font-semibold ${
+                            daySchedule?.isOpen
+                              ? isToday ? 'text-gray-900' : 'text-gray-600'
+                              : 'text-rose-400 font-medium'
+                          }`}
+                        >
+                          {daySchedule?.isOpen ? `${daySchedule.open} - ${daySchedule.close}` : 'Cerrado'}
+                        </span>
                       </div>
-                    </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
+          </div>
 
-                    {/* Mini Mapa interactivo (solo visualización) */}
-                    {business.pickupSettings.latlong && (
-                      <div className="rounded-xl overflow-hidden border border-gray-200 shadow-inner h-48">
-                        <LocationMap latlong={business.pickupSettings.latlong} height="100%" />
+          {/* 3. Ubicación y Retiro (si está habilitado) */}
+          {business.pickupSettings?.enabled && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+                  Ubicación y retiro
+                </span>
+              </div>
+
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row gap-4 items-start">
+                  {/* Foto del local */}
+                  {(business.pickupSettings.storePhotoUrl || business.locationImage) && (
+                    <div className="w-full sm:w-28 sm:h-28 aspect-video sm:aspect-square rounded-xl overflow-hidden bg-gray-100 border border-gray-100 flex-shrink-0">
+                      <img
+                        src={business.pickupSettings.storePhotoUrl || business.locationImage}
+                        alt={business.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-2 min-w-0">
+                    {business.pickupSettings.references && (
+                      <div>
+                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                          Dirección / Referencias
+                        </span>
+                        <p className="text-xs sm:text-sm text-gray-700 font-medium leading-relaxed flex items-start gap-1.5">
+                          <i className="bi bi-geo-alt-fill text-red-500 mt-0.5 flex-shrink-0 text-sm"></i>
+                          <span>{business.pickupSettings.references}</span>
+                        </p>
                       </div>
                     )}
                   </div>
                 </div>
-              )}
 
-              <div>
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Horario de Atención</h3>
-                <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 overflow-hidden relative">
-                  <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <i className="bi bi-clock-fill text-6xl"></i>
-                  </div>
-                  <p className="text-gray-600 mb-6 flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
-                    La tienda está actualmente <strong>{isStoreOpen(business) ? 'Abierta' : 'Cerrada'}</strong>
-                  </p>
-
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative z-10">
-                    {Object.entries({
-                      monday: 'Lunes',
-                      tuesday: 'Martes',
-                      wednesday: 'Miércoles',
-                      thursday: 'Jueves',
-                      friday: 'Viernes',
-                      saturday: 'Sábado',
-                      sunday: 'Domingo'
-                    }).map(([key, label]) => {
-                      const daySchedule = business.schedule?.[key as keyof typeof business.schedule] as any
-                      return (
-                        <div key={key} className="flex justify-between items-center text-sm py-1 border-b border-gray-200/50 last:border-0 sm:last:border-b">
-                          <span className="font-semibold text-gray-700">{label}</span>
-                          <span className={daySchedule?.isOpen ? 'text-gray-600' : 'text-rose-400 font-medium'}>
-                            {daySchedule?.isOpen ? `${daySchedule.open} - ${daySchedule.close}` : 'Cerrado'}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                {/* Mapa clicable para abrir Google Maps */}
+                {business.pickupSettings.latlong && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${business.pickupSettings.latlong}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block relative group rounded-xl overflow-hidden border border-gray-100 shadow-inner h-44 sm:h-48 cursor-pointer"
+                    title="Abrir ubicación en Google Maps"
+                  >
+                    <LocationMap latlong={business.pickupSettings.latlong} height="100%" />
+                    <div className="absolute bottom-2.5 right-2.5 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/90 group-hover:bg-white text-gray-800 text-xs font-bold rounded-xl shadow-md backdrop-blur-xs transition-all group-hover:scale-105">
+                      <i className="bi bi-geo-alt-fill text-red-500"></i>
+                      <span>Ver en Google Maps</span>
+                      <i className="bi bi-arrow-up-right text-[10px] text-gray-400"></i>
+                    </div>
+                  </a>
+                )}
               </div>
             </div>
-          </div>
+          )}
         </div>
       ) : activeTab === 'calificaciones' ? (
         /* Vista de Calificaciones de la Tienda */

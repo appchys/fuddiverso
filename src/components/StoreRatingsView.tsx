@@ -575,26 +575,24 @@ export default function StoreRatingsView({
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
-      {/* Resumen de Calificación */}
-      <div className="bg-gradient-to-br from-amber-50/80 to-orange-50/40 border border-amber-200/60 rounded-2xl p-4 flex items-center justify-between shadow-xs">
-        <div>
-          <p className="text-3xl font-black text-gray-900 tracking-tight leading-none">
-            {ratingAvg > 0 ? ratingAvg.toFixed(1) : '5.0'}
-          </p>
-          <div className="mt-1.5">
-            <StarRating
-              rating={ratingAvg > 0 ? ratingAvg : 5}
-              size="sm"
-              showGrayStars={ratingCount === 0}
-              showRatingText={false}
-            />
-          </div>
-          <p className="text-xs font-bold text-gray-600 mt-1">
-            {ratingCount > 0
-              ? `${ratingCount} ${ratingCount === 1 ? 'opinión' : 'opiniones'}`
-              : 'Sin opiniones aún'}
-          </p>
+      {/* Resumen de Calificación - Centrado horizontalmente y sin fondo */}
+      <div className="py-2 text-center flex flex-col items-center justify-center">
+        <p className="text-4xl font-black text-gray-900 tracking-tight leading-none">
+          {ratingAvg > 0 ? ratingAvg.toFixed(1) : '5.0'}
+        </p>
+        <div className="mt-2 flex justify-center">
+          <StarRating
+            rating={ratingAvg > 0 ? ratingAvg : 5}
+            size="md"
+            showGrayStars={ratingCount === 0}
+            showRatingText={false}
+          />
         </div>
+        <p className="text-xs font-bold text-gray-500 mt-1.5">
+          {ratingCount > 0
+            ? `${ratingCount} ${ratingCount === 1 ? 'opinión' : 'opiniones'}`
+            : 'Sin opiniones aún'}
+        </p>
       </div>
 
       {/* Casillero para calificar e insertar opinión (Si no es modal, aparece integrado) */}

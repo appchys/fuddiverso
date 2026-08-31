@@ -1035,15 +1035,15 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             )}
 
                             {/* Barra de 3 Pestañas: Comprar | Opiniones | Recomendar */}
-                            <div className="grid grid-cols-3 gap-1 bg-gray-100/90 p-1 rounded-2xl border border-gray-200/60 mt-3.5">
+                            <div className="grid grid-cols-3 gap-1.5 mt-3.5">
                                 {/* Pestaña 1: Comprar */}
                                 <button
                                     type="button"
                                     onClick={() => setActiveTab('options')}
-                                    className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${
+                                    className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
                                         activeTab === 'options'
-                                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
-                                            : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                                            ? 'bg-gray-100 text-gray-900'
+                                            : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
                                     }`}
                                 >
                                     <ShoppingBag
@@ -1057,10 +1057,10 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                 <button
                                     type="button"
                                     onClick={() => setActiveTab('reviews')}
-                                    className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${
+                                    className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
                                         activeTab === 'reviews'
-                                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
-                                            : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                                            ? 'bg-gray-100 text-gray-900'
+                                            : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
                                     }`}
                                 >
                                     <div className="relative flex items-center justify-center">
@@ -1069,7 +1069,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                             className={activeTab === 'reviews' || productRatingAvg > 0 ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}
                                         />
                                         {productRatingAvg > 0 && (
-                                            <span className="absolute -top-1.5 -right-3 text-[9px] text-amber-700 font-extrabold bg-amber-100 px-1 py-0.2 rounded-full leading-none">
+                                             <span className="absolute -top-1.5 -right-3 text-[9px] text-amber-700 font-extrabold bg-amber-100 px-1 py-0.2 rounded-full leading-none">
                                                 {productRatingAvg.toFixed(1)}
                                             </span>
                                         )}
@@ -1088,10 +1088,10 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                             generateReferralForUser(user)
                                         }
                                     }}
-                                    className={`py-2 px-1 rounded-xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${
+                                    className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
                                         activeTab === 'referral'
-                                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/5'
-                                            : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                                            ? 'bg-gray-100 text-gray-900'
+                                            : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
                                     }`}
                                 >
                                     <Flame
@@ -1498,26 +1498,131 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         ) : activeTab === 'reviews' ? (
                             /* Opiniones y Comentarios Tab */
                             <div className="space-y-4 animate-in fade-in duration-200">
-                                {/* Resumen de Calificación */}
-                                <div className="bg-gradient-to-br from-amber-50/80 to-orange-50/40 border border-amber-200/60 rounded-2xl p-4 flex items-center justify-between">
-                                    <div>
-                                        <p className="text-3xl font-black text-gray-900 tracking-tight leading-none">
-                                            {productRatingAvg > 0 ? productRatingAvg.toFixed(1) : '5.0'}
-                                        </p>
-                                        <div className="mt-1.5">
-                                            <StarRating
-                                                rating={productRatingAvg > 0 ? productRatingAvg : 5}
-                                                size="sm"
-                                                showGrayStars={productRatingCount === 0}
-                                                showRatingText={false}
-                                            />
-                                        </div>
-                                        <p className="text-xs font-bold text-gray-600 mt-1">
-                                            {productRatingCount > 0
-                                                ? `${productRatingCount} ${productRatingCount === 1 ? 'opinión' : 'opiniones'}`
-                                                : 'Sin opiniones aún'}
-                                        </p>
+                                {/* Resumen de Calificación - Centrado horizontalmente y sin fondo */}
+                                <div className="py-2 text-center flex flex-col items-center justify-center">
+                                    <p className="text-4xl font-black text-gray-900 tracking-tight leading-none">
+                                        {productRatingAvg > 0 ? productRatingAvg.toFixed(1) : '5.0'}
+                                    </p>
+                                    <div className="mt-2 flex justify-center">
+                                        <StarRating
+                                            rating={productRatingAvg > 0 ? productRatingAvg : 5}
+                                            size="md"
+                                            showGrayStars={productRatingCount === 0}
+                                            showRatingText={false}
+                                        />
                                     </div>
+                                    <p className="text-xs font-bold text-gray-500 mt-1.5">
+                                        {productRatingCount > 0
+                                            ? `${productRatingCount} ${productRatingCount === 1 ? 'opinión' : 'opiniones'}`
+                                            : 'Sin opiniones aún'}
+                                    </p>
+                                </div>
+
+                                {/* Casillero incrustado para calificar y escribir opinión */}
+                                <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm space-y-3">
+                                    <form onSubmit={handleSendProductReview} className="space-y-2.5">
+                                        {/* Selector de estrellas */}
+                                        <div className="flex items-center justify-between px-1">
+                                            <span className="text-xs font-bold text-gray-700">
+                                                Tu calificación:
+                                            </span>
+                                            <div className="flex items-center gap-1">
+                                                {[1, 2, 3, 4, 5].map((star) => (
+                                                    <button
+                                                        key={star}
+                                                        type="button"
+                                                        onClick={() => setNewReviewRating(star)}
+                                                        className="p-0.5 transition-transform hover:scale-125 active:scale-95 text-amber-400"
+                                                        title={`${star} estrellas`}
+                                                    >
+                                                        <i className={`bi ${newReviewRating >= star ? 'bi-star-fill' : 'bi-star text-gray-300'} text-lg`}></i>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Mini vista previa de la foto adjunta */}
+                                        {reviewImagePreview && (
+                                            <div className="relative inline-block px-1">
+                                                <img
+                                                    src={reviewImagePreview}
+                                                    alt="Vista previa"
+                                                    className="w-14 h-14 object-cover rounded-xl border border-gray-200 shadow-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setReviewImageFile(null)
+                                                        setReviewImagePreview(null)
+                                                        if (reviewFileInputRef.current) reviewFileInputRef.current.value = ''
+                                                    }}
+                                                    className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow hover:bg-red-600 transition-colors"
+                                                    title="Quitar foto"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Input con botón de cámara y botón de enviar */}
+                                        <div className="flex items-center gap-2 sm:gap-2.5">
+                                            <input
+                                                type="file"
+                                                ref={reviewFileInputRef}
+                                                onChange={handleReviewImageChange}
+                                                accept="image/*"
+                                                className="hidden"
+                                            />
+
+                                            <input
+                                                type="text"
+                                                value={newReviewComment}
+                                                onChange={(e) => setNewReviewComment(e.target.value)}
+                                                placeholder="Escribe una opinión sobre el producto..."
+                                                disabled={isSubmittingReview}
+                                                className="flex-1 bg-gray-50 border border-gray-200/80 rounded-2xl px-4 py-2.5 text-xs text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent font-medium transition-all"
+                                            />
+
+                                            <button
+                                                type="button"
+                                                onClick={() => reviewFileInputRef.current?.click()}
+                                                disabled={isSubmittingReview}
+                                                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl border flex items-center justify-center transition-all active:scale-95 flex-shrink-0 ${
+                                                    reviewImagePreview
+                                                        ? 'bg-amber-50 border-amber-300 text-amber-600'
+                                                        : 'bg-gray-50 hover:bg-gray-100 border-gray-200/80 text-gray-500 hover:text-gray-900'
+                                                }`}
+                                                title="Adjuntar foto"
+                                            >
+                                                <Camera size={17} />
+                                            </button>
+
+                                            <button
+                                                type="submit"
+                                                disabled={(!newReviewComment.trim() && !reviewImageFile) || isSubmittingReview}
+                                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gray-900 hover:bg-black text-white flex items-center justify-center transition-all shadow-md active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                                                title="Publicar opinión"
+                                            >
+                                                {isSubmittingReview ? (
+                                                    <Loader2 size={16} className="animate-spin" />
+                                                ) : (
+                                                    <ArrowUp size={17} strokeWidth={2.5} />
+                                                )}
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+
+                                {/* Cabecera sutil: Todas las opiniones */}
+                                <div className="flex items-center justify-between px-1 pt-1 pb-0.5">
+                                    <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+                                        Todas las opiniones
+                                    </span>
+                                    {productRatingsList.length > 0 && (
+                                        <span className="text-[11px] font-bold text-gray-400">
+                                            {productRatingsList.length}
+                                        </span>
+                                    )}
                                 </div>
 
                                 {/* Listado de Opiniones */}
@@ -2006,106 +2111,9 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         )}
 
                         {/* Spacer for fixed footer */}
-                        <div className={activeTab === 'options' || activeTab === 'reviews' ? "h-32" : "h-6"}></div>
+                        <div className={activeTab === 'options' ? "h-32" : "h-6"}></div>
                     </div>
                 </div>
-
-                {/* Footer para Opiniones (Casillero minimalista para comentar con foto adjunta) */}
-                {activeTab === 'reviews' && (
-                    <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-4 bg-white/95 backdrop-blur-md border-t border-gray-100 shadow-[0_-10px_30px_rgba(0,0,0,0.06)] z-40 animate-in fade-in slide-in-from-bottom duration-200">
-                        <form onSubmit={handleSendProductReview} className="space-y-2">
-                            {/* Selector de estrellas */}
-                            <div className="flex items-center justify-between px-1">
-                                <span className="text-[11px] font-bold text-gray-500">
-                                    Tu calificación:
-                                </span>
-                                <div className="flex items-center gap-1">
-                                    {[1, 2, 3, 4, 5].map((star) => (
-                                        <button
-                                            key={star}
-                                            type="button"
-                                            onClick={() => setNewReviewRating(star)}
-                                            className="p-0.5 transition-transform hover:scale-125 active:scale-95 text-amber-400"
-                                            title={`${star} estrellas`}
-                                        >
-                                            <i className={`bi ${newReviewRating >= star ? 'bi-star-fill' : 'bi-star text-gray-300'} text-base`}></i>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Mini vista previa de la foto adjunta */}
-                            {reviewImagePreview && (
-                                <div className="relative inline-block px-1">
-                                    <img
-                                        src={reviewImagePreview}
-                                        alt="Vista previa"
-                                        className="w-12 h-12 object-cover rounded-xl border border-gray-200 shadow-sm"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setReviewImageFile(null)
-                                            setReviewImagePreview(null)
-                                            if (reviewFileInputRef.current) reviewFileInputRef.current.value = ''
-                                        }}
-                                        className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow hover:bg-red-600 transition-colors"
-                                        title="Quitar foto"
-                                    >
-                                        <X size={12} />
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* Input con botón de cámara al lado derecho y botón de enviar */}
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="file"
-                                    ref={reviewFileInputRef}
-                                    onChange={handleReviewImageChange}
-                                    accept="image/*"
-                                    className="hidden"
-                                />
-
-                                <input
-                                    type="text"
-                                    value={newReviewComment}
-                                    onChange={(e) => setNewReviewComment(e.target.value)}
-                                    placeholder="Escribe una opinión..."
-                                    disabled={isSubmittingReview}
-                                    className="flex-1 bg-gray-50 border border-gray-200/80 rounded-2xl px-4 py-2.5 text-xs text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent font-medium transition-all"
-                                />
-
-                                <button
-                                    type="button"
-                                    onClick={() => reviewFileInputRef.current?.click()}
-                                    disabled={isSubmittingReview}
-                                    className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-all active:scale-95 flex-shrink-0 ${
-                                        reviewImagePreview
-                                            ? 'bg-amber-50 border-amber-300 text-amber-600'
-                                            : 'bg-gray-50 hover:bg-gray-100 border-gray-200/80 text-gray-500 hover:text-gray-900'
-                                    }`}
-                                    title="Adjuntar foto"
-                                >
-                                    <Camera size={18} />
-                                </button>
-
-                                <button
-                                    type="submit"
-                                    disabled={(!newReviewComment.trim() && !reviewImageFile) || isSubmittingReview}
-                                    className="w-10 h-10 rounded-2xl bg-gray-900 hover:bg-black text-white flex items-center justify-center transition-all shadow-md active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
-                                    title="Publicar opinión"
-                                >
-                                    {isSubmittingReview ? (
-                                        <Loader2 size={16} className="animate-spin" />
-                                    ) : (
-                                        <ArrowUp size={18} strokeWidth={2.5} />
-                                    )}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                )}
 
                 {/* Fixed Footer for Actions - Solo visible en opciones si hay selección de combo o hay carrito */}
                 {activeTab === 'options' && ((product.isCombo && Object.values(comboSelection).reduce((a, b) => a + b, 0) > 0) || cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0) > 0) && (
