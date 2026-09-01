@@ -2893,6 +2893,62 @@ export function getTodayVisitsDocRef(businessId: string) {
   const dateStr = now.toLocaleDateString('en-CA')
   return doc(db, 'visits', businessId, 'daily', dateStr)
 }
+
+export interface DailyVisit {
+  date: string
+  count: number
+  updatedAt?: Date | any
+}
+
+/**
+ * Obtiene el historial de visitas diarias para un negocio
+ */
+export async function getDailyVisitsForBusiness(
+  businessId: string,
+  limitDays: number = 90
+): Promise<DailyVisit[]> {
+  if (!businessId) return []
+  try {
+    const dailyColRef = collection(db, 'visits', businessId, 'daily')
+    const q = query(dailyColRef, orderBy('date', 'desc'), limit(limitDays))
+    const snap = await getDocs(q)
+
+    const list: DailyVisit[] = []
+
+    if (!snap.empty) {
+      snap.forEach((d) => {
+        const data = d.data()
+        const dateStr = data.date || d.id
+        const count = typeof data.count === 'number' ? data.count : parseInt(data.count || 0, 10) || 0
+        list.push({
+          date: dateStr,
+          count,
+          updatedAt: data.updatedAt ? toSafeDate(data.updatedAt) : undefined
+        })
+      })
+    } else {
+      // Fallback en caso de que date no tenga index o los docs no tengan el campo date pero su id sea YYYY-MM-DD
+      const fallbackSnap = await getDocs(dailyColRef)
+      fallbackSnap.forEach((d) => {
+        const data = d.data()
+        const dateStr = data.date || d.id
+        const count = typeof data.count === 'number' ? data.count : parseInt(data.count || 0, 10) || 0
+        list.push({
+          date: dateStr,
+          count,
+          updatedAt: data.updatedAt ? toSafeDate(data.updatedAt) : undefined
+        })
+      })
+    }
+
+    // Ordenar cronológicamente (ascendente)
+    list.sort((a, b) => a.date.localeCompare(b.date))
+    return list
+  } catch (error) {
+    console.error('Error getting daily visits from Firestore:', error)
+    return []
+  }
+}
 // --- end visitas ---
 
 // Función para verificar si un usuario es administrador de alguna tienda
@@ -3573,68 +3629,101 @@ export function calculateHaversineDistance(
 }
 
 // Función para obtener los detalles de entrega (tarifa y distancia) basada en la ubicación
-export async function getDeliveryDetailsForLocation(location: { lat: number; lng: number }, businessId?: string): Promise<{ fee: number; distance?: number }> {
+export async function getDeliveryDetailsForLocation(
+  location: { lat: number; lng: number },
+  businessId?: string
+): Promise<{ fee: number; distance?: number; zoneId?: string; zoneName?: string; isOutOfCoverage?: boolean }> {
   try {
+    const business = businessId ? await getBusiness(businessId) : null;
     const zones = await getCoverageZones(businessId);
 
-    // Buscar en zonas específicas del negocio primero, luego en zonas globales
+    // 1. Buscar coincidencia en zonas específicas del negocio primero
+    let matchingZone: CoverageZone | null = null;
     for (const zone of zones) {
       if (zone.isActive && isPointInPolygon(location, zone.polygon)) {
-        // Lógica de cálculo por distancia
-        if (zone.feeMode === 'distance' && zone.distanceSettings && businessId) {
-          const business = await getBusiness(businessId);
-          if (business?.pickupSettings?.latlong) {
-            const [bLat, bLng] = business.pickupSettings.latlong.split(',').map(Number);
-            if (!isNaN(bLat) && !isNaN(bLng)) {
-              const distance = calculateHaversineDistance({ lat: bLat, lng: bLng }, location);
-              const { baseFee, baseDistance, extraKmFee } = zone.distanceSettings;
-
-              let fee = baseFee;
-              if (distance > baseDistance) {
-                const extraDistance = Math.ceil(distance - baseDistance);
-                fee = baseFee + (extraDistance * extraKmFee);
-              }
-              return { fee, distance };
-            }
-          }
-        }
-
-        // Si no es modo distancia o falló la ubicación del negocio, usar tarifa plana
-        return { fee: zone.deliveryFee };
+        matchingZone = zone;
+        break;
       }
     }
 
-    // Si no se encuentra en ninguna zona específica, buscar en zonas globales
-    if (businessId) {
+    // 2. Si no se encontró en zonas del negocio, buscar en zonas globales
+    if (!matchingZone && businessId) {
       const globalZones = await getCoverageZones();
       for (const zone of globalZones) {
         if (!zone.businessId && zone.isActive && isPointInPolygon(location, zone.polygon)) {
-          if (zone.feeMode === 'distance' && zone.distanceSettings) {
-            const business = await getBusiness(businessId);
-            if (business?.pickupSettings?.latlong) {
-              const [bLat, bLng] = business.pickupSettings.latlong.split(',').map(Number);
-              if (!isNaN(bLat) && !isNaN(bLng)) {
-                const distance = calculateHaversineDistance({ lat: bLat, lng: bLng }, location);
-                const { baseFee, baseDistance, extraKmFee } = zone.distanceSettings;
-
-                let fee = baseFee;
-                if (distance > baseDistance) {
-                  const extraDistance = Math.ceil(distance - baseDistance);
-                  fee = baseFee + (extraDistance * extraKmFee);
-                }
-                return { fee, distance };
-              }
-            }
-          }
-          return { fee: zone.deliveryFee };
+          matchingZone = zone;
+          break;
         }
       }
     }
 
-    return { fee: 0 };
+    // Si no está en ninguna zona de cobertura
+    if (!matchingZone) {
+      return { fee: 0, isOutOfCoverage: true };
+    }
+
+    // 3. Verificar si el negocio tiene configuración de tarifas/cobertura personalizada para esta zona
+    const isCustomFeesActive = business?.deliveryZoneSettings?.useCustomFees ?? (business?.deliveryServiceType === 'self');
+    if (business && isCustomFeesActive) {
+      const zoneConfig = business.deliveryZoneSettings?.zones?.[matchingZone.id];
+      if (zoneConfig) {
+        // Si la tienda deshabilitó expresamente los envíos a esta zona
+        if (zoneConfig.enabled === false) {
+          return { fee: 0, isOutOfCoverage: true, zoneId: matchingZone.id, zoneName: matchingZone.name };
+        }
+
+        // Si la tienda fijó una tarifa personalizada para esta zona
+        if (typeof zoneConfig.customFee === 'number' && !isNaN(zoneConfig.customFee)) {
+          let distance: number | undefined = undefined;
+          if (business.pickupSettings?.latlong) {
+            const [bLat, bLng] = business.pickupSettings.latlong.split(',').map(Number);
+            if (!isNaN(bLat) && !isNaN(bLng)) {
+              distance = calculateHaversineDistance({ lat: bLat, lng: bLng }, location);
+            }
+          }
+          return {
+            fee: Math.max(0, zoneConfig.customFee),
+            distance,
+            zoneId: matchingZone.id,
+            zoneName: matchingZone.name,
+            isOutOfCoverage: false
+          };
+        }
+      }
+    }
+
+    // 4. Si no tiene tarifa personalizada, usar cálculo estándar de la zona (distancia o tarifa plana)
+    if (matchingZone.feeMode === 'distance' && matchingZone.distanceSettings && business?.pickupSettings?.latlong) {
+      const [bLat, bLng] = business.pickupSettings.latlong.split(',').map(Number);
+      if (!isNaN(bLat) && !isNaN(bLng)) {
+        const distance = calculateHaversineDistance({ lat: bLat, lng: bLng }, location);
+        const { baseFee, baseDistance, extraKmFee } = matchingZone.distanceSettings;
+
+        let fee = baseFee;
+        if (distance > baseDistance) {
+          const extraDistance = Math.ceil(distance - baseDistance);
+          fee = baseFee + (extraDistance * extraKmFee);
+        }
+        return {
+          fee,
+          distance,
+          zoneId: matchingZone.id,
+          zoneName: matchingZone.name,
+          isOutOfCoverage: false
+        };
+      }
+    }
+
+    // Tarifa plana estándar de la zona
+    return {
+      fee: matchingZone.deliveryFee || 0,
+      zoneId: matchingZone.id,
+      zoneName: matchingZone.name,
+      isOutOfCoverage: false
+    };
   } catch (error) {
     console.error('Error getting delivery details for location:', error);
-    return { fee: 0 };
+    return { fee: 0, isOutOfCoverage: true };
   }
 }
 

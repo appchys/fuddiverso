@@ -103,11 +103,25 @@ export interface Business {
   sharedProductIds?: string[] // IDs de productos de otras tiendas compartidos
   hasPackagingFee?: boolean // Si la tienda cobra recargo por empaque / llevar
   packagingFee?: number // Monto del recargo por empaque por producto (ej: 0.50)
+  deliveryZoneSettings?: BusinessDeliveryZoneSettings // Configuración personalizada de tarifas por zona
   // Soporte de Sucursales
   parentBusinessId?: string // ID de la tienda matriz si esta tienda es una sucursal
   isBranch?: boolean // Si esta tienda es una sucursal
   branchName?: string // Nombre descriptivo de la sucursal (ej: "Sucursal Kennedy", "Centro", etc.)
   branches?: string[] // IDs de sucursales vinculadas a esta tienda matriz
+}
+
+export interface BusinessZoneFeeConfig {
+  zoneId: string
+  enabled: boolean          // Si la tienda entrega en esta zona
+  customFee?: number        // Tarifa personalizada en dólares (si no se define, hereda la tarifa global de la zona)
+  defaultDeliveryId?: string // ID del repartidor predeterminado específico para esta zona (si no se define, se asume el predeterminado general)
+  estimatedMinutes?: number // Tiempo estimado específico para esta zona (opcional)
+}
+
+export interface BusinessDeliveryZoneSettings {
+  useCustomFees: boolean    // Si está activo, prioriza las tarifas de la tienda sobre las globales
+  zones: Record<string, BusinessZoneFeeConfig> // Configuración indexada por zoneId
 }
 
 export interface FreeDeliveryCampaign {

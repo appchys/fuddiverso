@@ -8,6 +8,7 @@ import PrintSettings from './PrintSettings'
 interface ConfiguracionViewProps {
     business: Business
     onBusinessFieldChange: (field: keyof Business, value: any) => void
+    onDirectUpdate?: (field: keyof Business, value: any) => Promise<void>
     printMode?: 'standard' | 'bluetooth'
     onTogglePrintMode?: () => void
     initialConfigSubTab?: 'notifications' | 'print'
@@ -16,6 +17,7 @@ interface ConfiguracionViewProps {
 export default function ConfiguracionView({
     business,
     onBusinessFieldChange,
+    onDirectUpdate,
     printMode = 'standard',
     onTogglePrintMode,
     initialConfigSubTab = 'notifications'
@@ -33,7 +35,7 @@ export default function ConfiguracionView({
                     <div>
                         <h3 className="text-xl font-black text-gray-900 tracking-tight">Configuración</h3>
                         <p className="text-xs font-medium text-gray-500">
-                            Administra las notificaciones del negocio (WhatsApp, Email, Telegram) y las preferencias de impresión.
+                            Administra las notificaciones del negocio y las preferencias de impresión de comandas.
                         </p>
                     </div>
                 </div>
@@ -60,7 +62,7 @@ export default function ConfiguracionView({
                         }`}
                     >
                         <i className="bi bi-printer-fill text-rose-500"></i>
-                        Configuración de Impresión
+                        Impresión
                     </button>
                 </div>
             </div>
@@ -88,3 +90,4 @@ export default function ConfiguracionView({
         </div>
     )
 }
+

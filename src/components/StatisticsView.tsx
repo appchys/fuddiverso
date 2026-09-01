@@ -2,7 +2,14 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { Order, Delivery } from '@/types';
-import { getOrdersByBusinessComplete, getExpensesByBusiness, ExpenseEntry, getDeliveriesByStatus } from '@/lib/database';
+import {
+    getOrdersByBusinessComplete,
+    getExpensesByBusiness,
+    ExpenseEntry,
+    getDeliveriesByStatus,
+    getDailyVisitsForBusiness,
+    DailyVisit
+} from '@/lib/database';
 import {
     BarChart,
     Bar,
@@ -10,7 +17,8 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    ResponsiveContainer
+    ResponsiveContainer,
+    Cell
 } from 'recharts';
 
 interface StatisticsViewProps {
@@ -146,6 +154,7 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
 
     const [fetchedOrders, setFetchedOrders] = useState<Order[]>([]);
     const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+    const [dailyVisits, setDailyVisits] = useState<DailyVisit[]>([]);
     const [deliveriesList, setDeliveriesList] = useState<Delivery[]>([]);
     const [loadingData, setLoadingData] = useState<boolean>(false);
 
@@ -177,7 +186,7 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
         };
     }, []);
 
-    // Cargar historial de órdenes y egresos completo de Firebase cuando existe businessId
+    // Cargar historial de órdenes, egresos y visitas de Firebase cuando existe businessId
     useEffect(() => {
         if (!businessId) return;
         let isCurrent = true;
@@ -185,16 +194,18 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
         const fetchData = async () => {
             setLoadingData(true);
             try {
-                const [history, expensesData] = await Promise.all([
+                const [history, expensesData, visitsData] = await Promise.all([
                     getOrdersByBusinessComplete(businessId),
-                    getExpensesByBusiness(businessId)
+                    getExpensesByBusiness(businessId),
+                    getDailyVisitsForBusiness(businessId, 120)
                 ]);
                 if (isCurrent) {
                     setFetchedOrders(history || []);
                     setExpenses(expensesData || []);
+                    setDailyVisits(visitsData || []);
                 }
             } catch (error) {
-                console.error('Error cargando historial u egresos en Estadísticas:', error);
+                console.error('Error cargando historial, egresos o visitas en Estadísticas:', error);
             } finally {
                 if (isCurrent) {
                     setLoadingData(false);
@@ -305,7 +316,7 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                 case '30days': {
                     const d30 = new Date(now);
                     d30.setDate(d30.getDate() - 29);
-                    const d30Str = `${d30.getFullYear()}-${String(d30.getMonth() + 1).padStart(2, '0')}-${String(d30.getMonth()).padStart(2, '0')}`;
+                    const d30Str = `${d30.getFullYear()}-${String(d30.getMonth() + 1).padStart(2, '0')}-${String(d30.getDate()).padStart(2, '0')}`;
                     return expDateStr >= d30Str && expDateStr <= todayStr;
                 }
 
@@ -319,6 +330,53 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
             }
         });
     }, [expenses, dateFilter, startDate, endDate]);
+
+    const filteredVisits = useMemo(() => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
+
+        return (dailyVisits || []).filter(visit => {
+            if (!visit || !visit.date) return false;
+            const vDateStr = String(visit.date).substring(0, 10);
+
+            switch (dateFilter) {
+                case 'today':
+                    return vDateStr === todayStr;
+
+                case 'yesterday': {
+                    const y = new Date(now);
+                    y.setDate(y.getDate() - 1);
+                    const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+                    return vDateStr === yStr;
+                }
+
+                case '7days': {
+                    const d7 = new Date(now);
+                    d7.setDate(d7.getDate() - 6);
+                    const d7Str = `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`;
+                    return vDateStr >= d7Str && vDateStr <= todayStr;
+                }
+
+                case '30days': {
+                    const d30 = new Date(now);
+                    d30.setDate(d30.getDate() - 29);
+                    const d30Str = `${d30.getFullYear()}-${String(d30.getMonth() + 1).padStart(2, '0')}-${String(d30.getDate()).padStart(2, '0')}`;
+                    return vDateStr >= d30Str && vDateStr <= todayStr;
+                }
+
+                case 'custom': {
+                    if (!startDate || !endDate) return true;
+                    return vDateStr >= startDate && vDateStr <= endDate;
+                }
+
+                default:
+                    return true;
+            }
+        });
+    }, [dailyVisits, dateFilter, startDate, endDate]);
 
     const stats = useMemo(() => {
         // 1. Montos de venta
@@ -519,6 +577,151 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
             }
         });
 
+        // 10. Métricas y Gráfico de Visitas Diarias
+        const totalVisitsCount = filteredVisits.reduce((sum, v) => sum + (Number.isFinite(v.count) ? v.count : 0), 0);
+
+        let periodDaysCount = 1;
+        if (dateFilter === 'today' || dateFilter === 'yesterday') {
+            periodDaysCount = 1;
+        } else if (dateFilter === '7days') {
+            periodDaysCount = 7;
+        } else if (dateFilter === '30days') {
+            periodDaysCount = 30;
+        } else if (dateFilter === 'custom' && startDate && endDate) {
+            const startParts = startDate.split('-').map(Number);
+            const endParts = endDate.split('-').map(Number);
+            const s = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+            const e = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+            const diffDays = Math.ceil(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            periodDaysCount = Math.max(1, diffDays || 1);
+        } else {
+            periodDaysCount = Math.max(1, filteredVisits.length || 1);
+        }
+
+        const averageDailyVisits = Number((totalVisitsCount / periodDaysCount).toFixed(1));
+        const conversionRate = totalVisitsCount > 0
+            ? ((totalOrdersCount / totalVisitsCount) * 100).toFixed(1)
+            : '0.0';
+
+        // Construir datos del gráfico de visitas diarias continuo
+        const visitsMap = new Map<string, number>();
+        (dailyVisits || []).forEach(v => {
+            if (v?.date) {
+                visitsMap.set(String(v.date).substring(0, 10), v.count || 0);
+            }
+        });
+
+        let visitsChartData: Array<{
+            date: string;
+            fullDate: string;
+            visits: number;
+            highlight?: boolean;
+        }> = [];
+
+        const now = new Date();
+
+        if (dateFilter === 'today' || dateFilter === 'yesterday') {
+            // Mostrar los últimos 7 días como contexto de tendencia, destacando el día seleccionado
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(d.getDate() - i);
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const dayNum = String(d.getDate()).padStart(2, '0');
+                const dateKey = `${y}-${m}-${dayNum}`;
+                const label = `${dayNum}/${m}`;
+                const count = visitsMap.get(dateKey) || 0;
+
+                const isTargetDay = dateFilter === 'today' ? i === 0 : i === 1;
+
+                visitsChartData.push({
+                    date: label,
+                    fullDate: dateKey,
+                    visits: count,
+                    highlight: isTargetDay
+                });
+            }
+        } else if (dateFilter === '7days') {
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(d.getDate() - i);
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const dayNum = String(d.getDate()).padStart(2, '0');
+                const dateKey = `${y}-${m}-${dayNum}`;
+                const label = `${dayNum}/${m}`;
+                const count = visitsMap.get(dateKey) || 0;
+
+                visitsChartData.push({
+                    date: label,
+                    fullDate: dateKey,
+                    visits: count
+                });
+            }
+        } else if (dateFilter === '30days') {
+            for (let i = 29; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(d.getDate() - i);
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const dayNum = String(d.getDate()).padStart(2, '0');
+                const dateKey = `${y}-${m}-${dayNum}`;
+                const label = `${dayNum}/${m}`;
+                const count = visitsMap.get(dateKey) || 0;
+
+                visitsChartData.push({
+                    date: label,
+                    fullDate: dateKey,
+                    visits: count
+                });
+            }
+        } else if (dateFilter === 'custom' && startDate && endDate) {
+            const startParts = startDate.split('-').map(Number);
+            const endParts = endDate.split('-').map(Number);
+            const s = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+            const e = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+            const diffDays = Math.ceil(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+            if (diffDays <= 60) {
+                for (let i = 0; i < diffDays; i++) {
+                    const d = new Date(s);
+                    d.setDate(d.getDate() + i);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const dayNum = String(d.getDate()).padStart(2, '0');
+                    const dateKey = `${y}-${m}-${dayNum}`;
+                    const label = `${dayNum}/${m}`;
+                    const count = visitsMap.get(dateKey) || 0;
+
+                    visitsChartData.push({
+                        date: label,
+                        fullDate: dateKey,
+                        visits: count
+                    });
+                }
+            } else {
+                visitsChartData = filteredVisits.map(v => {
+                    const parts = v.date.split('-');
+                    const label = parts.length === 3 ? `${parts[2]}/${parts[1]}` : v.date;
+                    return {
+                        date: label,
+                        fullDate: v.date,
+                        visits: v.count || 0
+                    };
+                });
+            }
+        } else {
+            visitsChartData = filteredVisits.map(v => {
+                const parts = v.date.split('-');
+                const label = parts.length === 3 ? `${parts[2]}/${parts[1]}` : v.date;
+                return {
+                    date: label,
+                    fullDate: v.date,
+                    visits: v.count || 0
+                };
+            });
+        }
+
         // Top 5 productos
         const topProducts = Object.values(productSales)
             .sort((a, b) => b.quantity - a.quantity)
@@ -552,11 +755,15 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
             expensesByConceptList,
             deliveryStatsList,
             totalDeliveryOrdersCount,
+            totalVisitsCount,
+            averageDailyVisits,
+            conversionRate,
+            visitsChartData,
             chartData,
             ordersByHour,
             isSingleDay
         };
-    }, [filteredOrders, filteredExpenses, deliveriesList, dateFilter]);
+    }, [filteredOrders, filteredExpenses, filteredVisits, dailyVisits, deliveriesList, dateFilter, startDate, endDate]);
 
     return (
         <div className="space-y-6 animate-fade-in pb-8">
@@ -778,6 +985,72 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                         </div>
                         <div className="text-xs text-gray-500 font-medium mt-2">
                             Promedio gastado por cada pedido
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Tarjeta Unificada: Tráfico y Visitas a la Tienda */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                            <span className="material-symbols-rounded text-2xl">visibility</span>
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-gray-900 tracking-tight leading-none">Tráfico y Visitas</h3>
+                            <p className="text-xs font-medium text-gray-500 mt-1">Interacción de clientes con tu catálogo y tienda online</p>
+                        </div>
+                    </div>
+                    <span className="text-xs font-bold text-gray-400">
+                        {stats.totalVisitsCount} {stats.totalVisitsCount === 1 ? 'visita' : 'visitas'}
+                    </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+                    {/* Total Visitas */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:pr-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                                {dateFilter === 'today' ? 'Visitas Hoy' : dateFilter === 'yesterday' ? 'Visitas Ayer' : 'Total Visitas'}
+                            </span>
+                        </div>
+                        <div className="text-3xl font-black text-indigo-600 tracking-tight leading-tight flex items-baseline gap-2">
+                            {stats.totalVisitsCount}
+                            <span className="text-xs font-bold text-gray-400">vistas</span>
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2">
+                            {dateFilter === 'today' ? 'Clientes que vieron tu tienda hoy' : 'Total de visitas en el periodo'}
+                        </div>
+                    </div>
+
+                    {/* Promedio Diario */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:px-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Promedio Diario</span>
+                        </div>
+                        <div className="text-3xl font-black text-sky-600 tracking-tight leading-tight flex items-baseline gap-2">
+                            {stats.averageDailyVisits}
+                            <span className="text-xs font-bold text-gray-400">visitas / día</span>
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2">
+                            Flujo diario promedio de navegación
+                        </div>
+                    </div>
+
+                    {/* Conversión Pedidos / Visitas */}
+                    <div className="flex flex-col justify-between pt-4 md:pt-0 md:pl-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Conversión a Pedidos</span>
+                        </div>
+                        <div className="text-3xl font-black text-emerald-600 tracking-tight leading-tight flex items-baseline gap-2">
+                            {stats.conversionRate}%
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium mt-2">
+                            {stats.totalOrdersCount} pedidos de {stats.totalVisitsCount} visitas
                         </div>
                     </div>
                 </div>
@@ -1047,6 +1320,76 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                     ) : (
                         <div className="h-full flex items-center justify-center text-gray-400 font-medium text-sm">
                             No hay suficientes datos de ventas para mostrar el gráfico
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Gráfico de Visitas Diarias */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                        <h3 className="text-xl font-black text-gray-900 tracking-tight leading-tight flex items-center gap-2">
+                            <span className="material-symbols-rounded text-indigo-600">bar_chart</span>
+                            Visitas Diarias a la Tienda
+                        </h3>
+                        <p className="text-xs font-medium text-gray-500 leading-relaxed mt-0.5">
+                            {stats.isSingleDay
+                                ? `Historial reciente de visitas (destacado: ${dateFilter === 'today' ? 'Hoy' : 'Ayer'} con ${stats.totalVisitsCount} visitas)`
+                                : 'Tendencia y flujo de clientes que visitan tu tienda por fecha'}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <span className="px-3 py-1 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-full border border-indigo-200 flex items-center gap-1.5">
+                            <i className="bi bi-people text-xs"></i>
+                            {stats.totalVisitsCount} {stats.totalVisitsCount === 1 ? 'visita' : 'visitas'} {stats.isSingleDay ? (dateFilter === 'today' ? 'hoy' : 'ayer') : 'en periodo'}
+                        </span>
+                    </div>
+                </div>
+                <div className="h-[300px] w-full">
+                    {isMounted && stats.visitsChartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={300}>
+                            <BarChart data={stats.visitsChartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 12, fill: '#4B5563', fontWeight: 500 }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 12, fill: '#4B5563', fontWeight: 500 }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    allowDecimals={false}
+                                />
+                                <Tooltip
+                                    cursor={{ fill: '#F3F4F6' }}
+                                    contentStyle={{ borderRadius: '12px', border: '1px solid #E5E7EB', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                                    formatter={(value?: number) => [`${value || 0} visitas`, 'Visitas']}
+                                    labelFormatter={(label, payload) => {
+                                        const fullDate = payload?.[0]?.payload?.fullDate;
+                                        return fullDate ? `Fecha: ${fullDate}` : `Día: ${label}`;
+                                    }}
+                                />
+                                <Bar
+                                    dataKey="visits"
+                                    name="Visitas"
+                                    radius={[6, 6, 0, 0]}
+                                    maxBarSize={45}
+                                >
+                                    {stats.visitsChartData.map((entry, index) => (
+                                        <Cell
+                                            key={`cell-visit-${index}`}
+                                            fill={entry.highlight ? '#4338CA' : '#6366F1'}
+                                        />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="h-full flex items-center justify-center text-gray-400 font-medium text-sm">
+                            No hay datos de visitas registrados para mostrar
                         </div>
                     )}
                 </div>

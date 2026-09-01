@@ -487,6 +487,16 @@ export function CheckoutContent({
           return
         }
 
+        // Verificar si la tienda desactivó expresamente esta zona en sus tarifas personalizadas
+        if (matchingZone && business?.deliveryZoneSettings?.useCustomFees) {
+          const zoneConfig = business.deliveryZoneSettings.zones?.[matchingZone.id]
+          if (zoneConfig && zoneConfig.enabled === false) {
+            setIsLocationDeliveryAvailable(false)
+            setLocationDeliveryUnavailableReason('out_of_coverage')
+            return
+          }
+        }
+
         const isOutsideCoverage = !matchingZone || selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0
         if (isOutsideCoverage) {
           setIsLocationDeliveryAvailable(false)
@@ -514,7 +524,14 @@ export function CheckoutContent({
     }
 
     void checkLocationDelivery()
-  }, [selectedLocation?.latlong, selectedLocation?.tarifa, deliveryData.type, business?.id, business?.deliveryServiceType])
+  }, [
+    selectedLocation?.latlong,
+    selectedLocation?.tarifa,
+    deliveryData.type,
+    business?.id,
+    business?.deliveryServiceType,
+    business?.deliveryZoneSettings
+  ])
 
   // Deshabilitar/resetear transferencia si el delivery no está disponible para la ubicación seleccionada
   useEffect(() => {

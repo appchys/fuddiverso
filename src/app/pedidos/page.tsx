@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { Business, Order, Delivery, Product } from '@/types'
+import { Business, Order, Delivery, Product, CoverageZone } from '@/types'
 import { db } from '@/lib/firebase'
 import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'
 import {
@@ -147,42 +147,57 @@ const getConfiguredDeliveryTime = (business?: Business | null) => {
 }
 
 // Auto-assign logic
-const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: string): Promise<string | undefined> => {
+const autoAssignDeliveryForOrder = async (order: Order, businessOrDeliveryId?: Business | string): Promise<string | undefined> => {
     try {
         const deliveries = await getDeliveriesByStatus('activo');
         let assignedDeliveryId: string | undefined = undefined;
 
-        // 0. Default Delivery
-        if (defaultDeliveryId) {
-            const defaultDelivery = deliveries.find(d => d.id === defaultDeliveryId);
-            if (defaultDelivery) {
-                console.log('[AutoAssign] Using store default delivery:', defaultDeliveryId);
-                return defaultDelivery.id;
-            }
-        }
+        const businessObj = typeof businessOrDeliveryId === 'object' ? businessOrDeliveryId : undefined;
+        let defaultDeliveryId = typeof businessOrDeliveryId === 'string' ? businessOrDeliveryId : businessObj?.defaultDeliveryId;
 
-        // 1. Coverage Zone
-        const latlong = order.delivery.latlong;
+        // 1. Verificar si la ubicación del pedido cae en una zona con repartidor asignado por la tienda
+        const latlong = order.delivery?.latlong;
+        let matchingZone: CoverageZone | undefined = undefined;
+
         if (latlong && !latlong.startsWith('pluscode:')) {
             const [lat, lng] = latlong.split(',').map(Number);
             if (!isNaN(lat) && !isNaN(lng)) {
                 const zones = await getCoverageZones();
-                const matchingZone = zones.find(zone =>
+                matchingZone = zones.find(zone =>
                     zone.isActive &&
-                    zone.assignedDeliveryId &&
                     isPointInPolygon({ lat, lng }, zone.polygon)
                 );
 
-                if (matchingZone?.assignedDeliveryId) {
-                    const zoneDelivery = deliveries.find(d => d.id === matchingZone.assignedDeliveryId);
-                    if (zoneDelivery) {
-                        assignedDeliveryId = zoneDelivery.id;
+                // Si la tienda configuró un repartidor específico para esta zona:
+                if (matchingZone && businessObj?.deliveryZoneSettings?.zones?.[matchingZone.id]?.defaultDeliveryId) {
+                    const zoneSpecificDeliveryId = businessObj.deliveryZoneSettings.zones[matchingZone.id].defaultDeliveryId;
+                    const zoneDriver = deliveries.find(d => d.id === zoneSpecificDeliveryId);
+                    if (zoneDriver) {
+                        console.log(`[AutoAssign] Using zone-specific default delivery for ${matchingZone.name}:`, zoneSpecificDeliveryId);
+                        return zoneDriver.id;
                     }
                 }
             }
         }
 
-        // 2. Fallbacks
+        // 2. Si no hay repartidor por zona, usar el repartidor predeterminado general de la tienda
+        if (defaultDeliveryId) {
+            const defaultDelivery = deliveries.find(d => d.id === defaultDeliveryId);
+            if (defaultDelivery) {
+                console.log('[AutoAssign] Using store general default delivery:', defaultDeliveryId);
+                return defaultDelivery.id;
+            }
+        }
+
+        // 3. Repartidor asignado a nivel global en la zona
+        if (matchingZone?.assignedDeliveryId) {
+            const zoneDelivery = deliveries.find(d => d.id === matchingZone.assignedDeliveryId);
+            if (zoneDelivery) {
+                assignedDeliveryId = zoneDelivery.id;
+            }
+        }
+
+        // 4. Fallbacks
         if (!assignedDeliveryId) {
             const pedroDelivery = deliveries.find(d => d.celular === '0990815097');
             if (pedroDelivery) {

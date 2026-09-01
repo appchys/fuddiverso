@@ -305,8 +305,14 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
       await updateBusiness(businessId, {
         deliveryServiceType: edited.deliveryServiceType,
         defaultDeliveryId: edited.defaultDeliveryId,
+        deliveryZoneSettings: edited.deliveryZoneSettings,
       })
-      setBusiness(prev => prev ? { ...prev, deliveryServiceType: edited.deliveryServiceType, defaultDeliveryId: edited.defaultDeliveryId } : null)
+      setBusiness(prev => prev ? { 
+        ...prev, 
+        deliveryServiceType: edited.deliveryServiceType, 
+        defaultDeliveryId: edited.defaultDeliveryId,
+        deliveryZoneSettings: edited.deliveryZoneSettings 
+      } : null)
       setDeliverySaved(true)
       setTimeout(() => setDeliverySaved(false), 2500)
     } catch { alert('Error al guardar configuración de delivery') }
@@ -1140,6 +1146,36 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
                   ? 'En modo Autogestión, los pedidos se asignarán al repartidor predeterminado configurado abajo. Si no hay uno definido, la tienda deberá asignar manualmente cada pedido.'
                   : 'En modo Fuddi, el sistema buscará automáticamente un repartidor disponible según la zona del cliente y la configuración de zonas de cobertura.'}
               </p>
+            </div>
+          </div>
+
+          {/* Control de Tarifas de Envío por Zona (Administrador) */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider mb-1">Tarifas de Envío de la Tienda</h3>
+                <p className="text-xs text-gray-500">
+                  Permite que esta tienda defina sus propios precios de delivery por zona geográfica en su panel. Si está desactivado, el checkout cobrará las tarifas estándar de Fuddi.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                <input
+                  type="checkbox"
+                  checked={edited.deliveryZoneSettings?.useCustomFees ?? (edited.deliveryServiceType === 'self')}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setEdited(prev => prev ? {
+                      ...prev,
+                      deliveryZoneSettings: {
+                        useCustomFees: checked,
+                        zones: prev.deliveryZoneSettings?.zones || {}
+                      }
+                    } : null)
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
             </div>
           </div>
 

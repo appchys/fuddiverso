@@ -1007,10 +1007,11 @@ export default function BusinessProfileDashboard({
       {(activeTab === 'configuracion' || activeTab === 'notifications') && (
         <ConfiguracionView
           business={business}
-          onBusinessFieldChange={onDirectUpdate || onBusinessFieldChange}
+          onBusinessFieldChange={onBusinessFieldChange}
+          onDirectUpdate={onDirectUpdate}
           printMode={printMode}
           onTogglePrintMode={onTogglePrintMode}
-          initialConfigSubTab={activeTab === 'notifications' ? 'notifications' : 'notifications'}
+          initialConfigSubTab="notifications"
         />
       )}
     </div>
