@@ -243,12 +243,20 @@ export default function ManualOrderSidebar({
   // Estados para modal de ubicaciones
   const [showLocationModal, setShowLocationModal] = useState(false)
   const [showNewLocationForm, setShowNewLocationForm] = useState(false)
-  const [newLocationData, setNewLocationData] = useState({
+  const [newLocationData, setNewLocationData] = useState<{
+    referencia: string
+    tarifa: string
+    latlong: string
+    photo: string
+    sector: string
+    isInactiveZone?: boolean
+  }>({
     referencia: '',
     tarifa: '1.25',
     latlong: '',
     photo: '',
-    sector: ''
+    sector: '',
+    isInactiveZone: false
   })
   const [showMapSelection, setShowMapSelection] = useState(false)
   const [isRequestingLocation, setIsRequestingLocation] = useState(false)
@@ -425,22 +433,25 @@ export default function ManualOrderSidebar({
   // Helper para calcular tarifa usando la función compartida en lib/database
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
-      if (!effectiveBusinessId) return { fee: 0, zoneName: 'Sin cobertura' }
-      const [details, zone] = await Promise.all([
-        getDeliveryDetailsForLocation({ lat, lng }, effectiveBusinessId),
-        getCoverageZoneForLocation({ lat, lng })
-      ]);
+      if (!effectiveBusinessId) return { fee: 0, zoneName: 'Sin cobertura', isOutOfCoverage: true, isInactiveZone: false }
+      const details = await getDeliveryDetailsForLocation({ lat, lng }, effectiveBusinessId);
+      const { fee, distance, zoneName, isOutOfCoverage, isInactiveZone } = details;
       
-      const { fee, distance } = details;
       if (distance !== undefined) {
         setCalculatedDistance(distance);
       } else {
         setCalculatedDistance(null);
       }
-      return { fee, zoneName: zone?.name || 'Fuera de cobertura' }
+      return {
+        fee: typeof fee === 'number' ? fee : 0,
+        zoneName: zoneName || (isOutOfCoverage ? 'Fuera de cobertura' : 'Zona de cobertura'),
+        isOutOfCoverage: !!isOutOfCoverage,
+        isInactiveZone: !!isInactiveZone,
+        distance
+      }
     } catch (error) {
       console.error('Error calculating delivery fee:', error)
-      return { fee: 0, zoneName: 'Error' }
+      return { fee: 5, zoneName: 'Error', isOutOfCoverage: true, isInactiveZone: false }
     }
   }
 
@@ -1521,9 +1532,10 @@ export default function ManualOrderSidebar({
                 : resolvedLatLong.split(',').map(p => parseFloat(p.trim()))
               
               if (!isNaN(lat) && !isNaN(lng)) {
-                const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
-                tarifa = (fee === 0 ? 5 : fee).toString()
+                const { fee, zoneName, isInactiveZone } = await calculateDeliveryFee({ lat, lng })
+                tarifa = (typeof fee === 'number' ? fee : 0).toString()
                 sector = zoneName
+                setNewLocationData(prev => ({ ...prev, isInactiveZone: !!isInactiveZone }))
               }
             }
           }
@@ -1599,15 +1611,15 @@ export default function ManualOrderSidebar({
           const [lat, lng] = resolvedLatLong.startsWith('pluscode:') ? [NaN, NaN] : resolvedLatLong.split(',').map(p => parseFloat(p.trim()));
           
           if (!isNaN(lat) && !isNaN(lng)) {
-            const { fee, zoneName } = await calculateDeliveryFee({ lat, lng });
-            const normalizedFee = fee === 0 ? 5 : fee;
+            const { fee, zoneName, isInactiveZone } = await calculateDeliveryFee({ lat, lng });
             setNewLocationData(prev => ({
               ...prev,
-              tarifa: normalizedFee.toString(),
-              sector: zoneName
+              tarifa: (typeof fee === 'number' ? fee : 0).toString(),
+              sector: zoneName,
+              isInactiveZone: !!isInactiveZone
             }));
           } else if (resolvedLatLong.startsWith('pluscode:')) {
-             setNewLocationData(prev => ({ ...prev, sector: 'Plus Code (Revisar en Maps)' }));
+             setNewLocationData(prev => ({ ...prev, sector: 'Plus Code (Revisar en Maps)', isInactiveZone: false }));
           }
         }
       }
@@ -1620,13 +1632,13 @@ export default function ManualOrderSidebar({
     
     // Si tenemos un negocio, calcular la tarifa automáticamente
     if (effectiveBusinessId) {
-      const { fee, zoneName } = await calculateDeliveryFee({ lat, lng });
-      const normalizedFee = fee === 0 ? 5 : fee;
+      const { fee, zoneName, isInactiveZone } = await calculateDeliveryFee({ lat, lng });
       setNewLocationData(prev => ({
         ...prev,
         latlong: latlongValue,
-        tarifa: normalizedFee.toString(),
-        sector: zoneName
+        tarifa: (typeof fee === 'number' ? fee : 0).toString(),
+        sector: zoneName,
+        isInactiveZone: !!isInactiveZone
       }));
     } else {
       setNewLocationData(prev => ({ 
@@ -1713,10 +1725,10 @@ export default function ManualOrderSidebar({
       const [lat, lng] = latlongValue.split(',').map(coord => parseFloat(coord.trim()));
       if (!isNaN(lat) && !isNaN(lng)) {
         calculateDeliveryFee({ lat, lng }).then(({ fee, zoneName }) => {
-          const normalizedFee = fee === 0 ? 5 : fee;
+          const feeStr = (typeof fee === 'number' ? fee : 0).toString();
           setManualOrderData(prev => {
             const updatedLocs = prev.customerLocations.map(loc => 
-              loc.id === tempLocId ? { ...loc, tarifa: normalizedFee.toString(), sector: zoneName } : loc
+              loc.id === tempLocId ? { ...loc, tarifa: feeStr, sector: zoneName } : loc
             );
             const isSelected = prev.selectedLocation?.id === tempLocId;
             return {
@@ -1725,7 +1737,7 @@ export default function ManualOrderSidebar({
               ...(isSelected && {
                 selectedLocation: {
                   ...prev.selectedLocation!,
-                  tarifa: normalizedFee.toString(),
+                  tarifa: feeStr,
                   sector: zoneName
                 }
               })
@@ -1842,20 +1854,35 @@ export default function ManualOrderSidebar({
   };
 
   // Editar ubicación - abrir formulario con datos
-  const handleEditLocation = (location: ClientLocation) => {
+  const handleEditLocation = async (location: ClientLocation) => {
     setEditingLocationId(location.id)
     setNewLocationData({
       referencia: location.referencia || '',
       tarifa: location.tarifa || '1',
       latlong: location.latlong || '',
       photo: location.photo || '',
-      sector: location.sector || ''
+      sector: location.sector || '',
+      isInactiveZone: false
     })
     // Si hay una foto existente, mostrarla en el preview
     if (location.photo) {
       setLocationImagePreview(location.photo)
     }
     setShowNewLocationForm(true)
+
+    if (location.latlong && effectiveBusinessId && !location.latlong.startsWith('pluscode:')) {
+      const [lat, lng] = location.latlong.split(',').map(p => parseFloat(p.trim()))
+      if (!isNaN(lat) && !isNaN(lng)) {
+        try {
+          const { isInactiveZone, zoneName } = await calculateDeliveryFee({ lat, lng })
+          setNewLocationData(prev => ({
+            ...prev,
+            sector: zoneName || prev.sector,
+            isInactiveZone: !!isInactiveZone
+          }))
+        } catch (e) {}
+      }
+    }
   }
 
   // Guardar cambios de edición
@@ -1995,9 +2022,9 @@ export default function ManualOrderSidebar({
           if (updatedLocation.latlong) {
             const [lat, lng] = updatedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
             if (!isNaN(lat) && !isNaN(lng)) {
-              const { fee } = await calculateDeliveryFee({ lat, lng })
-              const normalizedFee = fee === 0 ? 5 : fee
-              const locationWithFee = { ...updatedLocation, tarifa: normalizedFee.toString() }
+              const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+              const feeStr = (typeof fee === 'number' ? fee : 0).toString()
+              const locationWithFee = { ...updatedLocation, tarifa: feeStr, sector: zoneName || updatedLocation.sector }
               setManualOrderData(prev => {
                 if (prev.selectedLocation?.id === locIdToUpdate) {
                   return { ...prev, selectedLocation: locationWithFee };
@@ -4501,11 +4528,9 @@ export default function ManualOrderSidebar({
                                 const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
                                 if (!isNaN(lat) && !isNaN(lng)) {
                                   const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+                                  const feeStr = (typeof fee === 'number' ? fee : 0).toString()
                                   
-                                  // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 5.00
-                                  const normalizedFee = fee === 0 ? 5 : fee
-                                  
-                                  const updatedLocation = { ...location, tarifa: normalizedFee.toString(), sector: zoneName }
+                                  const updatedLocation = { ...location, tarifa: feeStr, sector: zoneName || location.sector }
                                   setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
                                   setShowLocationModal(false);
                                   calculateTotal(manualOrderData.selectedProducts);
@@ -4786,9 +4811,18 @@ export default function ManualOrderSidebar({
                     <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-sm">
                       <div className="flex flex-col">
                         <span className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Zona</span>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${newLocationData.sector && newLocationData.sector !== 'Fuera de cobertura' ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`}></div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                            newLocationData.isInactiveZone
+                              ? 'bg-yellow-400 ring-2 ring-yellow-200'
+                              : (newLocationData.sector && newLocationData.sector !== 'Fuera de cobertura' ? 'bg-green-500 animate-pulse' : 'bg-red-500')
+                          }`}></div>
                           <span className="text-sm font-bold text-gray-900">{newLocationData.sector || 'Pendiente de ubicación'}</span>
+                          {newLocationData.isInactiveZone && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 rounded border border-amber-300 shadow-xs">
+                              Inactiva
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="text-right border-l border-gray-200 pl-4">

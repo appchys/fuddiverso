@@ -3533,12 +3533,23 @@ export async function deleteCoverageGroup(groupId: string): Promise<void> {
 }
 
 // Nueva función para encontrar zona por ubicación
-export async function getCoverageZoneForLocation(location: { lat: number; lng: number }): Promise<CoverageZone | null> {
+export async function getCoverageZoneForLocation(
+  location: { lat: number; lng: number },
+  businessId?: string
+): Promise<CoverageZone | null> {
   try {
-    const zones = await getCoverageZones();
+    const zones = await getCoverageZones(businessId);
     for (const zone of zones) {
       if (zone.isActive && isPointInPolygon(location, zone.polygon)) {
         return zone;
+      }
+    }
+    if (businessId) {
+      const globalZones = await getCoverageZones();
+      for (const zone of globalZones) {
+        if (!zone.businessId && zone.isActive && isPointInPolygon(location, zone.polygon)) {
+          return zone;
+        }
       }
     }
     return null;
@@ -3632,7 +3643,7 @@ export function calculateHaversineDistance(
 export async function getDeliveryDetailsForLocation(
   location: { lat: number; lng: number },
   businessId?: string
-): Promise<{ fee: number; distance?: number; zoneId?: string; zoneName?: string; isOutOfCoverage?: boolean }> {
+): Promise<{ fee: number; distance?: number; zoneId?: string; zoneName?: string; isOutOfCoverage?: boolean; isInactiveZone?: boolean }> {
   try {
     const business = businessId ? await getBusiness(businessId) : null;
     const zones = await getCoverageZones(businessId);
@@ -3657,9 +3668,9 @@ export async function getDeliveryDetailsForLocation(
       }
     }
 
-    // Si no está en ninguna zona de cobertura
+    // Si no está en ninguna zona de cobertura (Zona no definida)
     if (!matchingZone) {
-      return { fee: 0, isOutOfCoverage: true };
+      return { fee: 5, isOutOfCoverage: true, isInactiveZone: false, zoneName: 'Fuera de cobertura' };
     }
 
     // 3. Verificar si el negocio tiene configuración de tarifas/cobertura personalizada para esta zona
@@ -3667,9 +3678,12 @@ export async function getDeliveryDetailsForLocation(
     if (business && isCustomFeesActive) {
       const zoneConfig = business.deliveryZoneSettings?.zones?.[matchingZone.id];
       if (zoneConfig) {
-        // Si la tienda deshabilitó expresamente los envíos a esta zona
+        // Si la tienda deshabilitó expresamente los envíos a esta zona, conservar la tarifa de la zona y marcar como inactiva
         if (zoneConfig.enabled === false) {
-          return { fee: 0, isOutOfCoverage: true, zoneId: matchingZone.id, zoneName: matchingZone.name };
+          const inactiveFee = (typeof zoneConfig.customFee === 'number' && !isNaN(zoneConfig.customFee))
+            ? Math.max(0, zoneConfig.customFee)
+            : (matchingZone.deliveryFee || 0);
+          return { fee: inactiveFee, isOutOfCoverage: true, isInactiveZone: true, zoneId: matchingZone.id, zoneName: matchingZone.name };
         }
 
         // Si la tienda fijó una tarifa personalizada para esta zona
@@ -3686,7 +3700,8 @@ export async function getDeliveryDetailsForLocation(
             distance,
             zoneId: matchingZone.id,
             zoneName: matchingZone.name,
-            isOutOfCoverage: false
+            isOutOfCoverage: false,
+            isInactiveZone: false
           };
         }
       }
@@ -3709,7 +3724,8 @@ export async function getDeliveryDetailsForLocation(
           distance,
           zoneId: matchingZone.id,
           zoneName: matchingZone.name,
-          isOutOfCoverage: false
+          isOutOfCoverage: false,
+          isInactiveZone: false
         };
       }
     }
@@ -3719,11 +3735,12 @@ export async function getDeliveryDetailsForLocation(
       fee: matchingZone.deliveryFee || 0,
       zoneId: matchingZone.id,
       zoneName: matchingZone.name,
-      isOutOfCoverage: false
+      isOutOfCoverage: false,
+      isInactiveZone: false
     };
   } catch (error) {
     console.error('Error getting delivery details for location:', error);
-    return { fee: 0, isOutOfCoverage: true };
+    return { fee: 5, isOutOfCoverage: true, isInactiveZone: false, zoneName: 'Fuera de cobertura' };
   }
 }
 

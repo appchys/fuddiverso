@@ -9,6 +9,7 @@ interface NewLocationData {
     latlong: string
     referencia: string
     tarifa: string
+    sector?: string
 }
 
 interface LocationSelectionModalProps {
@@ -42,7 +43,7 @@ export default function LocationSelectionModal({
     const [isAddingNewLocation, setIsAddingNewLocation] = useState(initialAddingState)
     const [editingLocation, setEditingLocation] = useState<ClientLocation | null>(null)
     const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-    const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1.25' })
+    const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1.25', sector: '' })
     const [isRequestingLocation, setIsRequestingLocation] = useState(false)
     const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
     const [gpsAttempts, setGpsAttempts] = useState(0)
@@ -58,7 +59,7 @@ export default function LocationSelectionModal({
         setIsManualMode(false)
         setGpsAttempts(0)
         setLocationPermissionError(null)
-        setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25' })
+        setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25', sector: '' })
         setLocationImageFile(null)
         setLocationImagePreview('')
         setIsSubmitting(false)
@@ -94,27 +95,33 @@ export default function LocationSelectionModal({
         }
     }, [isAddingNewLocation, resetLocationForm])
 
-    // Si entramos con initialAddingState true, nos aseguramos de que el estado lo refleje
-    // Pero solo si el modal se acaba de abrir (esto podría requerir un useEffect si el prop cambia)
-
     // Helper para calcular tarifa
     const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
         try {
-            if (!businessId) return 0
-            const { fee, distance } = await getDeliveryDetailsForLocation({ lat, lng }, businessId)
+            if (!businessId) {
+                setIsInsideCoverage(true);
+                return { fee: 0, zoneName: 'Sin especificar', isOutOfCoverage: false }
+            }
+            const details = await getDeliveryDetailsForLocation({ lat, lng }, businessId)
+            const { fee, distance, zoneName, isOutOfCoverage } = details
             
-            // Si la tarifa es mayor a 0, significa que está en una zona de cobertura
-            setIsInsideCoverage(fee > 0);
+            // Si no está fuera de cobertura, está dentro
+            setIsInsideCoverage(!isOutOfCoverage);
             
             if (distance !== undefined) {
                 setCalculatedDistance(distance);
             } else {
                 setCalculatedDistance(null);
             }
-            return fee
+            return {
+                fee: typeof fee === 'number' ? fee : 0,
+                zoneName: zoneName || (isOutOfCoverage ? 'Sin cobertura' : 'Zona de cobertura'),
+                isOutOfCoverage: !!isOutOfCoverage
+            }
         } catch (error) {
             console.error('Error calculating delivery fee:', error)
-            return 0
+            setIsInsideCoverage(false);
+            return { fee: 0, zoneName: 'Error', isOutOfCoverage: true }
         }
     }
 
@@ -129,17 +136,19 @@ export default function LocationSelectionModal({
                     const latlong = `${latitude}, ${longitude}`
 
                     let tarifa = '1.25'
+                    let sector = 'Sin especificar'
                     // Calcular tarifa inicial
                     if (businessId) {
-                        const fee = await calculateDeliveryFee({ lat: latitude, lng: longitude })
-                        const normalizedFee = fee === 0 ? 5 : fee
-                        tarifa = normalizedFee.toFixed(2)
+                        const { fee, zoneName } = await calculateDeliveryFee({ lat: latitude, lng: longitude })
+                        tarifa = (typeof fee === 'number' ? fee : 0).toFixed(2)
+                        sector = zoneName
                     }
 
                     setNewLocationData(prev => ({
                         ...prev,
                         latlong,
-                        tarifa
+                        tarifa,
+                        sector
                     }));
                     setIsRequestingLocation(false)
                 },
@@ -181,26 +190,28 @@ export default function LocationSelectionModal({
     const resolveDeliveryFeeValue = useCallback(async (lat: number, lng: number) => {
         setIsResolvingDeliveryFee(true)
         let tarifa = '1.25'
+        let sector = 'Sin especificar'
         try {
             if (businessId) {
-                const fee = await calculateDeliveryFee({ lat, lng })
-                const normalizedFee = fee === 0 ? 5 : fee
-                tarifa = normalizedFee.toFixed(2)
+                const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+                tarifa = (typeof fee === 'number' ? fee : 0).toFixed(2)
+                sector = zoneName
             }
         } finally {
             setIsResolvingDeliveryFee(false)
         }
-        return tarifa
+        return { tarifa, sector }
     }, [businessId])
 
     // Función para manejar cambio de ubicación en el mapa
     const handleLocationChange = useCallback(async (lat: number, lng: number) => {
-        const tarifa = await resolveDeliveryFeeValue(lat, lng)
+        const { tarifa, sector } = await resolveDeliveryFeeValue(lat, lng)
 
         setNewLocationData(prev => ({
             ...prev,
             latlong: `${lat}, ${lng}`,
-            tarifa
+            tarifa,
+            sector
         }));
     }, [resolveDeliveryFeeValue]);
 
@@ -232,7 +243,8 @@ export default function LocationSelectionModal({
         setNewLocationData({
             latlong: location.latlong || '',
             referencia: location.referencia || '',
-            tarifa: ''
+            tarifa: location.tarifa || '',
+            sector: location.sector || ''
         });
         setLocationImageFile(null);
         setLocationImagePreview(location.photo || '');
@@ -241,10 +253,11 @@ export default function LocationSelectionModal({
             try {
                 const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()));
                 if (!isNaN(lat) && !isNaN(lng)) {
-                    const tarifa = await resolveDeliveryFeeValue(lat, lng);
+                    const { tarifa, sector } = await resolveDeliveryFeeValue(lat, lng);
                     setNewLocationData(prev => ({
                         ...prev,
-                        tarifa
+                        tarifa,
+                        sector
                     }));
                 }
             } catch (error) {
@@ -279,12 +292,14 @@ export default function LocationSelectionModal({
                 photoUrl = await uploadImage(optimizedFile, fileName);
             }
 
+            const sectorToSave = newLocationData.sector || 'Sin especificar';
+
             const locationId = await createClientLocation({
                 id_cliente: clientId,
                 latlong: newLocationData.latlong,
                 referencia: newLocationData.referencia,
                 tarifa: newLocationData.tarifa,
-                sector: 'Sin especificar',
+                sector: sectorToSave,
                 createdBy: 'client',
                 ...(photoUrl && { photo: photoUrl })
             });
@@ -294,16 +309,16 @@ export default function LocationSelectionModal({
                 id_cliente: clientId,
                 latlong: newLocationData.latlong,
                 referencia: newLocationData.referencia,
-                sector: 'Sin especificar',
+                sector: sectorToSave,
                 tarifa: newLocationData.tarifa,
                 ...(photoUrl && { photo: photoUrl })
             };
 
             onLocationCreated(newLocation);
-            setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25' }); // Reset
+            setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25', sector: '' }); // Reset
             setLocationImageFile(null);
             setLocationImagePreview('');
-            setIsAddingNewLocation(false); // Volver a la lista o cerrar? El padre cierra el modal al seleccionar
+            setIsAddingNewLocation(false);
         } catch (error) {
             console.error('❌ Error saving location:', error);
             alert('Error al guardar la ubicación. Por favor intenta de nuevo.');
@@ -338,10 +353,13 @@ export default function LocationSelectionModal({
                 photoUrl = await uploadImage(optimizedFile, fileName);
             }
 
+            const sectorToSave = newLocationData.sector || editingLocation.sector || 'Sin especificar';
+
             await updateLocation(editingLocation.id, {
                 latlong: newLocationData.latlong,
                 referencia: newLocationData.referencia,
                 tarifa: newLocationData.tarifa,
+                sector: sectorToSave,
                 photo: photoUrl
             });
 
@@ -350,6 +368,7 @@ export default function LocationSelectionModal({
                 latlong: newLocationData.latlong,
                 referencia: newLocationData.referencia,
                 tarifa: newLocationData.tarifa,
+                sector: sectorToSave,
                 ...(photoUrl ? { photo: photoUrl } : {})
             };
 
@@ -643,37 +662,37 @@ export default function LocationSelectionModal({
 
                             {/* Delivery Fee Status */}
                             {newLocationData.latlong && (
-                                <div className={`p-4 rounded-xl border ${!isInsideCoverage
+                                <div className={`p-3.5 rounded-xl border ${!isInsideCoverage
                                     ? 'bg-amber-50 border-amber-100'
                                     : 'bg-green-50 border-green-100'
                                     }`}>
-                                    <div className="flex justify-between items-start mb-1">
-                                        {isResolvingDeliveryFee && (
+                                    <div className="flex justify-between items-center">
+                                        {isResolvingDeliveryFee ? (
                                             <span className="inline-flex items-center gap-2 text-sm font-bold text-gray-700">
                                                 <span className="w-4 h-4 rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin"></span>
                                                 Calculando tarifa de envío...
                                             </span>
-                                        )}
-                                        <span className={`${isResolvingDeliveryFee ? 'hidden ' : ''}text-sm font-bold ${!isInsideCoverage
-                                            ? 'text-amber-800'
-                                            : 'text-green-800'
-                                            }`}>
-                                            Tarifa de envío: ${newLocationData.tarifa}
-                                            {calculatedDistance != null && (
-                                                <span className="ml-2 text-xs opacity-75 font-medium">
-                                                    (a {calculatedDistance.toFixed(1)} km)
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-sm font-bold ${!isInsideCoverage
+                                                    ? 'text-amber-800'
+                                                    : 'text-green-800'
+                                                    }`}>
+                                                    Tarifa de envío: ${newLocationData.tarifa}
                                                 </span>
-                                            )}
-                                        </span>
+                                                {isInsideCoverage ? (
+                                                    <i className="bi bi-check-circle-fill text-green-600 text-sm"></i>
+                                                ) : (
+                                                    <i className="bi bi-exclamation-triangle-fill text-amber-600 text-sm"></i>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
-                                    <p className={`text-xs ${!isInsideCoverage
-                                        ? 'text-amber-700'
-                                        : 'text-green-700'
-                                        }`}>
-                                        {!isInsideCoverage
-                                            ? 'Tu ubicación parece estar fuera de nuestra zona principal. Revisaremos la tarifa al confirmar.'
-                                            : '¡Genial! Estás dentro de nuestra zona de cobertura.'}
-                                    </p>
+                                    {!isInsideCoverage && !isResolvingDeliveryFee && (
+                                        <p className="text-xs text-amber-700 mt-1">
+                                            Tu ubicación parece estar fuera de nuestra zona principal. Revisaremos la tarifa al confirmar.
+                                        </p>
+                                    )}
                                 </div>
                             )}
 

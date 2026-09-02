@@ -465,47 +465,10 @@ export function CheckoutContent({
           return
         }
 
-        // 1. Cargar zonas del negocio y globales en paralelo
-        const [zones, globalZones] = await Promise.all([
-          getCoverageZones(business?.id),
-          business?.id ? getCoverageZones() : Promise.resolve([])
-        ])
+        const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id)
 
-        let matchingZone = zones.find(z => z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
-        let anyZone = zones.find(z => isPointInPolygon({ lat, lng }, z.polygon))
-
-        if (!matchingZone && business?.id) {
-          matchingZone = globalZones.find(z => !z.businessId && z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
-          if (!anyZone) {
-            anyZone = globalZones.find(z => !z.businessId && isPointInPolygon({ lat, lng }, z.polygon))
-          }
-        }
-
-        if (anyZone && !anyZone.isActive) {
-          setIsLocationDeliveryAvailable(false)
-          setLocationDeliveryUnavailableReason('inactive_zone')
-          return
-        }
-
-        // Verificar si la tienda desactivó expresamente esta zona en sus tarifas personalizadas
-        if (matchingZone && business?.deliveryZoneSettings?.useCustomFees) {
-          const zoneConfig = business.deliveryZoneSettings.zones?.[matchingZone.id]
-          if (zoneConfig && zoneConfig.enabled === false) {
-            setIsLocationDeliveryAvailable(false)
-            setLocationDeliveryUnavailableReason('out_of_coverage')
-            return
-          }
-        }
-
-        const isOutsideCoverage = !matchingZone || selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0
-        if (isOutsideCoverage) {
-          setIsLocationDeliveryAvailable(false)
-          setLocationDeliveryUnavailableReason('out_of_coverage')
-          return
-        }
-
-        // 2. Si la tienda usa servicio Fuddi, verificar si hay repartidores activos disponibles asignados a esta zona
-        if (business?.deliveryServiceType === 'fuddi') {
+        // Si la tienda usa servicio Fuddi y no está fuera de cobertura, verificar si hay repartidores activos asignados
+        if (business?.deliveryServiceType === 'fuddi' && !details.isOutOfCoverage) {
           const assignedDeliveryId = await getDeliveryForLocation({ lat, lng }, business?.id)
           if (!assignedDeliveryId) {
             setIsLocationDeliveryAvailable(false)
@@ -828,15 +791,14 @@ export function CheckoutContent({
       try {
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) { setSelectedZoneId(null); return }
-        const zones = await getCoverageZones()
-        const matchingZone = zones.find(z => z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
-        setSelectedZoneId(matchingZone?.id || null)
+        const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id)
+        setSelectedZoneId(details.zoneId || null)
       } catch (e) {
         setSelectedZoneId(null)
       }
     }
     void checkZone()
-  }, [selectedLocation?.latlong, deliveryData.type])
+  }, [selectedLocation?.latlong, deliveryData.type, business?.id])
 
   // Campaña activa final (con verificación de zona)
   const isFreeDeliveryActive = useMemo(() => {
@@ -1055,17 +1017,24 @@ export function CheckoutContent({
   // Helper para calcular tarifa usando la función compartida en lib/database
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
-      if (!business?.id) return 0
-      const { fee, distance } = await getDeliveryDetailsForLocation({ lat, lng }, business.id);
+      if (!business?.id) return { fee: 0, zoneName: 'Sin cobertura', isOutOfCoverage: true, distance: undefined }
+      const details = await getDeliveryDetailsForLocation({ lat, lng }, business.id);
+      const { fee, distance, zoneName, isOutOfCoverage, zoneId } = details;
       if (distance !== undefined) {
         setCalculatedDistance(distance);
       } else {
         setCalculatedDistance(null);
       }
-      return fee
+      return {
+        fee: typeof fee === 'number' ? fee : 0,
+        zoneName: zoneName || (isOutOfCoverage ? 'Sin cobertura' : 'Zona de cobertura'),
+        isOutOfCoverage: !!isOutOfCoverage,
+        zoneId,
+        distance
+      }
     } catch (error) {
-      console.error('Error calculating delivery fee:', error)
-      return 0
+      console.error('Error calculating delivery fee in checkout:', error)
+      return { fee: 0, zoneName: 'Error', isOutOfCoverage: true, distance: undefined }
     }
   }
 
@@ -1222,12 +1191,11 @@ export function CheckoutContent({
         setCalculatingTariff(true)
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) return
-        const fee = await calculateDeliveryFee({ lat, lng })
-        // Normalizar tarifa fuera de cobertura: si fee es 0, usar 5.00
-        const normalizedFee = fee === 0 ? 5 : fee
-        const updated = { ...selectedLocation, tarifa: normalizedFee.toString() }
+        const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+        const feeStr = (typeof fee === 'number' ? fee : 0).toString()
+        const updated = { ...selectedLocation, tarifa: feeStr, sector: zoneName || selectedLocation.sector }
         setSelectedLocation(updated)
-        setDeliveryData(prev => ({ ...prev, tarifa: normalizedFee.toString() }))
+        setDeliveryData(prev => ({ ...prev, tarifa: feeStr }))
       } catch (e) {
         console.error('Error ensuring tariff for selected location:', e)
       } finally {
@@ -1470,19 +1438,18 @@ export function CheckoutContent({
       try {
         const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (!isNaN(lat) && !isNaN(lng)) {
-          const calculatedFee = await calculateDeliveryFee({ lat, lng })
+          const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+          const feeStr = (typeof fee === 'number' ? fee : 0).toString()
+          const sectorName = zoneName || location.sector || 'Sin especificar'
 
-          // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 5.00
-          const normalizedFee = calculatedFee === 0 ? 5 : calculatedFee
-
-          const updatedLocation = { ...location, tarifa: normalizedFee.toString() }
+          const updatedLocation = { ...location, tarifa: feeStr, sector: sectorName }
           setSelectedLocation(updatedLocation)
 
           setDeliveryData(prev => ({
             ...prev,
             address: location.referencia,
-            references: `${location.sector} - ${location.latlong}`,
-            tarifa: prev.type === 'pickup' ? '0' : normalizedFee.toString()
+            references: `${sectorName} - ${location.latlong}`,
+            tarifa: prev.type === 'pickup' ? '0' : feeStr
           }))
 
           closeLocationModal()
@@ -1500,7 +1467,7 @@ export function CheckoutContent({
     setDeliveryData(prev => ({
       ...prev,
       address: location.referencia,
-      references: `${location.sector} - ${location.latlong}`,
+      references: `${location.sector || 'Sin especificar'} - ${location.latlong}`,
       tarifa: prev.type === 'pickup' ? '0' : (location.tarifa || '0')
     }))
     closeLocationModal()
