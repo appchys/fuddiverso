@@ -5570,8 +5570,8 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
         reviewDocs.push({ id: docSnap.id, data, businessId });
       });
     } catch (cgError) {
-      console.warn('collectionGroup query failed or requires index, using business-by-business fallback:', cgError);
-      const promises = businesses.slice(0, 15).map(async (b) => {
+      // Fallback tienda por tienda en paralelo si collectionGroup no está habilitado o indexado en Firestore
+      const promises = businesses.slice(0, 20).map(async (b) => {
         try {
           const ratingsRef = collection(db, 'businesses', b.id, 'ratings');
           const snap = await getDocs(query(ratingsRef, orderBy('createdAt', 'desc'), limit(20)));

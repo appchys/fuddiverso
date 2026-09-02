@@ -30,12 +30,7 @@ export function getPackagingFee(business?: Partial<Business> | null): number {
 
     const rawFee = (business as any).packagingFee
     const numFee = typeof rawFee === 'number' ? rawFee : parseFloat(String(rawFee || 0))
-    const fee = !Number.isNaN(numFee) && numFee > 0 ? numFee : 0
-
-    if (fee > 0) {
-        console.log(`📦 [getPackagingFee] Tienda '${business.name || business.id || 'desconocida'}': hasPackagingFee=${hasFee}, fee=$${fee}`)
-    }
-    return fee
+    return !Number.isNaN(numFee) && numFee > 0 ? numFee : 0
 }
 
 export function calculateCommissionPricing(

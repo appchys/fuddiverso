@@ -4,11 +4,12 @@ import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getRecentOrders, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getRecentOrders, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals, getGlobalProductReviews, GlobalProductReviewItem } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 import { isStoreOpen, formatBusinessName } from '@/lib/store-utils'
+import { formatRelativeTime } from '@/lib/date-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import dynamic from 'next/dynamic'
@@ -161,6 +162,8 @@ function HomePageContent() {
   const [requestWhatsapp, setRequestWhatsapp] = useState('')
   const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
+  const [recentReviews, setRecentReviews] = useState<GlobalProductReviewItem[]>([])
+  const [loadingReviews, setLoadingReviews] = useState(true)
 
   // Use useMemo for story businesses to ensure a stable random order per session/businesses-update
   const storyBusinesses = React.useMemo(() => {
@@ -357,6 +360,27 @@ function HomePageContent() {
 
     loadRecommendedProducts()
   }, [user?.id, productsByBusiness])
+
+  // Cargar comentarios y publicaciones recientes de la comunidad Fuddies
+  useEffect(() => {
+    let isMounted = true
+    const fetchRecentReviews = async () => {
+      try {
+        const items = await getGlobalProductReviews(12)
+        if (isMounted) {
+          // Filtrar items que tengan comentario o imagen
+          const validReviews = items.filter(r => (r.comment && r.comment.trim().length > 0) || r.image)
+          setRecentReviews(validReviews.slice(0, 8))
+        }
+      } catch (error) {
+        console.error('Error fetching recent reviews for home:', error)
+      } finally {
+        if (isMounted) setLoadingReviews(false)
+      }
+    }
+    fetchRecentReviews()
+    return () => { isMounted = false }
+  }, [])
 
   const updateCartInStorage = (businessId: string, businessCart: any[]) => {
     const savedCarts = localStorage.getItem('carts')
@@ -1284,6 +1308,226 @@ function HomePageContent() {
         </section>
       )}
 
+      {/* SECCIÓN SOCIAL: OPINIONES Y COMUNIDAD FUDDIES */}
+      {recentReviews.length > 0 && (
+        <section className="py-6 bg-white border-b border-gray-100">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
+                    Comunidad Fuddies
+                  </h2>
+                  <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#aa1918] animate-pulse"></span>
+                    En vivo
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-gray-500 mt-1 leading-relaxed">
+                  Opiniones y fotos reales compartidas por nuestra comunidad.
+                </p>
+              </div>
+              <Link
+                href="/fuddies"
+                className="inline-flex items-center gap-1 text-xs font-bold text-[#aa1918] hover:text-[#8a1413] bg-red-50/80 hover:bg-red-100/80 px-3 py-1.5 rounded-xl transition-all flex-shrink-0"
+              >
+                <span>Ver todo</span>
+                <i className="bi bi-arrow-right text-xs"></i>
+              </Link>
+            </div>
+
+            <div className="relative">
+              <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 recent-reviews-carousel">
+                {recentReviews.map((review) => {
+                  const reviewLink = review.businessUsername 
+                    ? `/${review.businessUsername}` 
+                    : (review.businessId ? `/restaurant/${review.businessId}` : '/fuddies')
+
+                  return (
+                    <div
+                      key={review.id}
+                      className="flex-shrink-0 w-72 sm:w-80 bg-gray-50/80 hover:bg-white rounded-2xl p-4 transition-all duration-300 border border-gray-100/80 hover:border-red-100 hover:shadow-md flex flex-col justify-between"
+                    >
+                      <div>
+                        {/* Cabecera de la reseña: Usuario + Rating */}
+                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-br from-red-500 to-orange-500 text-white font-black text-xs flex items-center justify-center flex-shrink-0 shadow-xs border border-gray-100">
+                              {review.clientPhotoURL ? (
+                                <img
+                                  src={review.clientPhotoURL}
+                                  alt={review.clientName || 'Cliente'}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLElement).style.display = 'none'
+                                  }}
+                                />
+                              ) : (
+                                <span>{review.clientName ? review.clientName.charAt(0).toUpperCase() : 'F'}</span>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-black text-gray-900 line-clamp-1 leading-none">
+                                {review.clientName || 'Cliente Fuddie'}
+                              </h4>
+                              <span className="text-[10px] font-medium text-gray-400">
+                                {formatRelativeTime(review.createdAt)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center">
+                            <StarRating rating={review.rating || 5} size="sm" showRatingText={false} />
+                          </div>
+                        </div>
+
+                        {/* Comentario */}
+                        {review.comment && (
+                          <p className="text-xs font-medium text-gray-700 line-clamp-3 leading-relaxed mb-3">
+                            "{review.comment}"
+                          </p>
+                        )}
+
+                        {/* Foto si tiene con Chip del Producto SUPERPUESTO */}
+                        {review.image ? (
+                          <div className="relative h-36 w-full rounded-2xl overflow-hidden mb-1 bg-gray-100 group/img">
+                            <img
+                              src={review.image}
+                              alt="Foto de reseña"
+                              loading="lazy"
+                              className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
+                            
+                            {/* Chip del Producto Superpuesto sobre la imagen (Fondo transparente glassmorphism) */}
+                            <div className="absolute bottom-2 left-2 right-2 z-10">
+                              <Link
+                                href={reviewLink}
+                                className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-black/25 hover:bg-black/40 backdrop-blur-md transition-all border border-white/20 text-white group/chip shadow-sm"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {review.productImage || review.businessLogo ? (
+                                    <div className="w-6 h-6 rounded-lg overflow-hidden flex-shrink-0 bg-white/20 border border-white/30">
+                                      <img
+                                        src={review.productImage || review.businessLogo}
+                                        alt={review.productName || review.businessName || 'Producto'}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="w-6 h-6 rounded-lg bg-red-600/70 text-white flex items-center justify-center text-xs flex-shrink-0">
+                                      <i className="bi bi-shop"></i>
+                                    </div>
+                                  )}
+                                  <div className="min-w-0 drop-shadow-xs">
+                                    <p className="text-[11px] font-bold text-white line-clamp-1 group-hover/chip:text-red-200 transition-colors leading-none">
+                                      {review.productName || (review.businessName ? formatBusinessName(review.businessName) : 'Ver tienda')}
+                                    </p>
+                                    {review.productName && review.businessName && (
+                                      <p className="text-[9px] font-medium text-white/80 line-clamp-1 mt-0.5">
+                                        en {formatBusinessName(review.businessName)}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <i className="bi bi-chevron-right text-[10px] text-white/80 group-hover/chip:text-white group-hover/chip:translate-x-0.5 transition-all"></i>
+                              </Link>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Chip del Producto / Tienda (solo cuando NO hay imagen) */}
+                      {!review.image && (
+                        <div className="pt-2 border-t border-gray-200/60 mt-auto">
+                          <Link
+                            href={reviewLink}
+                            className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white hover:bg-gray-100/80 transition-colors border border-gray-100 group"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {review.productImage || review.businessLogo ? (
+                                <div className="w-6 h-6 rounded-lg overflow-hidden flex-shrink-0 bg-gray-50 border border-gray-100">
+                                  <img
+                                    src={review.productImage || review.businessLogo}
+                                    alt={review.productName || review.businessName || 'Producto'}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-red-50 text-[#aa1918] text-xs flex-shrink-0">
+                                  <i className="bi bi-shop"></i>
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-gray-800 line-clamp-1 group-hover:text-[#aa1918] transition-colors leading-none">
+                                  {review.productName || (review.businessName ? formatBusinessName(review.businessName) : 'Ver tienda')}
+                                </p>
+                                {review.productName && review.businessName && (
+                                  <p className="text-[9px] font-medium text-gray-400 line-clamp-1 mt-0.5">
+                                    en {formatBusinessName(review.businessName)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <i className="bi bi-chevron-right text-[10px] text-gray-400 group-hover:text-[#aa1918] group-hover:translate-x-0.5 transition-all"></i>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Tarjeta final "Únete a la comunidad" */}
+                <div className="flex-shrink-0 w-64 bg-gradient-to-br from-red-500 to-[#aa1918] rounded-2xl p-5 text-white flex flex-col justify-between shadow-sm">
+                  <div>
+                    <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-white text-lg mb-3">
+                      <i className="bi bi-chat-heart-fill"></i>
+                    </div>
+                    <h4 className="text-base font-black tracking-tight leading-snug mb-1">
+                      ¿Probaste algo rico?
+                    </h4>
+                    <p className="text-xs text-red-100 font-medium leading-relaxed">
+                      Comparte tu foto y reseña con miles de personas en Fuddies.
+                    </p>
+                  </div>
+                  <Link
+                    href="/fuddies"
+                    className="mt-4 w-full py-2.5 px-4 bg-white text-[#aa1918] hover:bg-red-50 font-black text-xs rounded-xl text-center transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5"
+                  >
+                    <span>Publicar opinión</span>
+                    <i className="bi bi-plus-circle-fill text-xs"></i>
+                  </Link>
+                </div>
+              </div>
+
+              {/* Flechas de navegación para desktop */}
+              <button
+                onClick={() => {
+                  const container = document.querySelector('.recent-reviews-carousel')
+                  if (container) {
+                    container.scrollLeft -= 300
+                  }
+                }}
+                className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-9 h-9 bg-white rounded-full shadow-md items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10 border border-gray-100"
+                aria-label="Anterior"
+              >
+                <i className="bi bi-chevron-left text-sm"></i>
+              </button>
+              <button
+                onClick={() => {
+                  const container = document.querySelector('.recent-reviews-carousel')
+                  if (container) {
+                    container.scrollLeft += 300
+                  }
+                }}
+                className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-9 h-9 bg-white rounded-full shadow-md items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10 border border-gray-100"
+                aria-label="Siguiente"
+              >
+                <i className="bi bi-chevron-right text-sm"></i>
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* LISTA DE RESTAURANTES */}
       <section className="py-2 bg-gray-50">
