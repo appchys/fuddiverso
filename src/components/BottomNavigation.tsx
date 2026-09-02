@@ -372,16 +372,16 @@ export default function BottomNavigation() {
             <span className="text-[10px] font-bold tracking-tight">Inicio</span>
           </Link>
           
-          {/* FAVORITOS */}
+          {/* FUDDIES - SOCIAL / OPINIONES */}
           <Link 
-            href="/favorites" 
-            onClick={() => setActiveUrl('/favorites')}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${isActive('/favorites') ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
+            href="/fuddies" 
+            onClick={() => setActiveUrl('/fuddies')}
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${isActive('/fuddies') ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
           >
-            <div className={`relative p-1 rounded-xl transition-all ${isActive('/favorites') ? 'bg-red-50' : ''}`}>
-              <i className={`bi bi-heart${isActive('/favorites') ? '-fill' : ''} text-xl leading-none`}></i>
+            <div className={`relative p-1 rounded-xl transition-all ${isActive('/fuddies') ? 'bg-red-50' : ''}`}>
+              <i className={`bi bi-people${isActive('/fuddies') ? '-fill' : ''} text-xl leading-none`}></i>
             </div>
-            <span className="text-[10px] font-bold tracking-tight">Favoritos</span>
+            <span className="text-[10px] font-bold tracking-tight">Fuddies</span>
           </Link>
 
           {/* RECOMENDACIONES - AHORA ABRE EL SIDEBAR */}

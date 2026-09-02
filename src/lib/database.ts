@@ -1,5 +1,6 @@
 import {
   collection,
+  collectionGroup,
   doc,
   addDoc,
   getDoc,
@@ -5424,6 +5425,158 @@ export interface ProductRatingItem {
   createdAt: any;
   replies?: any[];
   likes?: string[];
+}
+
+export interface GlobalProductReviewItem {
+  id: string;
+  ratingDocId: string;
+  businessId: string;
+  businessName?: string;
+  businessUsername?: string;
+  businessLogo?: string;
+  businessIsVerified?: boolean;
+  orderId?: string;
+  productId?: string;
+  productName?: string;
+  productImage?: string;
+  productPrice?: number;
+  productSlug?: string;
+  clientName: string;
+  clientPhone: string;
+  clientPhotoURL?: string;
+  rating: number;
+  comment?: string;
+  image?: string;
+  createdAt: any;
+  replies?: any[];
+  likes?: string[];
+  product?: Product;
+  business?: Business;
+}
+
+export async function getGlobalProductReviews(limitCount: number = 60): Promise<GlobalProductReviewItem[]> {
+  try {
+    const businesses = await getAllBusinesses();
+    const businessMap = new Map<string, Business>();
+    businesses.forEach((b) => businessMap.set(b.id, b));
+
+    let reviewDocs: { id: string; data: any; businessId: string }[] = [];
+
+    try {
+      const q = query(collectionGroup(db, 'ratings'), orderBy('createdAt', 'desc'), limit(limitCount * 2));
+      const snapshot = await getDocs(q);
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const businessId = data.businessId || docSnap.ref.parent.parent?.id || '';
+        reviewDocs.push({ id: docSnap.id, data, businessId });
+      });
+    } catch (cgError) {
+      console.warn('collectionGroup query failed or requires index, using business-by-business fallback:', cgError);
+      const promises = businesses.slice(0, 15).map(async (b) => {
+        try {
+          const ratingsRef = collection(db, 'businesses', b.id, 'ratings');
+          const snap = await getDocs(query(ratingsRef, orderBy('createdAt', 'desc'), limit(20)));
+          return snap.docs.map((d) => ({ id: d.id, data: d.data(), businessId: b.id }));
+        } catch (e) {
+          return [];
+        }
+      });
+      const results = await Promise.all(promises);
+      results.forEach((arr) => {
+        reviewDocs.push(...arr);
+      });
+    }
+
+    const activeBizIds = Array.from(new Set(reviewDocs.map(r => r.businessId).filter(Boolean)));
+    let allProducts: Product[] = [];
+    if (activeBizIds.length > 0) {
+      try {
+        allProducts = await getProductsByBusinessesBatch(activeBizIds);
+      } catch (err) {
+        console.error('Error fetching batch products for global reviews:', err);
+      }
+    }
+    const productMap = new Map<string, Product>();
+    allProducts.forEach(p => productMap.set(p.id, p));
+
+    const globalReviews: GlobalProductReviewItem[] = [];
+
+    reviewDocs.forEach(({ id, data, businessId }) => {
+      const business = businessMap.get(businessId);
+      const clientName = data.clientName || 'Cliente';
+      const clientPhone = data.clientPhone || '';
+      const clientPhotoURL = data.clientPhotoURL || (data as any).clientPhotoUrl || (data as any).photoURL || (data as any).foto || (data as any).photo || '';
+      const replies = data.replies || [];
+      const likes = (data as any).likes || [];
+      const createdAt = data.createdAt;
+
+      if (data.productRatings && Array.isArray(data.productRatings) && data.productRatings.length > 0) {
+        data.productRatings.forEach((pr: any, index: number) => {
+          if (pr && (pr.rating > 0 || (pr.comment && pr.comment.trim()) || pr.image)) {
+            const product = pr.productId ? productMap.get(pr.productId) : undefined;
+            globalReviews.push({
+              id: `${id}_${pr.productId || index}`,
+              ratingDocId: id,
+              businessId,
+              businessName: business?.name || 'Tienda',
+              businessUsername: business?.username || businessId,
+              businessLogo: business?.image || '',
+              businessIsVerified: (business as any)?.isVerified,
+              orderId: data.orderId || '',
+              productId: pr.productId,
+              productName: pr.productName || product?.name || '',
+              productImage: pr.productImage || pr.image || product?.image || '',
+              productPrice: product?.price,
+              productSlug: product?.slug || pr.productId,
+              clientName,
+              clientPhone,
+              clientPhotoURL,
+              rating: pr.rating || data.rating || 5,
+              comment: pr.comment || '',
+              image: pr.image || (index === 0 ? data.image : '') || '',
+              createdAt,
+              replies,
+              likes,
+              product,
+              business
+            });
+          }
+        });
+      } else if (data.rating > 0 || (data.comment && data.comment.trim()) || data.image) {
+        globalReviews.push({
+          id,
+          ratingDocId: id,
+          businessId,
+          businessName: business?.name || 'Tienda',
+          businessUsername: business?.username || businessId,
+          businessLogo: business?.image || '',
+          businessIsVerified: (business as any)?.isVerified,
+          orderId: data.orderId || '',
+          clientName,
+          clientPhone,
+          clientPhotoURL,
+          rating: data.rating || 5,
+          comment: data.comment || '',
+          image: data.image || '',
+          createdAt,
+          replies,
+          likes,
+          business
+        });
+      }
+    });
+
+    globalReviews.sort((a, b) => {
+      const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      return timeB - timeA;
+    });
+
+    return globalReviews.slice(0, limitCount);
+  } catch (error) {
+    console.error('Error fetching global product reviews:', error);
+    return [];
+  }
 }
 
 export async function getProductRatings(
