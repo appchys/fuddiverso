@@ -12,6 +12,7 @@ import { isStoreOpen, formatBusinessName } from '@/lib/store-utils'
 import { formatRelativeTime } from '@/lib/date-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
+import { Star } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const ProductDetailSidebar = dynamic(() => import('@/components/ProductDetailSidebar'), { ssr: false })
@@ -1380,34 +1381,51 @@ function HomePageContent() {
                       className="flex-shrink-0 w-72 sm:w-80 bg-gray-50/80 hover:bg-white rounded-2xl p-4 transition-all duration-300 border border-gray-100/80 hover:border-red-100 hover:shadow-md flex flex-col justify-between"
                     >
                       <div>
-                        {/* Cabecera de la reseña: Usuario + Rating */}
-                        <div className="flex items-center justify-between gap-2 mb-2.5">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-br from-red-500 to-orange-500 text-white font-black text-xs flex items-center justify-center flex-shrink-0 shadow-xs border border-gray-100">
-                              {review.clientPhotoURL ? (
-                                <img
-                                  src={review.clientPhotoURL}
-                                  alt={review.clientName || 'Cliente'}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    (e.currentTarget as HTMLElement).style.display = 'none'
-                                  }}
-                                />
-                              ) : (
-                                <span>{review.clientName ? review.clientName.charAt(0).toUpperCase() : 'F'}</span>
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-black text-gray-900 line-clamp-1 leading-none">
-                                {review.clientName || 'Cliente Fuddie'}
-                              </h4>
-                              <span className="text-[10px] font-medium text-gray-400">
-                                {formatRelativeTime(review.createdAt)}
-                              </span>
-                            </div>
+                        {/* Cabecera: Usuario > Tienda / Fecha | Calificación */}
+                        <div className="flex items-start gap-2.5 mb-2.5">
+                          {/* Avatar del Cliente */}
+                          <div className="w-9 h-9 rounded-full bg-amber-100/80 text-amber-800 font-black text-xs flex items-center justify-center border border-amber-200/60 flex-shrink-0 overflow-hidden mt-0.5">
+                            {review.clientPhotoURL ? (
+                              <img
+                                src={review.clientPhotoURL}
+                                alt={review.clientName || 'Cliente'}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLElement).style.display = 'none'
+                                }}
+                              />
+                            ) : (
+                              <span>{review.clientName?.charAt(0)?.toUpperCase() || 'C'}</span>
+                            )}
                           </div>
-                          <div className="flex items-center">
-                            <StarRating rating={review.rating || 5} size="sm" showRatingText={false} />
+
+                          <div className="min-w-0 flex-1">
+                            {/* Línea 1: Nombre del usuario > Nombre de la tienda */}
+                            <p className="text-xs leading-tight truncate">
+                              <span className="font-black text-gray-900">{review.clientName || 'Cliente'}</span>
+                              <span className="mx-1.5 text-gray-300 font-medium">›</span>
+                              <Link
+                                href={reviewLink}
+                                onClick={(e) => e.stopPropagation()}
+                                className="font-bold text-gray-600 hover:text-[#aa1918] transition-colors"
+                              >
+                                {review.businessName ? formatBusinessName(review.businessName) : 'Tienda'}
+                              </Link>
+                            </p>
+
+                            {/* Línea 2: Fecha de publicación | Calificación */}
+                            <div className="flex items-center gap-0 mt-1">
+                              <span className="text-[10px] text-gray-400 font-medium">
+                                {review.createdAt ? formatRelativeTime(review.createdAt) : 'Reciente'}
+                              </span>
+                              <span className="mx-1.5 text-gray-300 text-[10px]">|</span>
+                              <div className="flex items-center gap-0.5">
+                                <Star size={11} className="fill-amber-400 text-amber-400 flex-shrink-0" />
+                                <span className="text-[10px] font-black text-amber-700 leading-none">
+                                  {typeof review.rating === 'number' && review.rating > 0 ? review.rating.toFixed(1) : '5.0'}
+                                </span>
+                              </div>
+                            </div>
                           </div>
                         </div>
 
