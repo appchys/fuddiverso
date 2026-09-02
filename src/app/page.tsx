@@ -8,7 +8,7 @@ import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalPro
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
-import { isStoreOpen } from '@/lib/store-utils'
+import { isStoreOpen, formatBusinessName } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import dynamic from 'next/dynamic'
@@ -1037,7 +1037,7 @@ function HomePageContent() {
                       </div>
                     </div>
                     <span className="text-[10px] font-bold text-gray-600 text-center line-clamp-1 w-full px-1 group-hover:text-[#aa1918] transition-colors">
-                      {b.name}
+                      {formatBusinessName(b.name)}
                     </span>
                   </button>
                 )
@@ -1052,12 +1052,16 @@ function HomePageContent() {
         <section className="py-6 bg-white border-b border-gray-100">
           <div className="max-w-6xl mx-auto px-6">
             <div className="mb-4">
-              <h2 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-                <i className="bi bi-stars text-[#aa1918]"></i>
-                Lo más nuevo
-              </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Los platos y productos agregados recientemente por nuestras tiendas.
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
+                  Lo más nuevo
+                </h2>
+                <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
+                  Novedades
+                </span>
+              </div>
+              <p className="text-xs font-medium text-gray-500 mt-1 leading-relaxed">
+                Platos y productos agregados recientemente por las tiendas.
               </p>
             </div>
 
@@ -1112,18 +1116,18 @@ function HomePageContent() {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-sm font-bold text-gray-900 line-clamp-1">
+                            <h3 className="text-sm font-black text-gray-900 line-clamp-1 tracking-tight leading-tight">
                               {product.name}
                             </h3>
                             {business && (
-                              <p className="text-xs text-gray-500 line-clamp-1">
-                                {business.name}
+                              <p className="text-xs font-medium text-gray-500 line-clamp-1">
+                                {formatBusinessName(business.name)}
                               </p>
                             )}
                           </div>
                         </div>
                         {product.description && (
-                          <p className="text-xs text-gray-600 line-clamp-2">
+                          <p className="text-xs font-medium text-gray-500 line-clamp-2 leading-relaxed">
                             {product.description}
                           </p>
                         )}
@@ -1166,12 +1170,17 @@ function HomePageContent() {
         <section className="py-6 bg-gray-50 border-b border-gray-100">
           <div className="max-w-6xl mx-auto px-6">
             <div className="mb-4">
-              <h2 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-                <i className="bi bi-fire text-[#aa1918]"></i>
-                Los más vendidos
-              </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Los platos preferidos y más populares de nuestra comunidad.
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
+                  Los más vendidos
+                </h2>
+                <span className="bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <i className="bi bi-fire text-xs text-amber-500"></i>
+                  Popular
+                </span>
+              </div>
+              <p className="text-xs font-medium text-gray-500 mt-1 leading-relaxed">
+                Platos preferidos y más pedidos por nuestra comunidad.
               </p>
             </div>
 
@@ -1230,8 +1239,8 @@ function HomePageContent() {
                               {product.name}
                             </h3>
                             {business && (
-                              <p className="text-xs text-gray-500 line-clamp-1">
-                                {business.name}
+                              <p className="text-xs font-medium text-gray-500 line-clamp-1">
+                                {formatBusinessName(business.name)}
                               </p>
                             )}
                           </div>
@@ -1277,15 +1286,20 @@ function HomePageContent() {
 
 
       {/* LISTA DE RESTAURANTES */}
-      <section className="py-4 bg-gray-50">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8">
+      <section className="py-2 bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="flex items-center justify-between gap-3 mb-5">
             <div>
-              <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
-                {detectedGroupName ? `Restaurantes en ${detectedGroupName}` : 'Restaurantes cerca de ti'}
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
+                  {detectedGroupName ? `Restaurantes en ${detectedGroupName}` : 'Restaurantes cerca de ti'}
+                </h2>
+                <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
+                  Tiendas
+                </span>
+              </div>
               {detectedGroupName && (
-                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                <p className="text-[11px] font-medium text-gray-400 mt-1 flex items-center gap-1 leading-normal">
                   <i className="bi bi-geo-alt-fill text-[#aa1918]"></i>
                   Mostrando tiendas en tu ciudad
                 </p>
@@ -1293,10 +1307,10 @@ function HomePageContent() {
             </div>
             <Link
               href="/business/register"
-              className="inline-flex items-center justify-center gap-2 bg-[#aa1918] hover:bg-black text-white text-xs font-black uppercase tracking-widest px-5 py-3.5 rounded-2xl transition-all duration-300 shadow-lg shadow-red-900/10 active:scale-95 w-full sm:w-auto text-center"
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#aa1918] hover:text-white bg-red-50 hover:bg-[#aa1918] px-3 py-1.5 rounded-xl transition-all border border-red-100 flex-shrink-0"
             >
-              <i className="bi bi-plus-circle text-sm"></i>
-              Publica tu menú
+              <i className="bi bi-plus-circle text-xs"></i>
+              <span>Publica tu menú</span>
             </Link>
           </div>
 
@@ -1408,89 +1422,100 @@ function HomePageContent() {
               )}
             </div>
           ) : (
-            <div className="flex flex-col gap-12">
+            <div className="flex flex-col gap-8 sm:gap-10">
               {sortedRestaurants.map((b) => {
                 const link = b.username ? `/${b.username}` : `/restaurant/${b.id}`
                 const followed = followedBusinesses.has(b.id)
                 const products = productsByBusiness[b.id] || []
 
                 return (
-                  <div key={b.id} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-                    {/* Header del Restaurante: Logo, Nombre y Reseñas */}
-                    <div className="flex items-center justify-between mb-4 px-1">
-                      <div className="flex items-center gap-4">
-                        <Link href={link} className="group">
-                          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-xl bg-gray-50 flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
-                            {b.image ? (
-                              <img
-                                src={b.image}
-                                alt={b.name}
-                                loading="lazy"
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <i className="bi bi-shop text-3xl text-gray-300"></i>
-                              </div>
-                            )}
-                          </div>
-                        </Link>
-                        <div className="flex-1 min-w-0 flex flex-col justify-center space-y-0.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Link href={link} className="group">
-                              <h3 className="text-xl font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight leading-none">
-                                {b.name}
-                              </h3>
-                            </Link>
-                            {/* Indicador de estado abierto/cerrado al lado del nombre */}
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isStoreOpen(b)
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                              : 'bg-rose-50 text-rose-700 border border-rose-100'
-                              }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${isStoreOpen(b) ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                              {isStoreOpen(b) ? 'Abierto ahora' : 'Cerrado ahora'}
+                  <div key={b.id} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    {/* Header del Restaurante Compacto */}
+                    <div className="flex items-center justify-between gap-2.5 mb-2 px-0.5">
+                      <Link href={link} className="flex items-center gap-2.5 min-w-0 flex-1 group">
+                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden border border-gray-200/80 shadow-xs bg-gray-50 flex-shrink-0 group-hover:scale-105 transition-transform duration-200">
+                          {b.image ? (
+                            <img
+                              src={b.image}
+                              alt={b.name}
+                              loading="lazy"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <i className="bi bi-shop text-lg text-gray-300"></i>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-sm sm:text-base font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight leading-none">
+                              {formatBusinessName(b.name)}
+                            </h3>
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex-shrink-0 ${
+                              isStoreOpen(b)
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                : 'bg-rose-50 text-rose-700 border border-rose-100'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${isStoreOpen(b) ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                              {isStoreOpen(b) ? 'Abierto' : 'Cerrado'}
                             </span>
                           </div>
+
                           {b.description && (
-                            <p className="text-xs text-gray-400 line-clamp-1 leading-tight">
+                            <p className="text-[11px] font-medium text-gray-500 line-clamp-1 leading-tight">
                               {b.description}
                             </p>
                           )}
-                          {/* Estrellas justo debajo del nombre y descripción */}
-                          <div className="flex items-center">
+
+                          {/* Estrellas compacto */}
+                          <div className="flex items-center leading-none">
                             {b.ratingAverage ? (
                               <button
                                 onClick={(e) => {
+                                  e.preventDefault()
                                   e.stopPropagation()
                                   handleOpenRatingModal(b)
                                 }}
-                                className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer"
+                                className="flex items-center gap-1 hover:opacity-80 transition-opacity"
                               >
-                                <StarRating rating={b.ratingAverage} size="sm" />
-                                <span className="text-xs font-bold text-gray-400 ml-1">({b.ratingCount || 0})</span>
+                                <StarRating rating={b.ratingAverage} size="sm" showRatingText={false} />
+                                <span className="text-[11px] font-bold text-gray-600 ml-0.5">
+                                  {b.ratingAverage.toFixed(1)}
+                                </span>
+                                <span className="text-[10px] text-gray-400">
+                                  ({b.ratingCount || 0})
+                                </span>
                               </button>
                             ) : (
                               <button
                                 onClick={(e) => {
+                                  e.preventDefault()
                                   e.stopPropagation()
                                   handleOpenRatingModal(b)
                                 }}
-                                className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer"
+                                className="flex items-center gap-1 hover:opacity-80 transition-opacity text-[10px] font-medium text-gray-400"
                               >
-                                <StarRating rating={0} size="sm" showGrayStars />
-                                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest ml-1">Sin reseñas</span>
+                                <StarRating rating={0} size="sm" showGrayStars showRatingText={false} />
+                                <span className="ml-0.5">Sin opiniones</span>
                               </button>
                             )}
                           </div>
                         </div>
-                      </div>
+                      </Link>
 
-                      <div className="flex flex-col items-end justify-center">
+                      <div className="flex items-center flex-shrink-0">
                         <button
                           onClick={(e) => handleFollowToggle(b.id, e)}
-                          className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${followed ? 'bg-red-50 text-[#aa1918]' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                            followed
+                              ? 'bg-red-50 text-[#aa1918]'
+                              : 'bg-gray-50 text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                          }`}
+                          aria-label="Seguir tienda"
                         >
-                          <i className={`bi bi-heart${followed ? '-fill' : ''} text-lg`}></i>
+                          <i className={`bi bi-heart${followed ? '-fill' : ''} text-sm`}></i>
                         </button>
                       </div>
                     </div>
@@ -1611,9 +1636,23 @@ function HomePageContent() {
       {sortedDistributors.length > 0 && (
         <section id="suppliers-section" className="py-12 bg-white border-t border-gray-100">
           <div className="max-w-6xl mx-auto px-6">
-            <div className="flex justify-between items-end mb-8">
-              <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">Proveedores Aliados</h2>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">{sortedDistributors.length} aliados</span>
+            <div className="flex justify-between items-end mb-8 flex-wrap gap-4">
+              <div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight leading-none">
+                    Proveedores Aliados
+                  </h2>
+                  <span className="bg-orange-50 text-orange-700 border border-orange-100 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                    B2B
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-gray-500 mt-1.5 leading-relaxed">
+                  Distribuidores e insumos directos para negocios
+                </p>
+              </div>
+              <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider bg-gray-100 px-3 py-1 rounded-full">
+                {sortedDistributors.length} aliados
+              </span>
             </div>
 
             <div className="space-y-10">
@@ -1630,7 +1669,9 @@ function HomePageContent() {
                           {b.image ? <ProgressiveImage src={b.image} alt={b.name} fill sizes="48px" className="object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-orange-50 text-orange-200"><i className="bi bi-shop text-xl"></i></div>}
                         </div>
                         <div>
-                          <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter leading-none mb-1 group-hover/header:text-orange-600 transition-colors">{b.name}</h3>
+                          <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter leading-none mb-1 group-hover/header:text-orange-600 transition-colors">
+                            {formatBusinessName(b.name)}
+                          </h3>
                           {b.description && (
                             <p className="text-[10px] font-medium text-gray-500 line-clamp-1">{b.description}</p>
                           )}
@@ -1735,7 +1776,7 @@ function HomePageContent() {
                     <img src={selectedStoryBusiness.image} alt={selectedStoryBusiness.name} loading="lazy" className="w-full h-full object-cover" />
                   </div>
                   <div className="drop-shadow-md">
-                    <h4 className="text-white text-sm font-bold leading-none">{selectedStoryBusiness.name}</h4>
+                    <h4 className="text-white text-sm font-bold leading-none">{formatBusinessName(selectedStoryBusiness.name)}</h4>
                     <p className="text-[10px] text-white/70">Hace un momento</p>
                   </div>
                 </Link>

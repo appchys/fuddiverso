@@ -580,3 +580,30 @@ export function getStoreOpeningLabel(business: Business | null): string {
     }
 }
 
+/**
+ * Sanitiza y formatea el nombre de un negocio:
+ * 1. Elimina emojis y caracteres pictográficos.
+ * 2. Formatea a Title Case ("Dulce Paladar" en lugar de "DULCE PALADAR").
+ */
+export function formatBusinessName(name?: string): string {
+  if (!name) return ''
+  
+  // Eliminar emojis y caracteres especiales pictográficos compatibles con ES5/ES6
+  const emojiRegex = /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDDFF]|[\uFE00-\uFE0F\u200D\u200B])/g
+  let cleaned = name.replace(emojiRegex, '')
+  
+  // Limpiar espacios múltiples y bordes
+  cleaned = cleaned.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return name.trim()
+
+  // Convertir a Title Case palabra por palabra
+  return cleaned
+    .split(' ')
+    .map(word => {
+      if (!word) return ''
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    })
+    .join(' ')
+}
+
+

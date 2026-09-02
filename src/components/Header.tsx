@@ -180,7 +180,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
 
   const reservedRoutes = [
     'checkout', 'profile', 'my-orders', 'my-locations',
-    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business', 'tiendas', 'pedidos', 'tma'
+    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business', 'tiendas', 'pedidos', 'tma', 'fuddies'
   ]
   const pathSegments = pathname.split('/').filter(Boolean)
   const isStorePage = pathSegments.length === 1 && !reservedRoutes.includes(pathSegments[0])
@@ -296,7 +296,22 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     loadCategories()
   }, [])
 
+  const isFuddiesPage = pathname === '/fuddies'
+  const isHomePage = pathname === '/'
+  const isSearchablePage = isHomePage || isFuddiesPage
+
+  const handleSearchChange = (val: string) => {
+    setSearchTerm(val)
+    if (isFuddiesPage) {
+      window.dispatchEvent(new CustomEvent('fuddies-search', { detail: val }))
+    }
+  }
+
   const handleSearch = () => {
+    if (isFuddiesPage) {
+      window.dispatchEvent(new CustomEvent('fuddies-search', { detail: searchTerm }))
+      return
+    }
     if (searchTerm.trim() || selectedCategory !== 'all') {
       const params = new URLSearchParams()
       if (searchTerm.trim()) params.set('search', searchTerm)
@@ -358,7 +373,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
             </div>
 
             {/* Barra de búsqueda - Desktop & Mobile Expanded */}
-            {pathname === '/' && (
+            {isSearchablePage && (
               <>
                 {/* Desktop static search */}
                 <div className="flex-1 max-w-2xl mx-4 hidden md:block" suppressHydrationWarning>
@@ -369,24 +384,26 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                       </svg>
                       <input
                         type="text"
-                        placeholder="Buscar restaurantes o comida..."
+                        placeholder={isFuddiesPage ? "Buscar plato, restaurante u opinión en Fuddies..." : "Buscar restaurantes o comida..."}
                         value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        onChange={(e) => handleSearchChange(e.target.value)}
                         onKeyPress={handleKeyPress}
                         className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
                       />
                     </div>
-                    <select
-                      value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="px-3 py-2 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm min-w-[120px]"
-                    >
-                      {categories.map(category => (
-                        <option key={category} value={category}>
-                          {category === 'all' ? 'Todas' : category}
-                        </option>
-                      ))}
-                    </select>
+                    {!isFuddiesPage && (
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm min-w-[120px]"
+                      >
+                        {categories.map(category => (
+                          <option key={category} value={category}>
+                            {category === 'all' ? 'Todas' : category}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <button
                       onClick={handleSearch}
                       className="bg-orange-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-orange-600 transition-colors text-sm"
@@ -410,27 +427,30 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         <input
                           autoFocus
                           type="text"
-                          placeholder="Buscar..."
+                          placeholder={isFuddiesPage ? "Buscar en Fuddies..." : "Buscar..."}
                           value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
+                          onChange={(e) => handleSearchChange(e.target.value)}
                           onKeyPress={handleKeyPress}
                           className="w-full bg-transparent pl-3 py-2 text-sm text-gray-900 focus:outline-none placeholder:text-gray-400"
                         />
                       </div>
                       
-                      <div className="w-[1px] h-6 bg-gray-200 flex-shrink-0"></div>
-                      
-                      <select
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
-                        className="bg-transparent px-1 py-1 text-gray-600 focus:outline-none text-[10px] font-bold uppercase tracking-tighter w-20 flex-shrink-0"
-                      >
-                        {categories.map(category => (
-                          <option key={category} value={category}>
-                            {category === 'all' ? 'TODO' : category.toUpperCase()}
-                          </option>
-                        ))}
-                      </select>
+                      {!isFuddiesPage && (
+                        <>
+                          <div className="w-[1px] h-6 bg-gray-200 flex-shrink-0"></div>
+                          <select
+                            value={selectedCategory}
+                            onChange={(e) => setSelectedCategory(e.target.value)}
+                            className="bg-transparent px-1 py-1 text-gray-600 focus:outline-none text-[10px] font-bold uppercase tracking-tighter w-20 flex-shrink-0"
+                          >
+                            {categories.map(category => (
+                              <option key={category} value={category}>
+                                {category === 'all' ? 'TODO' : category.toUpperCase()}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      )}
                       
                       <button
                         onClick={() => {
@@ -450,7 +470,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
             {/* User Profile */}
             <div className="flex items-center space-x-4">
               {/* Botón de búsqueda móvil */}
-              {pathname === '/' && (
+              {isSearchablePage && (
                 <button
                   onClick={() => setShowMobileSearch(!showMobileSearch)}
                   className="md:hidden p-2 text-gray-600 hover:text-orange-600 transition-colors"

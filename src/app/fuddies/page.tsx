@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import {
@@ -9,8 +9,11 @@ import {
   toggleRatingLike,
   addStoreRatingReply,
   searchClientByPhone,
-  createClient
+  createClient,
+  createCommunityPost,
+  uploadImage
 } from '@/lib/database'
+import { Product, Business } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import { formatRelativeTime } from '@/lib/date-utils'
@@ -30,10 +33,15 @@ import {
   Check,
   Store,
   ChevronRight,
-  Star
+  Star,
+  Plus,
+  Tag,
+  Send,
+  SlidersHorizontal
 } from 'lucide-react'
 
 const ProductDetailSidebar = dynamic(() => import('@/components/ProductDetailSidebar'), { ssr: false })
+const TagProductModal = dynamic(() => import('@/components/TagProductModal'), { ssr: false })
 
 type FilterType = 'all' | 'with_photo' | 'top_rated' | 'most_replied'
 
@@ -44,6 +52,46 @@ export default function FuddiesPage() {
   const [loading, setLoading] = useState(true)
   const [activeFilter, setActiveFilter] = useState<FilterType>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false)
+  const filterPopoverRef = useRef<HTMLDivElement>(null)
+
+  // Estados del Formulario Inline de Publicación
+  const [postComment, setPostComment] = useState('')
+  const [postRating, setPostRating] = useState(5)
+  const [postHoverRating, setPostHoverRating] = useState<number | null>(null)
+  const [postSelectedFile, setPostSelectedFile] = useState<File | null>(null)
+  const [postImagePreview, setPostImagePreview] = useState<string | null>(null)
+  const [taggedProduct, setTaggedProduct] = useState<Product | null>(null)
+  const [taggedBusiness, setTaggedBusiness] = useState<Business | null>(null)
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false)
+  const [postGuestName, setPostGuestName] = useState('')
+  const [postGuestPhone, setPostGuestPhone] = useState('')
+  const [postError, setPostError] = useState('')
+  const [isSubmittingPost, setIsSubmittingPost] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Click outside para cerrar popover de filtros
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        filterPopoverRef.current &&
+        !filterPopoverRef.current.contains(e.target as Node)
+      ) {
+        setIsFilterPopoverOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Listener de búsqueda emitida desde el Header flotante principal
+  useEffect(() => {
+    const handleFuddiesSearchEvent = (e: any) => {
+      setSearchQuery(e.detail || '')
+    }
+    window.addEventListener('fuddies-search', handleFuddiesSearchEvent)
+    return () => window.removeEventListener('fuddies-search', handleFuddiesSearchEvent)
+  }, [])
 
   // Interacción social
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
@@ -68,6 +116,133 @@ export default function FuddiesPage() {
 
   // Notificación de copiado
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // Manejadores de foto inline
+  const handlePostImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPostSelectedFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setPostImagePreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleRemovePostImage = () => {
+    setPostSelectedFile(null)
+    setPostImagePreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Manejador de selección de producto etiquetado desde el modal
+  const handleSelectTaggedProduct = (product: Product, business?: Business) => {
+    setTaggedProduct(product)
+    setTaggedBusiness(business || null)
+  }
+
+  // Enviar publicación inline
+  const handleSubmitInlinePost = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPostError('')
+
+    if (!postComment.trim() && !postSelectedFile && !taggedProduct) {
+      setPostError('Escribe una opinión, sube una foto o etiqueta un plato')
+      return
+    }
+
+    let authorName = user?.nombres?.trim() || postGuestName.trim()
+    let authorPhone = user?.celular?.trim() || postGuestPhone.trim()
+
+    if (!user) {
+      if (!authorName) {
+        setPostError('Ingresa tu nombre')
+        return
+      }
+      if (!authorPhone) {
+        setPostError('Ingresa tu celular')
+        return
+      }
+      const normalizedPhone = normalizeEcuadorianPhone(authorPhone)
+      if (!validateEcuadorianPhone(normalizedPhone)) {
+        setPostError('Ingresa un número de celular válido de 10 dígitos')
+        return
+      }
+      authorPhone = normalizedPhone
+    }
+
+    const targetBusinessId = taggedProduct?.businessId || taggedBusiness?.id || ''
+    if (!targetBusinessId) {
+      setPostError('Por favor etiqueta el plato o restaurante correspondiente')
+      return
+    }
+
+    setIsSubmittingPost(true)
+    try {
+      if (!user && authorPhone) {
+        try {
+          let client = await searchClientByPhone(authorPhone)
+          if (client) {
+            login(client)
+          } else {
+            const newClient = await createClient({
+              celular: authorPhone,
+              nombres: authorName,
+              fecha_de_registro: new Date().toISOString()
+            })
+            if (newClient) login(newClient)
+          }
+        } catch (authErr) {
+          console.error('Error authenticating guest client:', authErr)
+        }
+      }
+
+      let uploadedImageUrl = ''
+      if (postSelectedFile) {
+        const filePath = `ratings/${targetBusinessId}_${Date.now()}`
+        uploadedImageUrl = await uploadImage(postSelectedFile, filePath)
+      }
+
+      const newReview = await createCommunityPost({
+        businessId: targetBusinessId,
+        rating: postRating,
+        comment: postComment.trim(),
+        image: uploadedImageUrl,
+        clientName: authorName,
+        clientPhone: authorPhone,
+        clientPhotoURL: (user as any)?.photoURL || (user as any)?.clientPhotoUrl || '',
+        product: taggedProduct
+          ? {
+              id: taggedProduct.id,
+              name: taggedProduct.name,
+              image: taggedProduct.image || '',
+              price: taggedProduct.price || 0,
+              slug: taggedProduct.slug || taggedProduct.id
+            }
+          : undefined
+      })
+
+      setReviews((prev) => [newReview, ...prev])
+      setToastMessage('¡Publicación compartida!')
+      setTimeout(() => setToastMessage(null), 2500)
+
+      // Reset formulario inline
+      setPostComment('')
+      setPostRating(5)
+      setPostHoverRating(null)
+      setPostSelectedFile(null)
+      setPostImagePreview(null)
+      setTaggedProduct(null)
+      setTaggedBusiness(null)
+      setPostError('')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (err) {
+      console.error('Error submitting inline post:', err)
+      setPostError('Ocurrió un error al publicar. Intenta nuevamente.')
+    } finally {
+      setIsSubmittingPost(false)
+    }
+  }
 
   useEffect(() => {
     let isMounted = true
@@ -340,109 +515,315 @@ export default function FuddiesPage() {
         </div>
       )}
 
-      {/* Header Social */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)]">
-        <div className="max-w-xl mx-auto px-4 py-3.5">
+      {/* Contenido Principal */}
+      <main className="max-w-xl mx-auto px-4 pt-4 space-y-4">
+        {/* Formulario Inline de Publicación */}
+        <form
+          onSubmit={handleSubmitInlinePost}
+          className="bg-white rounded-3xl p-4 sm:p-5 border border-gray-100 shadow-sm space-y-3.5"
+        >
+          {/* Cabecera inline: Avatar / Nombre + Selector de Calificación */}
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#aa1918] to-red-500 text-white flex items-center justify-center shadow-md shadow-red-500/20">
-                <i className="bi bi-people-fill text-xl"></i>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-red-50 text-[#aa1918] flex items-center justify-center font-black text-xs overflow-hidden border border-red-100 flex-shrink-0">
+                {(user as any)?.photoURL || (user as any)?.clientPhotoUrl ? (
+                  <img
+                    src={(user as any).photoURL || (user as any).clientPhotoUrl}
+                    alt={user?.nombres || 'Usuario'}
+                    className="w-full h-full object-cover"
+                  />
+                ) : user?.nombres ? (
+                  <span>{user.nombres.charAt(0).toUpperCase()}</span>
+                ) : (
+                  <span>F</span>
+                )}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg font-black text-gray-900 tracking-tight leading-none">
-                    Fuddies
-                  </h1>
-                  <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
-                    Social
-                  </span>
-                </div>
-                <p className="text-[11px] font-medium text-gray-500 mt-0.5">
-                  Opiniones y experiencias de la comunidad
-                </p>
-              </div>
+              <span className="text-xs font-black text-gray-900 truncate">
+                {user?.nombres || 'Comparte tu experiencia'}
+              </span>
             </div>
 
-            <Link
-              href="/"
-              className="text-xs font-bold text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200/80 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1"
-            >
-              <Store size={14} />
-              <span className="hidden sm:inline">Tiendas</span>
-            </Link>
+            {/* Selector de Estrellas */}
+            <div className="flex items-center gap-0.5 bg-gray-50 px-2 py-1 rounded-xl border border-gray-100 flex-shrink-0">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setPostRating(star)}
+                  onMouseEnter={() => setPostHoverRating(star)}
+                  onMouseLeave={() => setPostHoverRating(null)}
+                  className="p-0.5 transition-transform active:scale-90"
+                >
+                  <Star
+                    size={16}
+                    className={`transition-colors ${
+                      (postHoverRating !== null ? star <= postHoverRating : star <= postRating)
+                        ? 'fill-amber-400 text-amber-400'
+                        : 'text-gray-200'
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Buscador */}
-          <div className="mt-3 relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por plato, restaurante u opinión..."
-              className="w-full bg-gray-50/90 border border-gray-200/80 rounded-2xl pl-10 pr-4 py-2 text-xs text-gray-900 font-medium placeholder:text-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
-            />
-            {searchQuery && (
+          {/* Textarea del Comentario */}
+          <textarea
+            value={postComment}
+            onChange={(e) => setPostComment(e.target.value)}
+            placeholder="¿Qué probaste? Comparte tu opinión..."
+            rows={2}
+            className="w-full bg-gray-50/80 border border-gray-200/80 rounded-2xl p-3 text-xs sm:text-sm font-medium text-gray-900 placeholder:text-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all resize-none"
+          />
+
+          {/* Tarjeta de Producto Etiquetado */}
+          {taggedProduct && (
+            <div className="flex items-center justify-between gap-3 bg-red-50/60 border border-red-100 p-2.5 rounded-2xl animate-in fade-in duration-150">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-white border border-red-100 overflow-hidden flex-shrink-0 flex items-center justify-center shadow-xs">
+                  {taggedProduct.image ? (
+                    <img
+                      src={taggedProduct.image}
+                      alt={taggedProduct.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <ShoppingBag size={16} className="text-red-400" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-gray-900 truncate">
+                    {taggedProduct.name}
+                  </p>
+                  <p className="text-[10px] font-medium text-gray-500 truncate">
+                    {taggedBusiness?.name || 'Tienda'}
+                    {taggedProduct.price ? ` • ${formatPrice(taggedProduct.price)}` : ''}
+                  </p>
+                </div>
+              </div>
               <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
+                type="button"
+                onClick={() => {
+                  setTaggedProduct(null)
+                  setTaggedBusiness(null)
+                }}
+                className="w-7 h-7 rounded-full bg-white hover:bg-red-100 text-red-500 flex items-center justify-center border border-red-100 transition-colors flex-shrink-0"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
+
+          {/* Previsualización de Foto Adjunta */}
+          {postImagePreview && (
+            <div className="relative rounded-2xl overflow-hidden border border-gray-100 bg-gray-50 max-h-48 flex items-center justify-center animate-in fade-in duration-150">
+              <img
+                src={postImagePreview}
+                alt="Vista previa"
+                className="w-full h-48 object-cover"
+              />
+              <button
+                type="button"
+                onClick={handleRemovePostImage}
+                className="absolute top-2 right-2 w-7 h-7 bg-black/70 hover:bg-black text-white rounded-full flex items-center justify-center transition-colors shadow-md"
               >
                 <X size={14} />
               </button>
+            </div>
+          )}
+
+          {/* Datos de Invitado si no está logueado */}
+          {!user && (
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100">
+              <input
+                type="text"
+                value={postGuestName}
+                onChange={(e) => setPostGuestName(e.target.value)}
+                placeholder="Tu nombre"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+              <input
+                type="tel"
+                value={postGuestPhone}
+                onChange={(e) => setPostGuestPhone(e.target.value)}
+                placeholder="Celular (ej: 0991234567)"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+          )}
+
+          {/* Mensaje de Error */}
+          {postError && (
+            <p className="text-[11px] font-bold text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-100">
+              {postError}
+            </p>
+          )}
+
+          {/* Barra de Acciones: Adjuntar Foto + Etiquetar Producto + Botón Publicar */}
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-50">
+            <div className="flex items-center gap-1.5">
+              {/* Botón Foto */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePostImageChange}
+                className="hidden"
+                id="inline-post-photo"
+              />
+              <label
+                htmlFor="inline-post-photo"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl cursor-pointer text-xs font-bold transition-all ${
+                  postImagePreview
+                    ? 'bg-red-50 text-[#aa1918] border border-red-100'
+                    : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-100'
+                }`}
+              >
+                <Camera size={14} />
+                <span>Foto</span>
+              </label>
+
+              {/* Botón Etiquetar Producto (Abre el Modal) */}
+              <button
+                type="button"
+                onClick={() => setIsTagModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  taggedProduct
+                    ? 'bg-red-50 text-[#aa1918] border border-red-100'
+                    : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-100'
+                }`}
+              >
+                <Tag size={14} />
+                <span>{taggedProduct ? 'Etiquetado' : 'Etiquetar'}</span>
+              </button>
+            </div>
+
+            {/* Botón Publicar */}
+            <button
+              type="submit"
+              disabled={isSubmittingPost || (!postComment.trim() && !postSelectedFile && !taggedProduct)}
+              className="px-4 py-1.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 flex-shrink-0"
+            >
+              {isSubmittingPost ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <span>Publicar</span>
+              )}
+            </button>
+          </div>
+        </form>
+        {/* Feed de Publicaciones y Filtros */}
+        <div className="flex items-center justify-between px-1 pt-1">
+          <p className="text-xs font-black text-gray-900 tracking-tight">
+            Comunidad {searchQuery && <span className="font-normal text-gray-400">&bull; &ldquo;{searchQuery}&rdquo;</span>}
+          </p>
+
+          <div className="relative" ref={filterPopoverRef}>
+            <button
+              type="button"
+              onClick={() => setIsFilterPopoverOpen(!isFilterPopoverOpen)}
+              className={`relative px-2.5 py-1 rounded-xl border text-[11px] font-bold transition-all flex items-center gap-1.5 ${
+                activeFilter !== 'all' || isFilterPopoverOpen
+                  ? 'bg-gray-900 text-white border-gray-900 shadow-xs'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200/70 shadow-xs'
+              }`}
+              title="Filtros"
+            >
+              <SlidersHorizontal size={12} />
+              <span>
+                {activeFilter === 'all'
+                  ? 'Filtros'
+                  : activeFilter === 'with_photo'
+                  ? 'Con fotos'
+                  : activeFilter === 'top_rated'
+                  ? '5 estrellas'
+                  : 'Comentados'}
+              </span>
+              {activeFilter !== 'all' && (
+                <span className="w-1.5 h-1.5 bg-[#aa1918] rounded-full" />
+              )}
+            </button>
+
+            {/* Popover de Filtros */}
+            {isFilterPopoverOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 p-1.5 z-30 space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFilter('all')
+                    setIsFilterPopoverOpen(false)
+                  }}
+                  className={`w-full px-2.5 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-colors ${
+                    activeFilter === 'all'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>Todos</span>
+                  {activeFilter === 'all' && <Check size={13} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFilter('with_photo')
+                    setIsFilterPopoverOpen(false)
+                  }}
+                  className={`w-full px-2.5 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-colors ${
+                    activeFilter === 'with_photo'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Camera size={13} />
+                    <span>Con fotos</span>
+                  </div>
+                  {activeFilter === 'with_photo' && <Check size={13} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFilter('top_rated')
+                    setIsFilterPopoverOpen(false)
+                  }}
+                  className={`w-full px-2.5 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-colors ${
+                    activeFilter === 'top_rated'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Star size={13} className={activeFilter === 'top_rated' ? 'fill-white text-white' : 'fill-amber-400 text-amber-400'} />
+                    <span>5 estrellas</span>
+                  </div>
+                  {activeFilter === 'top_rated' && <Check size={13} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFilter('most_replied')
+                    setIsFilterPopoverOpen(false)
+                  }}
+                  className={`w-full px-2.5 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-colors ${
+                    activeFilter === 'most_replied'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <MessageSquare size={13} />
+                    <span>Comentados</span>
+                  </div>
+                  {activeFilter === 'most_replied' && <Check size={13} />}
+                </button>
+              </div>
             )}
           </div>
-
-          {/* Filtros de Navegación */}
-          <div className="flex items-center gap-2 mt-2.5 overflow-x-auto no-scrollbar pb-0.5">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex-shrink-0 ${
-                activeFilter === 'all'
-                  ? 'bg-gray-900 text-white shadow-sm'
-                  : 'bg-gray-100/90 text-gray-600 hover:bg-gray-200/80'
-              }`}
-            >
-              Todos
-            </button>
-            <button
-              onClick={() => setActiveFilter('with_photo')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex-shrink-0 flex items-center gap-1.5 ${
-                activeFilter === 'with_photo'
-                  ? 'bg-gray-900 text-white shadow-sm'
-                  : 'bg-gray-100/90 text-gray-600 hover:bg-gray-200/80'
-              }`}
-            >
-              <Camera size={13} />
-              <span>Con fotos</span>
-            </button>
-            <button
-              onClick={() => setActiveFilter('top_rated')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex-shrink-0 flex items-center gap-1.5 ${
-                activeFilter === 'top_rated'
-                  ? 'bg-gray-900 text-white shadow-sm'
-                  : 'bg-gray-100/90 text-gray-600 hover:bg-gray-200/80'
-              }`}
-            >
-              <Star size={13} className="fill-amber-400 text-amber-400" />
-              <span>5 estrellas</span>
-            </button>
-            <button
-              onClick={() => setActiveFilter('most_replied')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex-shrink-0 flex items-center gap-1.5 ${
-                activeFilter === 'most_replied'
-                  ? 'bg-gray-900 text-white shadow-sm'
-                  : 'bg-gray-100/90 text-gray-600 hover:bg-gray-200/80'
-              }`}
-            >
-              <MessageSquare size={13} />
-              <span>Comentados</span>
-            </button>
-          </div>
         </div>
-      </header>
 
-      {/* Contenido Principal */}
-      <main className="max-w-xl mx-auto px-4 pt-4 space-y-4">
         {loading ? (
           /* Skeletons de carga */
           <div className="space-y-4">
@@ -468,7 +849,8 @@ export default function FuddiesPage() {
           </div>
         ) : filteredReviews.length > 0 ? (
           /* Lista de Opiniones */
-          filteredReviews.map((item) => {
+          filteredReviews.map((item, index) => {
+            const cardKey = item.id ? `${item.id}_${index}` : `${item.businessId}_${item.ratingDocId}_${index}`
             const isSelected = activeCardId === item.id
             const likes = item.likes || []
             const isLiked = effectiveUserIdentifier ? likes.includes(effectiveUserIdentifier) : false
@@ -477,7 +859,7 @@ export default function FuddiesPage() {
 
             return (
               <article
-                key={item.id}
+                key={cardKey}
                 onClick={() => setActiveCardId(isSelected ? null : item.id)}
                 className={`bg-white rounded-3xl p-4 sm:p-5 border transition-all cursor-pointer space-y-3.5 ${
                   isSelected
@@ -868,6 +1250,14 @@ export default function FuddiesPage() {
           onProductSelect={(prod) => setSelectedProduct(prod)}
         />
       )}
+
+      {/* Modal para Etiquetar Producto */}
+      <TagProductModal
+        isOpen={isTagModalOpen}
+        onClose={() => setIsTagModalOpen(false)}
+        onSelectProduct={handleSelectTaggedProduct}
+        selectedProductId={taggedProduct?.id}
+      />
     </div>
   )
 }

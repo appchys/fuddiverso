@@ -5343,6 +5343,105 @@ export async function deleteStoreRating(
   }
 }
 
+/**
+ * Create a community review/post directly from Fuddies social feed
+ */
+export async function createCommunityPost(params: {
+  businessId: string;
+  rating: number;
+  comment?: string;
+  image?: string;
+  clientName: string;
+  clientPhone: string;
+  clientEmail?: string;
+  clientPhotoURL?: string;
+  product?: {
+    id: string;
+    name: string;
+    image?: string;
+    price?: number;
+    slug?: string;
+  };
+}): Promise<GlobalProductReviewItem> {
+  try {
+    const ratingsRef = collection(db, 'businesses', params.businessId, 'ratings');
+    
+    let productRatings: ProductRating[] | undefined = undefined;
+    if (params.product) {
+      productRatings = [
+        {
+          productId: params.product.id,
+          productName: params.product.name,
+          productImage: params.product.image || '',
+          rating: params.rating,
+          comment: params.comment || '',
+          image: params.image || '',
+        }
+      ];
+    }
+
+    const ratingData: any = {
+      businessId: params.businessId,
+      rating: params.rating,
+      comment: params.comment || '',
+      image: params.image || '',
+      clientName: params.clientName || 'Cliente',
+      clientPhone: params.clientPhone || '',
+      clientEmail: params.clientEmail || '',
+      clientPhotoURL: params.clientPhotoURL || '',
+      likes: [],
+      replies: [],
+      userAgent: typeof window !== 'undefined' ? navigator.userAgent : '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    if (productRatings) {
+      ratingData.productRatings = productRatings;
+    }
+
+    const docRef = await addDoc(ratingsRef, ratingData);
+
+    // Update business rating stats
+    updateBusinessRatingStats(params.businessId).catch((err) => {
+      console.error('Error updating business rating stats:', err);
+    });
+
+    const business = await getBusiness(params.businessId);
+
+    const newReview: GlobalProductReviewItem = {
+      id: params.product ? `${params.businessId}_${docRef.id}_${params.product.id}` : `${params.businessId}_${docRef.id}`,
+      ratingDocId: docRef.id,
+      businessId: params.businessId,
+      businessName: business?.name || 'Tienda',
+      businessUsername: business?.username || params.businessId,
+      businessLogo: business?.image || '',
+      businessIsVerified: (business as any)?.isVerified,
+      productId: params.product?.id,
+      productName: params.product?.name,
+      productImage: params.product?.image || (params.product ? params.image : ''),
+      productPrice: params.product?.price,
+      productSlug: params.product?.slug || params.product?.id,
+      clientName: params.clientName,
+      clientPhone: params.clientPhone,
+      clientPhotoURL: params.clientPhotoURL,
+      rating: params.rating,
+      comment: params.comment || '',
+      image: params.image || '',
+      createdAt: new Date(),
+      replies: [],
+      likes: [],
+      product: params.product as any,
+      business: business || undefined,
+    };
+
+    return newReview;
+  } catch (error) {
+    console.error('Error creating community post:', error);
+    throw error;
+  }
+}
+
 export async function updateStoreRatingById(
   businessId: string,
   ratingId: string,
@@ -5515,7 +5614,7 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
           if (pr && (pr.rating > 0 || (pr.comment && pr.comment.trim()) || pr.image)) {
             const product = pr.productId ? productMap.get(pr.productId) : undefined;
             globalReviews.push({
-              id: `${id}_${pr.productId || index}`,
+              id: `${businessId}_${id}_${pr.productId || index}`,
               ratingDocId: id,
               businessId,
               businessName: business?.name || 'Tienda',
@@ -5544,7 +5643,7 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
         });
       } else if (data.rating > 0 || (data.comment && data.comment.trim()) || data.image) {
         globalReviews.push({
-          id,
+          id: `${businessId}_${id}`,
           ratingDocId: id,
           businessId,
           businessName: business?.name || 'Tienda',
@@ -5572,7 +5671,17 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
       return timeB - timeA;
     });
 
-    return globalReviews.slice(0, limitCount);
+    // Deduplicar para garantizar keys únicas
+    const uniqueReviews: GlobalProductReviewItem[] = [];
+    const seenIds = new Set<string>();
+    for (const rev of globalReviews) {
+      if (!seenIds.has(rev.id)) {
+        seenIds.add(rev.id);
+        uniqueReviews.push(rev);
+      }
+    }
+
+    return uniqueReviews.slice(0, limitCount);
   } catch (error) {
     console.error('Error fetching global product reviews:', error);
     return [];

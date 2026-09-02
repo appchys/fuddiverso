@@ -2,14 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { Flame, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, ArrowRight, Edit3, Info } from 'lucide-react'
+import { Flame, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, ArrowRight, Edit3, Info, Store } from 'lucide-react'
 import { getOrdersByClient, getBusiness, getUserReferrals, getAllUserCredits } from '@/lib/database'
 import OrderSidebar from '@/components/OrderSidebar'
 import { ClientRecommendationsSidebar } from '@/components/UserSidebar'
 import ReferralModal from '@/components/ReferralModal'
-import { useCallback } from 'react'
 
 function getPaymentBadgeConfig(paymentStatus?: string) {
   switch (paymentStatus) {
@@ -360,16 +359,16 @@ export default function BottomNavigation() {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex justify-around items-center h-16 px-2">
-          {/* INICIO */}
+          {/* TIENDAS */}
           <Link 
             href="/" 
             onClick={() => setActiveUrl('/')}
             className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${isActive('/', true) ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
           >
             <div className={`relative p-1 rounded-xl transition-all ${isActive('/', true) ? 'bg-red-50' : ''}`}>
-              <i className={`bi bi-house${isActive('/', true) ? '-door-fill' : '-door'} text-xl leading-none`}></i>
+              <Store size={20} strokeWidth={isActive('/', true) ? 2.5 : 1.5} />
             </div>
-            <span className="text-[10px] font-bold tracking-tight">Inicio</span>
+            <span className="text-[10px] font-bold tracking-tight">Tiendas</span>
           </Link>
           
           {/* FUDDIES - SOCIAL / OPINIONES */}
