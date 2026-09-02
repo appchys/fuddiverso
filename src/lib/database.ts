@@ -5028,11 +5028,20 @@ export async function saveStoreRating(
   clientInfo: { name?: string; phone?: string; email?: string; photoURL?: string; image?: string } = {}
 ): Promise<string> {
   try {
+    // Obtener datos del negocio para desnormalizar
+    const business = await getBusiness(businessId);
+    const denormalizedBiz = {
+      businessName: business?.name || 'Tienda',
+      businessUsername: business?.username || businessId,
+      businessLogo: business?.image || '',
+    };
+
     // If no phone, fallback to auto ID (shouldn't happen with current UI)
     if (!clientInfo.phone) {
       const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
       const ratingData: any = {
         businessId,
+        ...denormalizedBiz,
         rating,
         comment,
         image: clientInfo.image || '',
@@ -5057,6 +5066,7 @@ export async function saveStoreRating(
     
     const ratingData: any = {
       businessId,
+      ...denormalizedBiz,
       rating,
       comment,
       image: clientInfo.image || '',
@@ -5271,9 +5281,15 @@ export async function saveBusinessRating(
   productRatings?: ProductRating[]
 ): Promise<string> {
   try {
+    // Obtener datos del negocio para desnormalizar
+    const business = await getBusiness(businessId);
+
     const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
-    const ratingData: Omit<BusinessRating, 'id'> = {
+    const ratingData: Omit<BusinessRating, 'id'> & { businessName?: string; businessUsername?: string; businessLogo?: string } = {
       businessId,
+      businessName: business?.name || 'Tienda',
+      businessUsername: business?.username || businessId,
+      businessLogo: business?.image || '',
       orderId,
       rating,
       comment,
@@ -5380,8 +5396,14 @@ export async function createCommunityPost(params: {
       ];
     }
 
+    // Obtener datos del negocio ANTES de crear el doc para desnormalizar
+    const business = await getBusiness(params.businessId);
+
     const ratingData: any = {
       businessId: params.businessId,
+      businessName: business?.name || 'Tienda',
+      businessUsername: business?.username || params.businessId,
+      businessLogo: business?.image || '',
       rating: params.rating,
       comment: params.comment || '',
       image: params.image || '',
@@ -5401,13 +5423,12 @@ export async function createCommunityPost(params: {
     }
 
     const docRef = await addDoc(ratingsRef, ratingData);
+    clearGlobalReviewsCache();
 
     // Update business rating stats
     updateBusinessRatingStats(params.businessId).catch((err) => {
       console.error('Error updating business rating stats:', err);
     });
-
-    const business = await getBusiness(params.businessId);
 
     const newReview: GlobalProductReviewItem = {
       id: params.product ? `${params.businessId}_${docRef.id}_${params.product.id}` : `${params.businessId}_${docRef.id}`,
@@ -5553,12 +5574,84 @@ export interface GlobalProductReviewItem {
   business?: Business;
 }
 
+export interface PaginatedGlobalReviews {
+  reviews: GlobalProductReviewItem[];
+  lastVisible: any;
+  hasMore: boolean;
+}
+
+let cachedFallbackReviews: GlobalProductReviewItem[] | null = null;
+let cachedFallbackTimestamp = 0;
+
+export function clearGlobalReviewsCache() {
+  cachedFallbackReviews = null;
+  cachedFallbackTimestamp = 0;
+}
+
+function parseReviewDoc(id: string, data: any, businessId: string): GlobalProductReviewItem[] {
+  const items: GlobalProductReviewItem[] = [];
+  const bizName = data.businessName || 'Tienda';
+  const bizUsername = data.businessUsername || businessId;
+  const bizLogo = data.businessLogo || '';
+  const clientName = data.clientName || 'Cliente';
+  const clientPhone = data.clientPhone || '';
+  const clientPhotoURL = data.clientPhotoURL || (data as any).clientPhotoUrl || (data as any).photoURL || (data as any).foto || (data as any).photo || '';
+  const replies = data.replies || [];
+  const likes = (data as any).likes || [];
+  const createdAt = data.createdAt;
+
+  if (data.productRatings && Array.isArray(data.productRatings) && data.productRatings.length > 0) {
+    data.productRatings.forEach((pr: any, index: number) => {
+      if (pr && (pr.rating > 0 || (pr.comment && pr.comment.trim()) || pr.image)) {
+        items.push({
+          id: `${businessId}_${id}_${pr.productId || index}`,
+          ratingDocId: id,
+          businessId,
+          businessName: bizName,
+          businessUsername: bizUsername,
+          businessLogo: bizLogo,
+          orderId: data.orderId || '',
+          productId: pr.productId,
+          productName: pr.productName || '',
+          productImage: pr.productImage || pr.image || '',
+          productSlug: pr.productId,
+          clientName,
+          clientPhone,
+          clientPhotoURL,
+          rating: pr.rating || data.rating || 5,
+          comment: pr.comment || '',
+          image: pr.image || (index === 0 ? data.image : '') || '',
+          createdAt,
+          replies,
+          likes,
+        });
+      }
+    });
+  } else if (data.rating > 0 || (data.comment && data.comment.trim()) || data.image) {
+    items.push({
+      id: `${businessId}_${id}`,
+      ratingDocId: id,
+      businessId,
+      businessName: bizName,
+      businessUsername: bizUsername,
+      businessLogo: bizLogo,
+      orderId: data.orderId || '',
+      clientName,
+      clientPhone,
+      clientPhotoURL,
+      rating: data.rating || 5,
+      comment: data.comment || '',
+      image: data.image || '',
+      createdAt,
+      replies,
+      likes,
+    });
+  }
+  return items;
+}
+
 export async function getGlobalProductReviews(limitCount: number = 60): Promise<GlobalProductReviewItem[]> {
   try {
-    const businesses = await getAllBusinesses();
-    const businessMap = new Map<string, Business>();
-    businesses.forEach((b) => businessMap.set(b.id, b));
-
     let reviewDocs: { id: string; data: any; businessId: string }[] = [];
 
     try {
@@ -5570,7 +5663,8 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
         reviewDocs.push({ id: docSnap.id, data, businessId });
       });
     } catch (cgError) {
-      // Fallback tienda por tienda en paralelo si collectionGroup no está habilitado o indexado en Firestore
+      // Fallback tienda por tienda si collectionGroup falla
+      const businesses = await getAllBusinesses();
       const promises = businesses.slice(0, 20).map(async (b) => {
         try {
           const ratingsRef = collection(db, 'businesses', b.id, 'ratings');
@@ -5586,83 +5680,9 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
       });
     }
 
-    const activeBizIds = Array.from(new Set(reviewDocs.map(r => r.businessId).filter(Boolean)));
-    let allProducts: Product[] = [];
-    if (activeBizIds.length > 0) {
-      try {
-        allProducts = await getProductsByBusinessesBatch(activeBizIds);
-      } catch (err) {
-        console.error('Error fetching batch products for global reviews:', err);
-      }
-    }
-    const productMap = new Map<string, Product>();
-    allProducts.forEach(p => productMap.set(p.id, p));
-
     const globalReviews: GlobalProductReviewItem[] = [];
-
     reviewDocs.forEach(({ id, data, businessId }) => {
-      const business = businessMap.get(businessId);
-      const clientName = data.clientName || 'Cliente';
-      const clientPhone = data.clientPhone || '';
-      const clientPhotoURL = data.clientPhotoURL || (data as any).clientPhotoUrl || (data as any).photoURL || (data as any).foto || (data as any).photo || '';
-      const replies = data.replies || [];
-      const likes = (data as any).likes || [];
-      const createdAt = data.createdAt;
-
-      if (data.productRatings && Array.isArray(data.productRatings) && data.productRatings.length > 0) {
-        data.productRatings.forEach((pr: any, index: number) => {
-          if (pr && (pr.rating > 0 || (pr.comment && pr.comment.trim()) || pr.image)) {
-            const product = pr.productId ? productMap.get(pr.productId) : undefined;
-            globalReviews.push({
-              id: `${businessId}_${id}_${pr.productId || index}`,
-              ratingDocId: id,
-              businessId,
-              businessName: business?.name || 'Tienda',
-              businessUsername: business?.username || businessId,
-              businessLogo: business?.image || '',
-              businessIsVerified: (business as any)?.isVerified,
-              orderId: data.orderId || '',
-              productId: pr.productId,
-              productName: pr.productName || product?.name || '',
-              productImage: pr.productImage || pr.image || product?.image || '',
-              productPrice: product?.price,
-              productSlug: product?.slug || pr.productId,
-              clientName,
-              clientPhone,
-              clientPhotoURL,
-              rating: pr.rating || data.rating || 5,
-              comment: pr.comment || '',
-              image: pr.image || (index === 0 ? data.image : '') || '',
-              createdAt,
-              replies,
-              likes,
-              product,
-              business
-            });
-          }
-        });
-      } else if (data.rating > 0 || (data.comment && data.comment.trim()) || data.image) {
-        globalReviews.push({
-          id: `${businessId}_${id}`,
-          ratingDocId: id,
-          businessId,
-          businessName: business?.name || 'Tienda',
-          businessUsername: business?.username || businessId,
-          businessLogo: business?.image || '',
-          businessIsVerified: (business as any)?.isVerified,
-          orderId: data.orderId || '',
-          clientName,
-          clientPhone,
-          clientPhotoURL,
-          rating: data.rating || 5,
-          comment: data.comment || '',
-          image: data.image || '',
-          createdAt,
-          replies,
-          likes,
-          business
-        });
-      }
+      globalReviews.push(...parseReviewDoc(id, data, businessId));
     });
 
     globalReviews.sort((a, b) => {
@@ -5685,6 +5705,112 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
   } catch (error) {
     console.error('Error fetching global product reviews:', error);
     return [];
+  }
+}
+
+/**
+ * Obtener publicaciones y calificaciones globales de forma paginada (cursor-based / infinite scroll)
+ */
+export async function getGlobalProductReviewsPaginated(
+  pageSize: number = 10,
+  lastCursor?: any
+): Promise<PaginatedGlobalReviews> {
+  try {
+    // 1. Intentar primero con collectionGroup y cursor nativo de Firestore
+    try {
+      let q = query(
+        collectionGroup(db, 'ratings'),
+        orderBy('createdAt', 'desc'),
+        limit(pageSize)
+      );
+
+      if (lastCursor && lastCursor.mode === 'cg' && lastCursor.docSnap) {
+        q = query(
+          collectionGroup(db, 'ratings'),
+          orderBy('createdAt', 'desc'),
+          startAfter(lastCursor.docSnap),
+          limit(pageSize)
+        );
+      }
+
+      const snapshot = await getDocs(q);
+      const items: GlobalProductReviewItem[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const businessId = data.businessId || docSnap.ref.parent.parent?.id || '';
+        items.push(...parseReviewDoc(docSnap.id, data, businessId));
+      });
+
+      const lastDocSnap = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+      const hasMore = snapshot.docs.length === pageSize;
+
+      return {
+        reviews: items,
+        lastVisible: lastDocSnap ? { mode: 'cg', docSnap: lastDocSnap } : null,
+        hasMore,
+      };
+    } catch (cgError) {
+      // 2. Fallback: Si collectionGroup no está disponible por reglas o índices, usar caché en memoria
+      const now = Date.now();
+      if (!cachedFallbackReviews || (now - cachedFallbackTimestamp > 60000)) {
+        const businesses = await getAllBusinesses();
+        const promises = businesses.slice(0, 30).map(async (b) => {
+          try {
+            const ratingsRef = collection(db, 'businesses', b.id, 'ratings');
+            const snap = await getDocs(query(ratingsRef, orderBy('createdAt', 'desc'), limit(30)));
+            return snap.docs.map((d) => ({ id: d.id, data: d.data(), businessId: b.id }));
+          } catch (e) {
+            return [];
+          }
+        });
+        const results = await Promise.all(promises);
+        const allFallbackItems: GlobalProductReviewItem[] = [];
+        results.forEach((arr) => {
+          arr.forEach((d) => {
+            allFallbackItems.push(...parseReviewDoc(d.id, d.data, d.businessId));
+          });
+        });
+
+        allFallbackItems.sort((a, b) => {
+          const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+          const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          return timeB - timeA;
+        });
+
+        const seen = new Set<string>();
+        const unique: GlobalProductReviewItem[] = [];
+        for (const item of allFallbackItems) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            unique.push(item);
+          }
+        }
+
+        cachedFallbackReviews = unique;
+        cachedFallbackTimestamp = now;
+      }
+
+      const currentOffset = (lastCursor && lastCursor.mode === 'fallback' && typeof lastCursor.offset === 'number')
+        ? lastCursor.offset
+        : 0;
+
+      const pageItems = cachedFallbackReviews.slice(currentOffset, currentOffset + pageSize);
+      const nextOffset = currentOffset + pageItems.length;
+      const hasMore = nextOffset < cachedFallbackReviews.length;
+
+      return {
+        reviews: pageItems,
+        lastVisible: { mode: 'fallback', offset: nextOffset },
+        hasMore,
+      };
+    }
+  } catch (error) {
+    console.error('Error fetching paginated global reviews:', error);
+    return {
+      reviews: [],
+      lastVisible: null,
+      hasMore: false,
+    };
   }
 }
 
@@ -5786,12 +5912,19 @@ export async function addProductRatingComment(
   rating: number,
   comment: string,
   clientInfo: { name?: string; phone?: string; photoURL?: string } = {},
-  imageUrl: string = ''
+  imageUrl: string = '',
+  productInfo: { name?: string; image?: string } = {}
 ): Promise<string> {
   try {
+    // Obtener datos del negocio para desnormalizar
+    const business = await getBusiness(businessId);
+
     const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
     const docRef = await addDoc(ratingsRef, {
       businessId,
+      businessName: business?.name || 'Tienda',
+      businessUsername: business?.username || businessId,
+      businessLogo: business?.image || '',
       rating,
       comment: '',
       image: imageUrl || '',
@@ -5804,6 +5937,8 @@ export async function addProductRatingComment(
       productRatings: [
         {
           productId,
+          productName: productInfo.name || '',
+          productImage: productInfo.image || '',
           rating,
           comment: comment.trim(),
           image: imageUrl || ''

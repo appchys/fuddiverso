@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import {
-  getGlobalProductReviews,
+  getGlobalProductReviewsPaginated,
   GlobalProductReviewItem,
   toggleRatingLike,
   addStoreRatingReply,
@@ -50,6 +50,11 @@ export default function FuddiesPage() {
 
   const [reviews, setReviews] = useState<GlobalProductReviewItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [cursor, setCursor] = useState<any>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const isFetchingMoreRef = useRef(false)
   const [activeFilter, setActiveFilter] = useState<FilterType>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false)
@@ -244,18 +249,21 @@ export default function FuddiesPage() {
     }
   }
 
+  // Carga inicial de los primeros 10 posts
   useEffect(() => {
     let isMounted = true
     setLoading(true)
-    getGlobalProductReviews(80)
-      .then((data) => {
+    getGlobalProductReviewsPaginated(10)
+      .then((result) => {
         if (isMounted) {
-          setReviews(data)
+          setReviews(result.reviews)
+          setCursor(result.lastVisible)
+          setHasMore(result.hasMore)
           setLoading(false)
         }
       })
       .catch((err) => {
-        console.error('Error loading global reviews:', err)
+        console.error('Error loading initial reviews:', err)
         if (isMounted) setLoading(false)
       })
 
@@ -263,6 +271,44 @@ export default function FuddiesPage() {
       isMounted = false
     }
   }, [])
+
+  // Cargar siguientes 10 posts al llegar al fondo
+  const handleLoadMore = useCallback(async () => {
+    if (isFetchingMoreRef.current || !hasMore || loading) return
+    isFetchingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const result = await getGlobalProductReviewsPaginated(10, cursor)
+      setReviews((prev) => {
+        const existingIds = new Set(prev.map((r) => r.id))
+        const newItems = result.reviews.filter((r) => !existingIds.has(r.id))
+        return [...prev, ...newItems]
+      })
+      setCursor(result.lastVisible)
+      setHasMore(result.hasMore)
+    } catch (err) {
+      console.error('Error loading more reviews:', err)
+    } finally {
+      setLoadingMore(false)
+      isFetchingMoreRef.current = false
+    }
+  }, [hasMore, loading, cursor])
+
+  // Observer para detectar scroll al fondo
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !loadingMore && !loading) {
+          handleLoadMore()
+        }
+      },
+      { threshold: 0.1, rootMargin: '250px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, loadingMore, loading, handleLoadMore])
 
   // Listener para cerrar visor de fotos con tecla Escape
   useEffect(() => {
@@ -849,7 +895,8 @@ export default function FuddiesPage() {
           </div>
         ) : filteredReviews.length > 0 ? (
           /* Lista de Opiniones */
-          filteredReviews.map((item, index) => {
+          <>
+            {filteredReviews.map((item, index) => {
             const cardKey = item.id ? `${item.id}_${index}` : `${item.businessId}_${item.ratingDocId}_${index}`
             const isSelected = activeCardId === item.id
             const likes = item.likes || []
@@ -867,57 +914,59 @@ export default function FuddiesPage() {
                     : 'border-gray-100 shadow-sm hover:border-gray-200 hover:shadow-md'
                 }`}
               >
-                {/* Cabecera: Tienda + Cliente */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {/* Avatar del Cliente */}
-                    <div className="w-8 h-8 rounded-full bg-amber-100/80 text-amber-800 font-black text-xs flex items-center justify-center border border-amber-200/60 flex-shrink-0 overflow-hidden">
-                      {item.clientPhotoURL ? (
-                        <img
-                          src={item.clientPhotoURL}
-                          alt={item.clientName || 'Cliente'}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            ;(e.target as HTMLElement).style.display = 'none'
-                          }}
-                        />
-                      ) : (
-                        <span>{item.clientName?.charAt(0)?.toUpperCase() || 'C'}</span>
-                      )}
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-xs font-black text-gray-900 leading-none truncate">
-                        {item.clientName || 'Cliente'}
-                      </p>
-                      <p className="text-[10px] text-gray-400 font-medium mt-0.5 truncate">
-                        <span>{item.createdAt ? formatRelativeTime(item.createdAt) : 'Reciente'}</span>
-                        <span className="mx-1 text-gray-300">•</span>
-                        <Link
-                          href={`/${item.businessUsername || item.businessId}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="font-bold text-gray-600 hover:text-[#aa1918] transition-colors"
-                        >
-                          {item.businessName || 'Tienda'}
-                        </Link>
-                      </p>
-                    </div>
+                {/* Cabecera: Usuario > Tienda / Fecha | Calificación */}
+                <div className="flex items-start gap-2.5">
+                  {/* Avatar del Cliente */}
+                  <div className="w-9 h-9 rounded-full bg-amber-100/80 text-amber-800 font-black text-xs flex items-center justify-center border border-amber-200/60 flex-shrink-0 overflow-hidden mt-0.5">
+                    {item.clientPhotoURL ? (
+                      <img
+                        src={item.clientPhotoURL}
+                        alt={item.clientName || 'Cliente'}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          ;(e.target as HTMLElement).style.display = 'none'
+                        }}
+                      />
+                    ) : (
+                      <span>{item.clientName?.charAt(0)?.toUpperCase() || 'C'}</span>
+                    )}
                   </div>
 
-                  {/* Calificación: 1 sola estrella con la puntuación */}
-                  <div className="flex items-center gap-1 flex-shrink-0 bg-amber-50/90 border border-amber-100/90 px-2.5 py-1 rounded-xl shadow-sm">
-                    <Star size={13} className="fill-amber-400 text-amber-400 flex-shrink-0" />
-                    <span className="text-xs font-black text-amber-950 leading-none">
-                      {typeof item.rating === 'number' && item.rating > 0 ? item.rating.toFixed(1) : '5.0'}
-                    </span>
+                  <div className="min-w-0 flex-1">
+                    {/* Línea 1: Nombre del usuario > Nombre de la tienda */}
+                    <p className="text-xs leading-tight truncate">
+                      <span className="font-black text-gray-900">{item.clientName || 'Cliente'}</span>
+                      <span className="mx-1.5 text-gray-300 font-medium">›</span>
+                      <Link
+                        href={`/${item.businessUsername || item.businessId}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-bold text-gray-600 hover:text-[#aa1918] transition-colors"
+                      >
+                        {item.businessName || 'Tienda'}
+                      </Link>
+                    </p>
+
+                    {/* Línea 2: Fecha de publicación | Calificación */}
+                    <div className="flex items-center gap-0 mt-1">
+                      <span className="text-[10px] text-gray-400 font-medium">
+                        {item.createdAt ? formatRelativeTime(item.createdAt) : 'Reciente'}
+                      </span>
+                      <span className="mx-1.5 text-gray-300 text-[10px]">|</span>
+                      <div className="flex items-center gap-0.5">
+                        <Star size={11} className="fill-amber-400 text-amber-400 flex-shrink-0" />
+                        <span className="text-[10px] font-black text-amber-700 leading-none">
+                          {typeof item.rating === 'number' && item.rating > 0 ? item.rating.toFixed(1) : '5.0'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Tarjeta del Producto Calificado (si aplica) */}
-                {item.productName && (
+                {/* Tarjeta del Producto Calificado (solo cuando NO hay imagen adjunta) */}
+                {!item.image && item.productName && (
                   <div
                     onClick={(e) => handleOpenProduct(item, e)}
-                    className="group bg-gray-50/80 hover:bg-gray-100/80 border border-gray-100 rounded-2xl p-2.5 flex items-center justify-between gap-3 transition-all"
+                    className="group bg-gray-50/80 hover:bg-gray-100/80 border border-gray-100 rounded-2xl p-2.5 flex items-center justify-between gap-3 transition-all cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-11 h-11 rounded-xl bg-white border border-gray-100 overflow-hidden flex-shrink-0 shadow-sm">
@@ -962,18 +1011,57 @@ export default function FuddiesPage() {
                   </p>
                 ) : null}
 
-                {/* Foto Adjunta (si existe) */}
+                {/* Foto Adjunta en Proporción 4:3 con Producto Etiquetado Superpuesto */}
                 {item.image && (
-                  <div className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 max-w-sm w-full">
+                  <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden bg-gray-100 group/img border border-gray-100">
                     <img
                       src={item.image}
                       alt="Foto de la opinión"
-                      className="w-full h-48 sm:h-56 object-cover hover:scale-[1.02] transition-transform duration-300 cursor-pointer"
+                      className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500 cursor-pointer"
                       onClick={(e) => {
                         e.stopPropagation()
                         setViewingPhotoUrl(item.image!)
                       }}
                     />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent pointer-events-none" />
+
+                    {/* Info del Producto/Tienda Superpuesta sobre la imagen (sin fondo) */}
+                    {(item.productName || item.businessName) && (
+                      <div className="absolute bottom-2.5 left-2.5 right-2.5 z-10">
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenProduct(item, e)}
+                          className="w-full text-left flex items-center justify-between gap-2 p-1 text-white group/chip cursor-pointer transition-opacity hover:opacity-90"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {item.productImage || item.businessLogo ? (
+                              <div className="w-7 h-7 rounded-lg overflow-hidden flex-shrink-0 border border-white/40 shadow-xs bg-white/20">
+                                <img
+                                  src={item.productImage || item.businessLogo}
+                                  alt={item.productName || item.businessName || 'Producto'}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-7 h-7 rounded-lg bg-red-600 text-white flex items-center justify-center text-xs flex-shrink-0 shadow-xs">
+                                <ShoppingBag size={14} />
+                              </div>
+                            )}
+                            <div className="min-w-0 drop-shadow-sm">
+                              <p className="text-xs font-bold text-white line-clamp-1 group-hover/chip:underline decoration-white/60 leading-none">
+                                {item.productName || (item.businessName ? item.businessName : 'Ver tienda')}
+                              </p>
+                              {item.productName && item.businessName && (
+                                <p className="text-[10px] font-medium text-white/90 line-clamp-1 mt-0.5">
+                                  en {item.businessName}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <ChevronRight size={15} className="text-white/90 group-hover/chip:translate-x-0.5 transition-transform drop-shadow-xs flex-shrink-0" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1116,8 +1204,26 @@ export default function FuddiesPage() {
                 )}
               </article>
             )
-          })
-        ) : (
+          })}
+
+          {/* Centinela y Loader de Scroll Infinito */}
+          {hasMore && (
+            <div
+              ref={sentinelRef}
+              className="py-5 flex items-center justify-center gap-2 text-xs font-bold text-gray-500 bg-white/60 backdrop-blur-xs rounded-2xl border border-gray-100 shadow-xs animate-in fade-in duration-200"
+            >
+              <Loader2 size={16} className="animate-spin text-amber-500" />
+              <span>Cargando más publicaciones...</span>
+            </div>
+          )}
+
+          {!hasMore && reviews.length > 0 && !searchQuery && (
+            <div className="py-6 text-center text-xs font-semibold text-gray-400">
+              <p>✨ ¡Estás al día con todas las publicaciones!</p>
+            </div>
+          )}
+        </>
+      ) : (
           /* Estado Vacío */
           <div className="py-16 text-center flex flex-col items-center justify-center bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
             <div className="w-14 h-14 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center text-2xl mb-3 border border-amber-100 shadow-inner">

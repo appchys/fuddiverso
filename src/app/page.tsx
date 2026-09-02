@@ -858,6 +858,37 @@ function HomePageContent() {
     }
   }
 
+  const handleReviewItemClick = (review: GlobalProductReviewItem, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const biz = review.business || businesses.find(b => b.id === review.businessId)
+    
+    // Si la reseña tiene un producto asociado, abrir el sidebar de detalle de producto
+    if (review.productId || review.product) {
+      const prod: Product = review.product || (review.productId && biz ? productsByBusiness[biz.id]?.find(p => p.id === review.productId) : null) || {
+        id: review.productId || '',
+        businessId: review.businessId,
+        name: review.productName || 'Producto',
+        price: review.productPrice || 0,
+        image: review.productImage || review.image || '',
+        slug: review.productSlug || '',
+        isAvailable: true,
+        description: ''
+      } as Product
+
+      handleProductClick(prod, biz)
+      return
+    }
+
+    // Si solo es tienda, navegar a la página de la tienda
+    const storeLink = review.businessUsername 
+      ? `/${review.businessUsername}` 
+      : (review.businessId ? `/restaurant/${review.businessId}` : '/fuddies')
+    
+    router.push(storeLink)
+  }
+
   const handleOpenStory = async (business: Business) => {
     setSelectedStoryBusiness(business)
     setIsStoryModalOpen(true)
@@ -1389,24 +1420,25 @@ function HomePageContent() {
 
                         {/* Foto si tiene con Chip del Producto SUPERPUESTO */}
                         {review.image ? (
-                          <div className="relative h-36 w-full rounded-2xl overflow-hidden mb-1 bg-gray-100 group/img">
+                          <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden mb-1 bg-gray-100 group/img">
                             <img
                               src={review.image}
                               alt="Foto de reseña"
                               loading="lazy"
                               className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500"
                             />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent pointer-events-none" />
                             
-                            {/* Chip del Producto Superpuesto sobre la imagen (Fondo transparente glassmorphism) */}
+                            {/* Info del Producto/Tienda Superpuesta sobre la imagen (sin fondo) */}
                             <div className="absolute bottom-2 left-2 right-2 z-10">
-                              <Link
-                                href={reviewLink}
-                                className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-black/25 hover:bg-black/40 backdrop-blur-md transition-all border border-white/20 text-white group/chip shadow-sm"
+                              <button
+                                type="button"
+                                onClick={(e) => handleReviewItemClick(review, e)}
+                                className="w-full text-left flex items-center justify-between gap-2 p-1 text-white group/chip cursor-pointer transition-opacity hover:opacity-90"
                               >
                                 <div className="flex items-center gap-2 min-w-0">
                                   {review.productImage || review.businessLogo ? (
-                                    <div className="w-6 h-6 rounded-lg overflow-hidden flex-shrink-0 bg-white/20 border border-white/30">
+                                    <div className="w-6 h-6 rounded-lg overflow-hidden flex-shrink-0 border border-white/40 shadow-xs">
                                       <img
                                         src={review.productImage || review.businessLogo}
                                         alt={review.productName || review.businessName || 'Producto'}
@@ -1414,23 +1446,23 @@ function HomePageContent() {
                                       />
                                     </div>
                                   ) : (
-                                    <div className="w-6 h-6 rounded-lg bg-red-600/70 text-white flex items-center justify-center text-xs flex-shrink-0">
+                                    <div className="w-6 h-6 rounded-lg bg-red-600 text-white flex items-center justify-center text-xs flex-shrink-0 shadow-xs">
                                       <i className="bi bi-shop"></i>
                                     </div>
                                   )}
-                                  <div className="min-w-0 drop-shadow-xs">
-                                    <p className="text-[11px] font-bold text-white line-clamp-1 group-hover/chip:text-red-200 transition-colors leading-none">
+                                  <div className="min-w-0 drop-shadow-sm">
+                                    <p className="text-[11px] font-bold text-white line-clamp-1 group-hover/chip:underline decoration-white/60 leading-none">
                                       {review.productName || (review.businessName ? formatBusinessName(review.businessName) : 'Ver tienda')}
                                     </p>
                                     {review.productName && review.businessName && (
-                                      <p className="text-[9px] font-medium text-white/80 line-clamp-1 mt-0.5">
+                                      <p className="text-[9px] font-medium text-white/90 line-clamp-1 mt-0.5">
                                         en {formatBusinessName(review.businessName)}
                                       </p>
                                     )}
                                   </div>
                                 </div>
-                                <i className="bi bi-chevron-right text-[10px] text-white/80 group-hover/chip:text-white group-hover/chip:translate-x-0.5 transition-all"></i>
-                              </Link>
+                                <i className="bi bi-chevron-right text-[11px] text-white/90 group-hover/chip:translate-x-0.5 transition-transform drop-shadow-xs"></i>
+                              </button>
                             </div>
                           </div>
                         ) : null}
@@ -1439,9 +1471,10 @@ function HomePageContent() {
                       {/* Chip del Producto / Tienda (solo cuando NO hay imagen) */}
                       {!review.image && (
                         <div className="pt-2 border-t border-gray-200/60 mt-auto">
-                          <Link
-                            href={reviewLink}
-                            className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white hover:bg-gray-100/80 transition-colors border border-gray-100 group"
+                          <button
+                            type="button"
+                            onClick={(e) => handleReviewItemClick(review, e)}
+                            className="w-full text-left flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white hover:bg-gray-100/80 transition-colors border border-gray-100 group cursor-pointer"
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               {review.productImage || review.businessLogo ? (
@@ -1469,7 +1502,7 @@ function HomePageContent() {
                               </div>
                             </div>
                             <i className="bi bi-chevron-right text-[10px] text-gray-400 group-hover:text-[#aa1918] group-hover:translate-x-0.5 transition-all"></i>
-                          </Link>
+                          </button>
                         </div>
                       )}
                     </div>

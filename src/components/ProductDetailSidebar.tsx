@@ -294,7 +294,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                 rating,
                 text,
                 { name: clientName, phone: clientPhone, photoURL: clientPhotoURL },
-                uploadedImageUrl
+                uploadedImageUrl,
+                { name: product.name, image: product.image }
             )
 
             // Actualización optimista inmediata
