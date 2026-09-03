@@ -55,6 +55,7 @@ import {
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
 import { logDebug } from './debug-log'
+import { resolveItemIngredients } from './stock-utils'
 
 const NEW_BUSINESS_DEFAULT_COMMISSION_RATE = 10
 const NEW_BUSINESS_DEFAULT_COMMISSION_TYPE = 'fuddi_assumed_by_customer' as const
@@ -1484,6 +1485,68 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       }
     }
 
+    // Snapshot Pattern: Asegurar que cada item tenga su productId, comboSelection e ingredientes resueltos
+    if (Array.isArray(standardizedOrder.items)) {
+      const itemsNeedingResolution = standardizedOrder.items.filter((it: any) => 
+        !Array.isArray(it.ingredients) || it.ingredients.length === 0
+      )
+      
+      const productsMap = new Map<string, Product>()
+      let businessObj: any = null
+
+      if (itemsNeedingResolution.length > 0) {
+        const hasPremioAuto = itemsNeedingResolution.some((it: any) =>
+          it.id === 'premio-especial-auto' || it.productId === 'premio-especial-auto' || it.esPremio
+        )
+
+        if (hasPremioAuto && standardizedOrder.businessId) {
+          try {
+            businessObj = await getBusiness(standardizedOrder.businessId)
+          } catch (e) {
+            console.error('[createOrder] Error fetching business for reward settings snapshot:', e)
+          }
+        }
+
+        const productIds = Array.from(new Set(
+          itemsNeedingResolution.map((it: any) => {
+            const rawId = it.productId || it.product?.id || it.id || ''
+            return (typeof rawId === 'string' && rawId.includes('-combo-'))
+              ? rawId.split('-combo-')[0]
+              : rawId
+          }).filter((id: any) => id && id !== 'premio-especial-auto')
+        )) as string[]
+
+        if (productIds.length > 0) {
+          try {
+            const fetched = await getProductsByIds(productIds)
+            fetched.forEach(p => productsMap.set(p.id, p))
+          } catch (e) {
+            console.error('[createOrder] Error fetching products for ingredients snapshot:', e)
+          }
+        }
+      }
+
+      standardizedOrder.items = standardizedOrder.items.map((item: any) => {
+        const rawId = item.productId || item.product?.id || item.id || ''
+        const prodId = (typeof rawId === 'string' && rawId.includes('-combo-'))
+          ? rawId.split('-combo-')[0]
+          : rawId
+        const product = productsMap.get(prodId) || item.product
+
+        const resolvedIngs = (Array.isArray(item.ingredients) && item.ingredients.length > 0)
+          ? item.ingredients
+          : resolveItemIngredients(item, product, businessObj?.rewardSettings)
+
+        return {
+          ...item,
+          productId: prodId || '',
+          ingredients: resolvedIngs || [],
+          ...(item.esPremio !== undefined ? { esPremio: item.esPremio } : (item.id === 'premio-especial-auto' ? { esPremio: true } : {})),
+          ...(item.comboSelection ? { comboSelection: item.comboSelection } : {})
+        }
+      })
+    }
+
     // Log para debugging
     if (process.env.NODE_ENV === 'development') {
       console.log('[Database] Saving order to Firestore:', {
@@ -1538,15 +1601,14 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
 
     // 3. REGISTRO AUTOMÁTICO DE CONSUMO (Punto 4 del pedido)
     try {
+      const orderDateStr = standardizedOrder.timing?.scheduledDate
+        ? toSafeDate(standardizedOrder.timing.scheduledDate).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0]
+
       await registerOrderConsumption(
         standardizedOrder.businessId,
-        standardizedOrder.items.map((item: any) => ({
-          productId: item.productId,
-          variant: item.variant?.name || item.variantId,
-          name: item.product?.name || item.name || '',
-          quantity: item.quantity
-        })),
-        new Date().toISOString().split('T')[0],
+        standardizedOrder.items,
+        orderDateStr,
         docRef.id
       )
     } catch (consumeError) {
@@ -5601,6 +5663,57 @@ export async function updateStoreRatingById(
 }
 
 /**
+ * Update a community post in Fuddiverso
+ */
+export async function updateCommunityPost(params: {
+  businessId: string;
+  ratingDocId: string;
+  rating: number;
+  comment?: string;
+  image?: string;
+}): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', params.businessId, 'ratings', params.ratingDocId);
+    const updateData: any = {
+      rating: params.rating,
+      comment: params.comment || '',
+      updatedAt: serverTimestamp()
+    };
+    if (params.image !== undefined) {
+      updateData.image = params.image;
+    }
+    await updateDoc(ratingRef, updateData);
+    clearGlobalReviewsCache();
+    await updateBusinessRatingStats(params.businessId).catch((err) => {
+      console.error('Error updating business rating stats:', err);
+    });
+  } catch (error) {
+    console.error('Error updating community post:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete a community post from Fuddiverso
+ */
+export async function deleteCommunityPost(
+  businessId: string,
+  ratingDocId: string
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingDocId);
+    await deleteDoc(ratingRef);
+    clearGlobalReviewsCache();
+    await updateBusinessRatingStats(businessId).catch((err) => {
+      console.error('Error updating business rating stats:', err);
+    });
+  } catch (error) {
+    console.error('Error deleting community post:', error);
+    throw error;
+  }
+}
+
+/**
  * Update business rating statistics
  */
 export async function updateBusinessRatingStats(businessId: string): Promise<void> {
@@ -7455,58 +7568,74 @@ export async function getIngredientStockHistory(
  */
 export async function registerOrderConsumption(
   businessId: string,
-  items: Array<{
-    productId: string
-    variant?: string
-    name: string
-    quantity: number
-  }>,
+  items: Array<any>,
   orderDate?: string,
   orderId?: string
 ): Promise<void> {
   try {
     const dateForMovement = orderDate || new Date().toISOString().split('T')[0]
-    const productIds = items.map(item => item.productId).filter(Boolean)
-    if (productIds.length === 0) return
+    if (!Array.isArray(items) || items.length === 0) return
 
-    // 1. Obtener los productos involucrados por ID
-    const productsList = await getProductsByIds(productIds)
+    // Buscar productos únicamente para aquellos ítems que no tengan ingredients resueltos
+    const productIdsToFetch = Array.from(new Set(
+      items
+        .filter(item => !Array.isArray(item.ingredients) || item.ingredients.length === 0)
+        .map(item => {
+          const rawId = item.productId || item.product?.id || item.id || ''
+          return (typeof rawId === 'string' && rawId.includes('-combo-'))
+            ? rawId.split('-combo-')[0]
+            : rawId
+        })
+        .filter(Boolean)
+    )) as string[]
+
     const productsMap = new Map<string, any>()
-    productsList.forEach(p => {
-      productsMap.set(p.id, p)
-    })
+    if (productIdsToFetch.length > 0) {
+      const productsList = await getProductsByIds(productIdsToFetch)
+      productsList.forEach(p => {
+        productsMap.set(p.id, p)
+      })
+    }
+
+    let businessObj: any = null
+    const hasPremioNeedingResolution = items.some(item =>
+      (!Array.isArray(item.ingredients) || item.ingredients.length === 0) &&
+      (item.id === 'premio-especial-auto' || item.productId === 'premio-especial-auto' || item.esPremio)
+    )
+    if (hasPremioNeedingResolution && businessId) {
+      try {
+        businessObj = await getBusiness(businessId)
+      } catch (e) {
+        console.error('Error fetching business for reward settings in registerOrderConsumption:', e)
+      }
+    }
 
     // 2. Procesar cada item vendido
     for (const item of items) {
-      const product = productsMap.get(item.productId)
-      if (!product) continue
+      const rawId = item.productId || item.product?.id || item.id || ''
+      const prodId = (typeof rawId === 'string' && rawId.includes('-combo-'))
+        ? rawId.split('-combo-')[0]
+        : rawId
+      const product = productsMap.get(prodId) || item.product
+      const targetBusinessId = item.originalBusinessId || product?.businessId || businessId
 
-      // Usar el businessId del producto original (podría ser diferente si es compartido)
-      const targetBusinessId = product.businessId || businessId
+      // Resolver ingredientes (usando el snapshot del ítem o calculándolo como fallback)
+      const ingredientsToUse = resolveItemIngredients(item, product, businessObj?.rewardSettings)
+      const itemQty = Number(item.quantity) || 1
 
-      // Determinar ingredientes (Prioridad: Variante > Producto Base)
-      let ingredientsToUse: any[] = []
-      if (item.variant && product.variants) {
-        const variant = product.variants.find((v: any) => v.name === item.variant)
-        if (variant?.ingredients) ingredientsToUse = variant.ingredients
-      }
-
-      if (ingredientsToUse.length === 0 && product.ingredients) {
-        ingredientsToUse = product.ingredients
-      }
-
-      // 3. Registrar salida de stock para cada ingrediente en su respectivo negocio (Punto 4 del pedido)
+      // 3. Registrar salida de stock para cada ingrediente
       for (const ingredient of ingredientsToUse) {
         try {
-          // Generar un ID único normalizado: ing_nombre_del_ingrediente
-          const normalizedName = ingredient.name.trim().toLowerCase();
-          const ingredientId = `ing_${normalizedName.replace(/\s+/g, '_')}`;
+          if (!ingredient || !ingredient.name) continue
+          const normalizedName = ingredient.name.trim().toLowerCase()
+          const ingredientId = `ing_${normalizedName.replace(/\s+/g, '_')}`
+          const ingQty = Number(ingredient.quantity) || 1
 
           await recordStockMovement({
             ingredientId: ingredientId,
             ingredientName: ingredient.name.trim(),
             type: 'sale',
-            quantity: ingredient.quantity * item.quantity, // Cantidad por ingrediente * cantidad de productos
+            quantity: ingQty * itemQty,
             date: dateForMovement,
             notes: `Venta automática - Orden: ${orderId || 'Manual'}`,
             businessId: targetBusinessId,

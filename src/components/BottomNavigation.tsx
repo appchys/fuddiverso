@@ -4,12 +4,11 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { Flame, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, ArrowRight, Edit3, Info, Store } from 'lucide-react'
+import { Flame, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, ArrowRight, Edit3, Info, Store, Orbit } from 'lucide-react'
 import { getOrdersByClient, getBusiness, getUserReferrals, getAllUserCredits } from '@/lib/database'
 import OrderSidebar from '@/components/OrderSidebar'
 import { ClientRecommendationsSidebar } from '@/components/UserSidebar'
 import ReferralModal from '@/components/ReferralModal'
-import FuddieIcon from '@/components/FuddieIcon'
 
 function getPaymentBadgeConfig(paymentStatus?: string) {
   switch (paymentStatus) {
@@ -372,16 +371,16 @@ export default function BottomNavigation() {
             <span className="text-[10px] font-bold tracking-tight">Tiendas</span>
           </Link>
           
-          {/* FUDDIES - SOCIAL / OPINIONES */}
+          {/* FUDDIVERSO - SOCIAL / OPINIONES */}
           <Link 
-            href="/fuddies" 
-            onClick={() => setActiveUrl('/fuddies')}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${isActive('/fuddies') ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
+            href="/fuddiverso" 
+            onClick={() => setActiveUrl('/fuddiverso')}
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${(isActive('/fuddiverso') || isActive('/fuddies')) ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
           >
-            <div className={`relative p-1 rounded-xl transition-all ${isActive('/fuddies') ? 'bg-red-50' : ''}`}>
-              <FuddieIcon size={20} className="w-5 h-5 transition-transform" />
+            <div className={`relative p-1 rounded-xl transition-all ${(isActive('/fuddiverso') || isActive('/fuddies')) ? 'bg-red-50' : ''}`}>
+              <Orbit size={20} strokeWidth={(isActive('/fuddiverso') || isActive('/fuddies')) ? 2.5 : 1.5} className="transition-transform" />
             </div>
-            <span className="text-[10px] font-bold tracking-tight">Fuddies</span>
+            <span className="text-[10px] font-bold tracking-tight">Fuddiverso</span>
           </Link>
 
           {/* RECOMENDACIONES - AHORA ABRE EL SIDEBAR */}

@@ -885,7 +885,7 @@ function HomePageContent() {
     // Si solo es tienda, navegar a la página de la tienda
     const storeLink = review.businessUsername 
       ? `/${review.businessUsername}` 
-      : (review.businessId ? `/restaurant/${review.businessId}` : '/fuddies')
+      : (review.businessId ? `/restaurant/${review.businessId}` : '/fuddiverso')
     
     router.push(storeLink)
   }
@@ -1348,7 +1348,7 @@ function HomePageContent() {
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
-                    Comunidad Fuddies
+                    Comunidad Fuddiverso
                   </h2>
                   <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#aa1918] animate-pulse"></span>
@@ -1360,7 +1360,7 @@ function HomePageContent() {
                 </p>
               </div>
               <Link
-                href="/fuddies"
+                href="/fuddiverso"
                 className="inline-flex items-center gap-1 text-xs font-bold text-[#aa1918] hover:text-[#8a1413] bg-red-50/80 hover:bg-red-100/80 px-3 py-1.5 rounded-xl transition-all flex-shrink-0"
               >
                 <span>Ver todo</span>
@@ -1373,7 +1373,7 @@ function HomePageContent() {
                 {recentReviews.map((review) => {
                   const reviewLink = review.businessUsername 
                     ? `/${review.businessUsername}` 
-                    : (review.businessId ? `/restaurant/${review.businessId}` : '/fuddies')
+                    : (review.businessId ? `/restaurant/${review.businessId}` : '/fuddiverso')
 
                   return (
                     <div
@@ -1537,11 +1537,11 @@ function HomePageContent() {
                       ¿Probaste algo rico?
                     </h4>
                     <p className="text-xs text-red-100 font-medium leading-relaxed">
-                      Comparte tu foto y reseña con miles de personas en Fuddies.
+                      Comparte tu foto y reseña con miles de personas en Fuddiverso.
                     </p>
                   </div>
                   <Link
-                    href="/fuddies"
+                    href="/fuddiverso"
                     className="mt-4 w-full py-2.5 px-4 bg-white text-[#aa1918] hover:bg-red-50 font-black text-xs rounded-xl text-center transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5"
                   >
                     <span>Publicar opinión</span>

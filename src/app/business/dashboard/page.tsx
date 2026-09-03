@@ -29,6 +29,7 @@ import {
     getNextStatus
 } from '@/components/WhatsAppUtils'
 import { isStoreOpen, calculateManualStatusExpiry } from '@/lib/store-utils'
+import { resolveItemIngredients } from '@/lib/stock-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
 import DailyCheckInBanner from '@/components/DailyCheckInBanner'
@@ -469,62 +470,15 @@ export default function TodayOrdersPage() {
             order.items.forEach(item => {
                 const itemQty = Number(item.quantity) || 1
 
-                let ingredientsToUse: any[] = []
+                const rawId = item.productId || item.product?.id || item.id || ''
+                const prodId = (typeof rawId === 'string' && rawId.includes('-combo-'))
+                    ? rawId.split('-combo-')[0]
+                    : rawId
 
-                // 1. Check if ingredients are directly stored on item snapshot
-                const itemIngredients = (item as any).ingredients
-                if (itemIngredients && Array.isArray(itemIngredients) && itemIngredients.length > 0) {
-                    ingredientsToUse = itemIngredients
-                } else {
-                    const productId = item.product?.id || (item as any).productId || (item as any).id
-                    const productName = item.name || item.product?.name
-                    const product = products.find(p => p.id === productId) || (productName ? products.find(p => p.name === productName) : undefined) || item.product
+                const productName = item.name || item.product?.name
+                const product = products.find(p => p.id === prodId) || (productName ? products.find(p => p.name === productName) : undefined) || item.product
 
-                    if (product) {
-                        // 2. Check combo selections (if item is a combo product with comboSelection)
-                        const comboSelection = (item as any).comboSelection
-                        if (comboSelection && typeof comboSelection === 'object' && product.variants && Array.isArray(product.variants)) {
-                            const comboIngs: any[] = []
-                            Object.entries(comboSelection).forEach(([variantName, selQty]) => {
-                                const selCount = Number(selQty) || 0
-                                if (selCount > 0) {
-                                    const variantObj = product.variants?.find((v: any) => v.name === variantName || v.id === variantName)
-                                    if (variantObj?.ingredients && Array.isArray(variantObj.ingredients)) {
-                                        variantObj.ingredients.forEach((ing: any) => {
-                                            comboIngs.push({
-                                                ...ing,
-                                                quantity: (Number(ing.quantity) || 1) * selCount
-                                            })
-                                        })
-                                    }
-                                }
-                            })
-                            if (comboIngs.length > 0) {
-                                ingredientsToUse = comboIngs
-                            }
-                        }
-
-                        // 3. Single variant ingredients
-                        if (ingredientsToUse.length === 0) {
-                            const variantName = item.variant || (item as any).variantName
-                            const variantId = (item as any).variantId
-                            if ((variantName || variantId) && product.variants && Array.isArray(product.variants)) {
-                                const variantObj = product.variants.find((v: any) =>
-                                    (variantId && v.id === variantId) ||
-                                    (variantName && v.name === variantName)
-                                )
-                                if (variantObj?.ingredients && Array.isArray(variantObj.ingredients) && variantObj.ingredients.length > 0) {
-                                    ingredientsToUse = variantObj.ingredients
-                                }
-                            }
-                        }
-
-                        // 4. Product-level ingredients
-                        if (ingredientsToUse.length === 0 && product.ingredients && Array.isArray(product.ingredients) && product.ingredients.length > 0) {
-                            ingredientsToUse = product.ingredients
-                        }
-                    }
-                }
+                const ingredientsToUse = resolveItemIngredients(item, product, business?.rewardSettings)
 
                 if (ingredientsToUse.length > 0) {
                     ingredientsToUse.forEach(ing => {
@@ -579,7 +533,7 @@ export default function TodayOrdersPage() {
             ingredientsList,
             slides
         }
-    }, [orders, products])
+    }, [orders, products, business?.rewardSettings])
 
     const activeUnitsSlide = todaySoldUnitsSummary.slides.length > 0
         ? todaySoldUnitsSummary.slides[currentUnitsIndex % todaySoldUnitsSummary.slides.length]

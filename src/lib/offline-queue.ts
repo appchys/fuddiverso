@@ -157,29 +157,8 @@ class OfflineOrderQueue {
     // Sincronizar una orden individual
     private async syncOrder(order: PendingOrder): Promise<void> {
         if (order.mode === 'create') {
-            // Crear nueva orden
-            const orderId = await createOrder(order.orderData)
-
-            // Registrar consumo de ingredientes
-            try {
-                const orderDateStr = new Date().toISOString().split('T')[0]
-                const items = order.orderData.items.map((item: any) => ({
-                    productId: item.productId,
-                    variant: item.variant,
-                    name: item.name,
-                    quantity: item.quantity
-                }))
-
-                await registerOrderConsumption(
-                    order.businessId,
-                    items,
-                    orderDateStr,
-                    orderId
-                )
-            } catch (error) {
-                console.error('[OfflineQueue] Error registering consumption:', error)
-                // No fallar la orden completa por esto
-            }
+            // Crear nueva orden (createOrder descuenta el stock de forma atómica)
+            await createOrder(order.orderData)
         } else if (order.mode === 'edit' && order.editOrderId) {
             // Actualizar orden existente
             await updateOrder(order.editOrderId, order.orderData)

@@ -222,3 +222,106 @@ export function isCartItemEffectivelyAvailable(
 
   return true
 }
+
+/**
+ * Extrae el nombre base de la variante limpiando opciones o modificadores entre paréntesis.
+ * Ej: "Grande (Salsas: Ajo, Picante)" -> "Grande"
+ */
+export function extractBaseVariantName(variantStr?: string | null): string {
+  if (!variantStr || typeof variantStr !== 'string') return ''
+  const trimmed = variantStr.trim()
+  if (trimmed.startsWith('Combo:')) return ''
+  const match = trimmed.match(/^([^(]+)\s*\(/)
+  if (match && match[1]) {
+    return match[1].trim()
+  }
+  return trimmed
+}
+
+/**
+ * Resuelve la lista de ingredientes correspondientes a un ítem de orden o carrito.
+ * Prioridad:
+ * 1. Si el ítem ya trae ingredientes resueltos en su snapshot (item.ingredients > 0), los usa.
+ * 2. Si es combo y tiene comboSelection, desglosa los ingredientes de cada variante multiplicados por su respectiva cantidad en la selección.
+ * 3. Si tiene variante (o variantName / variantId), busca en product.variants (por nombre exacto, ID o nombre base) y extrae sus ingredientes.
+ * 4. Fallback a ingredientes del producto base (product.ingredients).
+ */
+export function resolveItemIngredients(
+  item: any,
+  product?: Product,
+  rewardSettings?: { ingredients?: Ingredient[] }
+): Ingredient[] {
+  if (!item) return []
+
+  // 1. Snapshot directo en el ítem (si ya fue resuelto previamente)
+  if (Array.isArray(item.ingredients) && item.ingredients.length > 0) {
+    return item.ingredients
+  }
+
+  // 1.1 Si es el premio automático especial o un premio y se provee rewardSettings
+  const isPremioAuto = item.id === 'premio-especial-auto' || item.productId === 'premio-especial-auto' || item.esPremio
+  if (isPremioAuto) {
+    if (rewardSettings?.ingredients && Array.isArray(rewardSettings.ingredients) && rewardSettings.ingredients.length > 0) {
+      return rewardSettings.ingredients
+    }
+    if (item.rewardSettings?.ingredients && Array.isArray(item.rewardSettings.ingredients) && item.rewardSettings.ingredients.length > 0) {
+      return item.rewardSettings.ingredients
+    }
+  }
+
+  if (!product) return []
+
+  // 2. Combo con desglose en comboSelection
+  const comboSelection = item.comboSelection || (item.product && (item.product as any).comboSelection)
+  if (comboSelection && typeof comboSelection === 'object' && product.variants && Array.isArray(product.variants)) {
+    const comboIngs: Ingredient[] = []
+    Object.entries(comboSelection).forEach(([variantKey, selQty]) => {
+      const count = Number(selQty) || 0
+      if (count > 0) {
+        const variantObj = product.variants?.find((v: any) =>
+          v.name === variantKey || v.id === variantKey || extractBaseVariantName(v.name) === variantKey
+        )
+        if (variantObj?.ingredients && Array.isArray(variantObj.ingredients)) {
+          variantObj.ingredients.forEach(ing => {
+            if (!ing || !ing.name) return
+            comboIngs.push({
+              ...ing,
+              quantity: (Number(ing.quantity) || 1) * count
+            })
+          })
+        }
+      }
+    })
+    if (comboIngs.length > 0) {
+      return comboIngs
+    }
+  }
+
+  // 3. Variante individual
+  const rawVariant = typeof item.variant === 'string'
+    ? item.variant
+    : (item.variant?.name || item.variantName || '')
+
+  const variantId = item.variantId || (typeof item.variant === 'object' ? item.variant?.id : undefined)
+
+  if ((rawVariant || variantId) && product.variants && Array.isArray(product.variants)) {
+    const baseVariantName = extractBaseVariantName(rawVariant)
+    const variantObj = product.variants.find((v: any) =>
+      (variantId && v.id === variantId) ||
+      (rawVariant && v.name === rawVariant) ||
+      (baseVariantName && v.name === baseVariantName) ||
+      (baseVariantName && extractBaseVariantName(v.name) === baseVariantName)
+    )
+
+    if (variantObj?.ingredients && Array.isArray(variantObj.ingredients) && variantObj.ingredients.length > 0) {
+      return variantObj.ingredients
+    }
+  }
+
+  // 4. Ingredientes del producto base
+  if (product.ingredients && Array.isArray(product.ingredients) && product.ingredients.length > 0) {
+    return product.ingredients
+  }
+
+  return []
+}

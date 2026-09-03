@@ -180,7 +180,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
 
   const reservedRoutes = [
     'checkout', 'profile', 'my-orders', 'my-locations',
-    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business', 'tiendas', 'pedidos', 'tma', 'fuddies'
+    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business', 'tiendas', 'pedidos', 'tma', 'fuddies', 'fuddiverso'
   ]
   const pathSegments = pathname.split('/').filter(Boolean)
   const isStorePage = pathSegments.length === 1 && !reservedRoutes.includes(pathSegments[0])
@@ -296,19 +296,21 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     loadCategories()
   }, [])
 
-  const isFuddiesPage = pathname === '/fuddies'
+  const isFuddiesPage = pathname === '/fuddies' || pathname === '/fuddiverso'
   const isHomePage = pathname === '/'
   const isSearchablePage = isHomePage || isFuddiesPage
 
   const handleSearchChange = (val: string) => {
     setSearchTerm(val)
     if (isFuddiesPage) {
+      window.dispatchEvent(new CustomEvent('fuddiverso-search', { detail: val }))
       window.dispatchEvent(new CustomEvent('fuddies-search', { detail: val }))
     }
   }
 
   const handleSearch = () => {
     if (isFuddiesPage) {
+      window.dispatchEvent(new CustomEvent('fuddiverso-search', { detail: searchTerm }))
       window.dispatchEvent(new CustomEvent('fuddies-search', { detail: searchTerm }))
       return
     }
@@ -384,7 +386,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                       </svg>
                       <input
                         type="text"
-                        placeholder={isFuddiesPage ? "Buscar plato, restaurante u opinión en Fuddies..." : "Buscar restaurantes o comida..."}
+                        placeholder={isFuddiesPage ? "Buscar plato, restaurante u opinión en Fuddiverso..." : "Buscar restaurantes o comida..."}
                         value={searchTerm}
                         onChange={(e) => handleSearchChange(e.target.value)}
                         onKeyPress={handleKeyPress}
@@ -427,7 +429,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         <input
                           autoFocus
                           type="text"
-                          placeholder={isFuddiesPage ? "Buscar en Fuddies..." : "Buscar..."}
+                          placeholder={isFuddiesPage ? "Buscar en Fuddiverso..." : "Buscar..."}
                           value={searchTerm}
                           onChange={(e) => handleSearchChange(e.target.value)}
                           onKeyPress={handleKeyPress}

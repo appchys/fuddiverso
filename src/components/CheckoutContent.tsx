@@ -44,7 +44,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
-import { isCartItemEffectivelyAvailable } from '@/lib/stock-utils'
+import { isCartItemEffectivelyAvailable, resolveItemIngredients } from '@/lib/stock-utils'
 import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot, isAnyDeliveryAvailable, getNextOpeningDate, getStoreOpeningLabel } from '@/lib/store-utils'
 import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
@@ -2095,23 +2095,34 @@ export function CheckoutContent({
       const orderData = {
         businessId: businessId,
         referralCode: pendingReferral || undefined,
-        items: normalizedItems.map((item: any) => ({
-          productId: getProductId(item),
-          name: item.productName || item.name,
-          price: item.price,
-          quantity: item.quantity,
-          variant: item.variantName || '',
-          image: item.image || '',
-          originalBusinessId: item.originalBusinessId || null,
-          originalBusinessName: item.originalBusinessName || null,
-          originalBusinessImage: item.originalBusinessImage || null,
-          // Persistir metadatos de precios (ya asegurados arriba)
-          basePrice: item.basePrice,
-          commission: item.commission,
-          commissionType: item.commissionType,
-          storeReceives: item.storeReceives,
-          ingredients: item.ingredients || []
-        })),
+        items: normalizedItems.map((item: any) => {
+          const prodId = getProductId(item)
+          const productObj = products?.find(p => p.id === prodId)
+          const resolvedIngs = (Array.isArray(item.ingredients) && item.ingredients.length > 0)
+            ? item.ingredients
+            : resolveItemIngredients(item, productObj, business?.rewardSettings)
+
+          return {
+            productId: prodId,
+            name: item.productName || item.name,
+            price: item.price,
+            quantity: item.quantity,
+            variant: item.variantName || item.variant || '',
+            image: item.image || '',
+            originalBusinessId: item.originalBusinessId || null,
+            originalBusinessName: item.originalBusinessName || null,
+            originalBusinessImage: item.originalBusinessImage || null,
+            // Persistir metadatos de precios (ya asegurados arriba)
+            basePrice: item.basePrice,
+            commission: item.commission,
+            commissionType: item.commissionType,
+            storeReceives: item.storeReceives,
+            ingredients: resolvedIngs || [],
+            esPremio: item.esPremio ?? (item.id === 'premio-especial-auto'),
+            ...(item.isCombo ? { isCombo: true } : {}),
+            ...(item.comboSelection ? { comboSelection: item.comboSelection } : {})
+          }
+        }),
         customer: {
           name: customerData.name,
           phone: customerData.phone
@@ -2190,24 +2201,6 @@ export function CheckoutContent({
         }
       } catch (e) {
         console.error('Error clearing checkout progress:', e)
-      }
-
-      try {
-        const orderDateStr = new Date().toISOString().split('T')[0]
-        await registerOrderConsumption(
-          businessId,
-          cartItems.map((item: any) => ({
-            productId: getProductId(item),
-            variant: item.variantName || '',
-            name: item.productName || item.name,
-            quantity: item.quantity
-          })),
-          orderDateStr,
-          orderId
-        )
-      } catch (error) {
-        console.error('Error registering order consumption:', error)
-        // No interrumpir el flujo si hay error en consumo
       }
 
       // Marcar premios QR como completados permanentemente

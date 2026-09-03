@@ -304,6 +304,12 @@ export interface CartItem {
   originalBusinessId?: string
   originalBusinessName?: string
   originalBusinessImage?: string | null
+  id?: string
+  productId?: string
+  variantName?: string
+  isCombo?: boolean
+  comboSelection?: Record<string, number>
+  ingredients?: Ingredient[]
 }
 
 export interface Customer {

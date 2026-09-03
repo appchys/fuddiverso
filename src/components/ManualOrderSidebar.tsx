@@ -13,6 +13,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { logDebug } from '@/lib/debug-log'
+import { resolveItemIngredients } from '@/lib/stock-utils'
 
 // Componente optimizado para cargar imágenes de productos de manera diferida
 // Prioriza la visualización y clic inmediato de los nombres y precios de los productos
@@ -113,6 +114,9 @@ interface OrderItem {
   commission?: number
   commissionType?: string
   storeReceives?: number
+  ingredients?: any[]
+  isCombo?: boolean
+  comboSelection?: Record<string, number>
 }
 
 interface ManualOrderData {
@@ -2379,6 +2383,13 @@ export default function ManualOrderSidebar({
     const unitPrice = baseProductPrice + optionsPrice;
     const currentStore = allAccessibleStores.find(s => s.id === (product.businessId || effectiveBusinessId)) || effectiveBusiness;
 
+    const resolvedIngredients = resolveItemIngredients({
+      ...product,
+      variant: finalVariantName,
+      isCombo: product.isCombo,
+      comboSelection: product.isCombo ? comboSelection : undefined
+    }, product);
+
     const newItem: OrderItem = {
       name: product.name,
       variant: finalVariantName,
@@ -2394,7 +2405,10 @@ export default function ManualOrderSidebar({
       basePrice: unitPrice,
       commission: 0,
       commissionType: 'no_commission',
-      storeReceives: unitPrice
+      storeReceives: unitPrice,
+      ingredients: resolvedIngredients || [],
+      isCombo: product.isCombo || false,
+      comboSelection: product.isCombo ? comboSelection : undefined
     };
 
     setManualOrderData(prev => ({
@@ -2436,7 +2450,8 @@ export default function ManualOrderSidebar({
       basePrice: storeProductPrice,
       commission: 0,
       commissionType: 'no_commission',
-      storeReceives: storeProductPrice
+      storeReceives: storeProductPrice,
+      ingredients: variant.ingredients || product.ingredients || []
     };
 
     setManualOrderData(prev => ({
@@ -3104,28 +3119,6 @@ export default function ManualOrderSidebar({
                 });
               } catch (e) { console.error('Error updating checkout session:', e) }
             }
-
-            // Registrar consumo agrupado por tienda
-            try {
-              const orderDateStr = new Date().toISOString().split('T')[0]
-              const itemsByStore: Record<string, any[]> = {}
-              orderData.items.forEach((item: any) => {
-                const storeId = item.originalBusinessId || effectiveBusinessId
-                if (!itemsByStore[storeId]) itemsByStore[storeId] = []
-                itemsByStore[storeId].push({
-                  productId: item.productId,
-                  variant: item.variant || item.name,
-                  name: item.name,
-                  quantity: item.quantity
-                })
-              })
-
-              for (const [storeId, cartItems] of Object.entries(itemsByStore)) {
-                if (cartItems.length > 0) {
-                  await registerOrderConsumption(storeId, cartItems, orderDateStr, orderId)
-                }
-              }
-            } catch (e) { console.error('Error registering consumption:', e) }
 
             onOrderCreated()
             console.log('[ManualOrder] Orden creada con éxito en segundo plano');
