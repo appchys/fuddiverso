@@ -9,6 +9,7 @@ import { getOrdersByClient, getBusiness, getUserReferrals, getAllUserCredits } f
 import OrderSidebar from '@/components/OrderSidebar'
 import { ClientRecommendationsSidebar } from '@/components/UserSidebar'
 import ReferralModal from '@/components/ReferralModal'
+import FuddieIcon from '@/components/FuddieIcon'
 
 function getPaymentBadgeConfig(paymentStatus?: string) {
   switch (paymentStatus) {
@@ -378,7 +379,7 @@ export default function BottomNavigation() {
             className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${isActive('/fuddies') ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
           >
             <div className={`relative p-1 rounded-xl transition-all ${isActive('/fuddies') ? 'bg-red-50' : ''}`}>
-              <i className={`bi bi-people${isActive('/fuddies') ? '-fill' : ''} text-xl leading-none`}></i>
+              <FuddieIcon size={20} className="w-5 h-5 transition-transform" />
             </div>
             <span className="text-[10px] font-bold tracking-tight">Fuddies</span>
           </Link>

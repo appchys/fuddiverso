@@ -422,20 +422,36 @@ export async function createBusinessFromForm(formData: {
   return await createBusiness(businessData);
 }
 
-export async function getBusiness(businessId: string): Promise<Business | null> {
+// Caché en memoria para negocios (evita consultas repetidas en cálculos de cobertura)
+const businessCache = new Map<string, { business: Business; timestamp: number }>()
+export const invalidateBusinessCache = (businessId?: string) => {
+  if (businessId) businessCache.delete(businessId)
+  else businessCache.clear()
+}
+
+export async function getBusiness(businessId: string, bypassCache = false): Promise<Business | null> {
   try {
+    if (!bypassCache) {
+      const cached = businessCache.get(businessId)
+      if (cached && (Date.now() - cached.timestamp < 60000)) {
+        return cached.business
+      }
+    }
+
     const docRef = doc(db, 'businesses', businessId)
     const docSnap = await getDoc(docRef)
 
     if (docSnap.exists()) {
       const data = docSnap.data()
-      return {
+      const business = {
         id: docSnap.id,
         ...data,
         createdAt: toSafeDate(data.createdAt),
         updatedAt: toSafeDate(data.updatedAt),
         manualStatusExpiry: data.manualStatusExpiry ? toSafeDate(data.manualStatusExpiry) : undefined
       } as Business
+      businessCache.set(businessId, { business, timestamp: Date.now() })
+      return business
     }
     return null
   } catch (error) {
@@ -634,6 +650,7 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
 
     console.log('📤 Final update data for Firebase:', updateData)
     await updateDoc(docRef, updateData)
+    invalidateBusinessCache(businessId)
     console.log('✅ Firebase updateDoc completed successfully')
   } catch (error) {
     console.error('❌ Error updating business:', error)
@@ -2396,9 +2413,33 @@ export async function getClientById(clientId: string): Promise<FirestoreClient |
   }
 }
 
-// Nueva función para obtener ubicaciones del cliente
-export async function getClientLocations(clientId: string, createdBy?: 'client' | 'admin'): Promise<ClientLocation[]> {
+// Caché en memoria para ubicaciones de clientes (evita recargas innecesarias)
+const clientLocationsCache = new Map<string, { locations: ClientLocation[]; timestamp: number }>()
+export const invalidateClientLocationsCache = (clientId?: string) => {
+  if (clientId) {
+    for (const key of clientLocationsCache.keys()) {
+      if (key.startsWith(clientId)) {
+        clientLocationsCache.delete(key)
+      }
+    }
+  } else {
+    clientLocationsCache.clear()
+  }
+}
+
+// Nueva función para obtener ubicaciones del cliente con soporte de caché
+export async function getClientLocations(clientId: string, createdBy?: 'client' | 'admin', bypassCache = false): Promise<ClientLocation[]> {
   try {
+    if (!clientId) return []
+
+    const cacheKey = `${clientId}_${createdBy || 'all'}`
+    if (!bypassCache) {
+      const cached = clientLocationsCache.get(cacheKey)
+      if (cached && (Date.now() - cached.timestamp < 180000)) { // 3 minutos
+        return cached.locations
+      }
+    }
+
     let q = query(
       collection(db, 'ubicaciones'),
       where('id_cliente', '==', clientId)
@@ -2425,6 +2466,8 @@ export async function getClientLocations(clientId: string, createdBy?: 'client' 
         createdBy: locationData.createdBy || undefined
       });
     });
+
+    clientLocationsCache.set(cacheKey, { locations, timestamp: Date.now() })
     return locations;
   } catch (error) {
     // Si hay un error de permisos u otro, devolver un array vacío para
@@ -2434,73 +2477,98 @@ export async function getClientLocations(clientId: string, createdBy?: 'client' 
   }
 }
 
-// Nueva función para buscar clientes por teléfono
-export async function searchClientByPhone(phone: string): Promise<FirestoreClient | null> {
+// Caché en memoria para clientes por teléfono
+const phoneClientCache = new Map<string, { client: FirestoreClient | null; timestamp: number }>()
+export const invalidatePhoneClientCache = (phone?: string) => {
+  if (phone) {
+    const clean = phone.replace(/\D/g, '')
+    for (const key of phoneClientCache.keys()) {
+      if (key.includes(clean) || clean.includes(key)) {
+        phoneClientCache.delete(key)
+      }
+    }
+  } else {
+    phoneClientCache.clear()
+  }
+}
+
+// Búsqueda ultra optimizada de cliente por teléfono: 1 sola consulta 'in' + caché en memoria
+export async function searchClientByPhone(phone: string, bypassCache = false): Promise<FirestoreClient | null> {
   try {
-    // Función para normalizar teléfono (similar a la del componente)
-    const normalizePhoneForSearch = (phone: string): string[] => {
-      const cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
+    const cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
+    if (!cleanPhone) return null
+
+    // Verificar caché en memoria para respuesta instantánea (0 ms)
+    if (!bypassCache) {
+      const cached = phoneClientCache.get(cleanPhone)
+      if (cached && (Date.now() - cached.timestamp < 300000)) { // 5 minutos
+        return cached.client
+      }
+    }
+
+    // Función para normalizar teléfono generando variantes de formato
+    const normalizePhoneForSearch = (p: string): string[] => {
+      const clean = p.replace(/[\s\-\(\)]/g, '')
       const variants = new Set<string>()
 
-      // Añadir el formato original limpio
-      variants.add(cleanPhone)
+      variants.add(clean)
 
-      // Si empieza con +593, añadir versión con 0
-      if (cleanPhone.startsWith('+593')) {
-        variants.add('0' + cleanPhone.substring(4))
-      }
-      // Si empieza con 593, añadir versión con 0
-      else if (cleanPhone.startsWith('593')) {
-        variants.add('0' + cleanPhone.substring(3))
-      }
-      // Si empieza con 0, añadir versión con +593
-      else if (cleanPhone.startsWith('0') && cleanPhone.length === 10) {
-        variants.add('+593' + cleanPhone.substring(1))
-        variants.add('593' + cleanPhone.substring(1))
-      }
-      // Si empieza con 9 y tiene 9 dígitos, añadir versión con 0
-      else if (cleanPhone.startsWith('9') && cleanPhone.length === 9) {
-        variants.add('0' + cleanPhone)
-        variants.add('+593' + cleanPhone)
-        variants.add('593' + cleanPhone)
+      if (clean.startsWith('+593')) {
+        variants.add('0' + clean.substring(4))
+        variants.add(clean.substring(4))
+      } else if (clean.startsWith('593')) {
+        variants.add('0' + clean.substring(3))
+        variants.add(clean.substring(3))
+      } else if (clean.startsWith('0') && clean.length === 10) {
+        variants.add('+593' + clean.substring(1))
+        variants.add('593' + clean.substring(1))
+        variants.add(clean.substring(1))
+      } else if (clean.startsWith('9') && clean.length === 9) {
+        variants.add('0' + clean)
+        variants.add('+593' + clean)
+        variants.add('593' + clean)
       }
 
-      return Array.from(variants)
+      return Array.from(variants).filter(Boolean)
     }
 
-    const phoneVariants = normalizePhoneForSearch(phone)
-    console.log('[Database] Buscando cliente con variantes de teléfono:', phoneVariants)
+    const phoneVariants = normalizePhoneForSearch(cleanPhone)
+    if (phoneVariants.length === 0) return null
 
-    // Intentar buscar con cada variante del teléfono
-    for (const phoneVariant of phoneVariants) {
-      const q = query(
-        collection(db, 'clients'),
-        where('celular', '==', phoneVariant),
-        limit(1)
-      );
+    // Usar operador 'in' de Firestore para resolver TODAS las variantes en 1 sola consulta
+    const variantsBatch = phoneVariants.slice(0, 10)
+    const q = query(
+      collection(db, 'clients'),
+      where('celular', 'in', variantsBatch),
+      limit(1)
+    );
 
-      const querySnapshot = await getDocs(q);
+    const querySnapshot = await getDocs(q);
 
-      if (!querySnapshot.empty) {
-        const doc = querySnapshot.docs[0];
-        const clientData = doc.data();
-        const client: FirestoreClient = {
-          id: doc.id,
-          nombres: clientData.nombres || '',
-          celular: clientData.celular || phone,
-          email: clientData.email || '',
-          photoURL: clientData.photoURL || '',
-          fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
-          pinHash: clientData.pinHash || null,
-          notas: clientData.notas || '',
-          telegramChatId: clientData.telegramChatId || undefined
-        };
-        console.log('[Database] Cliente encontrado con variante:', phoneVariant, client)
-        return client;
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      const clientData = doc.data();
+      const client: FirestoreClient = {
+        id: doc.id,
+        nombres: clientData.nombres || '',
+        celular: clientData.celular || phone,
+        email: clientData.email || '',
+        photoURL: clientData.photoURL || '',
+        fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
+        pinHash: clientData.pinHash || null,
+        notas: clientData.notas || '',
+        telegramChatId: clientData.telegramChatId || undefined
+      };
+      
+      const now = Date.now()
+      for (const variant of variantsBatch) {
+        phoneClientCache.set(variant, { client, timestamp: now })
       }
+      return client;
     }
 
-    console.log('[Database] No se encontró cliente con ninguna variante de teléfono')
+    // Cachear respuesta negativa por 1 minuto para evitar reconsultar números que no existen
+    phoneClientCache.set(cleanPhone, { client: null, timestamp: Date.now() })
     return null;
   } catch (error) {
     console.error('Error searching client by phone:', error);
@@ -2597,6 +2665,9 @@ export async function createClient(clientData: { celular: string; nombres: strin
     // Ensure the document has the correct id field
     await updateDoc(doc(db, 'clients', clientRef.id), { id: clientRef.id });
 
+    // Invalidar caché de teléfono
+    invalidatePhoneClientCache(clientData.celular);
+
     // Sincronizar automáticamente el nuevo cliente con Google Contacts (cuenta central)
     try {
       if (typeof window !== 'undefined' || typeof fetch !== 'undefined') {
@@ -2650,6 +2721,11 @@ export async function updateClient(clientId: string, clientData: { celular?: str
     if (clientData.notas !== undefined) updateData.notas = clientData.notas;
 
     await updateDoc(clientRef, updateData);
+    if (clientData.celular) {
+      invalidatePhoneClientCache(clientData.celular);
+    } else {
+      invalidatePhoneClientCache();
+    }
     return true;
   } catch (error) {
     console.error('❌ Error updating client:', error);
@@ -2718,6 +2794,7 @@ export async function getLocationsByClient(clientPhone: string): Promise<ClientL
 export async function deleteLocation(locationId: string): Promise<void> {
   try {
     await deleteDoc(doc(db, 'ubicaciones', locationId));
+    invalidateClientLocationsCache();
   } catch (error) {
     console.error('❌ Error deleting location:', error);
     throw error;
@@ -2728,6 +2805,7 @@ export async function updateLocation(locationId: string, locationData: Partial<C
   try {
     const locationRef = doc(db, 'ubicaciones', locationId);
     await updateDoc(locationRef, locationData);
+    invalidateClientLocationsCache();
   } catch (error) {
     console.error('❌ Error updating location:', error);
     throw error;
@@ -2778,6 +2856,7 @@ export async function createClientLocation(locationData: {
     });
 
     const docRef = await addDoc(collection(db, 'ubicaciones'), cleanedData);
+    invalidateClientLocationsCache(clientId);
     return docRef.id;
   } catch (error) {
     console.error('❌ Error creating client location:', error);
@@ -3324,15 +3403,25 @@ let cachedGlobalZones: CoverageZone[] | null = null
 let cachedGlobalZonesTime = 0
 const cachedBusinessZones = new Map<string, { zones: CoverageZone[]; time: number }>()
 
+export const invalidateCoverageZonesCache = (businessId?: string) => {
+  if (businessId) {
+    cachedBusinessZones.delete(businessId)
+  } else {
+    cachedBusinessZones.clear()
+    cachedGlobalZones = null
+    cachedGlobalZonesTime = 0
+  }
+}
+
 // Funciones para Zonas de Cobertura
 export async function getCoverageZones(businessId?: string): Promise<CoverageZone[]> {
   try {
     let q;
     if (businessId) {
-      // Verificar caché por negocio (TTL 60s)
+      // Verificar caché por negocio (TTL 10 minutos)
       const cached = cachedBusinessZones.get(businessId)
       const now = Date.now()
-      if (cached && (now - cached.time < 60000)) {
+      if (cached && (now - cached.time < 600000)) {
         return cached.zones
       }
 
@@ -3372,9 +3461,9 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
       cachedBusinessZones.set(businessId, { zones, time: now })
       return zones;
     } else {
-      // Obtener zonas globales (para admin) - Caching
+      // Obtener zonas globales (para admin) - Caching (TTL 10 minutos)
       const now = Date.now()
-      if (cachedGlobalZones && (now - cachedGlobalZonesTime < 60000)) {
+      if (cachedGlobalZones && (now - cachedGlobalZonesTime < 600000)) {
         return cachedGlobalZones
       }
       q = query(
@@ -3569,6 +3658,8 @@ export async function createCoverageZone(zoneData: Omit<CoverageZone, 'id' | 'cr
     });
 
     const docRef = await addDoc(collection(db, 'coverageZones'), cleanedData);
+    invalidateCoverageZonesCache(zoneData.businessId || undefined);
+    invalidateDeliveryDetailsCache();
     return docRef.id;
   } catch (error) {
     console.error('Error creating coverage zone:', error);
@@ -3584,6 +3675,8 @@ export async function updateCoverageZone(zoneId: string, updates: Partial<Covera
     });
 
     await updateDoc(doc(db, 'coverageZones', zoneId), cleanedUpdates);
+    invalidateCoverageZonesCache(updates.businessId || undefined);
+    invalidateDeliveryDetailsCache();
   } catch (error) {
     console.error('Error updating coverage zone:', error);
     throw error;
@@ -3593,6 +3686,8 @@ export async function updateCoverageZone(zoneId: string, updates: Partial<Covera
 export async function deleteCoverageZone(zoneId: string): Promise<void> {
   try {
     await deleteDoc(doc(db, 'coverageZones', zoneId));
+    invalidateCoverageZonesCache();
+    invalidateDeliveryDetailsCache();
   } catch (error) {
     console.error('Error deleting coverage zone:', error);
     throw error;
@@ -3640,14 +3735,29 @@ export function calculateHaversineDistance(
   return straightDistance * 1.35; // Aplicar coeficiente de curvatura para estimar distancia por carretera
 }
 
-// Función para obtener los detalles de entrega (tarifa y distancia) basada en la ubicación
+// Caché de detalles de entrega por ubicación (tarifa y zona)
+const deliveryDetailsCache = new Map<string, { data: any; timestamp: number }>()
+export const invalidateDeliveryDetailsCache = () => deliveryDetailsCache.clear()
+
+// Función ultra rápida para obtener los detalles de entrega (tarifa y distancia) basada en la ubicación
 export async function getDeliveryDetailsForLocation(
   location: { lat: number; lng: number },
-  businessId?: string
+  businessId?: string,
+  preloadedBusiness?: Business | null,
+  preloadedZones?: CoverageZone[] | null
 ): Promise<{ fee: number; distance?: number; zoneId?: string; zoneName?: string; isOutOfCoverage?: boolean; isInactiveZone?: boolean }> {
   try {
-    const business = businessId ? await getBusiness(businessId) : null;
-    const zones = await getCoverageZones(businessId);
+    const cacheKey = `${businessId || 'all'}_${location.lat.toFixed(5)}_${location.lng.toFixed(5)}`
+    const cached = deliveryDetailsCache.get(cacheKey)
+    if (cached && (Date.now() - cached.timestamp < 300000)) { // 5 minutos de respuesta instantánea
+      return cached.data
+    }
+
+    const business = preloadedBusiness !== undefined
+      ? preloadedBusiness
+      : (businessId ? await getBusiness(businessId) : null);
+
+    const zones = preloadedZones || await getCoverageZones(businessId);
 
     // 1. Buscar coincidencia en zonas específicas del negocio primero
     let matchingZone: CoverageZone | null = null;
@@ -3669,9 +3779,15 @@ export async function getDeliveryDetailsForLocation(
       }
     }
 
+    // Helper para guardar en caché y retornar
+    const returnWithCache = (res: any) => {
+      deliveryDetailsCache.set(cacheKey, { data: res, timestamp: Date.now() })
+      return res
+    }
+
     // Si no está en ninguna zona de cobertura (Zona no definida)
     if (!matchingZone) {
-      return { fee: 5, isOutOfCoverage: true, isInactiveZone: false, zoneName: 'Fuera de cobertura' };
+      return returnWithCache({ fee: 5, isOutOfCoverage: true, isInactiveZone: false, zoneName: 'Fuera de cobertura' });
     }
 
     // 3. Verificar si el negocio tiene configuración de tarifas/cobertura personalizada para esta zona
@@ -3684,7 +3800,7 @@ export async function getDeliveryDetailsForLocation(
           const inactiveFee = (typeof zoneConfig.customFee === 'number' && !isNaN(zoneConfig.customFee))
             ? Math.max(0, zoneConfig.customFee)
             : (matchingZone.deliveryFee || 0);
-          return { fee: inactiveFee, isOutOfCoverage: true, isInactiveZone: true, zoneId: matchingZone.id, zoneName: matchingZone.name };
+          return returnWithCache({ fee: inactiveFee, isOutOfCoverage: true, isInactiveZone: true, zoneId: matchingZone.id, zoneName: matchingZone.name });
         }
 
         // Si la tienda fijó una tarifa personalizada para esta zona
@@ -3696,14 +3812,14 @@ export async function getDeliveryDetailsForLocation(
               distance = calculateHaversineDistance({ lat: bLat, lng: bLng }, location);
             }
           }
-          return {
+          return returnWithCache({
             fee: Math.max(0, zoneConfig.customFee),
             distance,
             zoneId: matchingZone.id,
             zoneName: matchingZone.name,
             isOutOfCoverage: false,
             isInactiveZone: false
-          };
+          });
         }
       }
     }
@@ -3720,25 +3836,25 @@ export async function getDeliveryDetailsForLocation(
           const extraDistance = Math.ceil(distance - baseDistance);
           fee = baseFee + (extraDistance * extraKmFee);
         }
-        return {
+        return returnWithCache({
           fee,
           distance,
           zoneId: matchingZone.id,
           zoneName: matchingZone.name,
           isOutOfCoverage: false,
           isInactiveZone: false
-        };
+        });
       }
     }
 
     // Tarifa plana estándar de la zona
-    return {
+    return returnWithCache({
       fee: matchingZone.deliveryFee || 0,
       zoneId: matchingZone.id,
       zoneName: matchingZone.name,
       isOutOfCoverage: false,
       isInactiveZone: false
-    };
+    });
   } catch (error) {
     console.error('Error getting delivery details for location:', error);
     return { fee: 5, isOutOfCoverage: true, isInactiveZone: false, zoneName: 'Fuera de cobertura' };

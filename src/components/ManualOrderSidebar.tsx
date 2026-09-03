@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
 import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
@@ -13,6 +13,67 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { logDebug } from '@/lib/debug-log'
+
+// Componente optimizado para cargar imágenes de productos de manera diferida
+// Prioriza la visualización y clic inmediato de los nombres y precios de los productos
+const DeferredProductImage = memo(function DeferredProductImage({ src, alt }: { src?: string; alt: string }) {
+  const [shouldLoad, setShouldLoad] = useState(false)
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [hasError, setHasError] = useState(false)
+
+  useEffect(() => {
+    if (!src) return
+
+    // Diferir la carga de imágenes hasta que la UI y los textos ya estén renderizados
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const handle = (window as any).requestIdleCallback(() => {
+        setShouldLoad(true)
+      }, { timeout: 100 })
+      return () => {
+        if ('cancelIdleCallback' in window) {
+          (window as any).cancelIdleCallback(handle)
+        }
+      }
+    } else {
+      const timer = setTimeout(() => {
+        setShouldLoad(true)
+      }, 40)
+      return () => clearTimeout(timer)
+    }
+  }, [src])
+
+  if (!src || hasError) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100">
+        <i className="bi bi-image text-gray-300 text-xs"></i>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative w-full h-full bg-gray-100 overflow-hidden">
+      {!isLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <i className="bi bi-image text-gray-300 text-xs"></i>
+        </div>
+      )}
+      {shouldLoad && (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
+          onLoad={() => setIsLoaded(true)}
+          onError={() => setHasError(true)}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${
+            isLoaded ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      )}
+    </div>
+  )
+})
 
 
 interface Client {
@@ -185,6 +246,10 @@ export default function ManualOrderSidebar({
   const [nameSearchTerm, setNameSearchTerm] = useState('')
   const [tableNumber, setTableNumber] = useState<number>(0)
 
+  // Refs para optimización de búsqueda por teléfono (debounce + cancelación de peticiones desactualizadas)
+  const phoneSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const phoneSearchRequestIdRef = useRef<number>(0)
+
   const handleCycleTable = () => {
     const currentNum = manualOrderData.customerName.trim().startsWith('Mesa ')
       ? parseInt(manualOrderData.customerName.replace('Mesa ', '').trim(), 10)
@@ -217,6 +282,12 @@ export default function ManualOrderSidebar({
   const [selectedOptions, setSelectedOptions] = useState<Record<string, { name: string, price: number }[]>>({})
   const [customizingQuantity, setCustomizingQuantity] = useState(1)
 
+  // Estados para selección múltiple de variantes (activable por long-press)
+  const [isMultiVariantMode, setIsMultiVariantMode] = useState(false)
+  const [selectedVariantsMap, setSelectedVariantsMap] = useState<Record<string, { variant: ProductVariant; quantity: number }>>({})
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const isLongPressActiveRef = useRef(false)
+
   const currentCustomizedTotalPrice = useMemo(() => {
     if (!selectedProductForVariants) return 0;
     if (selectedProductForVariants.isCombo) {
@@ -227,10 +298,20 @@ export default function ManualOrderSidebar({
         }
         return total;
       }, 0);
+    } else if (isMultiVariantMode) {
+      const optionsPrice = selectedProductForVariants.optionGroups
+        ? Object.values(selectedOptions).reduce((sum, groupSelections) => {
+            return sum + groupSelections.reduce((gSum, opt) => gSum + (opt.price || 0), 0);
+          }, 0)
+        : 0;
+      return Object.values(selectedVariantsMap).reduce((total, { variant, quantity }) => {
+        return total + ((getManualOrderStorePrice(variant) + optionsPrice) * quantity);
+      }, 0);
     } else {
+      const hasVariants = selectedProductForVariants.variants && selectedProductForVariants.variants.length > 0;
       const basePrice = selectedVariant
         ? getManualOrderStorePrice(selectedVariant)
-        : getManualOrderStorePrice(selectedProductForVariants);
+        : (hasVariants ? 0 : getManualOrderStorePrice(selectedProductForVariants));
       const optionsPrice = selectedProductForVariants.optionGroups
         ? Object.values(selectedOptions).reduce((sum, groupSelections) => {
             return sum + groupSelections.reduce((gSum, opt) => gSum + (opt.price || 0), 0);
@@ -238,7 +319,7 @@ export default function ManualOrderSidebar({
         : 0;
       return (basePrice + optionsPrice) * customizingQuantity;
     }
-  }, [selectedProductForVariants, selectedVariant, comboSelection, selectedOptions, customizingQuantity]);
+  }, [selectedProductForVariants, selectedVariant, isMultiVariantMode, selectedVariantsMap, comboSelection, selectedOptions, customizingQuantity]);
 
   // Estados para modal de ubicaciones
   const [showLocationModal, setShowLocationModal] = useState(false)
@@ -430,11 +511,11 @@ export default function ManualOrderSidebar({
     }
   }, [searchTimeout])
 
-  // Helper para calcular tarifa usando la función compartida en lib/database
+  // Helper para calcular tarifa usando la función compartida en lib/database con soporte de caché
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
       if (!effectiveBusinessId) return { fee: 0, zoneName: 'Sin cobertura', isOutOfCoverage: true, isInactiveZone: false }
-      const details = await getDeliveryDetailsForLocation({ lat, lng }, effectiveBusinessId);
+      const details = await getDeliveryDetailsForLocation({ lat, lng }, effectiveBusinessId, effectiveBusiness);
       const { fee, distance, zoneName, isOutOfCoverage, isInactiveZone } = details;
       
       if (distance !== undefined) {
@@ -528,6 +609,9 @@ export default function ManualOrderSidebar({
 
     if (isOpen && effectiveBusinessId) {
       loadDeliveries()
+      // Pre-cargar zonas de cobertura en memoria para cálculos instantáneos (0 ms)
+      void getCoverageZones(effectiveBusinessId)
+      void getCoverageZones()
     }
   }, [isOpen, effectiveBusinessId])
 
@@ -717,10 +801,13 @@ export default function ManualOrderSidebar({
     return uniqueCategories(products.map(product => product.category));
   }
 
-  // Filtrar productos por categoría
-  const getFilteredProducts = () => {
-    const categoriesOrder = getBusinessCategories()
+  // Filtrar productos por categoría (memoizado para renderizado ultra rápido)
+  const filteredProductsList = useMemo(() => {
+    if (selectedCategory === 'hidden') {
+      return products.filter(p => !p.isAvailable)
+    }
 
+    const categoriesOrder = getBusinessCategories()
     const getCategoryIndex = (category?: string | null) => {
       if (!category) return Number.MAX_SAFE_INTEGER
       const idx = categoriesOrder.findIndex(c => c?.trim().toLowerCase() === category?.trim().toLowerCase())
@@ -731,13 +818,14 @@ export default function ManualOrderSidebar({
       ? products
       : products.filter(product => product.category?.trim().toLowerCase() === selectedCategory?.trim().toLowerCase())
 
-    // Ordenar los productos según el orden de las categorías definido por el negocio
-    return [...baseProducts].sort((a, b) => {
-      const aIdx = getCategoryIndex(a.category as string | null)
-      const bIdx = getCategoryIndex(b.category as string | null)
-      return aIdx - bIdx
-    })
-  }
+    return [...baseProducts]
+      .filter(p => p.isAvailable)
+      .sort((a, b) => {
+        const aIdx = getCategoryIndex(a.category as string | null)
+        const bIdx = getCategoryIndex(b.category as string | null)
+        return aIdx - bIdx
+      })
+  }, [products, selectedCategory, effectiveBusiness])
 
   // Manejar selección de delivery
   const handleDeliverySelect = () => {
@@ -884,13 +972,51 @@ export default function ManualOrderSidebar({
     }
   }
 
-  // Búsqueda instantánea por teléfono (sin debounce)
-  const handlePhoneSearchInstant = async (phone: string) => {
+  // Ejecución real de búsqueda por teléfono (con control de concurrencia)
+  const executePhoneSearch = async (phone: string) => {
+    const requestId = ++phoneSearchRequestIdRef.current
+    setShowSearchResults(false)
+    setSearchingClient(true)
+
+    try {
+      const normalizedPhone = normalizePhone(phone)
+      const client = await searchClientByPhone(normalizedPhone)
+
+      // Si llegó otra búsqueda posterior, descartar esta respuesta obsoleta
+      if (requestId !== phoneSearchRequestIdRef.current) return
+
+      if (client) {
+        handleSelectClient(client)
+        setShowCreateClient(false)
+      } else {
+        setClientFound(false)
+        setShowCreateClient(true)
+      }
+    } catch (error) {
+      if (requestId !== phoneSearchRequestIdRef.current) return
+      console.error('Error searching client by phone:', error)
+      setClientFound(false)
+    } finally {
+      if (requestId === phoneSearchRequestIdRef.current) {
+        setSearchingClient(false)
+      }
+    }
+  }
+
+  // Búsqueda inteligente por teléfono: debounce al escribir, inmediato al pegar o con 10 dígitos
+  const handlePhoneSearchInstant = (phone: string, isPaste = false) => {
     setShowSearchResults(false)
 
-    if (!phone || phone.trim().length < 9) {
+    if (phoneSearchTimeoutRef.current) {
+      clearTimeout(phoneSearchTimeoutRef.current)
+      phoneSearchTimeoutRef.current = null
+    }
+
+    const trimmed = phone.trim()
+    if (!trimmed || trimmed.length < 9) {
       setClientFound(false)
       setShowCreateClient(false)
+      setSearchingClient(false)
       setManualOrderData(prev => ({
         ...prev,
         customerId: '',
@@ -901,23 +1027,17 @@ export default function ManualOrderSidebar({
       return
     }
 
-    setSearchingClient(true)
-    try {
-      const normalizedPhone = normalizePhone(phone)
-      const client = await searchClientByPhone(normalizedPhone)
+    const normalized = normalizePhone(trimmed)
+    // En Ecuador los celulares tienen 10 dígitos (09XXXXXXXX). Si ya los tiene o es un pegado, buscar al instante
+    const shouldSearchImmediate = isPaste || normalized.length === 10
 
-      if (client) {
-        await handleSelectClient(client)
-        setShowCreateClient(false)
-      } else {
-        setClientFound(false)
-        setShowCreateClient(true)
-      }
-    } catch (error) {
-      console.error('Error searching client by phone:', error)
-      setClientFound(false)
-    } finally {
-      setSearchingClient(false)
+    if (shouldSearchImmediate) {
+      void executePhoneSearch(normalized)
+    } else {
+      // Debounce de 250ms para no saturar con números aún incompletos
+      phoneSearchTimeoutRef.current = setTimeout(() => {
+        void executePhoneSearch(normalized)
+      }, 250)
     }
   }
 
@@ -956,13 +1076,65 @@ export default function ManualOrderSidebar({
     setSearchTimeout(timeout)
   }
 
-  const loadClientLocations = async (clientId: string) => {
-    if (!clientId) return
+  const loadClientLocations = async (clientId: string, bypassCache = false) => {
+    if (!clientId) return []
 
     setLoadingClientLocations(true)
     try {
-      const locations = await getClientLocations(clientId)
+      const rawLocations = await getClientLocations(clientId, undefined, bypassCache)
+      // Normalizar ubicaciones: Si no tienen coordenadas o tienen tarifa '1', el valor por defecto es siempre 1.25
+      const locations = rawLocations.map(loc => {
+        const hasNoCoords = !loc.latlong || loc.latlong.startsWith('pluscode:')
+        const isLegacyOne = !loc.tarifa || loc.tarifa === '1' || loc.tarifa === '1.0' || loc.tarifa === '1.00'
+        if (hasNoCoords || isLegacyOne) {
+          return { ...loc, tarifa: '1.25' }
+        }
+        return loc
+      })
+
+      // Mostrar de inmediato las ubicaciones básicas para que la lista esté disponible en 0 ms
       setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+
+      // Enriquecer en segundo plano las ubicaciones con su tarifa REAL calculada para esta tienda
+      if (effectiveBusinessId && locations.length > 0) {
+        Promise.all(
+          locations.map(async (loc) => {
+            if (!loc.latlong || loc.latlong.startsWith('pluscode:')) {
+              return { ...loc, tarifa: '1.25' }
+            }
+            const [lat, lng] = loc.latlong.split(',').map(Number)
+            if (isNaN(lat) || isNaN(lng)) {
+              return { ...loc, tarifa: '1.25' }
+            }
+            try {
+              const details = await getDeliveryDetailsForLocation({ lat, lng }, effectiveBusinessId, effectiveBusiness)
+              const feeStr = (typeof details.fee === 'number' ? details.fee : parseFloat(loc.tarifa || '1.25')).toString()
+              return {
+                ...loc,
+                tarifa: feeStr,
+                sector: details.zoneName || loc.sector
+              }
+            } catch {
+              return loc
+            }
+          })
+        ).then(enriched => {
+          setManualOrderData(prev => {
+            const updated = { ...prev, customerLocations: enriched }
+            // Si la ubicación seleccionada es una de estas, actualizarla de inmediato con su tarifa real
+            if (prev.selectedLocation) {
+              const matched = enriched.find(e => e.id === prev.selectedLocation?.id)
+              if (matched && matched.tarifa !== prev.selectedLocation.tarifa) {
+                updated.selectedLocation = matched
+              }
+            }
+            return updated
+          })
+        }).catch(err => {
+          console.error('Error precalculating real delivery fees:', err)
+        })
+      }
+
       return locations
     } catch (error) {
       console.error('Error loading client locations:', error)
@@ -972,14 +1144,15 @@ export default function ManualOrderSidebar({
     }
   }
 
-  // Manejar selección de cliente desde resultados
-  const handleSelectClient = async (selectedClient: Client) => {
+  // Manejar selección de cliente: respuesta visual instantánea (0 ms) + ubicaciones en segundo plano
+  const handleSelectClient = (selectedClient: Client) => {
     setClientFound(true)
     setShowSearchResults(false)
     
     // Normalizar el teléfono del cliente seleccionado
     const normalizedPhone = normalizePhone(selectedClient.celular)
     
+    // 1. Asignar de inmediato los datos del cliente en la UI
     setManualOrderData(prev => ({
       ...prev,
       customerId: selectedClient.id,
@@ -989,36 +1162,22 @@ export default function ManualOrderSidebar({
       customerNotes: selectedClient.notas || ''
     }))
 
-    // Cargar ubicaciones del cliente
-    const locations = await loadClientLocations(selectedClient.id)
-    console.log('[ManualOrder] Loaded locations for client:', {
-      clientId: selectedClient.id,
-      locationsCount: locations?.length ?? 0,
-      locations: (locations || []).map(l => ({
-        id: l.id,
-        referencia: l.referencia,
-        hasPhoto: !!l.photo,
-        photoValue: l.photo
-      }))
-    })
+    // 2. Cargar ubicaciones en segundo plano sin congelar la interacción del cliente
+    void loadClientLocations(selectedClient.id)
   }
 
   // Función para recargar ubicaciones del cliente
-  const reloadClientLocations = async () => {
+  const reloadClientLocations = async (bypassCache = false) => {
     const clientId = manualOrderData.customerId
     if (!clientId) return
 
-    const locations = await loadClientLocations(clientId)
-    console.log('[ManualOrder] Reloaded locations for client:', {
-      clientId,
-      locationsCount: locations?.length ?? 0
-    })
+    return await loadClientLocations(clientId, bypassCache)
   }
 
   // Búsqueda de cliente por teléfono (mantener para compatibilidad)
-  const handlePhoneSearch = async (phone: string) => {
+  const handlePhoneSearch = (phone: string) => {
     setManualOrderData(prev => ({ ...prev, customerPhone: phone }))
-    await handlePhoneSearchInstant(phone)
+    handlePhoneSearchInstant(phone, true)
   }
 
   // Abrir modal para editar cliente
@@ -1856,9 +2015,13 @@ export default function ManualOrderSidebar({
   // Editar ubicación - abrir formulario con datos
   const handleEditLocation = async (location: ClientLocation) => {
     setEditingLocationId(location.id)
+    const hasNoCoords = !location.latlong || location.latlong.startsWith('pluscode:')
+    const isLegacyOne = !location.tarifa || location.tarifa === '1' || location.tarifa === '1.0' || location.tarifa === '1.00'
+    const defaultTariff = (hasNoCoords || isLegacyOne) ? '1.25' : location.tarifa
+
     setNewLocationData({
       referencia: location.referencia || '',
-      tarifa: location.tarifa || '1',
+      tarifa: defaultTariff,
       latlong: location.latlong || '',
       photo: location.photo || '',
       sector: location.sector || '',
@@ -2108,12 +2271,7 @@ export default function ManualOrderSidebar({
 
     if (hasVariants || isCombo || hasOptions) {
       setSelectedProductForVariants(product)
-      if (hasVariants) {
-        const firstVariant = product.variants?.find(v => v.isAvailable !== false) || product.variants?.[0] || null
-        setSelectedVariant(firstVariant)
-      } else {
-        setSelectedVariant(null)
-      }
+      setSelectedVariant(null)
       setComboSelection({})
       setSelectedOptions({})
       setCustomizingQuantity(1)
@@ -2127,6 +2285,12 @@ export default function ManualOrderSidebar({
   const addCustomizedProductToOrder = () => {
     if (!selectedProductForVariants) return;
     const product = selectedProductForVariants;
+
+    // 0. Validar selección obligatoria de variante (si no es combo y tiene variantes)
+    if (product.variants && product.variants.length > 0 && !product.isCombo && !selectedVariant) {
+      alert('Por favor selecciona una opción del producto');
+      return;
+    }
 
     // 1. Validar opciones/modificadores obligatorios
     if (product.optionGroups && product.optionGroups.length > 0) {
@@ -2291,6 +2455,145 @@ export default function ManualOrderSidebar({
     setIsVariantModalOpen(false);
     setSelectedProductForVariants(null);
     setSelectedVariant(null);
+    setIsMultiVariantMode(false);
+    setSelectedVariantsMap({});
+    setComboSelection({});
+    setSelectedOptions({});
+    setCustomizingQuantity(1);
+  };
+
+  // Iniciar temporizador de long-press para activar selección múltiple de variantes
+  const handleVariantTouchStart = (variant: ProductVariant) => {
+    isLongPressActiveRef.current = false;
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      isLongPressActiveRef.current = true;
+      setIsMultiVariantMode(true);
+      setSelectedVariantsMap(prev => {
+        const key = variant.id || variant.name;
+        if (prev[key]) return prev;
+        return {
+          ...prev,
+          [key]: { variant, quantity: 1 }
+        };
+      });
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+    }, 450);
+  };
+
+  const handleVariantTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  // Togglear selección de una variante en modo múltiple
+  const toggleVariantMulti = (variant: ProductVariant) => {
+    const key = variant.id || variant.name;
+    setSelectedVariantsMap(prev => {
+      const updated = { ...prev };
+      if (updated[key]) {
+        delete updated[key];
+      } else {
+        updated[key] = { variant, quantity: 1 };
+      }
+      return updated;
+    });
+  };
+
+  // Actualizar cantidad de una variante seleccionada en modo múltiple
+  const updateVariantMultiQuantity = (variantKey: string, newQty: number) => {
+    if (newQty <= 0) {
+      setSelectedVariantsMap(prev => {
+        const updated = { ...prev };
+        delete updated[variantKey];
+        return updated;
+      });
+    } else {
+      setSelectedVariantsMap(prev => {
+        if (!prev[variantKey]) return prev;
+        return {
+          ...prev,
+          [variantKey]: { ...prev[variantKey], quantity: newQty }
+        };
+      });
+    }
+  };
+
+  // Agregar múltiples variantes a la orden a la vez
+  const addMultipleVariantsToOrder = () => {
+    if (!selectedProductForVariants) return;
+    const product = selectedProductForVariants;
+    const itemsToAdd = Object.values(selectedVariantsMap).filter(item => item.quantity > 0);
+
+    if (itemsToAdd.length === 0) {
+      alert('Por favor selecciona al menos una opción');
+      return;
+    }
+
+    const currentStore = allAccessibleStores.find(s => s.id === (product.businessId || effectiveBusinessId)) || effectiveBusiness;
+
+    // Opciones seleccionadas (si aplican)
+    const optionsPrice = product.optionGroups
+      ? Object.values(selectedOptions).reduce((sum, groupSelections) => {
+          return sum + groupSelections.reduce((gSum, opt) => gSum + (opt.price || 0), 0);
+        }, 0)
+      : 0;
+
+    const optionsList: string[] = [];
+    if (product.optionGroups) {
+      Object.entries(selectedOptions).forEach(([groupId, selections]) => {
+        const group = product.optionGroups?.find(g => g.id === groupId);
+        if (group && selections.length > 0) {
+          optionsList.push(`${group.name}: ${selections.map(s => s.name).join(', ')}`);
+        }
+      });
+    }
+    const optionsStr = optionsList.join(' | ');
+
+    const newItems: OrderItem[] = itemsToAdd.map(({ variant, quantity }) => {
+      const basePrice = getManualOrderStorePrice(variant);
+      const finalPrice = basePrice + optionsPrice;
+      const finalVariantName = optionsStr ? `${variant.name} (${optionsStr})` : variant.name;
+
+      return {
+        name: product.name,
+        variant: finalVariantName,
+        variantName: finalVariantName,
+        productName: product.name,
+        price: finalPrice,
+        productId: product.id,
+        quantity: quantity,
+        image: product.image || '',
+        originalBusinessId: product.originalBusinessId || product.businessId || currentStore?.id || effectiveBusinessId,
+        originalBusinessName: product.originalBusinessName || currentStore?.name || effectiveBusiness?.name || '',
+        originalBusinessImage: product.originalBusinessImage || currentStore?.image || null,
+        basePrice: finalPrice,
+        commission: 0,
+        commissionType: 'no_commission',
+        storeReceives: finalPrice
+      };
+    });
+
+    setManualOrderData(prev => ({
+      ...prev,
+      selectedProducts: [...prev.selectedProducts, ...newItems]
+    }));
+
+    calculateTotal([...manualOrderData.selectedProducts, ...newItems]);
+
+    const totalQty = newItems.reduce((sum, item) => sum + item.quantity, 0);
+    displayToast(`✅ ${totalQty} productos agregados al pedido`);
+
+    // Resetear y cerrar modal
+    setIsVariantModalOpen(false);
+    setSelectedProductForVariants(null);
+    setSelectedVariant(null);
+    setIsMultiVariantMode(false);
+    setSelectedVariantsMap({});
     setComboSelection({});
     setSelectedOptions({});
     setCustomizingQuantity(1);
@@ -3072,6 +3375,25 @@ export default function ManualOrderSidebar({
                     )}
 
                     <div className="flex items-center gap-2">
+                      {/* Botón Mesa: a la izquierda del campo de celular */}
+                      <button
+                        type="button"
+                        onClick={handleCycleTable}
+                        title={isTableSelected ? `Cambiar a siguiente mesa (${manualOrderData.customerName})` : 'Asignar mesa'}
+                        className={`h-10 px-3 rounded-md transition-all flex items-center justify-center border flex-shrink-0 ${
+                          isTableSelected
+                            ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white border-blue-600 shadow-sm'
+                            : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        <svg className={`w-5 h-5 ${isTableSelected ? 'text-white' : 'text-gray-700'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="8" width="16" height="3" rx="1" />
+                          <path d="M6 11v7" />
+                          <path d="M18 11v7" />
+                          <path d="M9 8V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+                        </svg>
+                      </button>
+
                       {isTableSelected ? (
                         /* Tarjeta de Mesa en la misma posición y tamaño exacto del campo de número */
                         <div className="flex-1 h-10 px-3 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between transition-all">
@@ -3123,7 +3445,7 @@ export default function ManualOrderSidebar({
                               
                               if (normalizedPhone) {
                                 setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
-                                handlePhoneSearchInstant(normalizedPhone)
+                                handlePhoneSearchInstant(normalizedPhone, true)
                               }
                             }}
                           />
@@ -3144,25 +3466,6 @@ export default function ManualOrderSidebar({
                           </div>
                         </div>
                       )}
-
-                      {/* Botón Mesa: Mismo tamaño y posición, en azul si está asignada la mesa */}
-                      <button
-                        type="button"
-                        onClick={handleCycleTable}
-                        title={isTableSelected ? `Cambiar a siguiente mesa (${manualOrderData.customerName})` : 'Asignar mesa'}
-                        className={`h-10 px-3 rounded-md transition-all flex items-center justify-center border flex-shrink-0 ${
-                          isTableSelected
-                            ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white border-blue-600 shadow-sm'
-                            : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 border-gray-200'
-                        }`}
-                      >
-                        <svg className={`w-5 h-5 ${isTableSelected ? 'text-white' : 'text-gray-700'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="4" y="8" width="16" height="3" rx="1" />
-                          <path d="M6 11v7" />
-                          <path d="M18 11v7" />
-                          <path d="M9 8V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
-                        </svg>
-                      </button>
                     </div>
 
                     {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
@@ -3341,62 +3644,47 @@ export default function ManualOrderSidebar({
               </div>
             ) : (
             <div className="grid grid-cols-4 gap-1 max-h-50 overflow-y-auto">
-              {(() => {
-                const filtered = selectedCategory === 'hidden'
-                  ? products.filter(p => !p.isAvailable)
-                  : getFilteredProducts().filter(p => p.isAvailable);
-
-                return [
-                  ...filtered.map((product) => (
-                    <div
-                      key={product.id}
-                      className={`p-1.5 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col justify-between ${!product.isAvailable ? 'opacity-50 grayscale' : ''
-                        }`}
-                      onClick={() => handleSelectProduct(product)}
-                    >
-                      {/* Imagen del producto */}
-                      <div className="w-full h-14 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
-                        {product.image ? (
-                          <img
-                            src={product.image}
-                            alt={product.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <i className="bi bi-image text-gray-400 text-xs"></i>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex-1 flex flex-col justify-center text-center">
-                        <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
-                        {product.variants && product.variants.length > 0 ? (
-                          <i className="bi bi-chevron-down text-xs text-blue-600"></i>
-                        ) : (
-                          <p className="text-xs text-gray-500">${getManualOrderStorePrice(product)}</p>
-                        )}
-                      </div>
-                    </div>
-                  )),
-                  // Tarjeta de producto personalizado
-                  <div
-                    key="custom-product"
-                    className="p-1.5 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 cursor-pointer transition-colors flex flex-col items-center justify-between"
-                    onClick={() => setShowCustomProductModal(true)}
-                  >
-                    {/* Ícono en lugar de imagen */}
-                    <div className="w-full h-14 mb-1 bg-blue-100 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
-                      <i className="bi bi-plus-circle text-blue-500 text-base"></i>
-                    </div>
-
-                    <div className="flex-1 flex flex-col justify-center text-center">
-                      <p className="text-xs font-medium leading-tight text-blue-600">Personalizar</p>
-                      <p className="text-xs text-blue-400">Producto</p>
-                    </div>
+              {filteredProductsList.map((product) => (
+                <div
+                  key={product.id}
+                  className={`p-1.5 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col justify-between ${
+                    !product.isAvailable ? 'opacity-50 grayscale' : ''
+                  }`}
+                  onClick={() => handleSelectProduct(product)}
+                >
+                  {/* Imagen del producto cargada de forma diferida */}
+                  <div className="w-full h-14 mb-1 bg-gray-100 rounded-md overflow-hidden flex-shrink-0">
+                    <DeferredProductImage src={product.image} alt={product.name} />
                   </div>
-                ];
-              })()}
+
+                  {/* Nombre del producto prioritario y precio */}
+                  <div className="flex-1 flex flex-col justify-center text-center">
+                    <p className="text-xs font-bold text-gray-900 tracking-tight leading-tight mb-1 line-clamp-2">{product.name}</p>
+                    {product.variants && product.variants.length > 0 ? (
+                      <i className="bi bi-chevron-down text-xs text-blue-600"></i>
+                    ) : (
+                      <p className="text-xs font-semibold text-gray-600">${getManualOrderStorePrice(product)}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Tarjeta de producto personalizado */}
+              <div
+                key="custom-product"
+                className="p-1.5 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 cursor-pointer transition-colors flex flex-col items-center justify-between"
+                onClick={() => setShowCustomProductModal(true)}
+              >
+                {/* Ícono en lugar de imagen */}
+                <div className="w-full h-14 mb-1 bg-blue-50 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
+                  <i className="bi bi-plus-circle text-blue-500 text-base"></i>
+                </div>
+
+                <div className="flex-1 flex flex-col justify-center text-center">
+                  <p className="text-xs font-bold leading-tight text-blue-600">Personalizar</p>
+                  <p className="text-xs text-blue-400">Producto</p>
+                </div>
+              </div>
             </div>
             )}
           </div>
@@ -3509,14 +3797,20 @@ export default function ManualOrderSidebar({
                   className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative cursor-pointer hover:bg-green-100 transition-colors"
                   onClick={() => {
                     setShowLocationModal(true)
-                    void reloadClientLocations()
+                    if (manualOrderData.customerLocations.length === 0) {
+                      void reloadClientLocations()
+                    }
                   }}
                 >
                   {/* Información de la ubicación */}
                   <div className="flex justify-between items-center mb-2">
                     <div>
                       <p className="text-sm font-medium text-green-800">{manualOrderData.selectedLocation.referencia}</p>
-                      <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
+                      <p className="text-xs text-green-600">
+                        Tarifa: ${(!manualOrderData.selectedLocation.latlong || manualOrderData.selectedLocation.tarifa === '1' || manualOrderData.selectedLocation.tarifa === '1.0' || manualOrderData.selectedLocation.tarifa === '1.00' || !manualOrderData.selectedLocation.tarifa)
+                          ? '1.25'
+                          : parseFloat(manualOrderData.selectedLocation.tarifa).toFixed(2)}
+                      </p>
                     </div>
                     <div className="text-green-600">
                       <i className="bi bi-chevron-down"></i>
@@ -3558,7 +3852,9 @@ export default function ManualOrderSidebar({
                 <button
                   onClick={() => {
                     setShowLocationModal(true)
-                    void reloadClientLocations()
+                    if (manualOrderData.customerLocations.length === 0) {
+                      void reloadClientLocations()
+                    }
                   }}
                   className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
                   disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
@@ -4269,36 +4565,125 @@ export default function ManualOrderSidebar({
                 /* 2. SECCIÓN DE VARIANTES (Solo si no es combo) */
                 selectedProductForVariants.variants && selectedProductForVariants.variants.length > 0 && (
                   <div className="mb-6">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Selecciona una opción</h4>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                          {isMultiVariantMode ? 'Selección múltiple de opciones' : 'Selecciona una opción'}
+                        </h4>
+                        <p className="text-[11px] text-gray-500 font-normal">
+                          {isMultiVariantMode
+                            ? 'Marca las opciones deseadas y ajusta sus cantidades'
+                            : 'Mantén presionado para seleccionar varias opciones a la vez'}
+                        </p>
+                      </div>
+                      {isMultiVariantMode ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMultiVariantMode(false);
+                            setSelectedVariantsMap({});
+                          }}
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 transition-colors"
+                        >
+                          Modo normal
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setIsMultiVariantMode(true)}
+                          className="text-xs font-semibold text-gray-600 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 px-2 py-0.5 rounded border border-gray-200 transition-colors"
+                          title="Activar selección múltiple"
+                        >
+                          <i className="bi bi-check2-square mr-1 text-blue-600"></i>
+                          Varios
+                        </button>
+                      )}
+                    </div>
+
                     <div className="space-y-2">
                       {selectedProductForVariants.variants.filter(v => v.isAvailable !== false).map((variant) => {
-                        const isSelected = selectedVariant?.name === variant.name;
+                        const variantKey = variant.id || variant.name;
+                        const multiItem = selectedVariantsMap[variantKey];
+                        const isMultiSelected = !!multiItem;
+                        const isSelected = isMultiVariantMode ? isMultiSelected : selectedVariant?.name === variant.name;
                         const hasOptions = selectedProductForVariants.optionGroups && selectedProductForVariants.optionGroups.length > 0;
+
                         return (
-                          <label
-                            key={variant.id || variant.name}
-                            className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all hover:bg-gray-50 ${
-                              isSelected ? 'border-blue-500 bg-blue-50/20' : 'border-gray-200 bg-white'
+                          <div
+                            key={variantKey}
+                            onMouseDown={() => handleVariantTouchStart(variant)}
+                            onMouseUp={handleVariantTouchEnd}
+                            onMouseLeave={handleVariantTouchEnd}
+                            onTouchStart={() => handleVariantTouchStart(variant)}
+                            onTouchEnd={handleVariantTouchEnd}
+                            onTouchMove={handleVariantTouchEnd}
+                            onClick={(e) => {
+                              if (isLongPressActiveRef.current) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                isLongPressActiveRef.current = false;
+                                return;
+                              }
+                              if (isMultiVariantMode) {
+                                toggleVariantMulti(variant);
+                              } else {
+                                if (!hasOptions) {
+                                  addVariantToOrderDirectly(selectedProductForVariants, variant);
+                                } else {
+                                  setSelectedVariant(variant);
+                                }
+                              }
+                            }}
+                            className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all select-none ${
+                              isSelected
+                                ? 'border-blue-500 bg-blue-50/30 shadow-sm'
+                                : 'border-gray-200 bg-white hover:bg-gray-50'
                             }`}
                           >
                             <div className="flex items-center gap-3">
                               <input
-                                type="radio"
-                                name="modal-variant-selection"
+                                type={isMultiVariantMode ? 'checkbox' : 'radio'}
+                                name={isMultiVariantMode ? `multi-variant-${variantKey}` : 'modal-variant-selection'}
                                 checked={isSelected}
-                                onChange={() => {
-                                  if (!hasOptions) {
-                                    addVariantToOrderDirectly(selectedProductForVariants, variant);
-                                  } else {
-                                    setSelectedVariant(variant);
-                                  }
-                                }}
-                                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                onChange={() => {}}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 pointer-events-none"
                               />
                               <span className="text-sm font-semibold text-gray-800">{variant.name}</span>
                             </div>
-                            <span className="text-sm font-bold text-blue-600">${getManualOrderStorePrice(variant).toFixed(2)}</span>
-                          </label>
+
+                            <div className="flex items-center gap-3" onClick={(e) => isMultiVariantMode && isMultiSelected && e.stopPropagation()}>
+                              {isMultiVariantMode && isMultiSelected ? (
+                                <div className="flex items-center gap-2 bg-white px-2 py-0.5 rounded-md border border-blue-200 shadow-sm">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      updateVariantMultiQuantity(variantKey, (multiItem?.quantity || 1) - 1);
+                                    }}
+                                    className="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-blue-600 font-bold"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="text-xs font-bold text-blue-900 w-4 text-center">
+                                    {multiItem?.quantity || 1}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      updateVariantMultiQuantity(variantKey, (multiItem?.quantity || 1) + 1);
+                                    }}
+                                    className="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-blue-600 font-bold"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              ) : null}
+                              <span className="text-sm font-bold text-blue-600">
+                                ${((getManualOrderStorePrice(variant)) * (isMultiVariantMode && multiItem ? multiItem.quantity : 1)).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
                         );
                       })}
                     </div>
@@ -4388,8 +4773,8 @@ export default function ManualOrderSidebar({
                 </div>
               )}
 
-              {/* 4. SELECTOR DE CANTIDAD GENERAL (Solo si no es combo) */}
-              {!selectedProductForVariants.isCombo && (
+              {/* 4. SELECTOR DE CANTIDAD GENERAL (Solo si no es combo y no está en modo selección múltiple) */}
+              {!selectedProductForVariants.isCombo && !isMultiVariantMode && (
                 <div className="flex items-center justify-between border-t border-gray-100 pt-4 mb-6">
                   <span className="text-sm font-bold text-gray-700">Cantidad</span>
                   <div className="flex items-center gap-3">
@@ -4424,6 +4809,8 @@ export default function ManualOrderSidebar({
                     setIsVariantModalOpen(false);
                     setSelectedProductForVariants(null);
                     setSelectedVariant(null);
+                    setIsMultiVariantMode(false);
+                    setSelectedVariantsMap({});
                     setComboSelection({});
                     setSelectedOptions({});
                     setCustomizingQuantity(1);
@@ -4432,13 +4819,44 @@ export default function ManualOrderSidebar({
                 >
                   Cancelar
                 </button>
-                <button
-                  type="button"
-                  onClick={addCustomizedProductToOrder}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-bold text-xs uppercase tracking-wider tracking-widest transition-colors shadow-sm"
-                >
-                  Agregar
-                </button>
+                {isMultiVariantMode ? (
+                  (() => {
+                    const totalQty = Object.values(selectedVariantsMap).reduce((sum, i) => sum + i.quantity, 0);
+                    return (
+                      <button
+                        type="button"
+                        onClick={addMultipleVariantsToOrder}
+                        disabled={totalQty === 0}
+                        className={`px-4 py-2 rounded-md font-bold text-xs uppercase tracking-wider tracking-widest transition-colors shadow-sm ${
+                          totalQty === 0
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-200'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                      >
+                        Agregar {totalQty} {totalQty === 1 ? 'ítem' : 'ítems'}
+                      </button>
+                    );
+                  })()
+                ) : (
+                  (() => {
+                    const hasVariants = selectedProductForVariants.variants && selectedProductForVariants.variants.length > 0 && !selectedProductForVariants.isCombo;
+                    const isVariantMissing = hasVariants && !selectedVariant;
+                    return (
+                      <button
+                        type="button"
+                        onClick={addCustomizedProductToOrder}
+                        disabled={isVariantMissing}
+                        className={`px-4 py-2 rounded-md font-bold text-xs uppercase tracking-wider tracking-widest transition-colors shadow-sm ${
+                          isVariantMissing
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-200'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                      >
+                        Agregar
+                      </button>
+                    );
+                  })()
+                )}
               </div>
             </div>
           </div>
@@ -4505,51 +4923,54 @@ export default function ManualOrderSidebar({
                           type="radio"
                           name="selectedLocation"
                           checked={manualOrderData.selectedLocation?.id === location.id}
-                          onChange={async () => {
-                            // Forzar la recarga siempre, incluso si ya está seleccionada
-                            // Esto permite actualizar los datos después de editar una ubicación
-                            if (manualOrderData.selectedLocation?.id === location.id) {
-                              // Si es la misma ubicación, forzar recarga de todos modos
-                              console.log('[ManualOrder] Re-selecting location to refresh data:', location.id);
-                            }
-                            console.log('[ManualOrder] Selected location:', {
-                              id: location.id,
-                              referencia: location.referencia,
-                              latlong: location.latlong,
-                              tarifa: location.tarifa,
-                              hasPhoto: !!location.photo,
-                              photoValue: location.photo
-                            })
+                          onChange={() => {
+                            // 1. CIERRE INMEDIATO Y SELECCIÓN OPTIMISTA (0 ms de espera)
+                            const rawFee = location.tarifa && !isNaN(parseFloat(location.tarifa)) ? location.tarifa : '1.25'
+                            const hasNoCoords = !location.latlong || location.latlong.startsWith('pluscode:')
+                            const isLegacyOne = !location.tarifa || rawFee === '1' || rawFee === '1.0' || rawFee === '1.00'
+                            const currentFee = (hasNoCoords || isLegacyOne) ? '1.25' : rawFee
+                            const initialSelected = { ...location, tarifa: currentFee }
                             
-                            // Si hay coordenadas, calcular la tarifa automáticamente
-                            if (location.latlong) {
-                              setCalculatingTariff(true)
-                              try {
-                                const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
-                                if (!isNaN(lat) && !isNaN(lng)) {
-                                  const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
-                                  const feeStr = (typeof fee === 'number' ? fee : 0).toString()
-                                  
-                                  const updatedLocation = { ...location, tarifa: feeStr, sector: zoneName || location.sector }
-                                  setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
-                                  setShowLocationModal(false);
-                                  calculateTotal(manualOrderData.selectedProducts);
-                                  findDeliveryForLocation(updatedLocation);
-                                  return;
-                                }
-                              } catch (error) {
-                                console.error('Error calculating delivery fee:', error)
-                              } finally {
+                            setManualOrderData(prev => ({ ...prev, selectedLocation: initialSelected }))
+                            setShowLocationModal(false)
+                            calculateTotal(manualOrderData.selectedProducts)
+
+                            // 2. Si no tiene coordenadas válidas o es pluscode, asignar repartidor directamente
+                            if (!location.latlong || location.latlong.startsWith('pluscode:')) {
+                              findDeliveryForLocation(initialSelected)
+                              return
+                            }
+
+                            // 3. Si hay coordenadas, verificar tarifa y repartidor en segundo plano (sin bloquear la UI)
+                            const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
+                            if (isNaN(lat) || isNaN(lng)) {
+                              findDeliveryForLocation(initialSelected)
+                              return
+                            }
+
+                            setCalculatingTariff(true)
+                            calculateDeliveryFee({ lat, lng })
+                              .then(({ fee, zoneName }) => {
+                                const feeStr = (typeof fee === 'number' ? fee : parseFloat(currentFee)).toString()
+                                const updatedLocation = { ...location, tarifa: feeStr, sector: zoneName || location.sector }
+                                
+                                setManualOrderData(prev => {
+                                  // Solo actualizar si la ubicación seleccionada sigue siendo esta misma
+                                  if (prev.selectedLocation?.id === location.id) {
+                                    return { ...prev, selectedLocation: updatedLocation }
+                                  }
+                                  return prev
+                                })
+                                calculateTotal(manualOrderData.selectedProducts)
+                                findDeliveryForLocation(updatedLocation)
+                              })
+                              .catch(error => {
+                                console.error('Error calculating delivery fee in background:', error)
+                                findDeliveryForLocation(initialSelected)
+                              })
+                              .finally(() => {
                                 setCalculatingTariff(false)
-                              }
-                            }
-                            
-                            // Fallback: si no hay coordenadas o falló el cálculo, usar $1.25 por defecto
-                            const locationWithDefaultTariff = { ...location, tarifa: '1.25' };
-                            setManualOrderData(prev => ({ ...prev, selectedLocation: locationWithDefaultTariff }));
-                            setShowLocationModal(false);
-                            calculateTotal(manualOrderData.selectedProducts);
-                            findDeliveryForLocation(locationWithDefaultTariff);
+                              })
                           }}
                           className="mr-3 mt-1 flex-shrink-0"
                         />
