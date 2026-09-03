@@ -2417,11 +2417,11 @@ export async function getClientById(clientId: string): Promise<FirestoreClient |
 const clientLocationsCache = new Map<string, { locations: ClientLocation[]; timestamp: number }>()
 export const invalidateClientLocationsCache = (clientId?: string) => {
   if (clientId) {
-    for (const key of clientLocationsCache.keys()) {
+    clientLocationsCache.forEach((_, key) => {
       if (key.startsWith(clientId)) {
         clientLocationsCache.delete(key)
       }
-    }
+    })
   } else {
     clientLocationsCache.clear()
   }
