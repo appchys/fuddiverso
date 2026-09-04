@@ -1129,7 +1129,13 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
         where('groupId', '==', groupId)
       )
       const businessesSnapshot = await getDocs(businessesQuery)
-      const businessIds = businessesSnapshot.docs.map(doc => doc.id)
+      const bizMap = new Map<string, Business>()
+      businessesSnapshot.docs.forEach(doc => {
+        const bData = { id: doc.id, ...doc.data(), createdAt: toSafeDate(doc.data().createdAt) } as Business
+        cacheBusiness(bData)
+        bizMap.set(doc.id, bData)
+      })
+      const businessIds = Array.from(bizMap.keys())
       
       if (businessIds.length === 0) {
         return []
@@ -1157,11 +1163,17 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       }
       
       const snapshot = await getDocs(q)
-      products = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: toSafeDate(doc.data().createdAt)
-      })) as Product[]
+      products = snapshot.docs.map(doc => {
+        const pData = doc.data()
+        const biz = bizMap.get(pData.businessId)
+        return {
+          id: doc.id,
+          ...pData,
+          businessName: pData.businessName || biz?.name,
+          businessImage: pData.businessImage || biz?.image,
+          createdAt: toSafeDate(pData.createdAt)
+        }
+      }) as Product[]
     } else {
       // Sin groupId o groupId === 'ALL' - obtener productos de negocios globales o todos
       const businessesRef = collection(db, 'businesses')
@@ -1174,7 +1186,13 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       }
       
       const businessesSnapshot = await getDocs(businessesQuery)
-      const businessIds = businessesSnapshot.docs.map(doc => doc.id)
+      const bizMap = new Map<string, Business>()
+      businessesSnapshot.docs.forEach(doc => {
+        const bData = { id: doc.id, ...doc.data(), createdAt: toSafeDate(doc.data().createdAt) } as Business
+        cacheBusiness(bData)
+        bizMap.set(doc.id, bData)
+      })
+      const businessIds = Array.from(bizMap.keys())
       
       if (businessIds.length === 0) {
         return []
@@ -1182,10 +1200,6 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       
       const productsRef = collection(db, 'products')
       let q
-      
-      // Si es una lista de IDs muy grande (>30), Firestore 'in' fallará.
-      // Aquí simplificamos, pero para 'ALL' tal vez convenga no filtrar por businessId en la query
-      // y filtrar en memoria después? O mejor, no filtrar por ID si es ALL.
       
       if (groupId === 'ALL') {
         if (category === 'all') {
@@ -1222,11 +1236,17 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       }
       
       const snapshot = await getDocs(q)
-      products = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: toSafeDate(doc.data().createdAt)
-      })) as Product[]
+      products = snapshot.docs.map(doc => {
+        const pData = doc.data()
+        const biz = bizMap.get(pData.businessId)
+        return {
+          id: doc.id,
+          ...pData,
+          businessName: pData.businessName || biz?.name,
+          businessImage: pData.businessImage || biz?.image,
+          createdAt: toSafeDate(pData.createdAt)
+        }
+      }) as Product[]
     }
 
     return products;
@@ -5811,6 +5831,35 @@ export interface PaginatedGlobalReviews {
 
 let cachedFallbackReviews: GlobalProductReviewItem[] | null = null;
 let cachedFallbackTimestamp = 0;
+let sharedCommunityReviews: GlobalProductReviewItem[] = [];
+
+export function setCachedCommunityReviews(items: GlobalProductReviewItem[]) {
+  if (items && items.length > 0) {
+    sharedCommunityReviews = items;
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('fuddiverso_cached_feed', JSON.stringify(items.slice(0, 15)));
+      } catch {}
+    }
+  }
+}
+
+export function getCachedCommunityReviews(): GlobalProductReviewItem[] {
+  if (sharedCommunityReviews.length > 0) return sharedCommunityReviews;
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = sessionStorage.getItem('fuddiverso_cached_feed');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          sharedCommunityReviews = parsed;
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
 
 export function clearGlobalReviewsCache() {
   cachedFallbackReviews = null;
@@ -5930,7 +5979,9 @@ export async function getGlobalProductReviews(limitCount: number = 60): Promise<
       }
     }
 
-    return uniqueReviews.slice(0, limitCount);
+    const finalReviews = uniqueReviews.slice(0, limitCount);
+    setCachedCommunityReviews(finalReviews);
+    return finalReviews;
   } catch (error) {
     console.error('Error fetching global product reviews:', error);
     return [];
@@ -5972,6 +6023,10 @@ export async function getGlobalProductReviewsPaginated(
 
       const lastDocSnap = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
       const hasMore = snapshot.docs.length === pageSize;
+
+      if (!lastCursor && items.length > 0) {
+        setCachedCommunityReviews(items);
+      }
 
       return {
         reviews: items,

@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getRecentOrders, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals, getGlobalProductReviews, GlobalProductReviewItem } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getBusinessesByIds, getProductsByBusiness, getGlobalProducts, getRecentOrders, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals, getGlobalProductReviews, GlobalProductReviewItem } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -140,20 +140,50 @@ function HomePageContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
   const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
-  const [groupId, setGroupId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('lastDetectedGroupId')
-    }
-    return null
-  })
-  const [detectedGroupName, setDetectedGroupName] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('lastDetectedGroupName') || 'Daule'
-    }
-    return 'Daule'
-  })
+  const [groupId, setGroupId] = useState<string | null>(null)
+  const [detectedGroupName, setDetectedGroupName] = useState<string | null>('Daule')
   const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
-  const [loadingProducts, setLoadingProducts] = useState(false)
+  const [loadingProducts, setLoadingProducts] = useState(true)
+
+  // Restaurar caché de cliente tras hidratación limpia (0 Hydration Mismatches) y precargar bundle del sidebar
+  useEffect(() => {
+    try {
+      const savedBiz = sessionStorage.getItem('home_businesses_v2')
+      if (savedBiz) {
+        const parsedBiz = JSON.parse(savedBiz)
+        if (parsedBiz.length > 0) {
+          setBusinesses(parsedBiz)
+          setLoading(false)
+        }
+      }
+
+      const savedNew = sessionStorage.getItem('home_newest_products_v2')
+      if (savedNew) {
+        const parsedNew = JSON.parse(savedNew)
+        if (parsedNew.length > 0) {
+          setNewestProducts(parsedNew)
+          setLoadingProducts(false)
+        }
+      }
+
+      const savedBest = sessionStorage.getItem('home_bestsellers_products_v2')
+      if (savedBest) {
+        const parsedBest = JSON.parse(savedBest)
+        if (parsedBest.length > 0) {
+          setBestSellersProducts(parsedBest)
+        }
+      }
+
+      const savedGroupId = localStorage.getItem('lastDetectedGroupId')
+      if (savedGroupId) setGroupId(savedGroupId)
+
+      const savedGroupName = localStorage.getItem('lastDetectedGroupName')
+      if (savedGroupName) setDetectedGroupName(savedGroupName)
+    } catch {}
+
+    // Precargar en background el bundle del sidebar para apertura en 0ms
+    import('@/components/ProductDetailSidebar')
+  }, [])
   const [showGroupSelector, setShowGroupSelector] = useState(false)
   const groupSelectorRef = useRef<HTMLDivElement>(null)
   const [isOutOfCoverage, setIsOutOfCoverage] = useState(false)
@@ -169,10 +199,13 @@ function HomePageContent() {
   // Use useMemo for story businesses to ensure a stable random order per session/businesses-update
   const storyBusinesses = React.useMemo(() => {
     return businesses
-      .filter(b => !b.isHidden && b.businessType !== 'distributor')
+      .filter(b => !b.isHidden && b.businessType !== 'distributor' && !!b.image)
       .filter(b => {
         const products = productsByBusiness[b.id]
-        return products && products.length > 0
+        if (products !== undefined) {
+          return products.length > 0
+        }
+        return true
       })
       .sort((a, b) => {
         const aOpen = isStoreOpen(a)
@@ -372,6 +405,8 @@ function HomePageContent() {
           // Filtrar items que tengan comentario o imagen
           const validReviews = items.filter(r => (r.comment && r.comment.trim().length > 0) || r.image)
           setRecentReviews(validReviews.slice(0, 8))
+          // Precarga en segundo plano de la página de Fuddiverso
+          router.prefetch('/fuddiverso')
         }
       } catch (error) {
         console.error('Error fetching recent reviews for home:', error)
@@ -695,9 +730,11 @@ function HomePageContent() {
   // Cargar productos de la página de inicio (más nuevos y más vendidos) de forma eficiente
   const loadHomeProducts = async (category: string = 'all') => {
     try {
-      setLoadingProducts(true)
-      // 1. Cargar productos inmediatamente sin esperar a órdenes recientes
-      const selected = await getGlobalProducts(category, 120, showAllRestaurants ? 'ALL' : (groupId || undefined))
+      if (newestProducts.length === 0) {
+        setLoadingProducts(true)
+      }
+      // 1. Cargar productos inmediatamente (36 productos es el tamaño óptimo para respuesta ágil de red)
+      const selected = await getGlobalProducts(category, 36, showAllRestaurants ? 'ALL' : (groupId || undefined))
 
       // 1. Lo más nuevo (ordenar por createdAt desc)
       const sortedByNew = [...selected].sort((a, b) => {
@@ -707,6 +744,47 @@ function HomePageContent() {
       })
       setNewestProducts(sortedByNew)
       setBestSellersProducts(sortedByNew) // Fallback inicial rápido
+      setLoadingProducts(false)
+
+      // Guardar en sessionStorage para renderizado instantáneo en visitas siguientes
+      if (typeof window !== 'undefined' && category === 'all') {
+        try {
+          sessionStorage.setItem('home_newest_products_v2', JSON.stringify(sortedByNew.slice(0, 20)))
+          sessionStorage.setItem('home_bestsellers_products_v2', JSON.stringify(sortedByNew.slice(0, 20)))
+        } catch {}
+      }
+
+      // Asegurar que las tiendas de todos los productos estén disponibles en el estado de negocios
+      const missingBusinessIds = Array.from(new Set(
+        selected
+          .map(p => p.businessId)
+          .filter((id): id is string => Boolean(id) && !businesses.some(b => b.id === id))
+      ))
+
+      if (missingBusinessIds.length > 0) {
+        getBusinessesByIds(missingBusinessIds).then(extraBusinesses => {
+          if (extraBusinesses.length > 0) {
+            setBusinesses(prev => {
+              const existingMap = new Map(prev.map(b => [b.id, b]))
+              let hasChanges = false
+              extraBusinesses.forEach(b => {
+                if (!existingMap.has(b.id)) {
+                  existingMap.set(b.id, b)
+                  hasChanges = true
+                }
+              })
+              if (!hasChanges) return prev
+              const updated = Array.from(existingMap.values())
+              if (typeof window !== 'undefined') {
+                try {
+                  sessionStorage.setItem('home_businesses_v2', JSON.stringify(updated))
+                } catch {}
+              }
+              return updated
+            })
+          }
+        }).catch(e => console.error('Error fetching businesses for products:', e))
+      }
 
       // Actualizar categorías del menú con los productos obtenidos (evita consulta duplicada)
       if (selected.length > 0) {
@@ -718,8 +796,6 @@ function HomePageContent() {
           return Array.from(currentSet).sort()
         })
       }
-
-      setLoadingProducts(false)
 
       // 2. Los más vendidos — diferir consulta de órdenes recientes en segundo plano
       getRecentOrders(50).then(recentOrders => {
@@ -744,6 +820,11 @@ function HomePageContent() {
           return a.id.localeCompare(b.id)
         })
         setBestSellersProducts(sortedBySales)
+        if (typeof window !== 'undefined' && category === 'all') {
+          try {
+            sessionStorage.setItem('home_bestsellers_products_v2', JSON.stringify(sortedBySales.slice(0, 20)))
+          } catch {}
+        }
       }).catch(e => console.error('Error loading recent orders for best sellers:', e))
 
     } catch (error) {
@@ -758,7 +839,9 @@ function HomePageContent() {
 
   const loadBusinessesWithParams = async (search: string, category: string) => {
     try {
-      setLoading(true)
+      if (businesses.length === 0) {
+        setLoading(true)
+      }
       const data = search || category !== 'all' || (groupId && !showAllRestaurants)
         ? await searchBusinesses(search, category, showAllRestaurants ? undefined : (groupId || undefined))
         : await getAllBusinesses()
@@ -775,7 +858,18 @@ function HomePageContent() {
         }
       }
 
-      setBusinesses(visibleBusinesses)
+      setBusinesses(prev => {
+        // Combinar negocios para no perder los negocios ya resueltos por productos
+        const map = new Map(prev.map(b => [b.id, b]))
+        visibleBusinesses.forEach(b => map.set(b.id, b))
+        const combined = Array.from(map.values())
+        if (typeof window !== 'undefined' && !search && category === 'all') {
+          try {
+            sessionStorage.setItem('home_businesses_v2', JSON.stringify(combined))
+          } catch {}
+        }
+        return combined
+      })
 
       // Extraer categorías de los negocios (rápido, no bloquea el render)
       const uniqueCategories = new Set<string>()
@@ -839,23 +933,23 @@ function HomePageContent() {
   }
 
   const handleProductClick = (product: Product, business?: Business) => {
-    if (!business) {
-      // Intentar encontrar el negocio si no se pasa explícitamente (para random products)
-      business = businesses.find(b => b.id === product.businessId)
-    }
+    const effectiveBusiness = business || businesses.find(b => b.id === product.businessId) || ({
+      id: product.businessId,
+      name: product.businessName || product.originalBusinessName || 'Tienda',
+      image: product.businessImage || product.originalBusinessImage || '',
+      username: '',
+      categories: [],
+      isOpen: true,
+      rating: 5,
+      reviewCount: 0
+    } as unknown as Business)
 
-    if (business) {
-      setSelectedProduct(product)
-      setSelectedProductBusiness(business)
-      if (isStoryModalOpen) {
-        setIsStoryPaused(true)
-      } else {
-        setIsProductSidebarOpen(true)
-      }
+    setSelectedProduct(product)
+    setSelectedProductBusiness(effectiveBusiness)
+    if (isStoryModalOpen) {
+      setIsStoryPaused(true)
     } else {
-      // Fallback a navegación si no se encuentra el negocio (no debería pasar)
-      const productLink = `/product/${product.id}` // Link genérico o manejar error
-      router.push(productLink)
+      setIsProductSidebarOpen(true)
     }
   }
 
@@ -936,7 +1030,8 @@ function HomePageContent() {
     const seenNewestBusinesses = new Set<string>()
     const filtered = newestProducts.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
-      const isEligible = business?.businessType !== 'distributor' && !!product.image
+      // Si el negocio aún no carga, se asume elegible si tiene imagen para mostrar productos inmediatamente
+      const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
       
       if (!isEligible) return false
       
@@ -948,15 +1043,18 @@ function HomePageContent() {
       return true
     })
     
+    // Si aún no tenemos negocios cargados, devolver de inmediato los productos sin bloquear
+    if (businesses.length === 0) return filtered
+
     // Separar productos de tiendas abiertas y cerradas
     const openProducts = filtered.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
-      return business && isStoreOpen(business)
+      return business ? isStoreOpen(business) : true
     })
     
     const closedProducts = filtered.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
-      return business && !isStoreOpen(business)
+      return business ? !isStoreOpen(business) : false
     })
     
     return [...openProducts, ...closedProducts]
@@ -966,7 +1064,7 @@ function HomePageContent() {
     const seenBestBusinesses = new Set<string>()
     const filtered = bestSellersProducts.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
-      const isEligible = business?.businessType !== 'distributor' && !!product.image
+      const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
       
       if (!isEligible) return false
       
@@ -1062,8 +1160,15 @@ function HomePageContent() {
       <section className="pt-1 pb-1 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-2 items-start">
-            {loading || loadingProducts ? (
-              <div className="w-full h-20 flex items-center justify-center text-gray-400"></div>
+            {storyBusinesses.length === 0 && (loading || loadingProducts) ? (
+              <div className="flex gap-4 items-start py-1">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="flex flex-col items-center gap-1.5 flex-shrink-0 w-20 animate-pulse">
+                    <div className="w-16 h-16 rounded-full bg-gray-200 border-2 border-white shadow-xs" />
+                    <div className="w-12 h-2.5 bg-gray-200 rounded-full" />
+                  </div>
+                ))}
+              </div>
             ) : (
               storyBusinesses.map((b) => {
                 return (
@@ -1103,6 +1208,44 @@ function HomePageContent() {
         </div>
       </section>
 
+      {/* SKELETON VISUAL DE PRODUCTOS (cuando aún no hay datos y está cargando) */}
+      {loadingProducts && filteredNewestProducts.length === 0 && (
+        <section className="py-6 bg-white border-b border-gray-100">
+          <div className="max-w-6xl mx-auto px-6">
+            <div className="mb-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
+                  Lo más nuevo
+                </h2>
+                <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
+                  Novedades
+                </span>
+              </div>
+              <p className="text-xs font-medium text-gray-500 mt-1 leading-relaxed">
+                Platos y productos agregados recientemente por las tiendas.
+              </p>
+            </div>
+            <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden animate-pulse">
+                  <div className="h-40 bg-gray-200" />
+                  <div className="p-4 space-y-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-gray-200" />
+                      <div className="flex-1 space-y-1">
+                        <div className="h-3.5 bg-gray-200 rounded w-3/4" />
+                        <div className="h-2.5 bg-gray-100 rounded w-1/2" />
+                      </div>
+                    </div>
+                    <div className="h-3 bg-gray-100 rounded w-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* LO MÁS NUEVO */}
       {filteredNewestProducts.length > 0 && (
         <section className="py-6 bg-white border-b border-gray-100">
@@ -1125,12 +1268,14 @@ function HomePageContent() {
               <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 newest-products-carousel">
                 {filteredNewestProducts.map((product) => {
                   const business = businesses.find(b => b.id === product.businessId)
-                  const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
+                  const businessName = business?.name || product.businessName || product.originalBusinessName || ''
+                  const businessImage = business?.image || product.businessImage || product.originalBusinessImage || ''
+                  const effectiveBusiness = business || (businessName ? ({ id: product.businessId, name: businessName, image: businessImage } as Business) : undefined)
 
                   return (
                     <div
                       key={product.id}
-                      onClick={() => handleProductClick(product, business)}
+                      onClick={() => handleProductClick(product, effectiveBusiness)}
                       className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer"
                     >
                       <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
@@ -1150,17 +1295,17 @@ function HomePageContent() {
                         )}
                         {product.price > 0 && (
                           <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
-                            {formatPrice(getProductPublicPrice(product, business))}
+                            {formatPrice(getProductPublicPrice(product, effectiveBusiness))}
                           </div>
                         )}
                       </div>
                       <div className="p-4">
                         <div className="flex gap-3 mb-2">
                           <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
-                            {business?.image ? (
+                            {businessImage ? (
                               <ProgressiveImage
-                                src={business.image}
-                                alt={business.name}
+                                src={businessImage}
+                                alt={businessName || 'Tienda'}
                                 fill
                                 sizes="32px"
                                 className="object-cover"
@@ -1175,11 +1320,11 @@ function HomePageContent() {
                             <h3 className="text-sm font-black text-gray-900 line-clamp-1 tracking-tight leading-tight">
                               {product.name}
                             </h3>
-                            {business && (
+                            {businessName ? (
                               <p className="text-xs font-medium text-gray-500 line-clamp-1">
-                                {formatBusinessName(business.name)}
+                                {formatBusinessName(businessName)}
                               </p>
-                            )}
+                            ) : null}
                           </div>
                         </div>
                         {product.description && (
@@ -1244,12 +1389,14 @@ function HomePageContent() {
               <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 best-sellers-carousel">
                 {filteredBestSellers.map((product) => {
                   const business = businesses.find(b => b.id === product.businessId)
-                  const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
+                  const businessName = business?.name || product.businessName || product.originalBusinessName || ''
+                  const businessImage = business?.image || product.businessImage || product.originalBusinessImage || ''
+                  const effectiveBusiness = business || (businessName ? ({ id: product.businessId, name: businessName, image: businessImage } as Business) : undefined)
 
                   return (
                     <div
                       key={product.id}
-                      onClick={() => handleProductClick(product, business)}
+                      onClick={() => handleProductClick(product, effectiveBusiness)}
                       className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer"
                     >
                       <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
@@ -1269,17 +1416,17 @@ function HomePageContent() {
                         )}
                         {product.price > 0 && (
                           <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
-                            {formatPrice(getProductPublicPrice(product, business))}
+                            {formatPrice(getProductPublicPrice(product, effectiveBusiness))}
                           </div>
                         )}
                       </div>
                       <div className="p-4">
                         <div className="flex gap-3 mb-2">
                           <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
-                            {business?.image ? (
+                            {businessImage ? (
                               <ProgressiveImage
-                                src={business.image}
-                                alt={business.name}
+                                src={businessImage}
+                                alt={businessName || 'Tienda'}
                                 fill
                                 sizes="32px"
                                 className="object-cover"
@@ -1294,11 +1441,11 @@ function HomePageContent() {
                             <h3 className="text-sm font-bold text-gray-900 line-clamp-1">
                               {product.name}
                             </h3>
-                            {business && (
+                            {businessName ? (
                               <p className="text-xs font-medium text-gray-500 line-clamp-1">
-                                {formatBusinessName(business.name)}
+                                {formatBusinessName(businessName)}
                               </p>
-                            )}
+                            ) : null}
                           </div>
                         </div>
                         {product.description && (
@@ -1348,7 +1495,7 @@ function HomePageContent() {
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
-                    Comunidad Fuddiverso
+                    Fuddiverso
                   </h2>
                   <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#aa1918] animate-pulse"></span>
@@ -1378,7 +1525,16 @@ function HomePageContent() {
                   return (
                     <div
                       key={review.id}
-                      className="flex-shrink-0 w-72 sm:w-80 bg-gray-50/80 hover:bg-white rounded-2xl p-4 transition-all duration-300 border border-gray-100/80 hover:border-red-100 hover:shadow-md flex flex-col justify-between"
+                      onClick={() => {
+                        router.push(`/fuddiverso?post=${encodeURIComponent(review.id)}`)
+                      }}
+                      onMouseEnter={() => {
+                        router.prefetch(`/fuddiverso?post=${encodeURIComponent(review.id)}`)
+                      }}
+                      onTouchStart={() => {
+                        router.prefetch(`/fuddiverso?post=${encodeURIComponent(review.id)}`)
+                      }}
+                      className="flex-shrink-0 w-72 sm:w-80 bg-gray-50/80 hover:bg-white rounded-2xl p-4 transition-all duration-300 border border-gray-100/80 hover:border-red-200 hover:shadow-lg flex flex-col justify-between cursor-pointer group"
                     >
                       <div>
                         {/* Cabecera: Usuario > Tienda / Fecha | Calificación */}
@@ -1449,11 +1605,7 @@ function HomePageContent() {
                             
                             {/* Info del Producto/Tienda Superpuesta sobre la imagen (sin fondo) */}
                             <div className="absolute bottom-2 left-2 right-2 z-10">
-                              <button
-                                type="button"
-                                onClick={(e) => handleReviewItemClick(review, e)}
-                                className="w-full text-left flex items-center justify-between gap-2 p-1 text-white group/chip cursor-pointer transition-opacity hover:opacity-90"
-                              >
+                              <div className="w-full text-left flex items-center justify-between gap-2 p-1 text-white group/chip transition-opacity hover:opacity-90">
                                 <div className="flex items-center gap-2 min-w-0">
                                   {review.productImage || review.businessLogo ? (
                                     <div className="w-6 h-6 rounded-lg overflow-hidden flex-shrink-0 border border-white/40 shadow-xs">
@@ -1480,7 +1632,7 @@ function HomePageContent() {
                                   </div>
                                 </div>
                                 <i className="bi bi-chevron-right text-[11px] text-white/90 group-hover/chip:translate-x-0.5 transition-transform drop-shadow-xs"></i>
-                              </button>
+                              </div>
                             </div>
                           </div>
                         ) : null}
@@ -1489,11 +1641,7 @@ function HomePageContent() {
                       {/* Chip del Producto / Tienda (solo cuando NO hay imagen) */}
                       {!review.image && (
                         <div className="pt-2 border-t border-gray-200/60 mt-auto">
-                          <button
-                            type="button"
-                            onClick={(e) => handleReviewItemClick(review, e)}
-                            className="w-full text-left flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white hover:bg-gray-100/80 transition-colors border border-gray-100 group cursor-pointer"
-                          >
+                          <div className="w-full text-left flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white hover:bg-gray-100/80 transition-colors border border-gray-100 group">
                             <div className="flex items-center gap-2 min-w-0">
                               {review.productImage || review.businessLogo ? (
                                 <div className="w-6 h-6 rounded-lg overflow-hidden flex-shrink-0 bg-gray-50 border border-gray-100">
@@ -1520,7 +1668,7 @@ function HomePageContent() {
                               </div>
                             </div>
                             <i className="bi bi-chevron-right text-[10px] text-gray-400 group-hover:text-[#aa1918] group-hover:translate-x-0.5 transition-all"></i>
-                          </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2269,26 +2417,24 @@ function HomePageContent() {
         </div>
       )}
 
-      {/* Modals & Sidebars — only mounted when opened */}
-      {isProductSidebarOpen && (
-        <ProductDetailSidebar
-          isOpen={true}
-          onClose={() => setIsProductSidebarOpen(false)}
-          product={selectedProduct}
-          business={selectedProductBusiness!}
-          onProductSelect={handleProductClick}
-          onOpenCart={() => setIsCartOpen(true)}
-          onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
-          hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
-          referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
-          onOpenRatingModal={() => {
-            if (selectedProductBusiness) {
-              setSelectedRatingBusiness(selectedProductBusiness)
-              setIsRatingModalOpen(true)
-            }
-          }}
-        />
-      )}
+      {/* Modals & Sidebars */}
+      <ProductDetailSidebar
+        isOpen={isProductSidebarOpen}
+        onClose={() => setIsProductSidebarOpen(false)}
+        product={selectedProduct}
+        business={selectedProductBusiness}
+        onProductSelect={handleProductClick}
+        onOpenCart={() => setIsCartOpen(true)}
+        onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
+        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
+        onOpenRatingModal={() => {
+          if (selectedProductBusiness) {
+            setSelectedRatingBusiness(selectedProductBusiness)
+            setIsRatingModalOpen(true)
+          }
+        }}
+      />
 
       {isStoryPaused && (
         <StoryProductDetail

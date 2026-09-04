@@ -1,10 +1,12 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { useSearchParams } from 'next/navigation'
 import {
   getGlobalProductReviewsPaginated,
+  getCachedCommunityReviews,
   GlobalProductReviewItem,
   toggleRatingLike,
   addStoreRatingReply,
@@ -50,11 +52,18 @@ const TagProductModal = dynamic(() => import('@/components/TagProductModal'), { 
 
 type FilterType = 'all' | 'with_photo' | 'top_rated' | 'most_replied'
 
-export default function FuddiversoPage() {
+function FuddiversoContent() {
   const { user, login } = useAuth()
+  const searchParams = useSearchParams()
+  const targetPostId = searchParams?.get('post') || null
+  const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null)
+  const hasScrolledRef = useRef(false)
 
-  const [reviews, setReviews] = useState<GlobalProductReviewItem[]>([])
-  const [loading, setLoading] = useState(true)
+  // Inicialización instantánea con publicaciones en memoria para renderizado a 0ms
+  const [reviews, setReviews] = useState<GlobalProductReviewItem[]>(() => {
+    return getCachedCommunityReviews()
+  })
+  const [loading, setLoading] = useState(() => reviews.length === 0)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [cursor, setCursor] = useState<any>(null)
@@ -278,14 +287,27 @@ export default function FuddiversoPage() {
     }
   }
 
-  // Carga inicial de los primeros 10 posts
+  // Carga inicial de posts (actualización en segundo plano si ya hay datos en memoria)
   useEffect(() => {
     let isMounted = true
-    setLoading(true)
-    getGlobalProductReviewsPaginated(10)
+    if (reviews.length === 0) {
+      setLoading(true)
+    }
+    const initialLimit = targetPostId ? 15 : 10
+    getGlobalProductReviewsPaginated(initialLimit)
       .then((result) => {
         if (isMounted) {
-          setReviews(result.reviews)
+          setReviews((prev) => {
+            if (prev.length === 0) return result.reviews
+            const existingMap = new Map(result.reviews.map((r) => [r.id, r]))
+            const merged = prev.map((item) => existingMap.get(item.id) || item)
+            result.reviews.forEach((item) => {
+              if (!prev.some((p) => p.id === item.id)) {
+                merged.push(item)
+              }
+            })
+            return merged
+          })
           setCursor(result.lastVisible)
           setHasMore(result.hasMore)
           setLoading(false)
@@ -299,7 +321,37 @@ export default function FuddiversoPage() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [targetPostId])
+
+  // Desplazamiento automático y resaltado de la publicación objetivo (inmediato si ya está en DOM)
+  useEffect(() => {
+    if (!targetPostId || hasScrolledRef.current || reviews.length === 0) return
+
+    const scrollToPost = () => {
+      const el =
+        document.getElementById(`post-${targetPostId}`) ||
+        document.querySelector(`[data-post-id="${targetPostId}"]`) ||
+        document.querySelector(`[data-rating-doc-id="${targetPostId}"]`)
+
+      if (el) {
+        hasScrolledRef.current = true
+        setHighlightedPostId(targetPostId)
+        setActiveCardId(targetPostId)
+
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 80)
+
+        // Desvanecer el resaltado tras 3.5 segundos
+        setTimeout(() => {
+          setHighlightedPostId((current) => (current === targetPostId ? null : current))
+        }, 3500)
+      }
+    }
+
+    const timer = setTimeout(scrollToPost, 50)
+    return () => clearTimeout(timer)
+  }, [reviews, targetPostId])
 
   // Cargar siguientes 10 posts al llegar al fondo
   const handleLoadMore = useCallback(async () => {
@@ -322,6 +374,17 @@ export default function FuddiversoPage() {
       isFetchingMoreRef.current = false
     }
   }, [hasMore, loading, cursor])
+
+  // Si hay un post objetivo y no está en los posts iniciales pero hay más disponibles, cargar siguiente lote
+  useEffect(() => {
+    if (!targetPostId || loading || hasScrolledRef.current || !hasMore || loadingMore) return
+    const exists = reviews.some(
+      (r) => r.id === targetPostId || r.ratingDocId === targetPostId
+    )
+    if (!exists && reviews.length > 0 && reviews.length < 60) {
+      handleLoadMore()
+    }
+  }, [targetPostId, loading, reviews, hasMore, loadingMore, handleLoadMore])
 
   // Observer para detectar scroll al fondo
   useEffect(() => {
@@ -1057,6 +1120,9 @@ export default function FuddiversoPage() {
             {filteredReviews.map((item, index) => {
             const cardKey = item.id ? `${item.id}_${index}` : `${item.businessId}_${item.ratingDocId}_${index}`
             const isSelected = activeCardId === item.id
+            const isHighlighted =
+              highlightedPostId === item.id ||
+              (Boolean(item.ratingDocId) && highlightedPostId === item.ratingDocId)
             const likes = item.likes || []
             const isLiked = effectiveUserIdentifier ? likes.includes(effectiveUserIdentifier) : false
             const likesCount = likes.length
@@ -1065,9 +1131,14 @@ export default function FuddiversoPage() {
             return (
               <article
                 key={cardKey}
+                id={`post-${item.id}`}
+                data-post-id={item.id}
+                data-rating-doc-id={item.ratingDocId}
                 onClick={() => setActiveCardId(isSelected ? null : item.id)}
-                className={`bg-white rounded-3xl p-4 sm:p-5 border transition-all cursor-pointer space-y-3.5 ${
-                  isSelected
+                className={`bg-white rounded-3xl p-4 sm:p-5 border transition-all duration-500 cursor-pointer space-y-3.5 scroll-mt-24 ${
+                  isHighlighted
+                    ? 'border-[#aa1918] ring-4 ring-red-100 shadow-xl bg-red-50/15'
+                    : isSelected
                     ? 'border-amber-300 ring-2 ring-amber-100 shadow-md'
                     : 'border-gray-100 shadow-sm hover:border-gray-200 hover:shadow-md'
                 }`}
@@ -1795,5 +1866,22 @@ export default function FuddiversoPage() {
         selectedBusinessId={taggedBusiness?.id}
       />
     </div>
+  )
+}
+
+export default function FuddiversoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#fafaf9] flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#aa1918] mx-auto"></div>
+            <p className="mt-3 text-xs font-bold text-gray-500">Cargando Comunidad Fuddiverso...</p>
+          </div>
+        </div>
+      }
+    >
+      <FuddiversoContent />
+    </Suspense>
   )
 }

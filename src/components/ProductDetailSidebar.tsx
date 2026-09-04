@@ -948,22 +948,22 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             {/* Business Header without background */}
                             {business && (
                                 <Link 
-                                    href={`/${business.username}`}
+                                    href={business.username ? `/${business.username}` : `restaurant/${business.id}`}
                                     onClick={onClose}
                                     className="absolute top-4 left-4 z-20 flex items-center gap-3 text-white hover:opacity-85 transition-opacity group/header cursor-pointer max-w-[calc(100%-4.5rem)] drop-shadow-md"
                                 >
                                     <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 bg-white ring-2 ring-white/60 shadow-md">
                                         {business.image ? (
-                                            <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
+                                            <img src={business.image} alt={business.name || 'Tienda'} className="w-full h-full object-cover" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center bg-red-600 text-white font-bold text-xs">
-                                                {business.name.charAt(0)}
+                                                {(business.name || 'T').charAt(0)}
                                             </div>
                                         )}
                                     </div>
                                     <div className="truncate text-left">
                                         <h3 className="text-sm font-black tracking-tight leading-tight text-white group-hover/header:text-red-300 transition-colors truncate">
-                                            {business.name}
+                                            {business.name || 'Tienda'}
                                         </h3>
                                         {business.username && (
                                             <p className="text-xs text-gray-200 font-medium leading-none truncate mt-0.5">
