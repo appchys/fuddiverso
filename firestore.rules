@@ -329,5 +329,10 @@ service cloud.firestore {
     match /telegramBroadcasts/{document} {
       allow read, write: if true;
     }
+
+    // Logs de depuración y auditoría del sistema
+    match /debug_logs/{document} {
+      allow read, write: if true;
+    }
   }
 }

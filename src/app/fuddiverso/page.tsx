@@ -15,8 +15,12 @@ import {
   createCommunityPost,
   updateCommunityPost,
   deleteCommunityPost,
-  uploadImage
+  uploadImage,
+  getBusiness,
+  getUserBusinessAccess
 } from '@/lib/database'
+import { auth } from '@/lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
 import { Product, Business } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
@@ -59,11 +63,9 @@ function FuddiversoContent() {
   const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null)
   const hasScrolledRef = useRef(false)
 
-  // Inicialización instantánea con publicaciones en memoria para renderizado a 0ms
-  const [reviews, setReviews] = useState<GlobalProductReviewItem[]>(() => {
-    return getCachedCommunityReviews()
-  })
-  const [loading, setLoading] = useState(() => reviews.length === 0)
+  // Inicialización segura para evitar discrepancias de hidratación con SSR
+  const [reviews, setReviews] = useState<GlobalProductReviewItem[]>([])
+  const [loading, setLoading] = useState(true)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [cursor, setCursor] = useState<any>(null)
@@ -74,10 +76,108 @@ function FuddiversoContent() {
   const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false)
   const filterPopoverRef = useRef<HTMLDivElement>(null)
 
+  // Estados para identidad activa (Cliente vs Tienda)
+  const [userStore, setUserStore] = useState<Business | null>(null)
+  const [activeIdentity, setActiveIdentity] = useState<'client' | 'business'>('client')
+
+  // Cargar publicaciones en memoria y preferencia de identidad guardada en el cliente
+  useEffect(() => {
+    const cached = getCachedCommunityReviews()
+    if (cached && cached.length > 0) {
+      const valid = cached.filter((r) => Boolean((r.comment && r.comment.trim().length > 0) || r.image))
+      setReviews(valid)
+      if (valid.length > 0) setLoading(false)
+    }
+    const saved = localStorage.getItem('fuddiverso_identity')
+    if (saved === 'business' || saved === 'client') {
+      setActiveIdentity(saved)
+    }
+  }, [])
+
+  // Alternar identidad exclusivamente al hacer clic en el avatar
+  const toggleIdentity = useCallback(() => {
+    if (!userStore) return
+    setActiveIdentity((prev) => {
+      const next = prev === 'business' ? 'client' : 'business'
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('fuddiverso_identity', next)
+      }
+      return next
+    })
+  }, [userStore])
+
+  const isBusinessActor = Boolean(userStore && activeIdentity === 'business')
+
+  // Detectar y cargar la tienda del usuario (si es dueño o administrador)
+  useEffect(() => {
+    let isMounted = true
+
+    const detectStore = async () => {
+      try {
+        const savedBusinessId = typeof window !== 'undefined'
+          ? (localStorage.getItem('businessId') || localStorage.getItem('currentBusinessId'))
+          : null
+
+        // 1. Consultar acceso a negocios mediante sesión
+        const firebaseUser = auth?.currentUser
+        const emailToSearch = firebaseUser?.email || (user as any)?.googleEmail || user?.email || ''
+        const uidToSearch = firebaseUser?.uid || (user as any)?.googleUid || user?.id || ''
+
+        let foundBusiness: Business | null = null
+
+        if (emailToSearch || uidToSearch) {
+          try {
+            const access = await getUserBusinessAccess(emailToSearch, uidToSearch)
+            const businesses = [
+              ...(access.ownedBusinesses || []),
+              ...(access.adminBusinesses || [])
+            ].filter((b: any) => !b.isHidden)
+
+            if (businesses.length > 0) {
+              const matched = savedBusinessId
+                ? businesses.find((b: any) => b.id === savedBusinessId)
+                : null
+              foundBusiness = matched || businesses[0]
+            }
+          } catch (accessErr) {
+            console.warn('No se pudo obtener acceso a negocios via email/uid:', accessErr)
+          }
+        }
+
+        // 2. Si no se encontró por email/uid pero hay un businessId guardado en localStorage
+        if (!foundBusiness && savedBusinessId) {
+          try {
+            foundBusiness = await getBusiness(savedBusinessId)
+          } catch (bizErr) {
+            console.warn('Error al cargar negocio por savedBusinessId:', bizErr)
+          }
+        }
+
+        if (isMounted) {
+          setUserStore(foundBusiness)
+        }
+      } catch (err) {
+        console.error('Error al detectar tienda en fuddiverso:', err)
+      }
+    }
+
+    detectStore()
+
+    const unsubscribeAuth = onAuthStateChanged(auth, () => {
+      detectStore()
+    })
+
+    return () => {
+      isMounted = false
+      unsubscribeAuth()
+    }
+  }, [user?.id, user?.email])
+
   // Estados del Formulario Inline de Publicación
   const [postComment, setPostComment] = useState('')
-  const [postRating, setPostRating] = useState(5)
+  const [postRating, setPostRating] = useState<number | null>(null)
   const [postHoverRating, setPostHoverRating] = useState<number | null>(null)
+  const [isRatingSelectorOpen, setIsRatingSelectorOpen] = useState(false)
   const [postSelectedFile, setPostSelectedFile] = useState<File | null>(null)
   const [postImagePreview, setPostImagePreview] = useState<string | null>(null)
   const [taggedProduct, setTaggedProduct] = useState<Product | null>(null)
@@ -189,15 +289,24 @@ function FuddiversoContent() {
     e.preventDefault()
     setPostError('')
 
-    if (!postComment.trim() && !postSelectedFile && !taggedProduct && !taggedBusiness) {
-      setPostError('Escribe una opinión, sube una foto o etiqueta una tienda o plato')
+    if (!postComment.trim() && !postSelectedFile) {
+      setPostError('Escribe una opinión o sube una foto para publicar')
       return
     }
 
-    let authorName = user?.nombres?.trim() || postGuestName.trim()
-    let authorPhone = user?.celular?.trim() || postGuestPhone.trim()
+    const isBusiness = Boolean(userStore && activeIdentity === 'business')
 
-    if (!user) {
+    let authorName = isBusiness
+      ? userStore!.name
+      : (user?.nombres?.trim() || postGuestName.trim())
+    let authorPhone = isBusiness
+      ? (userStore!.phone || `business_${userStore!.id}`)
+      : (user?.celular?.trim() || postGuestPhone.trim())
+    let authorPhoto = isBusiness
+      ? (userStore!.image || '')
+      : ((user as any)?.photoURL || (user as any)?.clientPhotoUrl || '')
+
+    if (!isBusiness && !user) {
       if (!authorName) {
         setPostError('Ingresa tu nombre')
         return
@@ -214,7 +323,7 @@ function FuddiversoContent() {
       authorPhone = normalizedPhone
     }
 
-    const targetBusinessId = taggedProduct?.businessId || taggedBusiness?.id || ''
+    const targetBusinessId = taggedProduct?.businessId || taggedBusiness?.id || (isBusiness ? userStore!.id : '')
     if (!targetBusinessId) {
       setPostError('Por favor etiqueta el plato o restaurante correspondiente')
       return
@@ -222,7 +331,7 @@ function FuddiversoContent() {
 
     setIsSubmittingPost(true)
     try {
-      if (!user && authorPhone) {
+      if (!isBusiness && !user && authorPhone) {
         try {
           let client = await searchClientByPhone(authorPhone)
           if (client) {
@@ -253,7 +362,7 @@ function FuddiversoContent() {
         image: uploadedImageUrl,
         clientName: authorName,
         clientPhone: authorPhone,
-        clientPhotoURL: (user as any)?.photoURL || (user as any)?.clientPhotoUrl || '',
+        clientPhotoURL: authorPhoto,
         product: taggedProduct
           ? {
               id: taggedProduct.id,
@@ -271,8 +380,9 @@ function FuddiversoContent() {
 
       // Reset formulario inline
       setPostComment('')
-      setPostRating(5)
+      setPostRating(null)
       setPostHoverRating(null)
+      setIsRatingSelectorOpen(false)
       setPostSelectedFile(null)
       setPostImagePreview(null)
       setTaggedProduct(null)
@@ -298,15 +408,16 @@ function FuddiversoContent() {
       .then((result) => {
         if (isMounted) {
           setReviews((prev) => {
-            if (prev.length === 0) return result.reviews
-            const existingMap = new Map(result.reviews.map((r) => [r.id, r]))
+            const filtered = result.reviews.filter((r) => Boolean((r.comment && r.comment.trim().length > 0) || r.image))
+            if (prev.length === 0) return filtered
+            const existingMap = new Map(filtered.map((r) => [r.id, r]))
             const merged = prev.map((item) => existingMap.get(item.id) || item)
-            result.reviews.forEach((item) => {
+            filtered.forEach((item) => {
               if (!prev.some((p) => p.id === item.id)) {
                 merged.push(item)
               }
             })
-            return merged
+            return merged.filter((r) => Boolean((r.comment && r.comment.trim().length > 0) || r.image))
           })
           setCursor(result.lastVisible)
           setHasMore(result.hasMore)
@@ -362,7 +473,7 @@ function FuddiversoContent() {
       const result = await getGlobalProductReviewsPaginated(10, cursor)
       setReviews((prev) => {
         const existingIds = new Set(prev.map((r) => r.id))
-        const newItems = result.reviews.filter((r) => !existingIds.has(r.id))
+        const newItems = result.reviews.filter((r) => !existingIds.has(r.id) && Boolean((r.comment && r.comment.trim().length > 0) || r.image))
         return [...prev, ...newItems]
       })
       setCursor(result.lastVisible)
@@ -412,9 +523,9 @@ function FuddiversoContent() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [viewingPhotoUrl])
 
-  // Filtrado de opiniones
+  // Filtrado de opiniones: solo mostrar posts con texto o foto (excluir los que son únicamente calificaciones)
   const filteredReviews = useMemo(() => {
-    let list = [...reviews]
+    let list = reviews.filter((r) => Boolean((r.comment && r.comment.trim().length > 0) || r.image))
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim()
@@ -431,7 +542,7 @@ function FuddiversoContent() {
       case 'with_photo':
         return list.filter((r) => Boolean(r.image))
       case 'top_rated':
-        return list.filter((r) => r.rating >= 5)
+        return list.filter((r) => typeof r.rating === 'number' && r.rating >= 5)
       case 'most_replied':
         return list.filter((r) => (r.replies?.length || 0) > 0)
       case 'all':
@@ -442,6 +553,11 @@ function FuddiversoContent() {
 
   // Determinar si el usuario logueado es dueño de la reseña/publicación
   const isPostOwner = useCallback((item: GlobalProductReviewItem) => {
+    if (userStore) {
+      if (item.clientPhone === `business_${userStore.id}`) return true
+      if (userStore.phone && item.clientPhone && userStore.phone.replace(/\D/g, '') === item.clientPhone.replace(/\D/g, '')) return true
+      if (item.businessId === userStore.id && item.clientName === userStore.name) return true
+    }
     if (!user) return false
     const userPhone = user.celular || (user as any)?.telefono || ''
     if (userPhone && item.clientPhone) {
@@ -453,7 +569,7 @@ function FuddiversoContent() {
     if (user.id && (item as any).clientId && (item as any).clientId === user.id) return true
     if (!item.clientPhone && user.nombres && item.clientName && user.nombres.trim().toLowerCase() === item.clientName.trim().toLowerCase()) return true
     return false
-  }, [user])
+  }, [user, userStore])
 
   // Iniciar edición de post
   const handleStartEdit = (item: GlobalProductReviewItem, e: React.MouseEvent) => {
@@ -551,23 +667,25 @@ function FuddiversoContent() {
     }
   }
 
-  // Identificador de usuario para likes
-  const effectiveUserIdentifier = user?.celular || user?.id || ''
+  // Identificador de usuario para likes (depende de si actúa como tienda o cliente)
+  const currentActorIdentifier = isBusinessActor
+    ? `business_${userStore!.id}`
+    : (user?.celular || user?.id || '')
 
   // Manejador de Like
   const handleToggleLike = async (item: GlobalProductReviewItem, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!effectiveUserIdentifier) {
+    if (!currentActorIdentifier) {
       setGuestActionData({ type: 'like', item })
       setShowGuestModal(true)
       return
     }
 
     const currentLikes = item.likes || []
-    const isCurrentlyLiked = currentLikes.includes(effectiveUserIdentifier)
+    const isCurrentlyLiked = currentLikes.includes(currentActorIdentifier)
     const newLikes = isCurrentlyLiked
-      ? currentLikes.filter((id) => id !== effectiveUserIdentifier)
-      : [...currentLikes, effectiveUserIdentifier]
+      ? currentLikes.filter((id) => id !== currentActorIdentifier)
+      : [...currentLikes, currentActorIdentifier]
 
     // Actualización optimista
     setReviews((prev) =>
@@ -580,7 +698,7 @@ function FuddiversoContent() {
     )
 
     try {
-      await toggleRatingLike(item.businessId, item.ratingDocId, effectiveUserIdentifier)
+      await toggleRatingLike(item.businessId, item.ratingDocId, currentActorIdentifier)
     } catch (err) {
       console.error('Error toggling like:', err)
       // Revertir en caso de error
@@ -601,7 +719,7 @@ function FuddiversoContent() {
     const text = replyInputText[item.id]?.trim()
     if (!text) return
 
-    if (!user) {
+    if (!isBusinessActor && !user) {
       setGuestActionData({ type: 'reply', item })
       setShowGuestModal(true)
       return
@@ -609,12 +727,23 @@ function FuddiversoContent() {
 
     setIsSendingReply((prev) => ({ ...prev, [item.id]: true }))
     try {
-      const replyPayload = {
-        userName: user.nombres || 'Cliente',
-        userPhone: user.celular || '',
-        userPhoto: (user as any).photoURL || '',
-        comment: text
-      }
+      const replyPayload = isBusinessActor
+        ? {
+            userName: userStore!.name,
+            userPhone: userStore!.phone || `business_${userStore!.id}`,
+            userPhoto: userStore!.image || '',
+            comment: text,
+            isBusinessReply: true,
+            businessReplyName: userStore!.name,
+            businessOwnerId: userStore!.ownerId || userStore!.id
+          }
+        : {
+            userName: user?.nombres || 'Cliente',
+            userPhone: user?.celular || '',
+            userPhoto: (user as any)?.photoURL || (user as any)?.clientPhotoUrl || '',
+            comment: text,
+            isBusinessReply: false
+          }
 
       await addStoreRatingReply(item.businessId, item.ratingDocId, replyPayload)
 
@@ -774,45 +903,55 @@ function FuddiversoContent() {
           {/* Cabecera inline: Avatar / Nombre + Selector de Calificación */}
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-red-50 text-[#aa1918] flex items-center justify-center font-black text-xs overflow-hidden border border-red-100 flex-shrink-0">
-                {(user as any)?.photoURL || (user as any)?.clientPhotoUrl ? (
-                  <img
-                    src={(user as any).photoURL || (user as any).clientPhotoUrl}
-                    alt={user?.nombres || 'Usuario'}
-                    className="w-full h-full object-cover"
-                  />
-                ) : user?.nombres ? (
-                  <span>{user.nombres.charAt(0).toUpperCase()}</span>
-                ) : (
-                  <span>F</span>
-                )}
-              </div>
-              <span className="text-xs font-black text-gray-900 truncate">
-                {user?.nombres || 'Comparte tu experiencia'}
-              </span>
-            </div>
-
-            {/* Selector de Estrellas */}
-            <div className="flex items-center gap-0.5 bg-gray-50 px-2 py-1 rounded-xl border border-gray-100 flex-shrink-0">
-              {[1, 2, 3, 4, 5].map((star) => (
+              {userStore ? (
                 <button
-                  key={star}
                   type="button"
-                  onClick={() => setPostRating(star)}
-                  onMouseEnter={() => setPostHoverRating(star)}
-                  onMouseLeave={() => setPostHoverRating(null)}
-                  className="p-0.5 transition-transform active:scale-90"
+                  onClick={toggleIdentity}
+                  className="relative group p-0 bg-transparent border-none rounded-full flex-shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                  title={`Interactuar como: ${isBusinessActor ? `${userStore.name} (Clic para cambiar a Cliente)` : `${user?.nombres || 'Cliente'} (Clic para cambiar a Tienda)`}`}
                 >
-                  <Star
-                    size={16}
-                    className={`transition-colors ${
-                      (postHoverRating !== null ? star <= postHoverRating : star <= postRating)
-                        ? 'fill-amber-400 text-amber-400'
-                        : 'text-gray-200'
-                    }`}
-                  />
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-red-50 to-orange-50 text-[#aa1918] flex items-center justify-center font-black text-xs overflow-hidden border border-red-200 shadow-xs">
+                    {isBusinessActor ? (
+                      userStore.image ? (
+                        <img src={userStore.image} alt={userStore.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span>🏪</span>
+                      )
+                    ) : (user as any)?.photoURL || (user as any)?.clientPhotoUrl ? (
+                      <img
+                        src={(user as any).photoURL || (user as any).clientPhotoUrl}
+                        alt={user?.nombres || 'Usuario'}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : user?.nombres ? (
+                      <span>{user.nombres.charAt(0).toUpperCase()}</span>
+                    ) : (
+                      <i className="bi bi-person-fill text-gray-400 text-sm"></i>
+                    )}
+                  </div>
+                  {/* Sutil Chevron para alternar identidad */}
+                  <div className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center shadow-xs border border-white">
+                    <i className="bi bi-chevron-down text-[7px] font-black leading-none"></i>
+                  </div>
                 </button>
-              ))}
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-red-50 text-[#aa1918] flex items-center justify-center font-black text-xs overflow-hidden border border-red-100 flex-shrink-0">
+                  {(user as any)?.photoURL || (user as any)?.clientPhotoUrl ? (
+                    <img
+                      src={(user as any).photoURL || (user as any).clientPhotoUrl}
+                      alt={user?.nombres || 'Usuario'}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : user?.nombres ? (
+                    <span>{user.nombres.charAt(0).toUpperCase()}</span>
+                  ) : (
+                    <span>F</span>
+                  )}
+                </div>
+              )}
+              <span className="text-xs font-black text-gray-900 truncate">
+                {isBusinessActor && userStore ? userStore.name : (user?.nombres || 'Comparte tu experiencia')}
+              </span>
             </div>
           </div>
 
@@ -820,7 +959,7 @@ function FuddiversoContent() {
           <textarea
             value={postComment}
             onChange={(e) => setPostComment(e.target.value)}
-            placeholder="¿Qué probaste? Comparte tu opinión..."
+            placeholder={isBusinessActor && userStore ? `¿Qué novedades tiene ${userStore.name}? Comparte tu opinión...` : "¿Qué probaste? Comparte tu opinión..."}
             rows={2}
             className="w-full bg-gray-50/80 border border-gray-200/80 rounded-2xl p-3 text-xs sm:text-sm font-medium text-gray-900 placeholder:text-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all resize-none"
           />
@@ -899,8 +1038,8 @@ function FuddiversoContent() {
             </div>
           )}
 
-          {/* Datos de Invitado si no está logueado */}
-          {!user && (
+          {/* Datos de Invitado si no está logueado y no actúa como tienda */}
+          {!user && !isBusinessActor && (
             <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100">
               <input
                 type="text"
@@ -963,12 +1102,67 @@ function FuddiversoContent() {
                 <Tag size={14} />
                 <span>{taggedProduct || taggedBusiness ? 'Etiquetado' : 'Etiquetar'}</span>
               </button>
+
+              {/* Estrella vacía al lado de Etiquetar para calificación opcional */}
+              {!isRatingSelectorOpen && postRating === null ? (
+                <button
+                  type="button"
+                  onClick={() => setIsRatingSelectorOpen(true)}
+                  className="flex items-center justify-center w-8 h-8 rounded-xl text-xs font-bold transition-all bg-gray-50 hover:bg-gray-100 text-gray-400 hover:text-amber-500 border border-gray-100 active:scale-95 flex-shrink-0"
+                  title="Calificar con estrellas"
+                >
+                  <Star size={15} className="text-gray-400 hover:text-amber-400 transition-colors" />
+                </button>
+              ) : (
+                <div className="flex items-center gap-1 bg-amber-50/60 border border-amber-200/80 px-2 py-1 rounded-xl animate-in fade-in duration-150 flex-shrink-0">
+                  <div className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setPostRating((prev) => (prev === star ? null : star))}
+                        onMouseEnter={() => setPostHoverRating(star)}
+                        onMouseLeave={() => setPostHoverRating(null)}
+                        className="p-0.5 transition-transform active:scale-90"
+                        title={`${star} ${star === 1 ? 'estrella' : 'estrellas'}`}
+                      >
+                        <Star
+                          size={15}
+                          className={`transition-colors ${
+                            (postHoverRating !== null
+                              ? star <= postHoverRating
+                              : postRating !== null && star <= postRating)
+                              ? 'fill-amber-400 text-amber-400'
+                              : 'text-gray-300 hover:text-amber-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  {postRating !== null && (
+                    <span className="text-[10px] font-black text-amber-700 ml-0.5">
+                      {postRating}.0
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPostRating(null)
+                      setIsRatingSelectorOpen(false)
+                    }}
+                    className="ml-0.5 text-gray-400 hover:text-gray-700 p-0.5 rounded-full transition-colors"
+                    title="Cerrar calificación"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Botón Publicar */}
             <button
               type="submit"
-              disabled={isSubmittingPost || (!postComment.trim() && !postSelectedFile && !taggedProduct && !taggedBusiness)}
+              disabled={isSubmittingPost || (!postComment.trim() && !postSelectedFile)}
               className="px-4 py-1.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 flex-shrink-0"
             >
               {isSubmittingPost ? (
@@ -1124,7 +1318,7 @@ function FuddiversoContent() {
               highlightedPostId === item.id ||
               (Boolean(item.ratingDocId) && highlightedPostId === item.ratingDocId)
             const likes = item.likes || []
-            const isLiked = effectiveUserIdentifier ? likes.includes(effectiveUserIdentifier) : false
+            const isLiked = currentActorIdentifier ? likes.includes(currentActorIdentifier) : false
             const likesCount = likes.length
             const repliesCount = item.replies?.length || 0
 
@@ -1181,13 +1375,17 @@ function FuddiversoContent() {
                         <span className="text-[10px] text-gray-400 font-medium">
                           {item.createdAt ? formatRelativeTime(item.createdAt) : 'Reciente'}
                         </span>
-                        <span className="mx-1.5 text-gray-300 text-[10px]">|</span>
-                        <div className="flex items-center gap-0.5">
-                          <Star size={11} className="fill-amber-400 text-amber-400 flex-shrink-0" />
-                          <span className="text-[10px] font-black text-amber-700 leading-none">
-                            {typeof item.rating === 'number' && item.rating > 0 ? item.rating.toFixed(1) : '5.0'}
-                          </span>
-                        </div>
+                        {typeof item.rating === 'number' && item.rating > 0 ? (
+                          <>
+                            <span className="mx-1.5 text-gray-300 text-[10px]">|</span>
+                            <div className="flex items-center gap-0.5">
+                              <Star size={11} className="fill-amber-400 text-amber-400 flex-shrink-0" />
+                              <span className="text-[10px] font-black text-amber-700 leading-none">
+                                {item.rating.toFixed(1)}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -1349,14 +1547,15 @@ function FuddiversoContent() {
                       type="button"
                       onClick={(e) => handleToggleLike(item, e)}
                       className={`flex items-center gap-1.5 py-1 text-xs font-bold transition-all active:scale-95 ${
-                        isLiked
+                        Boolean(currentActorIdentifier && (item.likes || []).includes(currentActorIdentifier))
                           ? 'text-rose-600'
                           : 'text-gray-500 hover:text-gray-900'
                       }`}
+                      title={userStore ? `Dar Me gusta como ${isBusinessActor ? userStore.name : (user?.nombres || 'Cliente')}` : 'Me gusta'}
                     >
                       <Heart
                         size={16}
-                        className={isLiked ? 'fill-rose-500 text-rose-500' : 'text-gray-400'}
+                        className={Boolean(currentActorIdentifier && (item.likes || []).includes(currentActorIdentifier)) ? 'fill-rose-500 text-rose-500' : 'text-gray-400'}
                       />
                       <span>{likesCount > 0 ? likesCount : ''} Me gusta</span>
                     </button>
@@ -1413,22 +1612,26 @@ function FuddiversoContent() {
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1.5">
-                                <div className="w-5 h-5 rounded-full bg-gray-200 text-gray-800 font-black text-[9px] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                <div className={`w-5 h-5 rounded-full font-black text-[9px] flex items-center justify-center flex-shrink-0 overflow-hidden ${
+                                  reply.isBusinessReply
+                                    ? 'bg-gray-900 text-white'
+                                    : 'bg-gray-200 text-gray-800'
+                                }`}>
                                   {reply.userPhoto ? (
                                     <img
                                       src={reply.userPhoto}
-                                      alt={reply.userName || 'Cliente'}
+                                      alt={reply.businessReplyName || reply.userName || 'Cliente'}
                                       className="w-full h-full object-cover"
                                       onError={(e) => {
                                         ;(e.target as HTMLElement).style.display = 'none'
                                       }}
                                     />
                                   ) : (
-                                    <span>{reply.userName?.charAt(0)?.toUpperCase() || 'C'}</span>
+                                    <span>{reply.isBusinessReply ? '🏪' : (reply.userName?.charAt(0)?.toUpperCase() || 'C')}</span>
                                   )}
                                 </div>
                                 <span className="font-black text-gray-800 text-[11px]">
-                                  {reply.userName || 'Cliente'}
+                                  {reply.isBusinessReply ? (reply.businessReplyName || reply.userName || 'Tienda') : (reply.userName || 'Cliente')}
                                 </span>
                               </div>
                               <span className="text-[10px] text-gray-400">
@@ -1448,6 +1651,54 @@ function FuddiversoContent() {
                       onSubmit={(e) => handleSendReply(item, e)}
                       className="flex items-center gap-2 pt-1"
                     >
+                      {/* Avatar interactivo con chevron para alternar entre Cliente y Tienda si es owner */}
+                      {userStore ? (
+                        <button
+                          type="button"
+                          onClick={toggleIdentity}
+                          className="relative group p-0 bg-transparent border-none rounded-full flex-shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                          title={`Responder como: ${isBusinessActor ? `${userStore.name} (Clic para cambiar a Cliente)` : `${user?.nombres || 'Cliente'} (Clic para cambiar a Tienda)`}`}
+                        >
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-red-50 to-orange-50 text-[#aa1918] font-bold text-[10px] flex items-center justify-center border border-red-200 shadow-xs overflow-hidden">
+                            {isBusinessActor ? (
+                              userStore.image ? (
+                                <img src={userStore.image} alt={userStore.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <span>🏪</span>
+                              )
+                            ) : (user as any)?.photoURL || (user as any)?.clientPhotoUrl ? (
+                              <img
+                                src={(user as any).photoURL || (user as any).clientPhotoUrl}
+                                alt={user?.nombres || 'Tú'}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : user?.nombres ? (
+                              <span>{user.nombres.charAt(0).toUpperCase()}</span>
+                            ) : (
+                              <i className="bi bi-person-fill text-gray-400 text-xs"></i>
+                            )}
+                          </div>
+                          {/* Sutil Chevron */}
+                          <div className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white rounded-full w-3 h-3 flex items-center justify-center shadow-xs border border-white">
+                            <i className="bi bi-chevron-down text-[6px] font-black leading-none"></i>
+                          </div>
+                        </button>
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-red-50 text-[#aa1918] font-bold text-[10px] flex items-center justify-center border border-red-100 shadow-xs flex-shrink-0 overflow-hidden">
+                          {(user as any)?.photoURL || (user as any)?.clientPhotoUrl ? (
+                            <img
+                              src={(user as any).photoURL || (user as any).clientPhotoUrl}
+                              alt={user?.nombres || 'Tú'}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : user?.nombres ? (
+                            <span>{user.nombres.charAt(0).toUpperCase()}</span>
+                          ) : (
+                            <i className="bi bi-person-fill text-gray-400 text-xs"></i>
+                          )}
+                        </div>
+                      )}
+
                       <input
                         type="text"
                         value={replyInputText[item.id] || ''}
@@ -1457,7 +1708,7 @@ function FuddiversoContent() {
                             [item.id]: e.target.value
                           })
                         }
-                        placeholder="Escribe una respuesta o comentario..."
+                        placeholder={isBusinessActor && userStore ? `Responder como ${userStore.name}...` : "Escribe una respuesta o comentario..."}
                         className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
                       />
                       <button

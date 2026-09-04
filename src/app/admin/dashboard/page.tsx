@@ -100,7 +100,7 @@ export default function AdminDashboard() {
   })
 
   useEffect(() => {
-    document.title = 'Panel de administración - Fuddi'
+    document.title = 'Admin - Fuddi.shop'
   }, [])
 
   useEffect(() => {

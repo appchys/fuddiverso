@@ -1132,8 +1132,10 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       const bizMap = new Map<string, Business>()
       businessesSnapshot.docs.forEach(doc => {
         const bData = { id: doc.id, ...doc.data(), createdAt: toSafeDate(doc.data().createdAt) } as Business
-        cacheBusiness(bData)
-        bizMap.set(doc.id, bData)
+        if (!bData.isHidden) {
+          cacheBusiness(bData)
+          bizMap.set(doc.id, bData)
+        }
       })
       const businessIds = Array.from(bizMap.keys())
       
@@ -1189,8 +1191,10 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       const bizMap = new Map<string, Business>()
       businessesSnapshot.docs.forEach(doc => {
         const bData = { id: doc.id, ...doc.data(), createdAt: toSafeDate(doc.data().createdAt) } as Business
-        cacheBusiness(bData)
-        bizMap.set(doc.id, bData)
+        if (!bData.isHidden) {
+          cacheBusiness(bData)
+          bizMap.set(doc.id, bData)
+        }
       })
       const businessIds = Array.from(bizMap.keys())
       
@@ -1236,17 +1240,20 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       }
       
       const snapshot = await getDocs(q)
-      products = snapshot.docs.map(doc => {
-        const pData = doc.data()
-        const biz = bizMap.get(pData.businessId)
-        return {
-          id: doc.id,
-          ...pData,
-          businessName: pData.businessName || biz?.name,
-          businessImage: pData.businessImage || biz?.image,
-          createdAt: toSafeDate(pData.createdAt)
-        }
-      }) as Product[]
+      products = snapshot.docs
+        .map(doc => {
+          const pData = doc.data()
+          const biz = bizMap.get(pData.businessId)
+          if (!biz || biz.isHidden) return null
+          return {
+            id: doc.id,
+            ...pData,
+            businessName: pData.businessName || biz?.name,
+            businessImage: pData.businessImage || biz?.image,
+            createdAt: toSafeDate(pData.createdAt)
+          }
+        })
+        .filter((p): p is Product => p !== null) as Product[]
     }
 
     return products;
@@ -2055,11 +2062,13 @@ export async function searchBusinesses(searchTerm: string, category?: string, gr
   try {
     const q = collection(db, 'businesses')
     const querySnapshot = await getDocs(q)
-    let businesses = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: toSafeDate(doc.data().createdAt)
-    })) as Business[]
+    let businesses = querySnapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: toSafeDate(doc.data().createdAt)
+      }))
+      .filter(b => !b.isHidden) as Business[]
 
     // Filtrar por categoría
     if (category && category !== 'all') {
@@ -5562,7 +5571,7 @@ export async function deleteStoreRating(
  */
 export async function createCommunityPost(params: {
   businessId: string;
-  rating: number;
+  rating?: number | null;
   comment?: string;
   image?: string;
   clientName: string;
@@ -5580,6 +5589,7 @@ export async function createCommunityPost(params: {
   try {
     const ratingsRef = collection(db, 'businesses', params.businessId, 'ratings');
     
+    const effectiveRating = typeof params.rating === 'number' && params.rating > 0 ? params.rating : 0;
     let productRatings: ProductRating[] | undefined = undefined;
     if (params.product) {
       productRatings = [
@@ -5587,7 +5597,7 @@ export async function createCommunityPost(params: {
           productId: params.product.id,
           productName: params.product.name,
           productImage: params.product.image || '',
-          rating: params.rating,
+          rating: effectiveRating,
           comment: params.comment || '',
           image: params.image || '',
         }
@@ -5602,7 +5612,7 @@ export async function createCommunityPost(params: {
       businessName: business?.name || 'Tienda',
       businessUsername: business?.username || params.businessId,
       businessLogo: business?.image || '',
-      rating: params.rating,
+      rating: effectiveRating,
       comment: params.comment || '',
       image: params.image || '',
       clientName: params.clientName || 'Cliente',
@@ -5623,10 +5633,12 @@ export async function createCommunityPost(params: {
     const docRef = await addDoc(ratingsRef, ratingData);
     clearGlobalReviewsCache();
 
-    // Update business rating stats
-    updateBusinessRatingStats(params.businessId).catch((err) => {
-      console.error('Error updating business rating stats:', err);
-    });
+    // Update business rating stats only if a valid rating was given
+    if (effectiveRating > 0) {
+      updateBusinessRatingStats(params.businessId).catch((err) => {
+        console.error('Error updating business rating stats:', err);
+      });
+    }
 
     const newReview: GlobalProductReviewItem = {
       id: params.product ? `${params.businessId}_${docRef.id}_${params.product.id}` : `${params.businessId}_${docRef.id}`,
@@ -5644,7 +5656,7 @@ export async function createCommunityPost(params: {
       clientName: params.clientName,
       clientPhone: params.clientPhone,
       clientPhotoURL: params.clientPhotoURL,
-      rating: params.rating,
+      rating: effectiveRating || undefined,
       comment: params.comment || '',
       image: params.image || '',
       createdAt: new Date(),
@@ -5813,7 +5825,7 @@ export interface GlobalProductReviewItem {
   clientName: string;
   clientPhone: string;
   clientPhotoURL?: string;
-  rating: number;
+  rating?: number;
   comment?: string;
   image?: string;
   createdAt: any;
@@ -6018,7 +6030,9 @@ export async function getGlobalProductReviewsPaginated(
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const businessId = data.businessId || docSnap.ref.parent.parent?.id || '';
-        items.push(...parseReviewDoc(docSnap.id, data, businessId));
+        const parsed = parseReviewDoc(docSnap.id, data, businessId);
+        const valid = parsed.filter(item => Boolean((item.comment && item.comment.trim().length > 0) || item.image));
+        items.push(...valid);
       });
 
       const lastDocSnap = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
@@ -6051,7 +6065,9 @@ export async function getGlobalProductReviewsPaginated(
         const allFallbackItems: GlobalProductReviewItem[] = [];
         results.forEach((arr) => {
           arr.forEach((d) => {
-            allFallbackItems.push(...parseReviewDoc(d.id, d.data, d.businessId));
+            const parsed = parseReviewDoc(d.id, d.data, d.businessId);
+            const valid = parsed.filter(item => Boolean((item.comment && item.comment.trim().length > 0) || item.image));
+            allFallbackItems.push(...valid);
           });
         });
 

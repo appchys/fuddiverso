@@ -8,7 +8,7 @@ import { getAllBusinesses, searchBusinesses, getBusinessesByIds, getProductsByBu
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
-import { isStoreOpen, formatBusinessName } from '@/lib/store-utils'
+import { isStoreOpen, formatBusinessName, getNextOpeningMessage } from '@/lib/store-utils'
 import { formatRelativeTime } from '@/lib/date-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
@@ -152,7 +152,8 @@ function HomePageContent() {
       if (savedBiz) {
         const parsedBiz = JSON.parse(savedBiz)
         if (parsedBiz.length > 0) {
-          setBusinesses(parsedBiz)
+          const visibleBiz = parsedBiz.filter((b: Business) => !b.isHidden)
+          setBusinesses(visibleBiz)
           setLoading(false)
         }
       }
@@ -220,7 +221,7 @@ function HomePageContent() {
 
   const sortedRestaurants = React.useMemo(() => {
     const filtered = businesses
-      .filter(b => b.businessType !== 'distributor')
+      .filter(b => !b.isHidden && b.businessType !== 'distributor')
       .filter(b => {
         const products = productsByBusiness[b.id]
         return products && products.length > 0
@@ -765,16 +766,16 @@ function HomePageContent() {
         getBusinessesByIds(missingBusinessIds).then(extraBusinesses => {
           if (extraBusinesses.length > 0) {
             setBusinesses(prev => {
-              const existingMap = new Map(prev.map(b => [b.id, b]))
+              const existingMap = new Map(prev.filter(b => !b.isHidden).map(b => [b.id, b]))
               let hasChanges = false
-              extraBusinesses.forEach(b => {
+              extraBusinesses.filter(b => !b.isHidden).forEach(b => {
                 if (!existingMap.has(b.id)) {
                   existingMap.set(b.id, b)
                   hasChanges = true
                 }
               })
               if (!hasChanges) return prev
-              const updated = Array.from(existingMap.values())
+              const updated = Array.from(existingMap.values()).filter(b => !b.isHidden)
               if (typeof window !== 'undefined') {
                 try {
                   sessionStorage.setItem('home_businesses_v2', JSON.stringify(updated))
@@ -859,10 +860,11 @@ function HomePageContent() {
       }
 
       setBusinesses(prev => {
-        // Combinar negocios para no perder los negocios ya resueltos por productos
-        const map = new Map(prev.map(b => [b.id, b]))
+        // Filtrar prev para descartar tiendas que se hayan ocultado
+        const validPrev = prev.filter(b => !b.isHidden)
+        const map = new Map(validPrev.map(b => [b.id, b]))
         visibleBusinesses.forEach(b => map.set(b.id, b))
-        const combined = Array.from(map.values())
+        const combined = Array.from(map.values()).filter(b => !b.isHidden)
         if (typeof window !== 'undefined' && !search && category === 'all') {
           try {
             sessionStorage.setItem('home_businesses_v2', JSON.stringify(combined))
@@ -1030,6 +1032,8 @@ function HomePageContent() {
     const seenNewestBusinesses = new Set<string>()
     const filtered = newestProducts.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
+      // Si el negocio está marcado como oculto, no mostrar sus productos
+      if (business && business.isHidden) return false
       // Si el negocio aún no carga, se asume elegible si tiene imagen para mostrar productos inmediatamente
       const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
       
@@ -1064,6 +1068,8 @@ function HomePageContent() {
     const seenBestBusinesses = new Set<string>()
     const filtered = bestSellersProducts.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
+      // Si el negocio está marcado como oculto, no mostrar sus productos
+      if (business && business.isHidden) return false
       const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
       
       if (!isEligible) return false
@@ -1896,14 +1902,17 @@ function HomePageContent() {
                             <h3 className="text-sm sm:text-base font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight leading-none">
                               {formatBusinessName(b.name)}
                             </h3>
-                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex-shrink-0 ${
-                              isStoreOpen(b)
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                : 'bg-rose-50 text-rose-700 border border-rose-100'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${isStoreOpen(b) ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                              {isStoreOpen(b) ? 'Abierto' : 'Cerrado'}
-                            </span>
+                            {isStoreOpen(b) ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex-shrink-0 bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                Abierto
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-tight flex-shrink-0 bg-rose-50 text-rose-700 border border-rose-100">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                                <span>{getNextOpeningMessage(b) || 'Cerrado'}</span>
+                              </span>
+                            )}
                           </div>
 
                           {b.description && (
