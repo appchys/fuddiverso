@@ -1251,9 +1251,9 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
             businessName: pData.businessName || biz?.name,
             businessImage: pData.businessImage || biz?.image,
             createdAt: toSafeDate(pData.createdAt)
-          }
+          } as Product
         })
-        .filter((p): p is Product => p !== null) as Product[]
+        .filter((p): p is Product => p !== null)
     }
 
     return products;
@@ -2067,8 +2067,8 @@ export async function searchBusinesses(searchTerm: string, category?: string, gr
         id: doc.id,
         ...doc.data(),
         createdAt: toSafeDate(doc.data().createdAt)
-      }))
-      .filter(b => !b.isHidden) as Business[]
+      } as Business))
+      .filter(b => !b.isHidden)
 
     // Filtrar por categoría
     if (category && category !== 'all') {
