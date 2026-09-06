@@ -55,7 +55,7 @@ import {
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
 import { logDebug } from './debug-log'
-import { resolveItemIngredients } from './stock-utils'
+import { resolveItemIngredients, extractBaseVariantName } from './stock-utils'
 
 const NEW_BUSINESS_DEFAULT_COMMISSION_RATE = 10
 const NEW_BUSINESS_DEFAULT_COMMISSION_TYPE = 'fuddi_assumed_by_customer' as const
@@ -4915,10 +4915,11 @@ export async function calculateCostReport(
         // Determinar qué ingredientes usar (variante o producto base)
         let ingredientsToUse: any[] = []
 
-        if (item.variant && product.variants) {
-          // Buscar la variante específica
+        if ((item.variant || variantName) && product.variants) {
+          // Buscar la variante específica (directa o extrayendo nombre base si incluye opciones)
+          const baseName = extractBaseVariantName(item.variant || variantName)
           const variant = product.variants.find((v: any) =>
-            v.name === item.variant || v.name === variantName
+            v.name === item.variant || v.name === variantName || (baseName && v.name === baseName)
           )
           if (variant?.ingredients) {
             ingredientsToUse = variant.ingredients
@@ -7554,9 +7555,10 @@ export async function calculateIngredientConsumption(
         // Determinar qué ingredientes usar
         let ingredientsToUse: any[] = []
 
-        if (item.variant && product.variants) {
+        if ((item.variant || variantName) && product.variants) {
+          const baseName = extractBaseVariantName(item.variant || variantName)
           const variant = product.variants.find((v: any) =>
-            v.name === item.variant || v.name === variantName
+            v.name === item.variant || v.name === variantName || (baseName && v.name === baseName)
           )
           if (variant?.ingredients) {
             ingredientsToUse = variant.ingredients

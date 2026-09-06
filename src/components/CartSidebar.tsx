@@ -802,10 +802,22 @@ export default function CartSidebar({
                                             .map((item, index) => {
                                                 const isTarjeta = !!item.qrCodeId;
                                                 const isRegalo = item.esPremio && !isTarjeta;
-                                                // Se muestra solo la variante si existe, o el nombre del producto si es único
+
+                                                const rawId = item.productId || item.id || '';
+                                                const baseId = typeof rawId === 'string' && rawId.includes('-') ? rawId.split('-')[0] : rawId;
+                                                const dbProduct = allProducts.find((p: any) => p.id === (item.productId || item.id))
+                                                    ?? allProducts.find((p: any) => typeof item.id === 'string' && item.id.startsWith(p.id + '-'))
+                                                    ?? allProducts.find((p: any) => p.id === baseId);
+
+                                                const hasDbVariants = Boolean(dbProduct?.variants && dbProduct.variants.length > 0);
+                                                const isOptionsOnly = !hasDbVariants && !!item.variantName;
+
+                                                // Se muestra el nombre del producto si son solo opciones, o la variante si existe
                                                 const displayName = isRegalo || isTarjeta
                                                     ? item.name
-                                                    : (item.variantName ? item.variantName : (item.productName || item.name));
+                                                    : isOptionsOnly
+                                                        ? (item.productName || item.name)
+                                                        : (item.variantName ? item.variantName : (item.productName || item.name));
 
                                                 const isAvailable = isCartItemEffectivelyAvailable(item, allProducts, stockMap);
 
@@ -844,6 +856,11 @@ export default function CartSidebar({
                                                                     </span>
                                                                 ) : null}
                                                             </div>
+                                                            {isOptionsOnly && item.variantName && (
+                                                                <p className="text-xs text-gray-500 font-medium mt-0.5 leading-snug">
+                                                                    {item.variantName}
+                                                                </p>
+                                                            )}
                                                             {item.originalBusinessName && (
                                                                 <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 rounded-full px-2 py-1 w-max mt-1 border border-amber-100 shadow-sm leading-none">
                                                                     {item.originalBusinessImage ? (

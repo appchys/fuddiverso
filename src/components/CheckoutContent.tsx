@@ -3015,22 +3015,17 @@ export function CheckoutContent({
                             // item.productId = ID original; fallback: busca por prefijo para items sin productId
                             const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
                               ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
-                            const isAvailable = (() => {
-                              if (item.esPremio || item.qrCodeId) return true;
-                              if (allProducts.length === 0) return true;
-                              if (!dbProduct) return false;
-                              if (!dbProduct.isAvailable) return false;
-                              if (item.variantName && !item.variantName.startsWith("Combo:")) {
-                                const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
-                                if (variant && variant.isAvailable === false) return false;
-                              }
-                              return true;
-                            })();
+                            const isAvailable = isCartItemEffectivelyAvailable(item, allProducts, stockMap);
+                            const hasDbVariants = Boolean(dbProduct?.variants && dbProduct.variants.length > 0);
+                            const isOptionsOnly = !hasDbVariants && !!item.variantName;
+                            const itemDisplayName = isOptionsOnly
+                              ? `${item.productName || item.name} (${item.variantName})`
+                              : (item.variantName || item.productName || item.name);
 
                             return (
                               <div key={index} className={`flex justify-between items-center text-sm ${!isAvailable ? 'opacity-60 grayscale text-gray-400' : ''}`}>
                                 <span className="text-gray-600 truncate flex-1 mr-4">
-                                  <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variantName || item.productName || item.name}
+                                  <span className="font-bold text-gray-900">{item.quantity}x</span> {itemDisplayName}
                                   {item.originalBusinessName && (
                                     <span className="flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 w-max mt-0.5 border border-amber-100/50 shadow-sm">
                                       {item.originalBusinessImage ? (

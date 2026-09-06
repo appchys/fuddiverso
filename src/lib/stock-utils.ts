@@ -196,25 +196,67 @@ export function isCartItemEffectivelyAvailable(
   if (!dbProduct) return false
   if (dbProduct.isAvailable === false) return false
 
-  // Evaluar variantes
-  if (item.variantName && !item.variantName.startsWith('Combo:')) {
-    const variant = dbProduct.variants?.find(v => v.name === item.variantName)
-    if (!variant || variant.isAvailable === false) return false
-
-    if (stockMap && stockMap.size > 0) {
-      const isVariantAutoHide = variant.autoHideByStock !== undefined
-        ? variant.autoHideByStock
-        : (dbProduct.autoHideByStock ?? false)
-
-      if (isVariantAutoHide) {
-        const variantStock = checkVariantStockAvailability(dbProduct, variant, stockMap)
-        if (!variantStock.isAvailableByStock) return false
+  // 1. Verificar si alguna opción seleccionada fue desactivada manualmente
+  if (dbProduct.optionGroups && dbProduct.optionGroups.length > 0 && typeof item.variantName === 'string') {
+    for (const group of dbProduct.optionGroups) {
+      if (!group.options) continue
+      for (const opt of group.options) {
+        if (opt.isAvailable === false && item.variantName.includes(opt.name)) {
+          return false
+        }
       }
     }
-    return true
   }
 
-  // Evaluar producto base o combo
+  const hasDbVariants = Boolean(dbProduct.variants && Array.isArray(dbProduct.variants) && dbProduct.variants.length > 0)
+
+  // 2. Evaluar variantes
+  if (item.variantName && !item.variantName.startsWith('Combo:')) {
+    if (hasDbVariants) {
+      const baseVariantName = extractBaseVariantName(item.variantName)
+      const rawVariantName = item.variantName.trim()
+      const variantId = item.variantId || (typeof item.variant === 'object' ? item.variant?.id : undefined)
+
+      const variant = dbProduct.variants!.find(v =>
+        (variantId && v.id === variantId) ||
+        v.name === rawVariantName ||
+        (baseVariantName && (v.name === baseVariantName || extractBaseVariantName(v.name) === baseVariantName)) ||
+        rawVariantName.startsWith(`${v.name} (`)
+      )
+
+      if (variant) {
+        if (variant.isAvailable === false) return false
+
+        if (stockMap && stockMap.size > 0) {
+          const isVariantAutoHide = variant.autoHideByStock !== undefined
+            ? variant.autoHideByStock
+            : (dbProduct.autoHideByStock ?? false)
+
+          if (isVariantAutoHide) {
+            const variantStock = checkVariantStockAvailability(dbProduct, variant, stockMap)
+            if (!variantStock.isAvailableByStock) return false
+          }
+        }
+        return true
+      } else {
+        // No se encontró variante coincidente en la BD:
+        // Verificar si variantName corresponde únicamente a opciones/modificadores seleccionados
+        const isOptionsOnly = dbProduct.optionGroups?.some(g =>
+          rawVariantName.startsWith(g.name + ':') ||
+          rawVariantName.includes(g.name + ':') ||
+          rawVariantName.startsWith('Opción:')
+        )
+
+        // Si NO son opciones, era una variante real que fue eliminada de la BD
+        if (!isOptionsOnly) {
+          return false
+        }
+      }
+    }
+    // Si el producto no tiene variantes (o variantName son únicamente opciones), evaluar el producto base
+  }
+
+  // 3. Evaluar producto base o combo
   if (stockMap && stockMap.size > 0 && dbProduct.autoHideByStock) {
     const evaluation = evaluateProductStock(dbProduct, stockMap)
     if (!evaluation.isAvailableByStock) return false

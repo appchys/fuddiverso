@@ -859,6 +859,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             productId: product.id, // ID original del producto para verificar disponibilidad en el carrito
             name: product.name,
             variantName: finalVariantName || null,
+            variantId: activeVariantObj?.id || null,
+            baseVariantName: activeVariantObj?.name || null,
             productName: product.name,
             price: baseProductPrice + optionsPrice,
             ...basePriceMeta,
