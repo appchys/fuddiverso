@@ -9,7 +9,7 @@ import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementV
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
+import { isStoreOpen, getNextOpeningMessage, formatBusinessName } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import { Store, LayoutGrid, Share2, Settings, Star, Heart, ChevronDown } from 'lucide-react'
@@ -261,49 +261,121 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
   );
 })
 
-function StoreProfileSkeleton() {
+function StoreCatalogProductsSkeleton() {
   return (
-    <div className="min-h-screen bg-gray-50 animate-pulse">
+    <div>
+      {/* Título de categoría skeleton */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="h-6 w-36 sm:w-44 bg-gray-200 rounded-xl animate-pulse" />
+      </div>
+
+      {/* Grid de tarjetas de producto skeleton */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div
+            key={i}
+            className="relative flex items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm animate-pulse"
+          >
+            {/* Imagen del producto skeleton */}
+            <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl bg-gray-200" />
+
+            {/* Información del producto skeleton */}
+            <div className="flex-1 min-w-0 ml-4 pr-2 flex flex-col justify-between h-20 sm:h-24 py-0.5">
+              <div>
+                <div className="h-4 bg-gray-200 rounded-md w-3/4 mb-2" />
+                <div className="h-3 bg-gray-100 rounded-md w-full mb-1" />
+                <div className="h-3 bg-gray-100/70 rounded-md w-2/3" />
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <div className="h-5 bg-gray-200 rounded-md w-14" />
+                <div className="w-8 h-8 rounded-full bg-gray-200" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StoreProfileSkeleton({ username }: { username?: string }) {
+  const displayName = username ? formatBusinessName(username.replace(/-/g, ' ')) : null
+
+  return (
+    <div className="min-h-screen bg-gray-50">
       {/* Hero Section Skeleton */}
       <div className="bg-white shadow-sm">
         {/* Portada Skeleton con logo superpuesto */}
-        <div className="relative w-full h-36 sm:h-48 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 overflow-visible">
-          {/* Logo Circular Superpuesto Skeleton */}
+        <div className="relative w-full h-36 sm:h-48 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-pulse overflow-visible">
+          {/* Logo Circular Superpuesto Skeleton con icono de tienda */}
           <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
-            <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl bg-gray-200" />
+            <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl bg-gray-100 flex items-center justify-center text-gray-300">
+              <Store size={36} className="opacity-40 animate-pulse" />
+            </div>
           </div>
         </div>
 
-        {/* Contenido debajo de la portada Skeleton */}
+        {/* Contenido debajo de la portada */}
         <div className="max-w-3xl mx-auto px-4 pt-10 sm:pt-12 pb-3 sm:pb-4 text-center relative">
-          {/* Botones de acción simulados (Favorito y Compartir) */}
+          {/* Botones de acción reales visibles (Favorito y Compartir) */}
           <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100" />
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100" />
+            <button
+              type="button"
+              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 shadow-xs border border-gray-100 transition-all active:scale-95"
+              title="Guardar en favoritos"
+              aria-label="Guardar en favoritos"
+            >
+              <Heart size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  navigator.clipboard?.writeText(window.location.href)
+                }
+              }}
+              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 shadow-xs border border-gray-100 transition-all active:scale-95"
+              title="Compartir tienda"
+              aria-label="Compartir tienda"
+            >
+              <Share2 size={16} />
+            </button>
           </div>
 
           <div className="flex flex-col items-center">
             <div className="w-full">
-              {/* Nombre de la tienda skeleton */}
-              <div className="h-8 sm:h-9 bg-gray-200 rounded-2xl w-48 sm:w-64 mx-auto mb-3" />
+              {/* Nombre de la tienda legible o skeleton */}
+              {displayName ? (
+                <div className="inline-flex items-center justify-center gap-2 mb-2">
+                  <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
+                    {displayName}
+                  </h1>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80 animate-pulse shrink-0" title="Cargando información..." />
+                </div>
+              ) : (
+                <div className="h-8 sm:h-9 bg-gray-200 rounded-2xl w-48 sm:w-64 mx-auto mb-3 animate-pulse" />
+              )}
 
               {/* Descripción de la tienda skeleton */}
               <div className="space-y-2 max-w-md mx-auto mb-3">
-                <div className="h-3.5 bg-gray-100 rounded-full w-5/6 mx-auto" />
-                <div className="h-3 bg-gray-100/80 rounded-full w-3/5 mx-auto" />
+                <div className="h-3.5 bg-gray-100 rounded-full w-5/6 mx-auto animate-pulse" />
+                <div className="h-3 bg-gray-100/80 rounded-full w-3/5 mx-auto animate-pulse" />
               </div>
 
-              {/* Pestañas de navegación skeleton */}
+              {/* Pestañas de navegación reales con iconos legibles */}
               <div className="grid grid-cols-3 gap-1.5 mt-3.5 max-w-lg mx-auto">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="py-2 px-1 rounded-2xl bg-gray-100 flex flex-col items-center justify-center gap-1.5 h-14"
-                  >
-                    <div className="w-4 h-4 rounded-md bg-gray-200" />
-                    <div className="w-12 h-2.5 rounded-full bg-gray-200" />
-                  </div>
-                ))}
+                <div className="py-2 px-1 rounded-2xl bg-gray-100 text-gray-900 text-[11px] sm:text-xs font-black flex flex-col items-center justify-center gap-1">
+                  <LayoutGrid size={17} className="text-gray-900" />
+                  <span>Catálogo</span>
+                </div>
+                <div className="py-2 px-1 rounded-2xl text-gray-400 text-[11px] sm:text-xs font-black flex flex-col items-center justify-center gap-1">
+                  <Store size={17} className="text-gray-400" />
+                  <span>Perfil</span>
+                </div>
+                <div className="py-2 px-1 rounded-2xl text-gray-400 text-[11px] sm:text-xs font-black flex flex-col items-center justify-center gap-1">
+                  <Star size={17} className="text-gray-400" />
+                  <span>Opiniones</span>
+                </div>
               </div>
             </div>
           </div>
@@ -312,44 +384,18 @@ function StoreProfileSkeleton() {
 
       {/* Catálogo de Productos Skeleton */}
       <div className="max-w-7xl mx-auto px-4 pt-4 sm:pt-6 pb-8 sm:pb-12">
-        {/* Título de categoría skeleton */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="h-6 w-36 sm:w-44 bg-gray-200 rounded-xl" />
-        </div>
-
-        {/* Grid de tarjetas de producto skeleton */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className="relative flex items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm"
-            >
-              {/* Imagen del producto skeleton */}
-              <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl bg-gray-200" />
-
-              {/* Información del producto skeleton */}
-              <div className="flex-1 min-w-0 ml-4 pr-2 flex flex-col justify-between h-20 sm:h-24 py-0.5">
-                <div>
-                  <div className="h-4 bg-gray-200 rounded-md w-3/4 mb-2" />
-                  <div className="h-3 bg-gray-100 rounded-md w-full mb-1" />
-                  <div className="h-3 bg-gray-100/70 rounded-md w-2/3" />
-                </div>
-                <div className="flex items-center justify-between mt-2">
-                  <div className="h-5 bg-gray-200 rounded-md w-14" />
-                  <div className="w-8 h-8 rounded-full bg-gray-200" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <StoreCatalogProductsSkeleton />
       </div>
     </div>
   )
 }
 
 export default function RestaurantPage() {
+  const params = useParams()
+  const username = typeof params?.username === 'string' ? params.username : Array.isArray(params?.username) ? params.username[0] : ''
+
   return (
-    <Suspense fallback={<StoreProfileSkeleton />}>
+    <Suspense fallback={<StoreProfileSkeleton username={username} />}>
       <RestaurantContent />
     </Suspense>
   )
@@ -1305,8 +1351,9 @@ function RestaurantContent() {
     )
   }
 
-  if (loading || !business) {
-    return <StoreProfileSkeleton />
+  // Si aún no se ha obtenido la tienda desde Firestore, mostrar skeleton enriquecido con nombre y botones
+  if (!business) {
+    return <StoreProfileSkeleton username={username} />
   }
 
   return (
@@ -1762,7 +1809,9 @@ function RestaurantContent() {
         /* Vista de Catálogo (actual) */
         <div className="max-w-7xl mx-auto px-4 pt-3 sm:pt-4 pb-8 sm:pb-12">
 
-          {Object.entries(productsByCategory).length === 0 ? (
+          {loading ? (
+            <StoreCatalogProductsSkeleton />
+          ) : Object.entries(productsByCategory).length === 0 ? (
             <div className="text-center py-20 px-6 bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
               <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6">
                 <i className="bi bi-bag-x text-3xl text-gray-300"></i>
