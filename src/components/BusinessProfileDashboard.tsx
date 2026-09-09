@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Business, Product, Ingredient, CoverageZone } from '@/types'
 import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, uploadImage, getCoverageZonesByGroup } from '@/lib/database'
+import { optimizeImage } from '@/lib/image-utils'
 import ProductList from './ProductList'
 import NotificationSettings from './NotificationSettings'
 import PrintSettings from './PrintSettings'
@@ -248,8 +249,9 @@ export default function BusinessProfileDashboard({
     if (!file || !business?.id) return
 
     try {
+      const optimized = await optimizeImage(file, 800, 0.75)
       const path = `businesses/${business.id}/pickup_photo_${Date.now()}`
-      const url = await uploadImage(file, path)
+      const url = await uploadImage(optimized as File, path)
       const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
       onBusinessFieldChange('pickupSettings', {
         ...currentSettings,

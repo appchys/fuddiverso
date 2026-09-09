@@ -12,6 +12,7 @@ import {
   addBusinessAdministrator,
   removeBusinessAdministrator
 } from '@/lib/database'
+import { optimizeImage } from '@/lib/image-utils'
 import { isStoreOpen } from '@/lib/store-utils'
 import dynamic from 'next/dynamic'
 
@@ -383,7 +384,8 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
 
     setUploadingPickupPhoto(true)
     try {
-      const url = await uploadImage(file, `businesses/${businessId}/pickup_photo_${Date.now()}`)
+      const optimized = await optimizeImage(file, 800, 0.7)
+      const url = await uploadImage(optimized as File, `businesses/${businessId}/pickup_photo_${Date.now()}`)
       handlePickupField('storePhotoUrl', url)
     } catch (error) {
       console.error('Error al subir foto de retiro:', error)
@@ -407,7 +409,8 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     if (!file || !business) return
     setUploadingCover(true)
     try {
-      const url = await uploadImage(file, `businesses/covers/${businessId}_${Date.now()}`)
+      const optimized = await optimizeImage(file, 1200, 0.7)
+      const url = await uploadImage(optimized as File, `businesses/covers/${businessId}_${Date.now()}`)
       await updateBusiness(businessId, { coverImage: url })
       setBusiness(prev => prev ? { ...prev, coverImage: url } : null)
       setEdited(prev => prev ? { ...prev, coverImage: url } : null)
@@ -420,7 +423,8 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     if (!file || !business) return
     setUploadingProfile(true)
     try {
-      const url = await uploadImage(file, `businesses/profiles/${businessId}_${Date.now()}`)
+      const optimized = await optimizeImage(file, 500, 0.8)
+      const url = await uploadImage(optimized as File, `businesses/profiles/${businessId}_${Date.now()}`)
       await updateBusiness(businessId, { image: url })
       setBusiness(prev => prev ? { ...prev, image: url } : null)
       setEdited(prev => prev ? { ...prev, image: url } : null)

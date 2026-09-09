@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername } from '@/lib/database'
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
@@ -558,24 +558,182 @@ function RestaurantContent() {
   // Track whether products have been loaded for this username to avoid re-fetching on real-time updates
   const productsLoadedRef = useRef(false)
 
+  // Carga e inicialización de productos de la tienda (inmediata + enriquecimiento en segundo plano)
+  const loadProductsForStore = useCallback(async (targetBiz: Business) => {
+    try {
+      // Handle visit increment (Non-blocking background call)
+      try {
+        const sessionKey = `visited:${targetBiz.id}`
+        if (!sessionStorage.getItem(sessionKey)) {
+          sessionStorage.setItem(sessionKey, '1')
+          incrementVisitFirestore(targetBiz.id).catch(e => {
+            const pendingRaw = localStorage.getItem('pendingVisits')
+            const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
+            pending[targetBiz.id] = (pending[targetBiz.id] || 0) + 1
+            localStorage.setItem('pendingVisits', JSON.stringify(pending))
+            console.warn('Failed to increment visit in Firestore, stored pendingVisits locally')
+          })
+        }
+      } catch (e) {
+        console.error('Error handling visit increment:', e)
+      }
+
+      const storePackagingFee = getPackagingFee(targetBiz)
+      const hasShared = Boolean(targetBiz.sharedProductIds && targetBiz.sharedProductIds.length > 0)
+
+      // 1. CARGA INMEDIATA: Obtener y mostrar los productos propios del negocio al instante
+      const productsData = await getProductsByBusiness(targetBiz.id)
+      const initialAvailable = productsData
+        .filter(product => product.isAvailable !== false)
+        .map(product => ({
+          ...product,
+          packagingFee: storePackagingFee
+        }))
+
+      setProducts(initialAvailable)
+      setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
+
+      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO (Solo si hay productos con autoHideByStock o productos compartidos)
+      const anyTracksStock = productsData.some(p => p.autoHideByStock === true || (p.ingredients && p.ingredients.length > 0))
+
+      if (anyTracksStock || hasShared) {
+        Promise.all([
+          hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
+          anyTracksStock
+            ? getIngredientStockSummary(targetBiz.id).catch(e => {
+                console.error('Error cargando stock de ingredientes en segundo plano:', e)
+                return [] as IngredientStockSummary[]
+              })
+            : Promise.resolve([] as IngredientStockSummary[])
+        ]).then(async ([sharedProducts, stockSummaryData]) => {
+          let enrichedProducts = [...initialAvailable]
+
+          // Si hay control de stock de ingredientes, re-evaluar disponibilidad
+          if (stockSummaryData && stockSummaryData.length > 0) {
+            const stockMap = new Map<string, IngredientStockSummary>()
+            stockSummaryData.forEach(item => {
+              if (item.ingredientName) {
+                stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+              }
+            })
+
+            enrichedProducts = productsData
+              .filter(product => isProductEffectivelyAvailable(product, stockMap))
+              .map(product => {
+                const evaluation = evaluateProductStock(product, stockMap)
+                if (product.variants && product.variants.length > 0) {
+                  const availableVariantsList = product.variants.filter(v => {
+                    const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
+                    return isAvailByStock && v.isAvailable !== false
+                  })
+                  return {
+                    ...product,
+                    packagingFee: storePackagingFee,
+                    variants: availableVariantsList
+                  }
+                }
+                return {
+                  ...product,
+                  packagingFee: storePackagingFee
+                }
+              })
+          }
+
+          // Si hay productos compartidos, procesarlos y agregarlos
+          if (sharedProducts && sharedProducts.length > 0) {
+            try {
+              const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
+              const ownerBizs = await getBusinessesByIds(ownerIds)
+              const availableShared = sharedProducts
+                .filter(p => {
+                  if (p.isAvailable === false) return false
+                  const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                  if (!ownerBiz || ownerBiz.isActive === false) return false
+                  return isStoreOpen(ownerBiz)
+                })
+                .map(p => {
+                  const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                  return {
+                    ...p,
+                    category: 'Compartidos',
+                    isShared: true,
+                    packagingFee: storePackagingFee,
+                    originalBusinessId: p.businessId,
+                    originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                    originalBusinessImage: ownerBiz?.image || null
+                  }
+                })
+              enrichedProducts = [...enrichedProducts, ...availableShared]
+            } catch (e) {
+              console.error('Error procesando productos compartidos:', e)
+            }
+          }
+
+          setProducts(enrichedProducts)
+        }).catch(err => {
+          console.error('Error en enriquecimiento de productos:', err)
+        })
+      }
+
+      // Defer loading of non-critical background data: other businesses only
+      setTimeout(() => {
+        const otherQ = query(
+          collection(db, 'businesses'),
+          where('isActive', '==', true),
+          limit(6)
+        )
+        getDocs(otherQ).then(snap => {
+          const others = snap.docs
+            .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() || d.data().createdAt } as Business))
+            .filter(b => b.username !== username && b.isHidden !== true && b.businessType !== 'distributor')
+            .sort(() => 0.5 - Math.random())
+            .slice(0, 4)
+          setOtherBusinesses(others)
+        }).catch(e => console.error('Error loading other businesses:', e))
+      }, 100)
+    } catch (err) {
+      console.error('Error loading restaurant products:', err)
+      setError('Error al cargar los productos')
+      setLoading(false)
+    }
+  }, [username])
+
   useEffect(() => {
     if (!username) return
 
     productsLoadedRef.current = false
+    let isCancelled = false
 
-    // Use onSnapshot as the SINGLE source of truth for business data.
-    // The first snapshot acts as the initial load; subsequent snapshots provide real-time updates.
-    // This eliminates the duplicate read from getBusinessByUsername + onSnapshot.
+    // 1. CARGA RÁPIDA INMEDIATA: getBusinessByUsername consulta IndexedDB local o REST HTTPS directo
+    // Esto resuelve en 5ms a 150ms sin esperar la negociación prolongada del canal WebSocket
+    getBusinessByUsername(username).then((fastBiz) => {
+      if (isCancelled || !fastBiz) return
+      setBusiness(prev => prev || fastBiz)
+      if (!productsLoadedRef.current) {
+        productsLoadedRef.current = true
+        loadProductsForStore(fastBiz)
+      }
+    }).catch(err => {
+      console.warn('Fast business lookup fallback:', err)
+    })
+
+    // 2. ACTUALIZACIÓN EN TIEMPO REAL: onSnapshot escucha cambios continuos sin bloquear la vista inicial
     const q = query(
       collection(db, 'businesses'),
       where('username', '==', username),
       limit(1)
     )
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (isCancelled) return
       if (snapshot.empty) {
-        setError('Restaurante no encontrado')
-        setLoading(false)
+        setBusiness(prev => {
+          if (!prev) {
+            setError('Restaurante no encontrado')
+            setLoading(false)
+          }
+          return prev
+        })
         return
       }
 
@@ -589,162 +747,28 @@ function RestaurantContent() {
       } as Business
 
       setBusiness(updatedBusiness)
-      console.log('🏪 [onSnapshot Business Loaded]:', updatedBusiness?.name, {
-        id: updatedBusiness?.id,
-        hasPackagingFee: updatedBusiness?.hasPackagingFee,
-        packagingFee: updatedBusiness?.packagingFee,
-        calculatedFee: getPackagingFee(updatedBusiness)
-      })
 
-      // Only load products on the FIRST snapshot (initial load)
-      if (productsLoadedRef.current) return
-      productsLoadedRef.current = true
-
-      try {
-        // Handle visit increment (Non-blocking background call)
-        try {
-          const sessionKey = `visited:${updatedBusiness.id}`
-          if (!sessionStorage.getItem(sessionKey)) {
-            sessionStorage.setItem(sessionKey, '1')
-            incrementVisitFirestore(updatedBusiness.id).catch(e => {
-              const pendingRaw = localStorage.getItem('pendingVisits')
-              const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
-              pending[updatedBusiness.id] = (pending[updatedBusiness.id] || 0) + 1
-              localStorage.setItem('pendingVisits', JSON.stringify(pending))
-              console.warn('Failed to increment visit in Firestore, stored pendingVisits locally')
-            })
-          }
-        } catch (e) {
-          console.error('Error handling visit increment:', e)
-        }
-
-        const storePackagingFee = getPackagingFee(updatedBusiness)
-        const hasShared = Boolean(updatedBusiness.sharedProductIds && updatedBusiness.sharedProductIds.length > 0)
-
-        // 1. CARGA INMEDIATA: Obtener y mostrar los productos propios del negocio al instante
-        const productsData = await getProductsByBusiness(updatedBusiness.id)
-        const initialAvailable = productsData
-          .filter(product => product.isAvailable !== false)
-          .map(product => ({
-            ...product,
-            packagingFee: storePackagingFee
-          }))
-
-        setProducts(initialAvailable)
-        setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
-
-        // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO (Solo si hay productos con autoHideByStock o productos compartidos)
-        const anyTracksStock = productsData.some(p => p.autoHideByStock === true || (p.ingredients && p.ingredients.length > 0))
-
-        if (anyTracksStock || hasShared) {
-          Promise.all([
-            hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[]),
-            anyTracksStock
-              ? getIngredientStockSummary(updatedBusiness.id).catch(e => {
-                  console.error('Error cargando stock de ingredientes en segundo plano:', e)
-                  return [] as IngredientStockSummary[]
-                })
-              : Promise.resolve([] as IngredientStockSummary[])
-          ]).then(async ([sharedProducts, stockSummaryData]) => {
-            let enrichedProducts = [...initialAvailable]
-
-            // Si hay control de stock de ingredientes, re-evaluar disponibilidad
-            if (stockSummaryData && stockSummaryData.length > 0) {
-              const stockMap = new Map<string, IngredientStockSummary>()
-              stockSummaryData.forEach(item => {
-                if (item.ingredientName) {
-                  stockMap.set(item.ingredientName.toLowerCase().trim(), item)
-                }
-              })
-
-              enrichedProducts = productsData
-                .filter(product => isProductEffectivelyAvailable(product, stockMap))
-                .map(product => {
-                  const evaluation = evaluateProductStock(product, stockMap)
-                  if (product.variants && product.variants.length > 0) {
-                    const availableVariantsList = product.variants.filter(v => {
-                      const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
-                      return isAvailByStock && v.isAvailable !== false
-                    })
-                    return {
-                      ...product,
-                      packagingFee: storePackagingFee,
-                      variants: availableVariantsList
-                    }
-                  }
-                  return {
-                    ...product,
-                    packagingFee: storePackagingFee
-                  }
-                })
-            }
-
-            // Si hay productos compartidos, procesarlos y agregarlos
-            if (sharedProducts && sharedProducts.length > 0) {
-              try {
-                const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
-                const ownerBizs = await getBusinessesByIds(ownerIds)
-                const availableShared = sharedProducts
-                  .filter(p => {
-                    if (p.isAvailable === false) return false
-                    const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                    if (!ownerBiz || ownerBiz.isActive === false) return false
-                    return isStoreOpen(ownerBiz)
-                  })
-                  .map(p => {
-                    const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                    return {
-                      ...p,
-                      category: 'Compartidos',
-                      isShared: true,
-                      packagingFee: storePackagingFee,
-                      originalBusinessId: p.businessId,
-                      originalBusinessName: ownerBiz?.name || 'Otra tienda',
-                      originalBusinessImage: ownerBiz?.image || null
-                    }
-                  })
-                enrichedProducts = [...enrichedProducts, ...availableShared]
-              } catch (e) {
-                console.error('Error procesando productos compartidos:', e)
-              }
-            }
-
-            setProducts(enrichedProducts)
-          }).catch(err => {
-            console.error('Error en enriquecimiento de productos:', err)
-          })
-        }
-
-        // Defer loading of non-critical background data: other businesses only
-        setTimeout(() => {
-          // Load other businesses — equality filter is much more efficient than inequality
-          const otherQ = query(
-            collection(db, 'businesses'),
-            where('isActive', '==', true),
-            limit(6)
-          )
-          getDocs(otherQ).then(snap => {
-            const others = snap.docs
-              .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() || d.data().createdAt } as Business))
-              .filter(b => b.username !== username && b.isHidden !== true && b.businessType !== 'distributor')
-              .sort(() => 0.5 - Math.random())
-              .slice(0, 4)
-            setOtherBusinesses(others)
-          }).catch(e => console.error('Error loading other businesses:', e))
-        }, 100)
-      } catch (err) {
-        console.error('Error loading restaurant data:', err)
-        setError('Error al cargar el restaurante')
-        setLoading(false)
+      // Si los productos aún no se habían cargado, cargarlos ahora
+      if (!productsLoadedRef.current) {
+        productsLoadedRef.current = true
+        loadProductsForStore(updatedBusiness)
       }
     }, (error) => {
       console.error('Error listening to business updates:', error)
-      setError('Error al cargar el restaurante')
-      setLoading(false)
+      setBusiness(prev => {
+        if (!prev) {
+          setError('Error al cargar el restaurante')
+          setLoading(false)
+        }
+        return prev
+      })
     })
 
-    return () => unsubscribe()
-  }, [username])
+    return () => {
+      isCancelled = true
+      unsubscribe()
+    }
+  }, [username, loadProductsForStore])
 
   useEffect(() => {
     try {

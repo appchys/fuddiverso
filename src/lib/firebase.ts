@@ -3,7 +3,9 @@
 import { initializeApp } from "firebase/app";
 import {
   getFirestore,
-  initializeFirestore,   // ← importante: usamos esta en lugar de getFirestore
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
 } from "firebase/firestore";
 import {
   getAuth,
@@ -27,11 +29,13 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore con la opción ignoreUndefinedProperties
-// Esto hace que Firestore ignore automáticamente cualquier campo undefined
-// en lugar de tirar error
+// Initialize Firestore con caché persistente en navegador (IndexedDB)
+// y la opción ignoreUndefinedProperties
 const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
+  localCache: typeof window !== 'undefined'
+    ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    : undefined
 });
 
 // Initialize Firebase Authentication

@@ -56,6 +56,7 @@ import {
 import { isDeliveryAvailable } from './store-utils'
 import { logDebug } from './debug-log'
 import { resolveItemIngredients, extractBaseVariantName } from './stock-utils'
+import { optimizeImage } from './image-utils'
 
 const NEW_BUSINESS_DEFAULT_COMMISSION_RATE = 10
 const NEW_BUSINESS_DEFAULT_COMMISSION_TYPE = 'fuddi_assumed_by_customer' as const
@@ -493,7 +494,7 @@ const businessByUsernameCache = new Map<string, { business: Business; timestamp:
 const businessByIdCache = new Map<string, { business: Business; timestamp: number }>()
 const productsByBusinessCache = new Map<string, { products: Product[]; timestamp: number }>()
 
-const CACHE_TTL = 3 * 60 * 1000 // 3 minutos de expiración de caché
+const CACHE_TTL = 30 * 60 * 1000 // 30 minutos de persistencia en sesión (revalida en tiempo real con Firestore)
 
 export function cacheBusiness(business: Business) {
   if (!business) return
@@ -519,7 +520,7 @@ export function getCachedBusinessByUsername(username: string): Business | null {
       const stored = sessionStorage.getItem(`fuddi_biz_${lower}`)
       if (stored) {
         const parsed = JSON.parse(stored)
-        if (parsed && (Date.now() - parsed.timestamp < CACHE_TTL) && parsed.business) {
+        if (parsed?.business) {
           businessByUsernameCache.set(lower, parsed)
           return parsed.business
         }
@@ -560,7 +561,7 @@ export function getCachedProductsByBusiness(businessId: string): Product[] | nul
       const stored = sessionStorage.getItem(`fuddi_prods_${businessId}`)
       if (stored) {
         const parsed = JSON.parse(stored)
-        if (parsed && (Date.now() - parsed.timestamp < CACHE_TTL) && Array.isArray(parsed.products)) {
+        if (parsed && Array.isArray(parsed.products)) {
           productsByBusinessCache.set(businessId, parsed)
           return parsed.products
         }
@@ -2103,11 +2104,26 @@ export async function getDelivery(deliveryId: string): Promise<Delivery | null> 
   }
 }
 
-// Funciones para subir imágenes
-export async function uploadImage(file: File, path: string): Promise<string> {
+// Funciones para subir imágenes con compresión automática defensiva
+export async function uploadImage(file: File | Blob, path: string): Promise<string> {
   try {
+    let fileToUpload: Blob = file
+    // Si estamos en navegador y el archivo es un File de imagen mayor a 150KB, comprimirlo automáticamente
+    if (typeof window !== 'undefined' && file instanceof File) {
+      const type = (file.type || '').toLowerCase()
+      const isImg = type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name || '')
+      const isVectorOrAnim = type.includes('svg') || type.includes('gif')
+      if (isImg && !isVectorOrAnim && file.size > 150 * 1024) {
+        try {
+          fileToUpload = await optimizeImage(file, 1200, 0.75)
+        } catch (compErr) {
+          console.warn('Compresión automática en uploadImage falló, usando archivo original:', compErr)
+        }
+      }
+    }
+
     const storageRef = ref(storage, path)
-    const snapshot = await uploadBytes(storageRef, file)
+    const snapshot = await uploadBytes(storageRef, fileToUpload)
     const downloadURL = await getDownloadURL(snapshot.ref)
     return downloadURL
   } catch (error) {
