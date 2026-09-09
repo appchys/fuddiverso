@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness } from '@/lib/database'
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
@@ -406,9 +406,28 @@ function RestaurantContent() {
   const params = useParams()
   const username = typeof params?.username === 'string' ? params.username : Array.isArray(params?.username) ? params.username[0] : ''
 
-  const [business, setBusiness] = useState<Business | null>(null)
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
+  const [business, setBusiness] = useState<Business | null>(() => {
+    if (!username) return null
+    return getCachedBusinessByUsername(username)
+  })
+  const [products, setProducts] = useState<Product[]>(() => {
+    if (!username) return []
+    const cachedBiz = getCachedBusinessByUsername(username)
+    if (cachedBiz?.id) {
+      const cached = getCachedProductsByBusiness(cachedBiz.id)
+      if (cached && cached.length > 0) return cached
+    }
+    return []
+  })
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (!username) return true
+    const cachedBiz = getCachedBusinessByUsername(username)
+    if (cachedBiz?.id) {
+      const cached = getCachedProductsByBusiness(cachedBiz.id)
+      if (cached && cached.length > 0) return false
+    }
+    return true
+  })
   const [error, setError] = useState<string | null>(null)
   const [cart, setCart] = useState<any[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
@@ -599,83 +618,102 @@ function RestaurantContent() {
           console.error('Error handling visit increment:', e)
         }
 
-        // Load products + stock summary in parallel (stock was previously loaded in series)
-        const hasShared = updatedBusiness.sharedProductIds && updatedBusiness.sharedProductIds.length > 0
-        const [productsData, sharedProducts, stockSummaryData] = await Promise.all([
-          getProductsByBusiness(updatedBusiness.id),
-          hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[]),
-          getIngredientStockSummary(updatedBusiness.id).catch(e => {
-            console.error('Error cargando stock de ingredientes en tienda pública:', e)
-            return [] as IngredientStockSummary[]
-          })
-        ])
-
-        // Construir mapa de stock a partir de los datos ya obtenidos en paralelo
-        const stockMap = new Map<string, IngredientStockSummary>()
-        stockSummaryData.forEach(item => {
-          if (item.ingredientName) {
-            stockMap.set(item.ingredientName.toLowerCase().trim(), item)
-          }
-        })
-
         const storePackagingFee = getPackagingFee(updatedBusiness)
-        let availableProducts: any[] = productsData
-          .filter(product => isProductEffectivelyAvailable(product, stockMap))
-          .map(product => {
-            const evaluation = evaluateProductStock(product, stockMap)
-            // Si el producto tiene variantes, filtramos solo las que tienen stock disponible
-            if (product.variants && product.variants.length > 0) {
-              const availableVariantsList = product.variants
-                .filter(v => {
-                  const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
-                  return isAvailByStock && v.isAvailable !== false
-                })
+        const hasShared = Boolean(updatedBusiness.sharedProductIds && updatedBusiness.sharedProductIds.length > 0)
 
-              return {
-                ...product,
-                packagingFee: storePackagingFee,
-                variants: availableVariantsList
+        // 1. CARGA INMEDIATA: Obtener y mostrar los productos propios del negocio al instante
+        const productsData = await getProductsByBusiness(updatedBusiness.id)
+        const initialAvailable = productsData
+          .filter(product => product.isAvailable !== false)
+          .map(product => ({
+            ...product,
+            packagingFee: storePackagingFee
+          }))
+
+        setProducts(initialAvailable)
+        setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
+
+        // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO (Solo si hay productos con autoHideByStock o productos compartidos)
+        const anyTracksStock = productsData.some(p => p.autoHideByStock === true || (p.ingredients && p.ingredients.length > 0))
+
+        if (anyTracksStock || hasShared) {
+          Promise.all([
+            hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[]),
+            anyTracksStock
+              ? getIngredientStockSummary(updatedBusiness.id).catch(e => {
+                  console.error('Error cargando stock de ingredientes en segundo plano:', e)
+                  return [] as IngredientStockSummary[]
+                })
+              : Promise.resolve([] as IngredientStockSummary[])
+          ]).then(async ([sharedProducts, stockSummaryData]) => {
+            let enrichedProducts = [...initialAvailable]
+
+            // Si hay control de stock de ingredientes, re-evaluar disponibilidad
+            if (stockSummaryData && stockSummaryData.length > 0) {
+              const stockMap = new Map<string, IngredientStockSummary>()
+              stockSummaryData.forEach(item => {
+                if (item.ingredientName) {
+                  stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+                }
+              })
+
+              enrichedProducts = productsData
+                .filter(product => isProductEffectivelyAvailable(product, stockMap))
+                .map(product => {
+                  const evaluation = evaluateProductStock(product, stockMap)
+                  if (product.variants && product.variants.length > 0) {
+                    const availableVariantsList = product.variants.filter(v => {
+                      const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
+                      return isAvailByStock && v.isAvailable !== false
+                    })
+                    return {
+                      ...product,
+                      packagingFee: storePackagingFee,
+                      variants: availableVariantsList
+                    }
+                  }
+                  return {
+                    ...product,
+                    packagingFee: storePackagingFee
+                  }
+                })
+            }
+
+            // Si hay productos compartidos, procesarlos y agregarlos
+            if (sharedProducts && sharedProducts.length > 0) {
+              try {
+                const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
+                const ownerBizs = await getBusinessesByIds(ownerIds)
+                const availableShared = sharedProducts
+                  .filter(p => {
+                    if (p.isAvailable === false) return false
+                    const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                    if (!ownerBiz || ownerBiz.isActive === false) return false
+                    return isStoreOpen(ownerBiz)
+                  })
+                  .map(p => {
+                    const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                    return {
+                      ...p,
+                      category: 'Compartidos',
+                      isShared: true,
+                      packagingFee: storePackagingFee,
+                      originalBusinessId: p.businessId,
+                      originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                      originalBusinessImage: ownerBiz?.image || null
+                    }
+                  })
+                enrichedProducts = [...enrichedProducts, ...availableShared]
+              } catch (e) {
+                console.error('Error procesando productos compartidos:', e)
               }
             }
 
-            return {
-              ...product,
-              packagingFee: storePackagingFee
-            }
+            setProducts(enrichedProducts)
+          }).catch(err => {
+            console.error('Error en enriquecimiento de productos:', err)
           })
-
-        // Process shared products if any were fetched
-        if (sharedProducts.length > 0) {
-          try {
-            const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
-            const ownerBizs = await getBusinessesByIds(ownerIds)
-            const availableShared = sharedProducts
-              .filter(p => {
-                if (!p.isAvailable) return false
-                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                if (!ownerBiz) return false
-                if (ownerBiz.isActive === false) return false
-                return isStoreOpen(ownerBiz)
-              })
-              .map(p => {
-                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                return {
-                  ...p,
-                  category: 'Compartidos', // Forzar categoría Compartidos
-                  isShared: true,
-                  originalBusinessId: p.businessId,
-                  originalBusinessName: ownerBiz?.name || 'Otra tienda',
-                  originalBusinessImage: ownerBiz?.image || null
-                }
-              })
-            availableProducts = [...availableProducts, ...availableShared]
-          } catch (e) {
-            console.error('Error processing shared products:', e)
-          }
         }
-
-        setProducts(availableProducts)
-        setLoading(false)
 
         // Defer loading of non-critical background data: other businesses only
         setTimeout(() => {
@@ -1285,7 +1323,7 @@ function RestaurantContent() {
   const productsByCategory = useMemo(() => {
     const result: Record<string, Product[]> = {}
     if (!business) return result
-    const availableProducts = products.filter(product => product.isAvailable)
+    const availableProducts = products.filter(product => product.isAvailable !== false)
 
     // Determinar el orden de las categorías (idéntico a ProductList.tsx)
     const master = business.categories || [];

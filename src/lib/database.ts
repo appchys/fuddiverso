@@ -498,17 +498,36 @@ const CACHE_TTL = 3 * 60 * 1000 // 3 minutos de expiración de caché
 export function cacheBusiness(business: Business) {
   if (!business) return
   const item = { business, timestamp: Date.now() }
-  if (business.username) businessByUsernameCache.set(business.username, item)
+  if (business.username) businessByUsernameCache.set(business.username.toLowerCase(), item)
   if (business.id) businessByIdCache.set(business.id, item)
+  if (typeof window !== 'undefined' && business.username) {
+    try {
+      sessionStorage.setItem(`fuddi_biz_${business.username.toLowerCase()}`, JSON.stringify(item))
+    } catch { /* ignore */ }
+  }
 }
 
 export function getCachedBusinessByUsername(username: string): Business | null {
-  const cached = businessByUsernameCache.get(username)
+  if (!username) return null
+  const lower = username.toLowerCase()
+  const cached = businessByUsernameCache.get(lower)
   if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
     return cached.business
   }
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = sessionStorage.getItem(`fuddi_biz_${lower}`)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (parsed && (Date.now() - parsed.timestamp < CACHE_TTL) && parsed.business) {
+          businessByUsernameCache.set(lower, parsed)
+          return parsed.business
+        }
+      }
+    } catch { /* ignore */ }
+  }
   if (cachedBusinesses) {
-    const found = cachedBusinesses.find(b => b.username === username)
+    const found = cachedBusinesses.find(b => b.username?.toLowerCase() === lower)
     if (found) {
       cacheBusiness(found)
       return found
@@ -520,12 +539,33 @@ export function getCachedBusinessByUsername(username: string): Business | null {
 export function cacheProductsByBusiness(businessId: string, products: Product[]) {
   if (!businessId) return
   productsByBusinessCache.set(businessId, { products, timestamp: Date.now() })
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem(`fuddi_prods_${businessId}`, JSON.stringify({
+        products,
+        timestamp: Date.now()
+      }))
+    } catch { /* ignore */ }
+  }
 }
 
 export function getCachedProductsByBusiness(businessId: string): Product[] | null {
+  if (!businessId) return null
   const cached = productsByBusinessCache.get(businessId)
   if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
     return cached.products
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = sessionStorage.getItem(`fuddi_prods_${businessId}`)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (parsed && (Date.now() - parsed.timestamp < CACHE_TTL) && Array.isArray(parsed.products)) {
+          productsByBusinessCache.set(businessId, parsed)
+          return parsed.products
+        }
+      }
+    } catch { /* ignore */ }
   }
   return null
 }
@@ -1007,12 +1047,23 @@ export async function getProductsByBusiness(businessId: string, forceRefresh: bo
   }
 
   try {
-    const q = query(
-      collection(db, 'products'),
-      where('businessId', '==', businessId),
-      orderBy('createdAt', 'desc')
-    )
-    const querySnapshot = await getDocs(q)
+    let querySnapshot
+    try {
+      const q = query(
+        collection(db, 'products'),
+        where('businessId', '==', businessId),
+        orderBy('createdAt', 'desc')
+      )
+      querySnapshot = await getDocs(q)
+    } catch (err) {
+      console.warn('Fallback to query without orderBy for products:', err)
+      const fallbackQ = query(
+        collection(db, 'products'),
+        where('businessId', '==', businessId)
+      )
+      querySnapshot = await getDocs(fallbackQ)
+    }
+
     const products = querySnapshot.docs.map(doc => {
       const data = doc.data()
       return {
@@ -1022,6 +1073,14 @@ export async function getProductsByBusiness(businessId: string, forceRefresh: bo
         updatedAt: toSafeDate(data.updatedAt)
       }
     }) as Product[]
+
+    // Asegurar ordenamiento descendente en memoria
+    products.sort((a, b) => {
+      const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
+      const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
+      return dateB - dateA
+    })
+
     cacheProductsByBusiness(businessId, products)
     return products
   } catch (error) {
