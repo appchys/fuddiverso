@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating } from '@/lib/database'
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
@@ -491,6 +491,46 @@ function RestaurantContent() {
   // Cachear resultado de isStoreOpen para evitar recalcularlo 5+ veces por render
   const storeIsOpen = useMemo(() => business ? isStoreOpen(business) : false, [business])
   const nextOpeningMsg = useMemo(() => business ? getNextOpeningMessage(business) : null, [business])
+
+  // Prefetch de opiniones optimizado para móviles y conexiones lentas
+  const [prefetchedRatings, setPrefetchedRatings] = useState<BusinessRating[] | null>(null)
+  const ratingsPrefetchedRef = useRef(false)
+
+  const prefetchRatings = useCallback(() => {
+    if (ratingsPrefetchedRef.current || !business?.id) return
+    ratingsPrefetchedRef.current = true
+    // Pedir un lote ligero de 35 opiniones (instantáneo y no satura datos móviles)
+    getBusinessRatings(business.id, 35)
+      .then(data => setPrefetchedRatings(data))
+      .catch(() => { ratingsPrefetchedRef.current = false })
+  }, [business?.id])
+
+  // Prefetch inteligente en background:
+  // - Espera a que los productos iniciales estén completamente listos
+  // - No ejecuta si el usuario activó "Ahorro de datos" (Save-Data) en su navegador
+  // - No ejecuta en redes lentas (2G / slow-2g) para no competir con fotos de productos
+  // - Espera 4 segundos de reposo para dar prioridad a las imágenes del catálogo
+  useEffect(() => {
+    if (!business?.id || loading) return
+
+    if (typeof navigator !== 'undefined') {
+      const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection
+      if (conn) {
+        if (conn.saveData) return
+        if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return
+      }
+    }
+
+    const timer = setTimeout(() => {
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        ;(window as any).requestIdleCallback(() => prefetchRatings(), { timeout: 6000 })
+      } else {
+        prefetchRatings()
+      }
+    }, 4000)
+
+    return () => clearTimeout(timer)
+  }, [business?.id, loading, prefetchRatings])
 
   // Abrir popover automáticamente al inicio si la tienda está cerrada
   useEffect(() => {
@@ -1663,6 +1703,8 @@ function RestaurantContent() {
                 </button>
                 <button
                   onClick={() => setActiveTab('calificaciones')}
+                  onPointerEnter={prefetchRatings}
+                  onTouchStart={prefetchRatings}
                   className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
                     activeTab === 'calificaciones'
                       ? 'bg-gray-100 text-gray-900'
@@ -1865,6 +1907,7 @@ function RestaurantContent() {
             businessUser={isOwner ? { uid: localStorage.getItem('ownerId') } : null}
             businessOwnerId={business?.ownerId || null}
             onSuccess={(msg) => showNotification(msg)}
+            initialRatings={prefetchedRatings}
           />
         </div>
       ) : (

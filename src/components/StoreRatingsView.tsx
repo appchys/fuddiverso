@@ -43,6 +43,7 @@ interface StoreRatingsViewProps {
   businessOwnerId?: string | null
   onSuccess?: (message: string) => void
   isModal?: boolean
+  initialRatings?: BusinessRating[] | null
 }
 
 export default function StoreRatingsView({
@@ -52,7 +53,8 @@ export default function StoreRatingsView({
   businessUser,
   businessOwnerId,
   onSuccess,
-  isModal = false
+  isModal = false,
+  initialRatings = null
 }: StoreRatingsViewProps) {
   const { user, login } = useAuth()
 
@@ -62,8 +64,8 @@ export default function StoreRatingsView({
     (user && business?.ownerId && (user.id === business.ownerId || (user as any).uid === business.ownerId))
   )
 
-  const [ratingsList, setRatingsList] = useState<BusinessRating[]>([])
-  const [loadingRatings, setLoadingRatings] = useState(true)
+  const [ratingsList, setRatingsList] = useState<BusinessRating[]>(initialRatings || [])
+  const [loadingRatings, setLoadingRatings] = useState(!initialRatings)
 
   // Calificación en Formulario
   const [newReviewRating, setNewReviewRating] = useState(5)
@@ -140,23 +142,8 @@ export default function StoreRatingsView({
     if (!business?.id) return
     setLoadingRatings(true)
     try {
-      const data = await getBusinessRatings(business.id, 100)
-      const storeOnly = data.filter(r => {
-        const d = r as any
-        if (d.isProductOnlyRating) return false
-        if (
-          d.productRatings &&
-          Array.isArray(d.productRatings) &&
-          d.productRatings.length > 0 &&
-          !d.storeRated &&
-          !d.isStoreRating &&
-          (!d.comment || d.comment.trim() === '')
-        ) {
-          return false
-        }
-        return true
-      })
-      setRatingsList(storeOnly)
+      const data = await getBusinessRatings(business.id, 40)
+      setRatingsList(data)
     } catch (e) {
       console.error('Error loading store ratings:', e)
     } finally {
@@ -164,11 +151,17 @@ export default function StoreRatingsView({
     }
   }
 
+  // Si se proveen initialRatings, usarlas directamente; de lo contrario, cargar de Firestore
   useEffect(() => {
-    if (business?.id) {
+    if (initialRatings && initialRatings.length > 0) {
+      setRatingsList(initialRatings)
+      setLoadingRatings(false)
+      return
+    }
+    if (business?.id && !initialRatings) {
       loadRatings()
     }
-  }, [business?.id])
+  }, [business?.id, initialRatings])
 
   // Métricas de calificación
   const ratingCount = ratingsList.length
