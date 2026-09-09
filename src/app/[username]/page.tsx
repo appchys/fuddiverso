@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
@@ -101,7 +101,7 @@ function getMinVariantPrice(variants: any[], biz: any): number {
   return prices.length > 0 ? Math.min(...prices) : 0
 }
 
-function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral, hasRecommended, referralCount, business }: {
+const ProductVariantSelector = memo(function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral, hasRecommended, referralCount, business }: {
   product: any,
   onAddToCart: (item: any) => void,
   onShowDetails: (product: any) => void,
@@ -259,7 +259,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
       </div>
     </div>
   );
-}
+})
 
 export default function RestaurantPage() {
   return <RestaurantContent />
@@ -333,15 +333,19 @@ function RestaurantContent() {
   const statusPopoverRef = useRef<HTMLDivElement>(null)
   const hasInitializedStatusPopoverRef = useRef(false)
 
+  // Cachear resultado de isStoreOpen para evitar recalcularlo 5+ veces por render
+  const storeIsOpen = useMemo(() => business ? isStoreOpen(business) : false, [business])
+  const nextOpeningMsg = useMemo(() => business ? getNextOpeningMessage(business) : null, [business])
+
   // Abrir popover automáticamente al inicio si la tienda está cerrada
   useEffect(() => {
     if (business && !hasInitializedStatusPopoverRef.current) {
       hasInitializedStatusPopoverRef.current = true
-      if (!isStoreOpen(business)) {
+      if (!storeIsOpen) {
         setShowStatusPopover(true)
       }
     }
-  }, [business])
+  }, [business, storeIsOpen])
 
   // Cerrar popover al hacer clic fuera
   useEffect(() => {
@@ -459,28 +463,24 @@ function RestaurantContent() {
           console.error('Error handling visit increment:', e)
         }
 
-        // Load products — parallelize own products + shared products
+        // Load products + stock summary in parallel (stock was previously loaded in series)
         const hasShared = updatedBusiness.sharedProductIds && updatedBusiness.sharedProductIds.length > 0
-        const [productsData, sharedProducts] = await Promise.all([
+        const [productsData, sharedProducts, stockSummaryData] = await Promise.all([
           getProductsByBusiness(updatedBusiness.id),
-          hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[])
+          hasShared ? getProductsByIds(updatedBusiness.sharedProductIds!) : Promise.resolve([] as Product[]),
+          getIngredientStockSummary(updatedBusiness.id).catch(e => {
+            console.error('Error cargando stock de ingredientes en tienda pública:', e)
+            return [] as IngredientStockSummary[]
+          })
         ])
 
-        // Si algún producto tiene autoHideByStock o variantes con ingredientes, obtenemos el resumen de stock para filtrar
-        const shouldCheckStock = productsData.some(p => p.autoHideByStock || (p.variants && p.variants.length > 0))
+        // Construir mapa de stock a partir de los datos ya obtenidos en paralelo
         const stockMap = new Map<string, IngredientStockSummary>()
-        if (shouldCheckStock) {
-          try {
-            const stockSummary = await getIngredientStockSummary(updatedBusiness.id)
-            stockSummary.forEach(item => {
-              if (item.ingredientName) {
-                stockMap.set(item.ingredientName.toLowerCase().trim(), item)
-              }
-            })
-          } catch (e) {
-            console.error('Error cargando stock de ingredientes en tienda pública:', e)
+        stockSummaryData.forEach(item => {
+          if (item.ingredientName) {
+            stockMap.set(item.ingredientName.toLowerCase().trim(), item)
           }
-        }
+        })
 
         const storePackagingFee = getPackagingFee(updatedBusiness)
         let availableProducts: any[] = productsData
@@ -543,11 +543,11 @@ function RestaurantContent() {
 
         // Defer loading of non-critical background data: other businesses only
         setTimeout(() => {
-          // Load other businesses with a LIMITED query instead of getAllBusinesses()
+          // Load other businesses — equality filter is much more efficient than inequality
           const otherQ = query(
             collection(db, 'businesses'),
-            where('isActive', '!=', false),
-            limit(12)
+            where('isActive', '==', true),
+            limit(6)
           )
           getDocs(otherQ).then(snap => {
             const others = snap.docs
@@ -818,26 +818,23 @@ function RestaurantContent() {
     }
   }, [isCartOpen, isUserSidebarOpen, showLoginModal, isVariantModalOpen, referralModalOpen])
 
-  // Cargar datos de referidos cuando el usuario inicia sesión después de que los productos ya están cargados
+  // Cargar datos de referidos — una sola query batch en vez de N+1 queries individuales
   useEffect(() => {
     const loadReferralData = async () => {
       if (!clientUser?.id || products.length === 0) return
       const productIds = products.map(p => p.id)
-      const recommendedSet = new Set<string>()
-      await Promise.all(
-        productIds.map(async (productId) => {
-          const hasReferral = await userHasReferralForProduct(clientUser.id, productId)
-          if (hasReferral) recommendedSet.add(productId)
-        })
-      )
+      // Una sola query obtiene todos los productIds referidos por el usuario
+      const [recommendedSet, counts] = await Promise.all([
+        getUserReferredProductIds(clientUser.id),
+        getProductsReferralCounts(productIds)
+      ])
       setGeneratedReferralProducts(recommendedSet)
-      const counts = await getProductsReferralCounts(productIds)
       setReferralCounts(counts)
     }
     loadReferralData()
   }, [clientUser?.id, products.length])
 
-  const addToCart = (productInput: any) => {
+  const addToCart = useCallback((productInput: any) => {
     if (!business?.id) return;
 
     // Si el producto tiene variantes, abrir modal
@@ -855,14 +852,6 @@ function RestaurantContent() {
     const priceMeta = isCartAlready
       ? getPriceMetadata(productInput)
       : getPriceMetadata(productInput, business)
-
-    console.log('🛒 [addToCart] Adding product to cart:', {
-      productName: productInput.name,
-      isCartAlready,
-      publicPrice,
-      packagingFee: priceMeta.packagingFee,
-      businessPackagingFee: getPackagingFee(business)
-    })
 
     const cartItem = {
       id: productInput.id,
@@ -888,28 +877,30 @@ function RestaurantContent() {
       })
     }
 
-    const existingItem = cart.find(item => item.id === cartItem.id && item.variantName === cartItem.variantName)
-    let newCart
+    setCart(prev => {
+      const existingItem = prev.find(item => item.id === cartItem.id && item.variantName === cartItem.variantName)
+      let newCart
 
-    if (existingItem) {
-      newCart = cart.map(item =>
-        (item.id === cartItem.id && item.variantName === cartItem.variantName)
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      )
-      showNotification(`Se agregó otra ${productInput.name} al carrito`)
-    } else {
-      newCart = [...cart, {
-        ...cartItem,
-        quantity: 1
-      }]
-      showNotification(`${productInput.name} agregado al carrito`)
-    }
+      if (existingItem) {
+        newCart = prev.map(item =>
+          (item.id === cartItem.id && item.variantName === cartItem.variantName)
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+        showNotification(`Se agregó otra ${productInput.name} al carrito`)
+      } else {
+        newCart = [...prev, {
+          ...cartItem,
+          quantity: 1
+        }]
+        showNotification(`${productInput.name} agregado al carrito`)
+      }
 
-    setCart(newCart)
-    updateCartInStorage(business.id, newCart)
+      updateCartInStorage(business.id, newCart)
+      return newCart
+    })
     setIsCartOpen(true)
-  }
+  }, [business])
 
   const addVariantToCart = (product: any) => {
     if (!business?.id) return;
@@ -948,34 +939,37 @@ function RestaurantContent() {
     setIsCartOpen(true)
   }
 
-  const removeFromCart = (productId: string, variantName?: string | null) => {
+  const removeFromCart = useCallback((productId: string, variantName?: string | null) => {
     if (!business?.id) return;
 
-    // Verificar si el ítem a eliminar es un premio
-    const itemToRemove = cart.find(item => item.id === productId && item.variantName === variantName)
-    const isPremio = itemToRemove?.esPremio === true
-    const qrCodeIdToUnredeem = itemToRemove?.qrCodeId || (typeof itemToRemove?.id === 'string' && itemToRemove.id.startsWith('premio-qr-')
-      ? itemToRemove.id.replace('premio-qr-', '')
-      : null)
+    setCart(prev => {
+      // Verificar si el ítem a eliminar es un premio
+      const itemToRemove = prev.find(item => item.id === productId && item.variantName === variantName)
+      const isPremio = itemToRemove?.esPremio === true
+      const qrCodeIdToUnredeem = itemToRemove?.qrCodeId || (typeof itemToRemove?.id === 'string' && itemToRemove.id.startsWith('premio-qr-')
+        ? itemToRemove.id.replace('premio-qr-', '')
+        : null)
 
-    const newCart = cart.filter(item => !(item.id === productId && item.variantName === variantName))
-    setCart(newCart)
-    updateCartInStorage(business.id, newCart)
+      const newCart = prev.filter(item => !(item.id === productId && item.variantName === variantName))
+      updateCartInStorage(business.id, newCart)
 
-    // Si se eliminó un premio, permitir reclamarlo de nuevo
-    if (isPremio) {
-      setPremioAgregado(false)
+      // Si se eliminó un premio, permitir reclamarlo de nuevo
+      if (isPremio) {
+        setPremioAgregado(false)
 
-      if (qrCodeIdToUnredeem && clientPhone) {
-        void unredeemQRCodePrize(clientPhone, business.id, qrCodeIdToUnredeem)
-          .then(() => getUserQRProgress(clientPhone, business.id))
-          .then((p) => setQrProgress(p))
-          .catch((e) => console.error('Error unredeeming QR prize after cart removal:', e))
+        if (qrCodeIdToUnredeem && clientPhone) {
+          void unredeemQRCodePrize(clientPhone, business.id, qrCodeIdToUnredeem)
+            .then(() => getUserQRProgress(clientPhone, business.id))
+            .then((p) => setQrProgress(p))
+            .catch((e) => console.error('Error unredeeming QR prize after cart removal:', e))
+        }
       }
-    }
-  }
 
-  const updateQuantity = (productId: string, quantity: number, variantName?: string | null) => {
+      return newCart
+    })
+  }, [business?.id, clientPhone])
+
+  const updateQuantity = useCallback((productId: string, quantity: number, variantName?: string | null) => {
     if (!business?.id) return;
 
     if (quantity <= 0) {
@@ -983,15 +977,16 @@ function RestaurantContent() {
       return
     }
 
-    const newCart = cart.map(item =>
-      (item.id === productId && item.variantName === variantName)
-        ? { ...item, quantity }
-        : item
-    )
-
-    setCart(newCart)
-    updateCartInStorage(business.id, newCart)
-  }
+    setCart(prev => {
+      const newCart = prev.map(item =>
+        (item.id === productId && item.variantName === variantName)
+          ? { ...item, quantity }
+          : item
+      )
+      updateCartInStorage(business.id, newCart)
+      return newCart
+    })
+  }, [business?.id, removeFromCart])
 
   // Función para actualizar el carrito en localStorage
   const updateCartInStorage = (businessId: string, businessCart: any[]) => {
@@ -1017,13 +1012,13 @@ function RestaurantContent() {
     }
   }
 
-  const getCartItemQuantity = (productId: string, variantName?: string | null) => {
+  const getCartItemQuantity = useCallback((productId: string, variantName?: string | null) => {
     const item = cart.find(item => item.id === productId && item.variantName === variantName)
     return item ? item.quantity : 0
-  }
+  }, [cart])
 
-  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-  const cartItemsCount = cart.filter(item => !item.esPremio).reduce((sum, item) => sum + item.quantity, 0)
+  const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0), [cart])
+  const cartItemsCount = useMemo(() => cart.filter(item => !item.esPremio).reduce((sum, item) => sum + item.quantity, 0), [cart])
 
   const addQrPrizeToCart = async (qrCode: QRCode) => {
     if (!business?.id) return
@@ -1146,6 +1141,57 @@ function RestaurantContent() {
     showNotification(!currentlyFav ? 'Añadido a tus favoritos ❤️' : 'Eliminado de tus favoritos')
   };
 
+  const whatsappNumber = useMemo(() => business?.phone ? (business.phone.startsWith('0') ? '593' + business.phone.substring(1) : business.phone).replace(/\D/g, '') : '', [business?.phone])
+  const whatsappMessage = useMemo(() => business?.name ? encodeURIComponent(`Hola ${business.name}, encontré tu tienda en https://fuddi.shop , me gustaría conocer tu menú`) : '', [business?.name])
+  const whatsappUrl = useMemo(() => `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`, [whatsappNumber, whatsappMessage])
+
+  // Agrupar productos por categoría, memorizado para evitar recálculos en cada render
+  const productsByCategory = useMemo(() => {
+    const result: Record<string, Product[]> = {}
+    if (!business) return result
+    const availableProducts = products.filter(product => product.isAvailable)
+
+    // Determinar el orden de las categorías (idéntico a ProductList.tsx)
+    const master = business.categories || [];
+    const fromProducts = Array.from(new Set(availableProducts.map(p => p.category).filter(Boolean))) as string[];
+    const extras = fromProducts.filter(c => !master.includes(c));
+    const categoryOrder = [...master, ...extras];
+    
+    if (availableProducts.some(p => !p.category || p.category === 'Sin categoría') && !categoryOrder.includes('Sin categoría')) {
+      categoryOrder.push('Sin categoría');
+    }
+
+    // Creamos las categorías en el orden definido
+    categoryOrder.forEach(category => {
+      const categoryProducts = availableProducts
+        .filter(p => {
+          if (category === 'Sin categoría') return !p.category || p.category === 'Sin categoría';
+          return p.category === category;
+        })
+        .sort((a, b) => {
+          const orderA = a.order ?? 0
+          const orderB = b.order ?? 0
+          if (orderA !== orderB) return orderA - orderB
+
+          const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
+          const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
+          return dateB - dateA
+        })
+
+      if (categoryProducts.length > 0) {
+        result[category] = categoryProducts
+      }
+    })
+
+    return result
+  }, [products, business?.categories, business])
+
+  // Callback estable para mostrar detalles de producto
+  const handleShowDetails = useCallback((p: any) => {
+    setSelectedProduct(p)
+    setIsVariantModalOpen(true)
+  }, [])
+
   // Estado de carga simple sin skeletons estructurales
   if (loading || !business) {
     return (
@@ -1154,54 +1200,6 @@ function RestaurantContent() {
       </div>
     )
   }
-
-  const whatsappNumber = business.phone ? (business.phone.startsWith('0') ? '593' + business.phone.substring(1) : business.phone).replace(/\D/g, '') : ''
-  const whatsappMessage = encodeURIComponent(`Hola ${business.name}, encontré tu tienda en https://fuddi.shop , me gustaría conocer tu menú`)
-  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`
-
-
-
-  // Agrupar productos por categoría, respetando el orden definido en business.categories
-  const productsByCategory: Record<string, Product[]> = {}
-
-  // Primero, obtenemos todos los productos disponibles
-  const availableProducts = products.filter(product => product.isAvailable)
-
-  // Determinar el orden de las categorías (idéntico a ProductList.tsx)
-  const categoryOrder = (() => {
-    const master = business.categories || [];
-    const fromProducts = Array.from(new Set(availableProducts.map(p => p.category).filter(Boolean))) as string[];
-    const extras = fromProducts.filter(c => !master.includes(c));
-    const list = [...master, ...extras];
-    
-    if (availableProducts.some(p => !p.category || p.category === 'Sin categoría') && !list.includes('Sin categoría')) {
-      list.push('Sin categoría');
-    }
-    return list;
-  })();
-
-  // Creamos las categorías en el orden definido
-  categoryOrder.forEach(category => {
-    const categoryProducts = availableProducts
-      .filter(p => {
-        if (category === 'Sin categoría') return !p.category || p.category === 'Sin categoría';
-        return p.category === category;
-      })
-      .sort((a, b) => {
-        // Ordenar por 'order' (asc) y luego por 'createdAt' (desc)
-        const orderA = a.order ?? 0
-        const orderB = b.order ?? 0
-        if (orderA !== orderB) return orderA - orderB
-
-        const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
-        const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
-        return dateB - dateA
-      })
-
-    if (categoryProducts.length > 0) {
-      productsByCategory[category] = categoryProducts
-    }
-  })
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1317,12 +1315,12 @@ function RestaurantContent() {
                     onClick={() => setShowStatusPopover(!showStatusPopover)}
                     onMouseEnter={() => setShowStatusPopover(true)}
                     className="relative flex items-center justify-center p-1 rounded-full hover:bg-gray-100/80 transition-all cursor-pointer focus:outline-none"
-                    aria-label={isStoreOpen(business) ? 'Tienda abierta' : 'Tienda cerrada'}
-                    title={isStoreOpen(business) ? 'Abierto ahora' : 'Cerrado ahora'}
+                    aria-label={storeIsOpen ? 'Tienda abierta' : 'Tienda cerrada'}
+                    title={storeIsOpen ? 'Abierto ahora' : 'Cerrado ahora'}
                   >
                     <span
                       className={`w-3.5 h-3.5 rounded-full transition-all ${
-                        isStoreOpen(business)
+                        storeIsOpen
                           ? 'bg-emerald-500 ring-4 ring-emerald-100 animate-pulse'
                           : 'bg-rose-500 ring-4 ring-rose-100'
                       }`}
@@ -1334,7 +1332,7 @@ function RestaurantContent() {
                     <div
                       onMouseLeave={() => setShowStatusPopover(false)}
                       className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 z-40 w-max min-w-[170px] max-w-[240px] backdrop-blur-xs rounded-xl px-3 py-2 shadow-md text-left animate-in fade-in zoom-in-95 duration-150 border ${
-                        isStoreOpen(business)
+                        storeIsOpen
                           ? 'bg-emerald-50/95 border-emerald-200 text-emerald-800'
                           : 'bg-rose-50/95 border-rose-200 text-rose-700'
                       }`}
@@ -1342,13 +1340,13 @@ function RestaurantContent() {
                       {/* Piquito apuntando al punto indicador */}
                       <div
                         className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border-t border-l ${
-                          isStoreOpen(business)
+                          storeIsOpen
                             ? 'bg-emerald-50 border-emerald-200'
                             : 'bg-rose-50 border-rose-200'
                         }`}
                       />
 
-                      {isStoreOpen(business) ? (
+                      {storeIsOpen ? (
                         <div className="relative z-10 flex items-center gap-1.5 text-xs font-bold text-emerald-800">
                           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                           <span>Abierto ahora</span>
@@ -1359,10 +1357,10 @@ function RestaurantContent() {
                             <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
                             <span>Cerrado ahora</span>
                           </div>
-                          {getNextOpeningMessage(business) && (
+                          {nextOpeningMsg && (
                             <div className="flex items-center gap-1 text-[11px] font-semibold text-rose-600/90 pt-0.5">
                               <i className="bi bi-clock text-[10px] text-rose-400 shrink-0"></i>
-                              <span>{getNextOpeningMessage(business)}</span>
+                              <span>{nextOpeningMsg}</span>
                             </div>
                           )}
                         </div>
@@ -1513,11 +1511,11 @@ function RestaurantContent() {
               <div className="flex items-center gap-1.5 text-xs font-bold">
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                    storeIsOpen ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
                   }`}
                 />
-                <span className={isStoreOpen(business) ? 'text-emerald-700' : 'text-rose-600'}>
-                  {isStoreOpen(business) ? 'Abierto ahora' : 'Cerrado ahora'}
+                <span className={storeIsOpen ? 'text-emerald-700' : 'text-rose-600'}>
+                  {storeIsOpen ? 'Abierto ahora' : 'Cerrado ahora'}
                 </span>
               </div>
             </div>
@@ -1704,10 +1702,7 @@ function RestaurantContent() {
                       key={product.id}
                       product={product}
                       onAddToCart={addToCart}
-                      onShowDetails={(p) => {
-                        setSelectedProduct(p)
-                        setIsVariantModalOpen(true)
-                      }}
+                      onShowDetails={handleShowDetails}
                       getCartItemQuantity={getCartItemQuantity}
                       updateQuantity={updateQuantity}
                       businessImage={business?.image}

@@ -7922,6 +7922,31 @@ export async function userHasReferralForProduct(userId: string, productId: strin
 }
 
 /**
+ * Obtiene todos los productIds para los cuales un usuario ya generó un link de referido.
+ * Reemplaza el patrón N+1 de llamar userHasReferralForProduct() por cada producto.
+ * Una sola query Firestore en vez de N queries individuales.
+ */
+export async function getUserReferredProductIds(userId: string): Promise<Set<string>> {
+  try {
+    if (!userId) return new Set()
+    const q = query(
+      collection(db, 'referralLinks'),
+      where('createdBy', '==', userId)
+    )
+    const snapshot = await getDocs(q)
+    const productIds = new Set<string>()
+    snapshot.docs.forEach(doc => {
+      const data = doc.data()
+      if (data.productId) productIds.add(data.productId)
+    })
+    return productIds
+  } catch (error) {
+    console.error('Error getting user referred product ids:', error)
+    return new Set()
+  }
+}
+
+/**
  * Obtiene el conteo de personas que han recomendado un producto
  */
 export async function getProductReferralCount(productId: string): Promise<number> {
