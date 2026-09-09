@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, memo, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
@@ -261,8 +261,98 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
   );
 })
 
+function StoreProfileSkeleton() {
+  return (
+    <div className="min-h-screen bg-gray-50 animate-pulse">
+      {/* Hero Section Skeleton */}
+      <div className="bg-white shadow-sm">
+        {/* Portada Skeleton con logo superpuesto */}
+        <div className="relative w-full h-36 sm:h-48 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 overflow-visible">
+          {/* Logo Circular Superpuesto Skeleton */}
+          <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
+            <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl bg-gray-200" />
+          </div>
+        </div>
+
+        {/* Contenido debajo de la portada Skeleton */}
+        <div className="max-w-3xl mx-auto px-4 pt-10 sm:pt-12 pb-3 sm:pb-4 text-center relative">
+          {/* Botones de acción simulados (Favorito y Compartir) */}
+          <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100" />
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-100" />
+          </div>
+
+          <div className="flex flex-col items-center">
+            <div className="w-full">
+              {/* Nombre de la tienda skeleton */}
+              <div className="h-8 sm:h-9 bg-gray-200 rounded-2xl w-48 sm:w-64 mx-auto mb-3" />
+
+              {/* Descripción de la tienda skeleton */}
+              <div className="space-y-2 max-w-md mx-auto mb-3">
+                <div className="h-3.5 bg-gray-100 rounded-full w-5/6 mx-auto" />
+                <div className="h-3 bg-gray-100/80 rounded-full w-3/5 mx-auto" />
+              </div>
+
+              {/* Pestañas de navegación skeleton */}
+              <div className="grid grid-cols-3 gap-1.5 mt-3.5 max-w-lg mx-auto">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="py-2 px-1 rounded-2xl bg-gray-100 flex flex-col items-center justify-center gap-1.5 h-14"
+                  >
+                    <div className="w-4 h-4 rounded-md bg-gray-200" />
+                    <div className="w-12 h-2.5 rounded-full bg-gray-200" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Catálogo de Productos Skeleton */}
+      <div className="max-w-7xl mx-auto px-4 pt-4 sm:pt-6 pb-8 sm:pb-12">
+        {/* Título de categoría skeleton */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-6 w-36 sm:w-44 bg-gray-200 rounded-xl" />
+        </div>
+
+        {/* Grid de tarjetas de producto skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="relative flex items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm"
+            >
+              {/* Imagen del producto skeleton */}
+              <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl bg-gray-200" />
+
+              {/* Información del producto skeleton */}
+              <div className="flex-1 min-w-0 ml-4 pr-2 flex flex-col justify-between h-20 sm:h-24 py-0.5">
+                <div>
+                  <div className="h-4 bg-gray-200 rounded-md w-3/4 mb-2" />
+                  <div className="h-3 bg-gray-100 rounded-md w-full mb-1" />
+                  <div className="h-3 bg-gray-100/70 rounded-md w-2/3" />
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <div className="h-5 bg-gray-200 rounded-md w-14" />
+                  <div className="w-8 h-8 rounded-full bg-gray-200" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function RestaurantPage() {
-  return <RestaurantContent />
+  return (
+    <Suspense fallback={<StoreProfileSkeleton />}>
+      <RestaurantContent />
+    </Suspense>
+  )
 }
 
 function RestaurantContent() {
@@ -1192,13 +1282,31 @@ function RestaurantContent() {
     setIsVariantModalOpen(true)
   }, [])
 
-  // Estado de carga simple sin skeletons estructurales
-  if (loading || !business) {
+  // Estado de carga con Skeleton estructural y manejo de tienda no encontrada
+  if (!loading && (error || !business)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">Cargando tienda...</p>
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 text-center shadow-sm border border-gray-100">
+          <div className="w-16 h-16 bg-red-50 text-[#aa1918] rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
+            <Store size={32} className="text-[#aa1918] mx-auto" />
+          </div>
+          <h2 className="text-xl font-black text-gray-900 tracking-tight mb-2">Tienda no disponible</h2>
+          <p className="text-gray-500 text-sm font-medium mb-6 leading-relaxed">
+            {error || 'No pudimos encontrar la tienda solicitada.'}
+          </p>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center gap-2 w-full py-3.5 px-6 bg-gray-900 hover:bg-black text-white font-bold rounded-2xl transition-all shadow-md active:scale-95 text-sm"
+          >
+            <span>Ir al inicio</span>
+          </Link>
+        </div>
       </div>
     )
+  }
+
+  if (loading || !business) {
+    return <StoreProfileSkeleton />
   }
 
   return (
