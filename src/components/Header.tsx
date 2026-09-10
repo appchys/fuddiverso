@@ -40,16 +40,14 @@ function CartIndicator() {
 
     loadCarts()
 
-    // Escuchar cambios en localStorage
+    // Escuchar cambios en localStorage y eventos de actualización del carrito
     const handleStorageChange = () => loadCarts()
     window.addEventListener('storage', handleStorageChange)
-
-    // También verificar cada segundo para cambios locales
-    const interval = setInterval(loadCarts, 1000)
+    window.addEventListener('cart-updated', handleStorageChange)
 
     return () => {
       window.removeEventListener('storage', handleStorageChange)
-      clearInterval(interval)
+      window.removeEventListener('cart-updated', handleStorageChange)
     }
   }, [])
 
@@ -277,8 +275,24 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   }, [user?.id, user?.celular])
 
   // Cargar categorías
-
   useEffect(() => {
+    // 1. Restaurar instantáneamente desde sessionStorage si está disponible
+    if (typeof window !== 'undefined') {
+      try {
+        const savedBiz = sessionStorage.getItem('home_businesses_v2')
+        if (savedBiz) {
+          const parsed = JSON.parse(savedBiz)
+          const uniqueCategories = new Set<string>()
+          parsed.forEach((b: any) => {
+            b.categories?.forEach((c: string) => uniqueCategories.add(c))
+          })
+          if (uniqueCategories.size > 0) {
+            setCategories(['all', ...Array.from(uniqueCategories).sort()])
+          }
+        }
+      } catch {}
+    }
+
     const loadCategories = async () => {
       try {
         const businesses = await getAllBusinesses()

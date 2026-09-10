@@ -112,10 +112,20 @@ function getDampenedImagePosition(position: string | undefined): string {
   return `center ${dampenedPct}%`
 }
 
+// Función de hash determinista para rotación aleatoria estable por sesión (0 Layout Shifts)
+function getSessionHash(str: string, seed: number = 42): number {
+  let hash = seed
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0
+  }
+  return hash
+}
+
 function HomePageContent() {
   const { user } = useAuth()
   const searchParams = useSearchParams()
   const router = useRouter()
+  const sessionSeedRef = useRef<number>(Math.floor(Math.random() * 10000) + 1)
 
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
@@ -231,8 +241,9 @@ function HomePageContent() {
     const open = filtered.filter(b => isStoreOpen(b))
     const closed = filtered.filter(b => !isStoreOpen(b))
     
-    // Ordenar abiertos aleatoriamente
-    const shuffledOpen = [...open].sort(() => Math.random() - 0.5)
+    // Ordenar abiertos con rotación estable por sesión (evita que las tiendas salten de posición con cada re-render)
+    const seed = sessionSeedRef.current
+    const shuffledOpen = [...open].sort((a, b) => getSessionHash(a.id, seed) - getSessionHash(b.id, seed))
     
     // Ordenar cerrados por última edición
     const sortedClosed = closed.sort((a, b) => {
@@ -241,7 +252,7 @@ function HomePageContent() {
       return bLastEdit - aLastEdit
     })
     
-    // Combinar: abiertos (aleatorio) + cerrados (por edición)
+    // Combinar: abiertos (estable) + cerrados (por edición)
     return [...shuffledOpen, ...sortedClosed]
   }, [businesses, productsByBusiness])
 
@@ -538,87 +549,106 @@ function HomePageContent() {
     }
   }
 
-  // Cargar productos de negocios (tanto restaurantes como proveedores) de forma optimizada
+  // Cargar productos de negocios de forma escalonada (primeras tiendas prioritarias, resto en segundo plano)
   useEffect(() => {
+    let isMounted = true
+
     const fetchBusinessProducts = async () => {
       if (businesses.length === 0) return
 
       try {
         setLoadingProducts(true)
-        const productsMap: Record<string, Product[]> = {}
-        const targetBusinesses = businesses.slice(0, 60); // Limitar para evitar saturación de red
-        const targetBusinessIds = targetBusinesses.map(b => b.id)
+        const targetBusinesses = businesses.slice(0, 50)
 
-        // Obtener productos de todos los negocios en lotes eficientes
-        const allProducts = await getProductsByBusinessesBatch(targetBusinessIds)
+        // Helper para agrupar, ordenar y filtrar los productos de un lote
+        const processBatch = (batchBusinesses: Business[], allProducts: Product[]) => {
+          const map: Record<string, Product[]> = {}
+          batchBusinesses.forEach(b => { map[b.id] = [] })
 
-        // Inicializar mapas vacíos para cada negocio objetivo
-        targetBusinessIds.forEach(id => {
-          productsMap[id] = []
-        })
+          allProducts.forEach(product => {
+            if (map[product.businessId] && product.image && product.isAvailable) {
+              map[product.businessId].push(product)
+            }
+          })
 
-        // Agrupar productos por negocio en memoria
-        allProducts.forEach(product => {
-          if (productsMap[product.businessId] && product.image && product.isAvailable) {
-            productsMap[product.businessId].push(product)
+          const businessMap = new Map(batchBusinesses.map(b => [b.id, b]))
+          batchBusinesses.forEach(biz => {
+            const master = biz?.categories || []
+            const businessProducts = map[biz.id] || []
+
+            const fromProducts = Array.from(new Set(businessProducts.map(p => p.category).filter(Boolean))) as string[]
+            const extras = fromProducts.filter(c => !master.includes(c))
+            const categoryOrder = [...master, ...extras]
+            if (businessProducts.some(p => !p.category || p.category === 'Sin categoría') && !categoryOrder.includes('Sin categoría')) {
+              categoryOrder.push('Sin categoría')
+            }
+
+            const getCategoryIndex = (pCat: string | undefined) => {
+              const cat = pCat || 'Sin categoría'
+              const idx = categoryOrder.indexOf(cat)
+              return idx !== -1 ? idx : 9999
+            }
+
+            map[biz.id] = businessProducts
+              .sort((a, b) => {
+                const catIndexA = getCategoryIndex(a.category)
+                const catIndexB = getCategoryIndex(b.category)
+                if (catIndexA !== catIndexB) return catIndexA - catIndexB
+
+                const orderA = a.order ?? 0
+                const orderB = b.order ?? 0
+                if (orderA !== orderB) return orderA - orderB
+
+                const dateA = a.updatedAt?.getTime() || 0
+                const dateB = b.updatedAt?.getTime() || 0
+                return dateB - dateA
+              })
+              .slice(0, 10)
+          })
+          return map
+        }
+
+        // 1. Fase Prioritaria: primeras 8 tiendas para mostrar UI ultra rápida
+        const priorityBusinesses = targetBusinesses.slice(0, 8)
+        const priorityIds = priorityBusinesses.map(b => b.id)
+
+        if (priorityIds.length > 0) {
+          const priorityProducts = await getProductsByBusinessesBatch(priorityIds)
+          if (isMounted) {
+            const priorityMap = processBatch(priorityBusinesses, priorityProducts)
+            setProductsByBusiness(prev => ({ ...prev, ...priorityMap }))
+            setLoadingProducts(false)
           }
-        })
+        }
 
-        // Crear un mapa de negocios por ID para acceso rápido
-        const businessMap = new Map(targetBusinesses.map(b => [b.id, b]))
+        // 2. Fase Diferida: tiendas restantes cargadas en segundo plano
+        const secondaryBusinesses = targetBusinesses.slice(8)
+        const secondaryIds = secondaryBusinesses.map(b => b.id)
 
-        // Filtrar, ordenar y recortar a máximo 10 productos
-        targetBusinessIds.forEach(id => {
-          const biz = businessMap.get(id)
-          const master = biz?.categories || []
-          const businessProducts = productsMap[id] || []
+        if (secondaryIds.length > 0 && isMounted) {
+          await new Promise(resolve => setTimeout(resolve, 150))
+          if (!isMounted) return
 
-          // Determinar el orden de las categorías (idéntico al perfil de tienda)
-          const fromProducts = Array.from(new Set(businessProducts.map(p => p.category).filter(Boolean))) as string[]
-          const extras = fromProducts.filter(c => !master.includes(c))
-          const categoryOrder = [...master, ...extras]
-          if (businessProducts.some(p => !p.category || p.category === 'Sin categoría') && !categoryOrder.includes('Sin categoría')) {
-            categoryOrder.push('Sin categoría')
+          const secondaryProducts = await getProductsByBusinessesBatch(secondaryIds)
+          if (isMounted) {
+            const secondaryMap = processBatch(secondaryBusinesses, secondaryProducts)
+            setProductsByBusiness(prev => ({ ...prev, ...secondaryMap }))
           }
-
-          // Función auxiliar para obtener el índice de la categoría
-          const getCategoryIndex = (pCat: string | undefined) => {
-            const cat = pCat || 'Sin categoría'
-            const idx = categoryOrder.indexOf(cat)
-            return idx !== -1 ? idx : 9999
-          }
-
-          productsMap[id] = businessProducts
-            .sort((a, b) => {
-              // 1. Criterio principal: Orden de la Categoría
-              const catIndexA = getCategoryIndex(a.category)
-              const catIndexB = getCategoryIndex(b.category)
-              if (catIndexA !== catIndexB) return catIndexA - catIndexB
-
-              // 2. Criterio secundario: Orden del Producto dentro de la categoría
-              const orderA = a.order ?? 0
-              const orderB = b.order ?? 0
-              if (orderA !== orderB) return orderA - orderB
-
-              // 3. Criterio terciario: Fecha de actualización (más reciente primero)
-              const dateA = a.updatedAt?.getTime() || 0
-              const dateB = b.updatedAt?.getTime() || 0
-              return dateB - dateA
-            })
-            .slice(0, 10)
-        })
-
-        setProductsByBusiness(prev => ({ ...prev, ...productsMap }))
+        }
       } catch (error) {
         console.error("Error loading business products:", error)
       } finally {
-        setLoadingProducts(false)
+        if (isMounted) {
+          setLoadingProducts(false)
+        }
       }
     }
 
     if (businesses.length > 0) {
       fetchBusinessProducts()
     }
+
+    return () => { isMounted = false }
   }, [businesses])
 
   // Helper: detectar grupo por coordenadas y actualizar estado

@@ -1180,38 +1180,14 @@ export async function getProductsByBusinessesBatch(businessIds: string[]): Promi
 export async function getGlobalProducts(category: string = 'all', limitCount: number = 20, groupId?: string): Promise<Product[]> {
   try {
     let products: Product[] = []
-    
-    if (groupId && groupId !== 'ALL') {
-      // Si hay groupId, primero obtenemos los negocios de ese grupo
-      const businessesRef = collection(db, 'businesses')
-      const businessesQuery = query(
-        businessesRef,
-        where('groupId', '==', groupId)
-      )
-      const businessesSnapshot = await getDocs(businessesQuery)
-      const bizMap = new Map<string, Business>()
-      businessesSnapshot.docs.forEach(doc => {
-        const bData = { id: doc.id, ...doc.data(), createdAt: toSafeDate(doc.data().createdAt) } as Business
-        if (!bData.isHidden) {
-          cacheBusiness(bData)
-          bizMap.set(doc.id, bData)
-        }
-      })
-      const businessIds = Array.from(bizMap.keys())
-      
-      if (businessIds.length === 0) {
-        return []
-      }
-      
-      // Luego obtenemos productos de esos negocios
-      const productsRef = collection(db, 'products')
+    const productsRef = collection(db, 'products')
+
+    if (groupId === 'ALL') {
       let q
-      
       if (category === 'all') {
         q = query(
           productsRef,
           where('isAvailable', '==', true),
-          where('businessId', 'in', businessIds),
           limit(limitCount)
         )
       } else {
@@ -1219,107 +1195,89 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
           productsRef,
           where('isAvailable', '==', true),
           where('category', '==', category),
-          where('businessId', 'in', businessIds),
           limit(limitCount)
         )
       }
-      
       const snapshot = await getDocs(q)
       products = snapshot.docs.map(doc => {
         const pData = doc.data()
-        const biz = bizMap.get(pData.businessId)
         return {
           id: doc.id,
           ...pData,
-          businessName: pData.businessName || biz?.name,
-          businessImage: pData.businessImage || biz?.image,
           createdAt: toSafeDate(pData.createdAt)
-        }
-      }) as Product[]
+        } as Product
+      })
     } else {
-      // Sin groupId o groupId === 'ALL' - obtener productos de negocios globales o todos
-      const businessesRef = collection(db, 'businesses')
-      let businessesQuery
-      
-      if (groupId === 'ALL') {
-        businessesQuery = query(businessesRef)
-      } else {
-        businessesQuery = query(businessesRef, where('groupId', '==', null))
-      }
-      
-      const businessesSnapshot = await getDocs(businessesQuery)
+      // Obtener negocios del grupo o negocios sin grupo
+      const allBiz = await getAllBusinesses()
       const bizMap = new Map<string, Business>()
-      businessesSnapshot.docs.forEach(doc => {
-        const bData = { id: doc.id, ...doc.data(), createdAt: toSafeDate(doc.data().createdAt) } as Business
-        if (!bData.isHidden) {
-          cacheBusiness(bData)
-          bizMap.set(doc.id, bData)
+      allBiz.forEach(b => {
+        if (!b.isHidden) {
+          if (groupId) {
+            if (b.groupId === groupId) bizMap.set(b.id, b)
+          } else {
+            if (!b.groupId) bizMap.set(b.id, b)
+          }
         }
       })
+
       const businessIds = Array.from(bizMap.keys())
-      
       if (businessIds.length === 0) {
         return []
       }
-      
-      const productsRef = collection(db, 'products')
-      let q
-      
-      if (groupId === 'ALL') {
-        if (category === 'all') {
-          q = query(
-            productsRef,
-            where('isAvailable', '==', true),
-            limit(limitCount)
-          )
-        } else {
-          q = query(
-            productsRef,
-            where('isAvailable', '==', true),
-            where('category', '==', category),
-            limit(limitCount)
-          )
-        }
-      } else {
-        if (category === 'all') {
-          q = query(
-            productsRef,
-            where('isAvailable', '==', true),
-            where('businessId', 'in', businessIds),
-            limit(limitCount)
-          )
-        } else {
-          q = query(
-            productsRef,
-            where('isAvailable', '==', true),
-            where('category', '==', category),
-            where('businessId', 'in', businessIds),
-            limit(limitCount)
-          )
-        }
+
+      // Dividir en lotes de 30 para Firestore 'in'
+      const chunks: string[][] = []
+      for (let i = 0; i < businessIds.length; i += 30) {
+        chunks.push(businessIds.slice(i, i + 30))
       }
-      
-      const snapshot = await getDocs(q)
-      products = snapshot.docs
-        .map(doc => {
+
+      const allFetched: Product[] = []
+      await Promise.all(chunks.map(async (chunk) => {
+        let q
+        if (category === 'all') {
+          q = query(
+            productsRef,
+            where('isAvailable', '==', true),
+            where('businessId', 'in', chunk),
+            limit(limitCount)
+          )
+        } else {
+          q = query(
+            productsRef,
+            where('isAvailable', '==', true),
+            where('category', '==', category),
+            where('businessId', 'in', chunk),
+            limit(limitCount)
+          )
+        }
+        const snapshot = await getDocs(q)
+        snapshot.docs.forEach(doc => {
           const pData = doc.data()
           const biz = bizMap.get(pData.businessId)
-          if (!biz || biz.isHidden) return null
-          return {
+          if (!biz || biz.isHidden) return
+          allFetched.push({
             id: doc.id,
             ...pData,
-            businessName: pData.businessName || biz?.name,
-            businessImage: pData.businessImage || biz?.image,
+            businessName: pData.businessName || biz.name,
+            businessImage: pData.businessImage || biz.image,
             createdAt: toSafeDate(pData.createdAt)
-          } as Product
+          } as Product)
         })
-        .filter((p): p is Product => p !== null)
+      }))
+
+      // Deduplicar por ID y limitar
+      const seen = new Set<string>()
+      for (const p of allFetched) {
+        if (!seen.has(p.id)) {
+          seen.add(p.id)
+          products.push(p)
+          if (products.length >= limitCount) break
+        }
+      }
     }
 
-    return products;
-
-    // Mezclar en cliente para dar sensación de aleatoriedad
-    return products.sort(() => 0.5 - Math.random())
+    return products
   } catch (error) {
     console.error('Error getting global products:', error)
     return []
@@ -2135,15 +2093,8 @@ export async function uploadImage(file: File | Blob, path: string): Promise<stri
 // Función para buscar negocios por categoría o nombre
 export async function searchBusinesses(searchTerm: string, category?: string, groupId?: string): Promise<Business[]> {
   try {
-    const q = collection(db, 'businesses')
-    const querySnapshot = await getDocs(q)
-    let businesses = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: toSafeDate(doc.data().createdAt)
-      } as Business))
-      .filter(b => !b.isHidden)
+    const all = await getAllBusinesses()
+    let businesses = all.filter(b => !b.isHidden)
 
     // Filtrar por categoría
     if (category && category !== 'all') {
@@ -3501,11 +3452,11 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
   hasAccess: boolean;
 }> {
   try {
-    // Verificar tiendas como propietario
-    const ownedBusinesses = await getBusinessesByOwner(userId);
-
-    // Verificar tiendas como administrador
-    const adminBusinesses = await getBusinessesByAdministrator(userEmail);
+    // Verificar tiendas como propietario y administrador en paralelo
+    const [ownedBusinesses, adminBusinesses] = await Promise.all([
+      getBusinessesByOwner(userId),
+      getBusinessesByAdministrator(userEmail)
+    ]);
 
     // Buscar sucursales adicionales vinculadas a los negocios que ya posee o administra
     const allKnownBusinesses = [...ownedBusinesses, ...adminBusinesses];
@@ -3520,28 +3471,32 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
     }
 
     const extraBranches: Business[] = [];
-    for (const pId of Array.from(parentIdsToQuery)) {
-      try {
-        const qBranches = query(
-          collection(db, 'businesses'),
-          where('parentBusinessId', '==', pId)
-        );
-        const bSnap = await getDocs(qBranches);
-        bSnap.forEach(docSnap => {
-          if (!knownIds.has(docSnap.id)) {
-            knownIds.add(docSnap.id);
-            const bData = docSnap.data();
-            extraBranches.push({
-              id: docSnap.id,
-              ...bData,
-              createdAt: toSafeDate(bData.createdAt),
-              updatedAt: toSafeDate(bData.updatedAt)
-            } as Business);
+    if (parentIdsToQuery.size > 0) {
+      await Promise.all(
+        Array.from(parentIdsToQuery).map(async (pId) => {
+          try {
+            const qBranches = query(
+              collection(db, 'businesses'),
+              where('parentBusinessId', '==', pId)
+            );
+            const bSnap = await getDocs(qBranches);
+            bSnap.forEach(docSnap => {
+              if (!knownIds.has(docSnap.id)) {
+                knownIds.add(docSnap.id);
+                const bData = docSnap.data();
+                extraBranches.push({
+                  id: docSnap.id,
+                  ...bData,
+                  createdAt: toSafeDate(bData.createdAt),
+                  updatedAt: toSafeDate(bData.updatedAt)
+                } as Business);
+              }
+            });
+          } catch (err) {
+            console.warn('Could not fetch child branches for parent', pId, err);
           }
-        });
-      } catch (err) {
-        console.warn('Could not fetch child branches for parent', pId, err);
-      }
+        })
+      );
     }
 
     // Agregar las sucursales adicionales a adminBusinesses para que estén disponibles

@@ -881,9 +881,15 @@ export default function CierreSidebarView({
         handleSendWhatsAppSummaryForAccount(selectedAccount)
     }
 
-    // Filtrar órdenes canceladas y borradores para "Hoy"
+    // Filtrar órdenes canceladas, borradores y futuras para "Hoy"
     const activeOrders = useMemo(() => {
-        return orders.filter(o => o.status !== 'cancelled' && o.status !== 'borrador')
+        const todayStr = getLocalDateString(new Date())
+        return orders.filter(o => {
+            if (o.status === 'cancelled' || o.status === 'borrador') return false
+            const refDate = getOrderReferenceDate(o)
+            const dateStr = getLocalDateString(refDate)
+            return dateStr <= todayStr
+        })
     }, [orders])
 
     // Encontrar nombre del negocio seleccionado
@@ -955,17 +961,24 @@ export default function CierreSidebarView({
         return calculateDeliveryAccounts(activeOrders, availableDeliveries, localDeliverySettlementOverrides)
     }, [activeOrders, availableDeliveries, localDeliverySettlementOverrides])
 
-    // Agrupación de cierres de repartidores por fecha de programación
+    // Agrupación de cierres de repartidores por fecha de programación (solo hoy y días pasados)
     const deliveryDaysGrouped = useMemo(() => {
         const todayStr = getLocalDateString(new Date())
         const allOrdersList = Array.from(
             new Map([...historyOrders, ...orders].map(o => [o.id, o])).values()
-        ).filter(o => o.status !== 'cancelled' && o.status !== 'borrador' && o.delivery?.type === 'delivery')
+        ).filter(o => {
+            if (o.status === 'cancelled' || o.status === 'borrador' || o.delivery?.type !== 'delivery') return false
+            // Excluir días futuros: solo hoy y días pasados
+            const refDate = getOrderReferenceDate(o)
+            const dateStr = getLocalDateString(refDate)
+            return dateStr <= todayStr
+        })
 
         const groups: Record<string, Order[]> = {}
         allOrdersList.forEach(o => {
             const refDate = getOrderReferenceDate(o)
             const dateStr = getLocalDateString(refDate)
+            if (dateStr > todayStr) return
             if (!groups[dateStr]) {
                 groups[dateStr] = []
             }
@@ -1229,7 +1242,7 @@ export default function CierreSidebarView({
             const refDate = getOrderReferenceDate(o)
             const dateStr = getLocalDateString(refDate)
             
-            if (dateStr === todayStr) return // Excluir hoy ya que está en la pestaña "Hoy"
+            if (dateStr >= todayStr) return // Excluir hoy y días futuros (solo historial pasado)
 
             if (!groups[dateStr]) {
                 groups[dateStr] = []

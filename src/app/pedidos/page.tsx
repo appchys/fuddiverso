@@ -372,11 +372,14 @@ export default function AdminPedidosPage() {
                         if (o.businessId) pendingStores.add(o.businessId)
                     }
 
-                    // Delivery pendientes
+                    // Delivery pendientes (solo hoy y días pasados)
                     if (o.delivery?.type === 'delivery' && o.deliverySettlementStatus !== 'settled') {
                         const refDate = toSafeDate(o.timing?.scheduledDate || o.createdAt)
                         const dateStr = toLocalDateInputValue(refDate)
-                        pendingDeliveryDays.add(dateStr)
+                        const todayStr = toLocalDateInputValue(new Date())
+                        if (dateStr <= todayStr) {
+                            pendingDeliveryDays.add(dateStr)
+                        }
                     }
                 })
 

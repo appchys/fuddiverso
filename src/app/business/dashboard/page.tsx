@@ -101,6 +101,8 @@ export default function TodayOrdersPage() {
     // Dashboard Header State
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [businesses, setBusinesses] = useState<Business[]>([])
+    const [loadingBusinesses, setLoadingBusinesses] = useState(false)
+    const [businessesLoaded, setBusinessesLoaded] = useState(false)
     const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
     const [showTimeDropdown, setShowTimeDropdown] = useState(false)
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
@@ -1368,23 +1370,35 @@ export default function TodayOrdersPage() {
         }
     }, [ordersSubTab, businessId])
 
-    // Load all user businesses for dropdown
-    useEffect(() => {
+    // Load all user businesses on demand when opening dropdown
+    const loadUserBusinesses = useCallback(async (force = false) => {
         if (!user || !isAuthenticated) return;
-        const loadBusinesses = async () => {
-            try {
-                const businessAccess = await getUserBusinessAccess(user.email || '', user.uid);
-                if (businessAccess.hasAccess) {
-                    const all = [...businessAccess.ownedBusinesses, ...businessAccess.adminBusinesses];
-                    const unique = all.filter((b: Business, i: number, self: Business[]) =>
-                        i === self.findIndex((x: Business) => x.id === b.id) && !b.isHidden
-                    );
-                    setBusinesses(unique);
-                }
-            } catch (e) { console.error("Error loading businesses", e); }
-        };
-        loadBusinesses();
-    }, [user, isAuthenticated]);
+        if (businessesLoaded && !force) return;
+        setLoadingBusinesses(true);
+        try {
+            const businessAccess = await getUserBusinessAccess(user.email || '', user.uid);
+            if (businessAccess.hasAccess) {
+                const all = [...businessAccess.ownedBusinesses, ...businessAccess.adminBusinesses];
+                const unique = all.filter((b: Business, i: number, self: Business[]) =>
+                    i === self.findIndex((x: Business) => x.id === b.id) && !b.isHidden
+                );
+                setBusinesses(unique);
+                setBusinessesLoaded(true);
+            }
+        } catch (e) {
+            console.error("Error loading businesses", e);
+        } finally {
+            setLoadingBusinesses(false);
+        }
+    }, [user, isAuthenticated, businessesLoaded]);
+
+    const handleToggleBusinessDropdown = () => {
+        const next = !showBusinessDropdown;
+        setShowBusinessDropdown(next);
+        if (next && !businessesLoaded && !loadingBusinesses) {
+            loadUserBusinesses();
+        }
+    };
 
     // Close business dropdown when clicking outside
     useEffect(() => {
@@ -1811,7 +1825,7 @@ export default function TodayOrdersPage() {
                     onLogout={handleLogout}
                     ordersSubTab={ordersSubTab}
                     setOrdersSubTab={setOrdersSubTab}
-                    currentBusinessName={businesses.find(b => b.id === businessId)?.name}
+                    currentBusinessName={business?.name || businesses.find(b => b.id === businessId)?.name}
                     userRole={userRole}
                     permissions={currentUserPermissions || undefined}
                     canManageAdmins={canManageAdmins}
@@ -1923,8 +1937,9 @@ export default function TodayOrdersPage() {
                                     {/* Business Selector */}
                                     <div className="relative business-dropdown-container" ref={businessDropdownRef}>
                                         <button
-                                            onClick={() => setShowBusinessDropdown(!showBusinessDropdown)}
+                                            onClick={handleToggleBusinessDropdown}
                                             className="flex items-center space-x-2 sm:space-x-3 bg-gray-50 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg transition-colors"
+                                            title="Cambiar de tienda"
                                         >
                                             <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
                                                 {business?.image ? (
@@ -1933,64 +1948,109 @@ export default function TodayOrdersPage() {
                                                     <div className="w-full h-full flex items-center justify-center"><i className="bi bi-shop text-gray-400"></i></div>
                                                 )}
                                             </div>
-                                            <i className="bi bi-chevron-down text-gray-500 text-xs"></i>
+                                            {loadingBusinesses ? (
+                                                <i className="bi bi-arrow-repeat animate-spin text-rose-500 text-xs"></i>
+                                            ) : (
+                                                <i className="bi bi-chevron-down text-gray-500 text-xs"></i>
+                                            )}
                                         </button>
 
-                                        {showBusinessDropdown && (
-                                            <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-[60]">
-                                                <div className="px-4 py-2 border-b border-gray-100">
-                                                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tus Tiendas y Sucursales</p>
-                                                </div>
-                                                <div className="max-h-72 overflow-y-auto">
-                                                    {businesses.map((biz) => {
-                                                        const isSelected = business?.id === biz.id
-                                                        return (
-                                                            <button
-                                                                key={biz.id}
-                                                                onClick={() => { handleBusinessChange(biz.id); setShowBusinessDropdown(false); }}
-                                                                className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-rose-50/50 transition-colors ${isSelected ? 'bg-rose-50/80 font-bold' : ''}`}
-                                                            >
-                                                                <div className="w-9 h-9 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200/80">
-                                                                    {biz.image ? <img src={biz.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400"><i className="bi bi-shop"></i></div>}
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="text-sm font-bold text-gray-900 truncate">
-                                                                        {biz.name}
-                                                                    </p>
-                                                                    {biz.branchName && biz.branchName !== biz.name ? (
-                                                                        <span className="text-[11px] font-semibold text-rose-600 bg-rose-100/60 px-1.5 py-0.2 rounded inline-block truncate max-w-full">
-                                                                            {biz.branchName}
-                                                                        </span>
-                                                                    ) : biz.isBranch ? (
-                                                                        <span className="text-[11px] font-medium text-gray-500">
-                                                                            Sucursal
-                                                                        </span>
-                                                                    ) : null}
-                                                                </div>
-                                                                <div className="flex items-center gap-2 flex-shrink-0">
-                                                                    <a
-                                                                        href={`/${biz.username}`}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                        className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-100/50 rounded-lg transition-all"
-                                                                        title="Ver tienda pública"
+                                        {showBusinessDropdown && (() => {
+                                            const displayBusinesses = businesses.length > 0
+                                                ? businesses
+                                                : (business ? [business] : []);
+
+                                            return (
+                                                <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-[60]">
+                                                    <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
+                                                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tus Tiendas y Sucursales</p>
+                                                        {loadingBusinesses && (
+                                                            <span className="flex items-center text-[10px] font-semibold text-rose-500 gap-1">
+                                                                <i className="bi bi-arrow-repeat animate-spin"></i>
+                                                                <span>Buscando...</span>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="max-h-72 overflow-y-auto">
+                                                        {displayBusinesses.length > 0 ? (
+                                                            displayBusinesses.map((biz) => {
+                                                                const isSelected = business?.id === biz.id
+                                                                return (
+                                                                    <button
+                                                                        key={biz.id}
+                                                                        onClick={() => { handleBusinessChange(biz.id); setShowBusinessDropdown(false); }}
+                                                                        className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-rose-50/50 transition-colors ${isSelected ? 'bg-rose-50/80 font-bold' : ''}`}
                                                                     >
-                                                                        <i className="bi bi-box-arrow-up-right text-sm"></i>
-                                                                    </a>
-                                                                    {isSelected && <i className="bi bi-check-circle-fill text-rose-600 text-base"></i>}
+                                                                        <div className="w-9 h-9 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200/80">
+                                                                            {biz.image ? <img src={biz.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400"><i className="bi bi-shop"></i></div>}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-sm font-bold text-gray-900 truncate">
+                                                                                {biz.name}
+                                                                            </p>
+                                                                            {biz.branchName && biz.branchName !== biz.name ? (
+                                                                                <span className="text-[11px] font-semibold text-rose-600 bg-rose-100/60 px-1.5 py-0.2 rounded inline-block truncate max-w-full">
+                                                                                    {biz.branchName}
+                                                                                </span>
+                                                                            ) : biz.isBranch ? (
+                                                                                <span className="text-[11px] font-medium text-gray-500">
+                                                                                    Sucursal
+                                                                                </span>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                                            <a
+                                                                                href={`/${biz.username}`}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-100/50 rounded-lg transition-all"
+                                                                                title="Ver tienda pública"
+                                                                            >
+                                                                                <i className="bi bi-box-arrow-up-right text-sm"></i>
+                                                                            </a>
+                                                                            {isSelected && <i className="bi bi-check-circle-fill text-rose-600 text-base"></i>}
+                                                                        </div>
+                                                                    </button>
+                                                                )
+                                                            })
+                                                        ) : loadingBusinesses ? (
+                                                            <div className="p-4 space-y-3">
+                                                                <div className="flex items-center space-x-3 animate-pulse">
+                                                                    <div className="w-9 h-9 bg-gray-200 rounded-xl"></div>
+                                                                    <div className="flex-1 space-y-1.5">
+                                                                        <div className="h-3.5 bg-gray-200 rounded w-3/4"></div>
+                                                                        <div className="h-2.5 bg-gray-100 rounded w-1/2"></div>
+                                                                    </div>
                                                                 </div>
-                                                            </button>
-                                                        )
-                                                    })}
+                                                                <div className="flex items-center space-x-3 animate-pulse">
+                                                                    <div className="w-9 h-9 bg-gray-200 rounded-xl"></div>
+                                                                    <div className="flex-1 space-y-1.5">
+                                                                        <div className="h-3.5 bg-gray-200 rounded w-2/3"></div>
+                                                                        <div className="h-2.5 bg-gray-100 rounded w-1/3"></div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="px-4 py-4 text-center text-xs text-gray-500 font-medium">
+                                                                No se encontraron tiendas administradas
+                                                            </div>
+                                                        )}
+                                                        {loadingBusinesses && displayBusinesses.length > 0 && (
+                                                            <div className="px-4 py-2 bg-gray-50/80 flex items-center justify-center space-x-2 text-xs font-semibold text-gray-500 border-t border-gray-100">
+                                                                <i className="bi bi-arrow-repeat animate-spin text-rose-500"></i>
+                                                                <span>Buscando otras sucursales...</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <hr className="my-1 border-gray-100" />
+                                                    <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-2.5 text-left hover:bg-rose-50 text-rose-600 text-sm font-bold transition-colors">
+                                                        <i className="bi bi-box-arrow-right text-base"></i>
+                                                        <span>Cerrar Sesión</span>
+                                                    </button>
                                                 </div>
-                                                <hr className="my-1 border-gray-100" />
-                                                <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-2.5 text-left hover:bg-rose-50 text-rose-600 text-sm font-bold transition-colors">
-                                                    <i className="bi bi-box-arrow-right text-base"></i>
-                                                    <span>Cerrar Sesión</span>
-                                                </button>
-                                            </div>
-                                        )}
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             </div>
