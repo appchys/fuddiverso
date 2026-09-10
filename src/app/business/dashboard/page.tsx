@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product, BusinessAdministrator } from '@/types'
@@ -21,7 +21,7 @@ import {
     addBusinessAdministrator,
     updateBusinessAdministrator,
     removeBusinessAdministrator,
-    getAllBusinesses,
+    getBusinessesByIds,
     getProductsByIds
 } from '@/lib/database'
 import {
@@ -383,13 +383,6 @@ export default function TodayOrdersPage() {
         return () => clearTimeout(timer)
     }, [orders, allUpcomingOrders])
 
-    // Limpiar caché cuando se cierra el sidebar de pedidos manuales por si se editaron notas
-    useEffect(() => {
-        if (!manualOrderSidebarOpen) {
-            setClientsWithNotes({})
-        }
-    }, [manualOrderSidebarOpen])
-
     // ProductList specific state
     const [categories, setCategories] = useState<string[]>([])
     const [productsLoaded, setProductsLoaded] = useState(false)
@@ -409,51 +402,59 @@ export default function TodayOrdersPage() {
         if (!needsProducts) return
 
         if (!productsLoaded && !productsLoading) {
-            const fetchProducts = async () => {
-                setProductsLoading(true)
-                try {
-                    let productsData = await getProductsByBusiness(businessId)
+            const isImmediate = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen
+            const delay = isImmediate ? 0 : 2500
+
+            const timer = setTimeout(() => {
+                const fetchProducts = async () => {
+                    setProductsLoading(true)
                     try {
-                        const biz = business || await getBusiness(businessId)
-                        if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
-                            const sharedProds = await getProductsByIds(biz.sharedProductIds)
-                            const allBizs = await getAllBusinesses()
-                            const { isStoreOpen: isOpen } = await import('@/lib/store-utils')
-                            const avShared = sharedProds
-                                .filter(p => {
-                                    if (!p.isAvailable) return false
-                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
-                                    if (!ownerBiz) return false
-                                    if (ownerBiz.isActive === false) return false
-                                    return isOpen(ownerBiz)
-                                })
-                                .map(p => {
-                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
-                                    return {
-                                        ...p,
-                                        category: 'Compartidos',
-                                        isShared: true,
-                                        originalBusinessId: p.businessId,
-                                        originalBusinessName: ownerBiz?.name || 'Otra tienda',
-                                        originalBusinessImage: ownerBiz?.image || null
-                                    }
-                                })
-                            productsData = [...productsData, ...avShared]
+                        let productsData = await getProductsByBusiness(businessId)
+                        try {
+                            const biz = business || await getBusiness(businessId)
+                            if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
+                                const sharedProds = await getProductsByIds(biz.sharedProductIds)
+                                const ownerBizIds = Array.from(new Set(sharedProds.map(p => p.businessId).filter(Boolean)))
+                                const ownerBizs = ownerBizIds.length > 0 ? await getBusinessesByIds(ownerBizIds) : []
+                                const { isStoreOpen: isOpen } = await import('@/lib/store-utils')
+                                const avShared = sharedProds
+                                    .filter(p => {
+                                        if (!p.isAvailable) return false
+                                        const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                                        if (!ownerBiz) return false
+                                        if (ownerBiz.isActive === false) return false
+                                        return isOpen(ownerBiz)
+                                    })
+                                    .map(p => {
+                                        const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                                        return {
+                                            ...p,
+                                            category: 'Compartidos',
+                                            isShared: true,
+                                            originalBusinessId: p.businessId,
+                                            originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                                            originalBusinessImage: ownerBiz?.image || null
+                                        }
+                                    })
+                                productsData = [...productsData, ...avShared]
+                            }
+                        } catch (e) {
+                            console.error("Error loading shared products in dashboard:", e)
                         }
-                    } catch (e) {
-                        console.error("Error loading shared products in dashboard:", e)
+                        setProducts(productsData)
+                        setProductsLoaded(true)
+                    } catch (error) {
+                        console.error("Error fetching products", error)
+                    } finally {
+                        setProductsLoading(false)
                     }
-                    setProducts(productsData)
-                    setProductsLoaded(true)
-                } catch (error) {
-                    console.error("Error fetching products", error)
-                } finally {
-                    setProductsLoading(false)
                 }
-            }
-            fetchProducts()
+                fetchProducts()
+            }, delay)
+
+            return () => clearTimeout(timer)
         }
-    }, [businessId, productsLoaded, productsLoading, business, needsProducts])
+    }, [businessId, productsLoaded, productsLoading, business, needsProducts, activeTab, profileSubTab, manualOrderSidebarOpen])
 
     // Sold units per day calculation state & memo
     const [currentUnitsIndex, setCurrentUnitsIndex] = useState(0)
@@ -1054,6 +1055,12 @@ export default function TodayOrdersPage() {
         setLoading(prev => business ? false : prev)
         isFirstOrdersLoad.current = true // Reset on business change
 
+        // Timeout de seguridad: no mantener al usuario bloqueado en loading más de 1.5s ante latencia de red
+        const safetyTimer = setTimeout(() => {
+            setLoading(false)
+            isFirstOrdersLoad.current = false
+        }, 1500)
+
         // Calculate start and end of today
         const now = new Date()
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -1101,12 +1108,23 @@ export default function TodayOrdersPage() {
 
             setOrders(todayOrders)
             
-            // Only stop loading spinner when all queries have fetched their initial snapshot
-            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded && scheduledStringQueryLoaded) {
+            // OPTIMIZACIÓN P0: Desbloquear carga tan pronto como respondan las órdenes activas o creadas hoy,
+            // sin tener que esperar obligatoriamente a las queries secundarias de fechas programadas.
+            if (activeQueryLoaded || createdQueryLoaded || (scheduledQueryLoaded && scheduledStringQueryLoaded)) {
                 setLoading(false)
-                // OPTIMIZED: Set first load flag directly instead of polling with setInterval
                 isFirstOrdersLoad.current = false
             }
+        }
+
+        // OPTIMIZACIÓN P2: Microtask batching para evitar re-ordenamientos y re-renders múltiples cuando varios listeners reciben snapshots en el mismo tick
+        let pendingBatchUpdate = false
+        const scheduleUpdateOrdersState = () => {
+            if (pendingBatchUpdate) return
+            pendingBatchUpdate = true
+            queueMicrotask(() => {
+                pendingBatchUpdate = false
+                updateOrdersState()
+            })
         }
 
         const handleDocChanges = (snapshot: any) => {
@@ -1144,11 +1162,11 @@ export default function TodayOrdersPage() {
                 }
             })
             createdQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         }, (error) => {
             console.error("Error in unsubCreated:", error)
             createdQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         })
 
         // Listener 2: Active orders from any time (pending, preparing, etc.)
@@ -1171,11 +1189,11 @@ export default function TodayOrdersPage() {
                 }
             })
             activeQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         }, (error) => {
             console.error("Error in unsubActive:", error)
             activeQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         })
 
         // Listener 3: Scheduled orders for today
@@ -1203,11 +1221,11 @@ export default function TodayOrdersPage() {
                 }
             })
             scheduledQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         }, (error) => {
             console.error("Error in unsubScheduled:", error)
             scheduledQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         })
 
         const todayString = toLocalDateInputValue(startOfDay)
@@ -1236,11 +1254,11 @@ export default function TodayOrdersPage() {
                 }
             })
             scheduledStringQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         }, (error) => {
             console.error("Error in unsubScheduledString:", error)
             scheduledStringQueryLoaded = true
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         })
 
         // Listener 5: Multi-store active orders where this business is a participant
@@ -1262,7 +1280,7 @@ export default function TodayOrdersPage() {
                     }
                 }
             })
-            updateOrdersState()
+            scheduleUpdateOrdersState()
         }, (error) => {
             console.error("Error in unsubMultiStore:", error)
         })
@@ -1271,6 +1289,7 @@ export default function TodayOrdersPage() {
         // REMOVED: setInterval polling for first load — now set directly in updateOrdersState
 
         return () => {
+            clearTimeout(safetyTimer)
             unsubCreated()
             unsubActive()
             unsubScheduled()
@@ -1344,10 +1363,10 @@ export default function TodayOrdersPage() {
     }, [businessId])
 
     useEffect(() => {
-        if (ordersSubTab === 'history' || (!loading && orders.length === 0)) {
+        if (ordersSubTab === 'history') {
             loadHistory()
         }
-    }, [ordersSubTab, businessId, loading, orders.length])
+    }, [ordersSubTab, businessId])
 
     // Load all user businesses for dropdown
     useEffect(() => {
@@ -1560,7 +1579,23 @@ export default function TodayOrdersPage() {
         }
     }
 
-    const handleDeliveryAssignment = async (orderId: string, deliveryId: string) => {
+    const handleDeliveryStatusClick = useCallback((order: Order) => {
+        setSelectedOrderForStatusModal(order)
+        setDeliveryStatusModalOpen(true)
+    }, [])
+
+    const handleEditOrder = useCallback((order: Order) => {
+        setSelectedOrderForEdit(order)
+        setManualSidebarMode('edit')
+        setManualOrderSidebarOpen(true)
+    }, [])
+
+    const handleCustomerClick = useCallback((order: Order) => {
+        setSelectedOrderForCustomerContact(order)
+        setCustomerContactModalOpen(true)
+    }, [])
+
+    const handleDeliveryAssignment = useCallback(async (orderId: string, deliveryId: string) => {
         try {
             const orderRef = doc(db, 'orders', orderId)
             await updateDoc(orderRef, {
@@ -1585,7 +1620,7 @@ export default function TodayOrdersPage() {
             console.error("Error assigning delivery:", error)
             alert("Error al asignar repartidor")
         }
-    }
+    }, [])
 
     const handleAutoAssignFuddi = async (orderToAssign: Order) => {
         try {
@@ -1603,16 +1638,16 @@ export default function TodayOrdersPage() {
         }
     }
 
-    const handlePaymentClick = (order: Order) => {
+    const handlePaymentClick = useCallback((order: Order) => {
         setSelectedOrderForPayment(order)
         setPaymentModalOpen(true)
-    }
+    }, [])
 
     const handleOrderUpdatedFromModal = (updatedOrder: Order) => {
         updateOrderEverywhere(updatedOrder)
     }
 
-    const handleSendWhatsAppToDelivery = async (order: Order) => {
+    const handleSendWhatsAppToDelivery = useCallback(async (order: Order) => {
         try {
             const orderBusiness = businesses.find(b => b.id === order.businessId) || business
             await sendWhatsAppToDelivery(
@@ -1624,9 +1659,9 @@ export default function TodayOrdersPage() {
             console.error("Error sending WhatsApp", e)
             alert("Error al enviar WhatsApp")
         }
-    }
+    }, [businesses, business, availableDeliveries])
 
-    const handleDeleteOrder = async (orderId: string) => {
+    const handleDeleteOrder = useCallback(async (orderId: string) => {
         if (business?.id !== MUNCHYS_BUSINESS_ID) {
             alert('Solo Munchys puede borrar órdenes.')
             return
@@ -1641,9 +1676,9 @@ export default function TodayOrdersPage() {
             console.error("Error deleting order", error)
             alert("No se pudo eliminar el pedido")
         }
-    }
+    }, [business?.id])
 
-    const handlePrint = async (order: Order, silent: boolean = false) => {
+    const handlePrint = useCallback(async (order: Order, silent: boolean = false) => {
         if (!silent) {
             showToastMessage('Imprimiendo...', 'bi-printer')
         }
@@ -1676,7 +1711,7 @@ export default function TodayOrdersPage() {
             }
             alert("Error al imprimir: " + (e.message || "Error desconocido"))
         }
-    }
+    }, [businesses, business, printMode])
 
     const handleOpenManualOrderFromCheckout = (checkoutSession: CheckoutSession) => {
         logDebug('checkout', 'Admin presiona Completar en sesión de checkout activo', {
@@ -1726,7 +1761,7 @@ export default function TodayOrdersPage() {
 
     // ... (rendering) ...
 
-    if (loading) {
+    if (authLoading && !businessId) {
         return (
             <div className="min-h-screen bg-gray-100 p-4 flex items-center justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
@@ -2137,7 +2172,42 @@ export default function TodayOrdersPage() {
                                             />
                                         )}
 
-                                        {orders.length === 0 ? (
+                                        {loading ? (
+                                            <div className="space-y-6">
+                                                {/* Mobile summary skeleton */}
+                                                <div className="lg:hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm animate-pulse">
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        <div className="h-10 bg-gray-100 rounded-lg"></div>
+                                                        <div className="h-10 bg-gray-100 rounded-lg"></div>
+                                                        <div className="h-10 bg-gray-100 rounded-lg"></div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Desktop 3-column skeleton */}
+                                                <div className="flex flex-col lg:flex-row gap-6 items-start animate-pulse">
+                                                    {[1, 2, 3].map((col) => (
+                                                        <div key={col} className="w-full lg:flex-1 space-y-4">
+                                                            <div className="h-8 bg-gray-200/80 rounded-xl w-2/5"></div>
+                                                            <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3 shadow-sm">
+                                                                <div className="flex justify-between items-center">
+                                                                    <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+                                                                    <div className="h-4 bg-gray-100 rounded w-14"></div>
+                                                                </div>
+                                                                <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+                                                                <div className="h-8 bg-gray-50 rounded-lg w-full mt-2"></div>
+                                                            </div>
+                                                            <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3 shadow-sm">
+                                                                <div className="flex justify-between items-center">
+                                                                    <div className="h-4 bg-gray-200 rounded w-2/5"></div>
+                                                                    <div className="h-4 bg-gray-100 rounded w-12"></div>
+                                                                </div>
+                                                                <div className="h-3 bg-gray-100 rounded w-3/5"></div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ) : orders.length === 0 ? (
                                             <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
                                                 <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
                                                     <i className="bi bi-inbox text-xl"></i>
@@ -2253,14 +2323,10 @@ export default function TodayOrdersPage() {
                                                         handlePaymentClick={handlePaymentClick}
                                                         handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
                                                         handlePrint={handlePrint}
-                                                        setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
-                                                        setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
-                                                        setSelectedOrderForEdit={setSelectedOrderForEdit}
-                                                        setManualSidebarMode={setManualSidebarMode}
-                                                        setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                        handleDeliveryStatusClick={handleDeliveryStatusClick}
+                                                        handleEditOrder={handleEditOrder}
                                                         handleDeleteOrder={handleDeleteOrder}
-                                                        setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
-                                                        setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                        handleCustomerClick={handleCustomerClick}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
                                                         canDeleteOrders={canDeleteOrders}
@@ -2281,14 +2347,10 @@ export default function TodayOrdersPage() {
                                                         handlePaymentClick={handlePaymentClick}
                                                         handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
                                                         handlePrint={handlePrint}
-                                                        setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
-                                                        setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
-                                                        setSelectedOrderForEdit={setSelectedOrderForEdit}
-                                                        setManualSidebarMode={setManualSidebarMode}
-                                                        setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                        handleDeliveryStatusClick={handleDeliveryStatusClick}
+                                                        handleEditOrder={handleEditOrder}
                                                         handleDeleteOrder={handleDeleteOrder}
-                                                        setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
-                                                        setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                        handleCustomerClick={handleCustomerClick}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
                                                         canDeleteOrders={canDeleteOrders}
@@ -2399,14 +2461,10 @@ export default function TodayOrdersPage() {
                                                         handlePaymentClick={handlePaymentClick}
                                                         handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
                                                         handlePrint={handlePrint}
-                                                        setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
-                                                        setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
-                                                        setSelectedOrderForEdit={setSelectedOrderForEdit}
-                                                        setManualSidebarMode={setManualSidebarMode}
-                                                        setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                        handleDeliveryStatusClick={handleDeliveryStatusClick}
+                                                        handleEditOrder={handleEditOrder}
                                                         handleDeleteOrder={handleDeleteOrder}
-                                                        setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
-                                                        setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                        handleCustomerClick={handleCustomerClick}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
                                                         canDeleteOrders={canDeleteOrders}

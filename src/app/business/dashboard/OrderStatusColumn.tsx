@@ -15,14 +15,10 @@ interface OrderStatusColumnProps {
     handlePaymentClick: (order: Order) => void
     handleSendWhatsAppToDelivery: (order: Order) => void
     handlePrint: (order: Order, silent?: boolean) => void
-    setSelectedOrderForStatusModal: (order: Order | null) => void
-    setDeliveryStatusModalOpen: (open: boolean) => void
-    setSelectedOrderForEdit: (order: Order | null) => void
-    setManualSidebarMode: (mode: 'create' | 'edit') => void
-    setManualOrderSidebarOpen: (open: boolean) => void
+    handleDeliveryStatusClick: (order: Order) => void
+    handleEditOrder: (order: Order) => void
     handleDeleteOrder: (id: string) => void
-    setSelectedOrderForCustomerContact: (order: Order | null) => void
-    setCustomerContactModalOpen: (open: boolean) => void
+    handleCustomerClick: (order: Order) => void
     business: Business | null
     canChangeDelivery: boolean
     canDeleteOrders: boolean
@@ -40,14 +36,10 @@ export function OrderStatusColumn({
     handlePaymentClick,
     handleSendWhatsAppToDelivery,
     handlePrint,
-    setSelectedOrderForStatusModal,
-    setDeliveryStatusModalOpen,
-    setSelectedOrderForEdit,
-    setManualSidebarMode,
-    setManualOrderSidebarOpen,
+    handleDeliveryStatusClick,
+    handleEditOrder,
     handleDeleteOrder,
-    setSelectedOrderForCustomerContact,
-    setCustomerContactModalOpen,
+    handleCustomerClick,
     business,
     canChangeDelivery,
     canDeleteOrders,
@@ -89,30 +81,20 @@ export function OrderStatusColumn({
                                 availableDeliveries={availableDeliveries}
                                 onStatusChange={handleStatusChange}
                                 onDeliveryAssign={handleDeliveryAssignment}
-                                onPaymentEdit={() => handlePaymentClick(order)}
-                                onWhatsAppDelivery={() => handleSendWhatsAppToDelivery(order)}
-                                onPrint={(silent?: boolean) => handlePrint(order, silent)}
-                                onDeliveryStatusClick={(o: any) => {
-                                    setSelectedOrderForStatusModal(o)
-                                    setDeliveryStatusModalOpen(true)
-                                }}
-                                onEdit={() => {
-                                    setSelectedOrderForEdit(order)
-                                    setManualSidebarMode('edit')
-                                    setManualOrderSidebarOpen(true)
-                                }}
-                                onDelete={() => handleDeleteOrder(order.id)}
-                                onCustomerClick={() => {
-                                    setSelectedOrderForCustomerContact(order)
-                                    setCustomerContactModalOpen(true)
-                                }}
+                                onPaymentEdit={handlePaymentClick}
+                                onWhatsAppDelivery={handleSendWhatsAppToDelivery}
+                                onPrint={handlePrint}
+                                onDeliveryStatusClick={handleDeliveryStatusClick}
+                                onEdit={handleEditOrder}
+                                onDelete={handleDeleteOrder}
+                                onCustomerClick={handleCustomerClick}
                                 sectionKey={sectionKey}
                                 businessPhone={business?.phone}
                                 canChangeDelivery={canChangeDelivery}
                                 canDeleteOrders={canDeleteOrders}
                                 deliveryTimeMinutes={deliveryTimeMinutes}
                                 autoPrintOnConfirm={autoPrintOnConfirm}
-                                clientsWithNotes={clientsWithNotes}
+                                customerNote={order.customer?.phone ? clientsWithNotes[order.customer.phone] : undefined}
                              />
                         ))}
                     </CollapsibleSection>

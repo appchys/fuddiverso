@@ -20,20 +20,20 @@ interface OrderCardProps {
     availableDeliveries: Delivery[]
     onStatusChange: (id: string, status: Order['status'], reason?: string) => void
     onDeliveryAssign: (id: string, deliveryId: string) => void
-    onPaymentEdit: () => void
-    onWhatsAppDelivery: () => void
-    onPrint: (silent?: boolean) => void
+    onPaymentEdit: (order: Order) => void
+    onWhatsAppDelivery: (order: Order) => void
+    onPrint: (order: Order, silent?: boolean) => void
     onDeliveryStatusClick: (order: Order) => void
-    onEdit: () => void
-    onDelete: () => void
-    onCustomerClick: () => void
+    onEdit: (order: Order) => void
+    onDelete: (orderId: string) => void
+    onCustomerClick: (order: Order) => void
     sectionKey?: string
     businessPhone?: string
     canChangeDelivery?: boolean
     canDeleteOrders?: boolean
     deliveryTimeMinutes?: number
     autoPrintOnConfirm?: boolean
-    clientsWithNotes?: Record<string, string>
+    customerNote?: string
 }
 
 export const OrderCard = memo(function OrderCard({
@@ -54,7 +54,7 @@ export const OrderCard = memo(function OrderCard({
     canDeleteOrders,
     deliveryTimeMinutes,
     autoPrintOnConfirm,
-    clientsWithNotes
+    customerNote
 }: OrderCardProps) {
     const nextStatus = getNextStatus(order.status)
     const getOrderTargetDate = () => {
@@ -278,10 +278,10 @@ export const OrderCard = memo(function OrderCard({
                                         title="Cliente con Telegram vinculado"
                                     ></i>
                                 )}
-                                {order.customer?.phone && clientsWithNotes && clientsWithNotes[order.customer.phone] && (
+                                {customerNote && (
                                     <i 
                                         className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" 
-                                        title={`Nota de cliente: ${clientsWithNotes[order.customer.phone]}`}
+                                        title={`Nota de cliente: ${customerNote}`}
                                     ></i>
                                 )}
                             </span>
@@ -312,7 +312,7 @@ export const OrderCard = memo(function OrderCard({
                                         // Imprimir automáticamente (silenciosamente)
                                         if (autoPrintOnConfirm) {
                                             setTimeout(() => {
-                                                onPrint(true);
+                                                onPrint(order, true);
                                             }, 500);
                                         }
                                     } else {
@@ -363,7 +363,7 @@ export const OrderCard = memo(function OrderCard({
 
                         {/* Print Button */}
                         <button
-                            onClick={() => onPrint()}
+                            onClick={() => onPrint(order)}
                             className="p-1.5 text-lg text-gray-500 rounded-lg transition-all hover:bg-gray-200/60 hover:text-gray-800"
                             title="Imprimir ticket"
                         >
@@ -394,7 +394,7 @@ export const OrderCard = memo(function OrderCard({
                                             <div className="animate-in slide-in-from-left-2 duration-150">
                                                 <button
                                                     onClick={() => {
-                                                        onEdit()
+                                                        onEdit(order)
                                                         setStatusMenuOpen(false)
                                                     }}
                                                     className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2.5 font-medium"
@@ -417,7 +417,7 @@ export const OrderCard = memo(function OrderCard({
                                                 <button
                                                     onClick={() => {
                                                         if (canDeleteOrders !== false) {
-                                                            onDelete()
+                                                            onDelete(order.id)
                                                         } else {
                                                             setConfirmDiscardOpen(true)
                                                         }
@@ -456,7 +456,7 @@ export const OrderCard = memo(function OrderCard({
 
                                                 <button
                                                     onClick={() => {
-                                                        onCustomerClick()
+                                                        onCustomerClick(order)
                                                         setStatusMenuOpen(false)
                                                     }}
                                                     className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center gap-2.5 font-medium"
@@ -467,7 +467,7 @@ export const OrderCard = memo(function OrderCard({
 
                                                 <button
                                                     onClick={() => {
-                                                        onWhatsAppDelivery()
+                                                        onWhatsAppDelivery(order)
                                                         setStatusMenuOpen(false)
                                                     }}
                                                     className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors flex items-center gap-2.5 font-medium"
@@ -685,7 +685,7 @@ export const OrderCard = memo(function OrderCard({
                     <div className="flex justify-between items-center mb-4">
                         <div className="flex items-center gap-2">
                             <button
-                                onClick={onPaymentEdit}
+                                onClick={() => onPaymentEdit(order)}
                                 className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium transition-colors ${order.payment?.paymentStatus === 'paid'
                                     ? 'bg-green-100 text-green-700'
                                     : order.payment?.paymentStatus === 'validating'
