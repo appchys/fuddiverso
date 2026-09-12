@@ -1857,7 +1857,12 @@ export default function AdminPedidosPage() {
                     if (found) setBusiness(found)
                 }}
                 products={products}
-                onOrderCreated={() => setManualOrderSidebarOpen(false)}
+                onOrderCreated={(optimisticOrder) => {
+                    if (optimisticOrder) {
+                        setOrders(prev => [optimisticOrder as Order, ...prev])
+                    }
+                    setManualOrderSidebarOpen(false)
+                }}
                 mode={manualSidebarMode}
                 editOrder={selectedOrderForEdit}
                 onOrderUpdated={(updatedOrder) => {

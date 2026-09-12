@@ -151,7 +151,7 @@ interface ManualOrderSidebarProps {
   onClose: () => void
   business: Business | null
   products: Product[]
-  onOrderCreated: () => void
+  onOrderCreated: (optimisticOrder?: any) => void
   businesses?: Business[]
   onBusinessChange?: (businessId: string) => void | Promise<void>
   loadingBusinessProducts?: boolean
@@ -484,6 +484,10 @@ export default function ManualOrderSidebar({
 
   const sidebarRef = useRef<HTMLDivElement>(null)
   const clientCreationPromiseRef = useRef<Promise<any> | null>(null)
+
+  // Ref global para almacenar la Promise de guardado en segundo plano.
+  // Esto evita que el garbage collector libere la closure al desmontar el componente.
+  const backgroundSavePromiseRef = useRef<Promise<any> | null>(null)
 
   // Bloquear zoom de pellizco (multi-touch) en el sidebar
   useEffect(() => {
@@ -3047,14 +3051,40 @@ export default function ManualOrderSidebar({
         level: 'info'
       })
 
+      // Capturar TODAS las variables del closure en consts locales ANTES del cierre.
+      // Esto evita que handleReset() o el desmontaje del componente invalide los datos.
+      const capturedCustomerId = manualOrderData.customerId
+      const capturedCustomerPhone = manualOrderData.customerPhone
+      const capturedEditingClientId = editingClient?.id
+      const capturedEditingClientCelular = editingClient?.celular
+      const capturedEditOrderId = editOrder?.id
+      const capturedEditOrderCheckoutSessionId = editOrder?.checkoutSessionId
+      const capturedMode = mode
+      const capturedEditOrder = editOrder ? { ...editOrder } : null
+
+      // Generar un ID temporal para la orden optimista
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+      // Construir la orden optimista para visualización inmediata en el dashboard
+      if (capturedMode !== 'edit' || isFromCheckout) {
+        const optimisticOrder = {
+          ...orderData,
+          id: tempId,
+          createdAt: now,
+          _isOptimistic: true // Marcador para que el dashboard pueda identificarla
+        }
+        onOrderCreated(optimisticOrder)
+      }
+
       // ENFOQUE OPTIMISTA: Cerramos y reseteamos de inmediato
       onClose();
       handleReset();
-      
-      // El guardado se ejecuta en segundo plano
-      (async () => {
+
+      // El guardado se ejecuta en segundo plano, almacenado en ref global
+      // para que NO se pierda al desmontar el componente.
+      backgroundSavePromiseRef.current = (async () => {
         try {
-          if (mode === 'edit' && editOrder?.id && !isFromCheckout) {
+          if (capturedMode === 'edit' && capturedEditOrderId && !isFromCheckout) {
             const updatePayload: any = {
               businessId: effectiveBusinessId,
               businessIds: orderData.businessIds,
@@ -3070,14 +3100,14 @@ export default function ManualOrderSidebar({
               notas: orderData.notas,
               notaImageUrl: orderData.notaImageUrl
             }
-            await updateOrder(editOrder.id, updatePayload)
+            await updateOrder(capturedEditOrderId, updatePayload)
             onOrderUpdated && onOrderUpdated({
-              ...editOrder,
+              ...capturedEditOrder,
               ...updatePayload,
-              id: editOrder.id
+              id: capturedEditOrderId
             })
             logDebug('manual_order', 'Orden actualizada con éxito', {
-              orderId: editOrder.id,
+              orderId: capturedEditOrderId,
               timing: updatePayload.timing
             }, { businessId: effectiveBusinessId, level: 'info' })
           } else {
@@ -3085,19 +3115,19 @@ export default function ManualOrderSidebar({
             logDebug('manual_order', 'Orden creada exitosamente', {
               orderId,
               isFromCheckout,
-              checkoutSessionId: editOrder?.checkoutSessionId,
+              checkoutSessionId: capturedEditOrderCheckoutSessionId,
               timing: orderData.timing
             }, { businessId: effectiveBusinessId, orderId, level: 'info' })
-            
+
             // Descontar saldo/créditos de billetera si se usaron
             const creditToDeduct = (orderData as any).creditUsed || 0
             if (creditToDeduct > 0) {
               try {
                 const identifiers = [
-                  manualOrderData.customerId,
-                  manualOrderData.customerPhone,
-                  editingClient?.id,
-                  editingClient?.celular
+                  capturedCustomerId,
+                  capturedCustomerPhone,
+                  capturedEditingClientId,
+                  capturedEditingClientCelular
                 ].filter(Boolean) as string[]
                 if (identifiers.length > 0) {
                   await useUserCreditsFlexible(identifiers, effectiveBusinessId || '', creditToDeduct, orderId)
@@ -3108,11 +3138,11 @@ export default function ManualOrderSidebar({
             }
 
             // Si viene de un checkout, marcarlo como completado
-            if (isFromCheckout && editOrder?.checkoutSessionId) {
+            if (isFromCheckout && capturedEditOrderCheckoutSessionId) {
               try {
                 const { doc, updateDoc } = await import('firebase/firestore')
                 const { db } = await import('@/lib/firebase')
-                await updateDoc(doc(db, 'checkoutProgress', editOrder.checkoutSessionId), {
+                await updateDoc(doc(db, 'checkoutProgress', capturedEditOrderCheckoutSessionId), {
                   currentStep: 5,
                   completedAt: new Date(),
                   convertedToOrderId: orderId
@@ -3120,16 +3150,15 @@ export default function ManualOrderSidebar({
               } catch (e) { console.error('Error updating checkout session:', e) }
             }
 
-            onOrderCreated()
-            console.log('[ManualOrder] Orden creada con éxito en segundo plano');
+            console.log('[ManualOrder] Orden creada con éxito en segundo plano, id:', orderId);
           }
         } catch (error) {
           console.error('Error guardando la orden en segundo plano:', error)
-          // Opcional: mostrar un alerta global o notificación de error
         } finally {
-          setCreatingOrder(false)
+          backgroundSavePromiseRef.current = null
         }
       })();
+      setCreatingOrder(false)
     } catch (error) {
       console.error('Error al preparar los datos de la orden:', error)
       alert('Error al procesar la orden. Por favor revisa los datos.')

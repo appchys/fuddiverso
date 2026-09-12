@@ -2591,7 +2591,10 @@ export default function TodayOrdersPage() {
                                 onBusinessChange={handleBusinessChange}
                                 loadingBusinessProducts={productsLoading}
                                 products={products}
-                                onOrderCreated={() => {
+                                onOrderCreated={(optimisticOrder) => {
+                                    if (optimisticOrder) {
+                                        setOrders(prev => [optimisticOrder as Order, ...prev])
+                                    }
                                     setManualOrderSidebarOpen(false)
                                 }}
                                 mode={manualSidebarMode}
