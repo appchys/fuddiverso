@@ -24,6 +24,7 @@ import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validat
 import { formatPrice, getProductPublicPrice, getPriceMetadata, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { isCartItemEffectivelyAvailable } from '@/lib/stock-utils'
 import { CheckoutContent } from '@/components/CheckoutContent'
+import { CheckoutErrorBoundary } from '@/components/CheckoutErrorBoundary'
 import OrderSidebar from '@/components/OrderSidebar'
 
 interface CartSidebarProps {
@@ -759,23 +760,25 @@ export default function CartSidebar({
                         {/* Cart Content */}
                         <div className="flex-1 px-6 py-6">
                             {view === 'checkout' ? (
-                                <CheckoutContent
-                                    embeddedBusinessId={business?.id}
-                                    embeddedBusiness={business}
-                                    embeddedCartItems={cart}
-                                    onEmbeddedBack={() => setView('cart')}
-                                    onClearCart={() => {
-                                        clearCart()
-                                        setView('cart')
-                                    }}
-                                    onOrderCreated={(orderId) => {
-                                        clearCart()
-                                        setCreatedOrderId(orderId)
-                                        setOrderSidebarOpen(true)
-                                    }}
-                                    onAddItem={addItemToCart}
-                                    products={allProducts}
-                                />
+                                <CheckoutErrorBoundary onReset={() => setView('cart')}>
+                                    <CheckoutContent
+                                        embeddedBusinessId={business?.id}
+                                        embeddedBusiness={business}
+                                        embeddedCartItems={cart}
+                                        onEmbeddedBack={() => setView('cart')}
+                                        onClearCart={() => {
+                                            clearCart()
+                                            setView('cart')
+                                        }}
+                                        onOrderCreated={(orderId) => {
+                                            clearCart()
+                                            setCreatedOrderId(orderId)
+                                            setOrderSidebarOpen(true)
+                                        }}
+                                        onAddItem={addItemToCart}
+                                        products={allProducts}
+                                    />
+                                </CheckoutErrorBoundary>
                             ) : cart.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-center">
                                     <div className="w-32 h-32 bg-white rounded-full shadow-sm flex items-center justify-center mb-6">

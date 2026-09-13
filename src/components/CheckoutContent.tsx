@@ -48,6 +48,7 @@ import { isCartItemEffectivelyAvailable, resolveItemIngredients } from '@/lib/st
 import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot, isAnyDeliveryAvailable, getNextOpeningDate, getStoreOpeningLabel } from '@/lib/store-utils'
 import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
+import { logDebug } from '@/lib/debug-log'
 
 // Componente para subir comprobante de transferencia
 function TransferReceiptUploader({
@@ -1948,15 +1949,9 @@ export function CheckoutContent({
       }
     }
 
-    let waWindow: Window | null = null
     setLoading(true)
     setIsProcessingOrder(true) // Activar estado de procesamiento
     try {
-      // Pre-abrir pestaña para WhatsApp de la tienda (evita bloqueo de popups por el navegador)
-      const storePhoneRaw = business?.phone || ''
-      if (storePhoneRaw && typeof window !== 'undefined') {
-        waWindow = window.open('about:blank', '_blank')
-      }
       // Validación final antes de crear la orden
       if (!deliveryData.type) {
         alert('Por favor selecciona un tipo de entrega')
@@ -2012,27 +2007,30 @@ export function CheckoutContent({
       }
 
       // Validar que la hora programada sea al menos 30 minutos en el futuro
-      if (timingData.type === 'scheduled') {
+      if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
         const now = new Date();
         const scheduledDateTime = new Date(`${timingData.scheduledDate}T${timingData.scheduledTime}`);
-        const minScheduledTime = new Date(now.getTime() + 29 * 60 * 1000); // 29 minutos para dar un pequeño margen
+        if (!isNaN(scheduledDateTime.getTime())) {
+          const minScheduledTime = new Date(now.getTime() + 29 * 60 * 1000); // 29 minutos para dar un pequeño margen
 
-        if (scheduledDateTime < minScheduledTime) {
-          alert('La hora programada debe ser al menos 30 minutos después de la hora actual');
-          setLoading(false);
-          setIsProcessingOrder(false);
-          return;
+          if (scheduledDateTime < minScheduledTime) {
+            alert('La hora programada debe ser al menos 30 minutos después de la hora actual');
+            setLoading(false);
+            setIsProcessingOrder(false);
+            return;
+          }
         }
       }
 
-      // Calcular tiempo de entrega
-      let scheduledTime, scheduledDate;
+      // Calcular tiempo de entrega de forma ultra segura
+      let scheduledTime: string;
+      let scheduledDate: Timestamp;
 
       if (timingData.type === 'immediate') {
         if (!isStoreOpen(business)) {
           // Si la tienda está cerrada, se programa para la hora de apertura
           const openingDate = getNextOpeningDate(business)
-          if (openingDate) {
+          if (openingDate && !isNaN(openingDate.getTime())) {
             scheduledDate = Timestamp.fromDate(openingDate)
             const hours = String(openingDate.getHours()).padStart(2, '0')
             const minutes = String(openingDate.getMinutes()).padStart(2, '0')
@@ -2061,16 +2059,26 @@ export function CheckoutContent({
           scheduledTime = `${hours}:${minutes}`; // Formato HH:MM
         }
       } else {
-        // Para programado: combinar fecha y hora en la zona horaria local
-        const [year, month, day] = timingData.scheduledDate.split('-').map(Number);
-        const [hours, minutes] = timingData.scheduledTime.split(':').map(Number);
+        // Para programado: combinar fecha y hora en la zona horaria local con fallbacks seguros
+        const rawDateStr = timingData.scheduledDate || ''
+        const rawTimeStr = timingData.scheduledTime || '12:00'
 
-        // Crear fecha en la zona horaria local
-        const localDate = new Date(year, month - 1, day, hours, minutes);
+        let localDate: Date
+        if (rawDateStr && rawDateStr.includes('-')) {
+          const [year, month, day] = rawDateStr.split('-').map(Number);
+          const [hours, minutes] = (rawTimeStr.includes(':') ? rawTimeStr : '12:00').split(':').map(Number);
+          localDate = new Date(year, (month || 1) - 1, day || 1, hours || 12, minutes || 0);
+        } else {
+          localDate = new Date(Date.now() + 60 * 60 * 1000) // Fallback 1h después
+        }
 
-        // Convertir a Timestamp (Firestore usa UTC internamente)
+        if (isNaN(localDate.getTime())) {
+          localDate = new Date(Date.now() + 60 * 60 * 1000)
+        }
+
+        // Convertir a Timestamp seguro
         scheduledDate = Timestamp.fromDate(localDate);
-        scheduledTime = timingData.scheduledTime;
+        scheduledTime = rawTimeStr || `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
       }
 
       // Calcular todos los valores necesarios primero
@@ -2239,22 +2247,17 @@ export function CheckoutContent({
         console.error('Error removing pending referral:', e)
       }
 
-      // Abrir WhatsApp de la tienda inmediatamente usando la plantilla oficial cliente-tienda
+      // Abrir WhatsApp de la tienda usando la plantilla oficial cliente-tienda
       if (business) {
         try {
           const createdOrder = {
             id: orderId,
             ...orderData
           } as any
-          await sendOrderToStoreFromClient(createdOrder, business, waWindow)
+          await sendOrderToStoreFromClient(createdOrder, business)
         } catch (waErr) {
           console.error('Error sending order to store via WhatsApp:', waErr)
-          if (waWindow && !waWindow.closed) {
-            waWindow.close()
-          }
         }
-      } else if (waWindow && !waWindow.closed) {
-        waWindow.close()
       }
 
       if (isEmbedded && onOrderCreated) {
@@ -2283,12 +2286,32 @@ export function CheckoutContent({
         // Redirigir a la página de estado del pedido con la ruta /o/[orderId]
         router.push(`/o/${orderId}`)
       }
-    } catch (error) {
-      if (typeof waWindow !== 'undefined' && waWindow && !waWindow.closed) {
-        waWindow.close()
-      }
+    } catch (error: any) {
       console.error('Error creating order:', error)
+      const errBusinessId = embeddedBusinessId || searchParams?.get('businessId') || business?.id || cartItems?.[0]?.originalBusinessId || ''
+      try {
+        logDebug('checkout', 'Error al crear orden en checkout', {
+          errorMessage: error?.message || String(error),
+          errorCode: error?.code,
+          customerPhone: customerData?.phone,
+          businessId: errBusinessId
+        }, { businessId: errBusinessId, level: 'error' }).catch(() => {})
+      } catch (logErr) {
+        // Silencioso
+      }
+
       setIsProcessingOrder(false) // Resetear estado en caso de error
+      setLoading(false)
+
+      const isNetworkError = error?.message?.toLowerCase().includes('network') ||
+                             error?.message?.toLowerCase().includes('offline') ||
+                             error?.code === 'unavailable'
+
+      alert(
+        isNetworkError
+          ? 'Hubo un problema de conexión al enviar tu pedido. Por favor revisa tu internet e inténtalo nuevamente.'
+          : 'Ocurrió un inconveniente al procesar tu pedido. Tus productos siguen en el carrito; por favor inténtalo nuevamente.'
+      )
     } finally {
       setLoading(false)
     }
