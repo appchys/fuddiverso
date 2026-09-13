@@ -620,19 +620,38 @@ export default function AdminPedidosPage() {
             const allMergedOrders = Array.from(ordersMap.values())
             const todayOrders = allMergedOrders.filter(shouldShowInTodayOrders)
 
-            todayOrders.sort((a, b) => {
-                const getMinutes = (o: Order) => {
-                    if (o.timing?.type === 'scheduled' && o.timing.scheduledTime) {
-                        const [h, m] = o.timing.scheduledTime.split(':').map(Number);
-                        return h * 60 + m;
-                    }
-                    const date = toSafeDate(o.createdAt);
-                    return date.getHours() * 60 + date.getMinutes();
-                };
-                return getMinutes(a) - getMinutes(b);
-            });
+            // Preservar órdenes optimistas que aún no se hayan guardado en Firestore.
+            setOrders(prev => {
+                const optimisticOrders = prev.filter(o => (o as any)._isOptimistic)
+                const firestoreIds = new Set(todayOrders.map(o => o.id))
 
-            setOrders(todayOrders)
+                const stillPendingOptimistic = optimisticOrders.filter(opt => {
+                    if (firestoreIds.has(opt.id)) return false
+                    const hasRealMatch = todayOrders.some(real =>
+                        real.customer?.phone === opt.customer?.phone &&
+                        real.customer?.name === opt.customer?.name &&
+                        Math.abs(real.total - opt.total) < 0.01 &&
+                        real.status === opt.status &&
+                        (real as any).businessId === (opt as any).businessId
+                    )
+                    return !hasRealMatch
+                })
+
+                const combined = [...todayOrders, ...stillPendingOptimistic]
+                combined.sort((a, b) => {
+                    const getMinutes = (o: Order) => {
+                        if (o.timing?.type === 'scheduled' && o.timing.scheduledTime) {
+                            const [h, m] = o.timing.scheduledTime.split(':').map(Number);
+                            return h * 60 + m;
+                        }
+                        const date = toSafeDate(o.createdAt);
+                        return date.getHours() * 60 + date.getMinutes();
+                    };
+                    return getMinutes(a) - getMinutes(b);
+                })
+
+                return combined
+            })
             
             // Carga progresiva: mostrar UI en cuanto CUALQUIER listener responda
             if (activeQueryLoaded || createdQueryLoaded || scheduledQueryLoaded) {
@@ -794,6 +813,40 @@ export default function AdminPedidosPage() {
             clearTimeout(checkFirstLoad)
         }
     }, [selectedBusinessId])
+
+    // Sincronizar órdenes optimistas cuando terminan de guardarse en Firestore
+    useEffect(() => {
+        const handleOptimisticSaved = (e: any) => {
+            const { tempId, realOrderId } = e.detail || {}
+            if (!tempId || !realOrderId) return
+            setOrders(prev => {
+                const hasReal = prev.some(o => o.id === realOrderId)
+                if (hasReal) {
+                    return prev.filter(o => o.id !== tempId)
+                }
+                return prev.map(o => {
+                    if (o.id === tempId) {
+                        return { ...o, id: realOrderId, _isOptimistic: false }
+                    }
+                    return o
+                })
+            })
+        }
+
+        const handleOptimisticFailed = (e: any) => {
+            const { tempId } = e.detail || {}
+            if (!tempId) return
+            setOrders(prev => prev.filter(o => o.id !== tempId))
+            alert('Hubo un error al guardar el pedido en la base de datos. Por favor inténtalo de nuevo.')
+        }
+
+        window.addEventListener('optimistic-order-saved', handleOptimisticSaved)
+        window.addEventListener('optimistic-order-failed', handleOptimisticFailed)
+        return () => {
+            window.removeEventListener('optimistic-order-saved', handleOptimisticSaved)
+            window.removeEventListener('optimistic-order-failed', handleOptimisticFailed)
+        }
+    }, [])
 
     // 7. Fetch all upcoming orders (future scheduled)
     useEffect(() => {

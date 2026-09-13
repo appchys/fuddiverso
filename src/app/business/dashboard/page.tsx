@@ -1095,20 +1095,44 @@ export default function TodayOrdersPage() {
             // Scheduled orders only belong here when their scheduled date is today.
             const todayOrders = allMergedOrders.filter(shouldShowInTodayOrders)
 
-            // Sort by time (nearest first)
-            todayOrders.sort((a, b) => {
-                const getMinutes = (o: Order) => {
-                    if (o.timing?.type === 'scheduled' && o.timing.scheduledTime) {
-                        const [h, m] = o.timing.scheduledTime.split(':').map(Number);
-                        return h * 60 + m;
-                    }
-                    const date = toSafeDate(o.createdAt);
-                    return date.getHours() * 60 + date.getMinutes();
-                };
-                return getMinutes(a) - getMinutes(b);
-            });
+            // Preservar órdenes optimistas que aún no se hayan guardado en Firestore.
+            // Una orden optimista se descarta cuando aparece su equivalente real en la data de Firestore.
+            setOrders(prev => {
+                const optimisticOrders = prev.filter(o => (o as any)._isOptimistic)
+                const firestoreIds = new Set(todayOrders.map(o => o.id))
 
-            setOrders(todayOrders)
+                // Mantener solo las optimistas que NO tienen aún su versión real
+                const stillPendingOptimistic = optimisticOrders.filter(opt => {
+                    // Si por alguna razón el ID coincide exactamente, descartar la optimista
+                    if (firestoreIds.has(opt.id)) return false
+
+                    // Buscar una orden real que coincida en datos clave (mismo cliente + total + status + businessId)
+                    const hasRealMatch = todayOrders.some(real =>
+                        real.customer?.phone === opt.customer?.phone &&
+                        real.customer?.name === opt.customer?.name &&
+                        Math.abs(real.total - opt.total) < 0.01 &&
+                        real.status === opt.status &&
+                        (real as any).businessId === (opt as any).businessId
+                    )
+                    return !hasRealMatch
+                })
+
+                // Sort by time (nearest first)
+                const combined = [...todayOrders, ...stillPendingOptimistic]
+                combined.sort((a, b) => {
+                    const getMinutes = (o: Order) => {
+                        if (o.timing?.type === 'scheduled' && o.timing.scheduledTime) {
+                            const [h, m] = o.timing.scheduledTime.split(':').map(Number);
+                            return h * 60 + m;
+                        }
+                        const date = toSafeDate(o.createdAt);
+                        return date.getHours() * 60 + date.getMinutes();
+                    };
+                    return getMinutes(a) - getMinutes(b);
+                })
+
+                return combined
+            })
             
             // OPTIMIZACIÓN P0: Desbloquear carga tan pronto como respondan las órdenes activas o creadas hoy,
             // sin tener que esperar obligatoriamente a las queries secundarias de fechas programadas.
@@ -1299,6 +1323,40 @@ export default function TodayOrdersPage() {
             unsubMultiStore()
         }
     }, [businessId])
+
+    // Sincronizar órdenes optimistas cuando terminan de guardarse en Firestore
+    useEffect(() => {
+        const handleOptimisticSaved = (e: any) => {
+            const { tempId, realOrderId } = e.detail || {}
+            if (!tempId || !realOrderId) return
+            setOrders(prev => {
+                const hasReal = prev.some(o => o.id === realOrderId)
+                if (hasReal) {
+                    return prev.filter(o => o.id !== tempId)
+                }
+                return prev.map(o => {
+                    if (o.id === tempId) {
+                        return { ...o, id: realOrderId, _isOptimistic: false }
+                    }
+                    return o
+                })
+            })
+        }
+
+        const handleOptimisticFailed = (e: any) => {
+            const { tempId } = e.detail || {}
+            if (!tempId) return
+            setOrders(prev => prev.filter(o => o.id !== tempId))
+            alert('Hubo un error al guardar el pedido en la base de datos. Por favor inténtalo de nuevo.')
+        }
+
+        window.addEventListener('optimistic-order-saved', handleOptimisticSaved)
+        window.addEventListener('optimistic-order-failed', handleOptimisticFailed)
+        return () => {
+            window.removeEventListener('optimistic-order-saved', handleOptimisticSaved)
+            window.removeEventListener('optimistic-order-failed', handleOptimisticFailed)
+        }
+    }, [])
 
     // Fetch all upcoming orders (future scheduled)
     useEffect(() => {

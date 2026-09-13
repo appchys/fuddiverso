@@ -3151,9 +3151,20 @@ export default function ManualOrderSidebar({
             }
 
             console.log('[ManualOrder] Orden creada con éxito en segundo plano, id:', orderId);
+
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('optimistic-order-saved', {
+                detail: { tempId, realOrderId: orderId }
+              }))
+            }
           }
         } catch (error) {
           console.error('Error guardando la orden en segundo plano:', error)
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('optimistic-order-failed', {
+              detail: { tempId, error }
+            }))
+          }
         } finally {
           backgroundSavePromiseRef.current = null
         }
