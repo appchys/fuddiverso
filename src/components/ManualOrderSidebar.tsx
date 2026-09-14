@@ -708,12 +708,16 @@ export default function ManualOrderSidebar({
       if (isFromCheckout) {
         logDebug('manual_order', 'Prefill de orden desde Checkout', {
           checkoutSessionId: eo.checkoutSessionId,
+          customerName: eo.customer?.name,
+          customerPhone: eo.customer?.phone,
           incomingTiming: eo.timing,
           parsedTimingType: timingType,
           parsedScheduledDate: scheduledDate,
           parsedScheduledTime: scheduledTime
         }, {
           businessId: effectiveBusinessId,
+          customerName: eo.customer?.name,
+          customerPhone: eo.customer?.phone,
           level: 'info'
         })
       }
@@ -3038,6 +3042,8 @@ export default function ManualOrderSidebar({
         isFromCheckout,
         checkoutSessionId: editOrder?.checkoutSessionId,
         customer: orderData.customer,
+        customerName: orderData.customer?.name,
+        customerPhone: orderData.customer?.phone,
         timingType: orderData.timing?.type,
         scheduledDate: orderData.timing?.scheduledDate,
         scheduledTime: orderData.timing?.scheduledTime,
@@ -3048,6 +3054,8 @@ export default function ManualOrderSidebar({
       }, {
         businessId: effectiveBusinessId,
         businessName: effectiveBusiness?.name,
+        customerName: orderData.customer?.name,
+        customerPhone: orderData.customer?.phone,
         level: 'info'
       })
 
@@ -3108,16 +3116,20 @@ export default function ManualOrderSidebar({
             })
             logDebug('manual_order', 'Orden actualizada con éxito', {
               orderId: capturedEditOrderId,
+              customerName: orderData.customer?.name,
+              customerPhone: orderData.customer?.phone,
               timing: updatePayload.timing
-            }, { businessId: effectiveBusinessId, level: 'info' })
+            }, { businessId: effectiveBusinessId, customerName: orderData.customer?.name, customerPhone: orderData.customer?.phone, level: 'info' })
           } else {
             const orderId = await createOrder(orderData as any)
             logDebug('manual_order', 'Orden creada exitosamente', {
               orderId,
               isFromCheckout,
               checkoutSessionId: capturedEditOrderCheckoutSessionId,
+              customerName: orderData.customer?.name,
+              customerPhone: orderData.customer?.phone,
               timing: orderData.timing
-            }, { businessId: effectiveBusinessId, orderId, level: 'info' })
+            }, { businessId: effectiveBusinessId, orderId, customerName: orderData.customer?.name, customerPhone: orderData.customer?.phone, level: 'info' })
 
             // Descontar saldo/créditos de billetera si se usaron
             const creditToDeduct = (orderData as any).creditUsed || 0

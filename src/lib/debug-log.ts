@@ -17,6 +17,8 @@ export interface DebugLogEntry {
   businessName?: string
   userId?: string
   orderId?: string
+  customerName?: string
+  customerPhone?: string
   data?: Record<string, any>
 }
 
@@ -34,10 +36,34 @@ export async function logDebug(
     businessName?: string
     userId?: string
     orderId?: string
+    customerName?: string
+    customerPhone?: string
   }
 ): Promise<string | null> {
   try {
     const now = new Date()
+
+    // Extraer automáticamente customerName y customerPhone de options o de data si están presentes
+    const resolvedCustomerName = options?.customerName ||
+      data?.customerName ||
+      data?.customer?.name ||
+      data?.customer?.nombres ||
+      data?.manualOrderData?.customerName ||
+      data?.customerData?.name ||
+      undefined
+
+    const resolvedCustomerPhone = options?.customerPhone ||
+      data?.customerPhone ||
+      data?.customer?.phone ||
+      data?.customer?.celular ||
+      data?.manualOrderData?.customerPhone ||
+      data?.customerData?.phone ||
+      undefined
+
+    const resolvedOrderId = options?.orderId || (data?.orderId as string) || undefined
+    const resolvedBusinessId = options?.businessId || (data?.businessId as string) || undefined
+    const resolvedBusinessName = options?.businessName || (data?.businessName as string) || undefined
+
     const entry: DebugLogEntry = {
       localTimestamp: now.toLocaleString('es-EC', { hour12: false }),
       timezoneOffset: now.getTimezoneOffset(),
@@ -45,10 +71,12 @@ export async function logDebug(
       level: options?.level || 'info',
       category,
       action,
-      businessId: options?.businessId || (data?.businessId as string) || undefined,
-      businessName: options?.businessName || (data?.businessName as string) || undefined,
+      businessId: resolvedBusinessId,
+      businessName: resolvedBusinessName,
       userId: options?.userId || undefined,
-      orderId: options?.orderId || (data?.orderId as string) || undefined,
+      orderId: resolvedOrderId,
+      customerName: resolvedCustomerName,
+      customerPhone: resolvedCustomerPhone,
       data: sanitizeDataForFirestore(data || {}),
       timestamp: serverTimestamp()
     }

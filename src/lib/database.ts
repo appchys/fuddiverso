@@ -1612,12 +1612,15 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       businessId: standardizedOrder.businessId,
       createdByAdmin: standardizedOrder.createdByAdmin,
       timing: standardizedOrder.timing,
+      customerName: standardizedOrder.customer?.name,
       customerPhone: standardizedOrder.customer?.phone,
       deliveryType: standardizedOrder.delivery?.type,
       total: standardizedOrder.total
     }, {
       businessId: standardizedOrder.businessId,
       orderId: shortId,
+      customerName: standardizedOrder.customer?.name,
+      customerPhone: standardizedOrder.customer?.phone,
       level: 'info'
     }).catch(() => {})
 

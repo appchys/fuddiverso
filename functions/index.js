@@ -612,11 +612,6 @@ exports.sendScheduledOrderReminders = onSchedule({
 }, async (event) => {
   console.log('⏰ Verificando órdenes programadas para recordatorios...');
   try {
-    const nowUtc = new Date();
-    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
-    const reminderStart = new Date(nowEcuador.getTime() + 30 * 60 * 1000); // +30 min
-    const reminderEnd = new Date(nowEcuador.getTime() + 35 * 60 * 1000);   // +35 min
-
     const ordersSnapshot = await admin.firestore()
       .collection('orders')
       .where('timing.type', '==', 'scheduled')
@@ -629,27 +624,70 @@ exports.sendScheduledOrderReminders = onSchedule({
 
       if (order.reminderSent) continue;
 
+      // Si la orden ya fue entregada o cancelada, no enviar recordatorio
+      if (['delivered', 'cancelled'].includes(order.status)) {
+        await orderDoc.ref.update({
+          reminderSent: true,
+          reminderSkipped: 'order_already_' + order.status
+        });
+        continue;
+      }
+
       const scheduledDate = order.timing?.scheduledDate;
       const scheduledTime = order.timing?.scheduledTime;
       if (!scheduledDate || !scheduledTime) continue;
 
-      // Convertir Firestore Timestamp a Date
-      let dateObj;
-      if (scheduledDate.seconds || scheduledDate._seconds) {
-        const seconds = scheduledDate.seconds || scheduledDate._seconds;
-        dateObj = new Date(seconds * 1000);
-      } else if (scheduledDate instanceof Date) {
-        dateObj = scheduledDate;
+      // 1. Extraer año, mes y día en la zona horaria de Ecuador (America/Guayaquil, UTC-5)
+      let year, month, day;
+      if (typeof scheduledDate === 'string') {
+        const dateMatch = scheduledDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (dateMatch) {
+          year = parseInt(dateMatch[1], 10);
+          month = parseInt(dateMatch[2], 10);
+          day = parseInt(dateMatch[3], 10);
+        } else {
+          const parsed = new Date(scheduledDate);
+          if (isNaN(parsed.getTime())) continue;
+          const ecStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Guayaquil',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }).format(parsed);
+          [year, month, day] = ecStr.split('-').map(Number);
+        }
       } else {
-        continue;
+        let dateObj;
+        if (scheduledDate.seconds || scheduledDate._seconds) {
+          const seconds = scheduledDate.seconds || scheduledDate._seconds;
+          dateObj = new Date(seconds * 1000);
+        } else if (scheduledDate instanceof Date) {
+          dateObj = scheduledDate;
+        } else if (scheduledDate.toDate && typeof scheduledDate.toDate === 'function') {
+          dateObj = scheduledDate.toDate();
+        } else {
+          continue;
+        }
+
+        if (isNaN(dateObj.getTime())) continue;
+
+        const ecStr = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Guayaquil',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).format(dateObj);
+        [year, month, day] = ecStr.split('-').map(Number);
       }
 
-      // Parsear la hora
+      if (!year || !month || !day) continue;
+
+      // 2. Parsear la hora programada (soporta formato 24h y 12h AM/PM)
       const timeParts = scheduledTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
       if (!timeParts) continue;
 
-      let hours = parseInt(timeParts[1]);
-      const minutes = parseInt(timeParts[2]);
+      let hours = parseInt(timeParts[1], 10);
+      const minutes = parseInt(timeParts[2], 10);
       const meridiem = timeParts[3];
 
       if (meridiem) {
@@ -657,11 +695,26 @@ exports.sendScheduledOrderReminders = onSchedule({
         else if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0;
       }
 
-      const deliveryDateTime = new Date(dateObj);
-      deliveryDateTime.setHours(hours, minutes, 0, 0);
+      // 3. Timestamp exacto de entrega (Ecuador es UTC-5 todo el año, sin horario de verano)
+      const deliveryEpoch = Date.UTC(year, month - 1, day, hours + 5, minutes, 0, 0);
+      const nowEpoch = Date.now();
+      const diffMinutes = (deliveryEpoch - nowEpoch) / (60 * 1000);
 
-      if (deliveryDateTime >= reminderStart && deliveryDateTime <= reminderEnd) {
-        console.log(`📧 Enviando recordatorio para orden ${orderId}`);
+      // Si la fecha y hora de entrega ya pasaron (ej. orden de ayer o de horas anteriores):
+      // Nunca enviar recordatorio y marcar como omitida para no volver a consultarla
+      if (diffMinutes < 0) {
+        if (diffMinutes < -15) {
+          await orderDoc.ref.update({
+            reminderSent: true,
+            reminderSkipped: 'past_delivery'
+          });
+        }
+        continue;
+      }
+
+      // Solo enviar recordatorio si faltan entre 25 y 35 minutos para la entrega
+      if (diffMinutes >= 25 && diffMinutes <= 35) {
+        console.log(`📧 Enviando recordatorio para orden ${orderId} (faltan ~${Math.round(diffMinutes)} min)`);
 
         // Recopilar datos
         let businessEmail = 'info@fuddi.shop';
@@ -706,7 +759,7 @@ exports.sendScheduledOrderReminders = onSchedule({
         }
         productsHtml += '</ul>';
 
-        const scheduledDateStr = deliveryDateTime.toLocaleDateString('es-EC', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const scheduledDateStr = new Date(deliveryEpoch).toLocaleDateString('es-EC', { timeZone: 'America/Guayaquil', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         const deliveryInfo = order.delivery?.type === 'delivery' ? (order.delivery?.references || '') : 'Retiro en tienda';
 
         await emailServices.sendReminderEmail(
