@@ -1143,14 +1143,22 @@ export default function TodayOrdersPage() {
         }
 
         // OPTIMIZACIÓN P2: Microtask batching para evitar re-ordenamientos y re-renders múltiples cuando varios listeners reciben snapshots en el mismo tick
+        // fallback por compatibilidad con Safari/iPhone antiguos: queueMicrotask no está disponible en todas las versiones
         let pendingBatchUpdate = false
         const scheduleUpdateOrdersState = () => {
             if (pendingBatchUpdate) return
             pendingBatchUpdate = true
-            queueMicrotask(() => {
+
+            const flushUpdate = () => {
                 pendingBatchUpdate = false
                 updateOrdersState()
-            })
+            }
+
+            if (typeof queueMicrotask === 'function') {
+                queueMicrotask(flushUpdate)
+            } else {
+                Promise.resolve().then(flushUpdate)
+            }
         }
 
         const handleDocChanges = (snapshot: any) => {
