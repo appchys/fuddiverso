@@ -1178,28 +1178,13 @@ async function handleStoreWebhook(req, res) {
 
                             if (action === 'delivered') {
                                 const customerName = orderData.customer?.name || 'Cliente';
-                                const references = orderData.delivery?.references || 'Sin referencias';
                                 const total = orderData.total || orderData.payment?.total || 0;
-                                const subtotal = orderData.subtotal || orderData.payment?.subtotal || 0;
-                                const deliveryCost = orderData.delivery?.deliveryCost || orderData.delivery?.cost || Math.max(0, total - subtotal);
-                                const paymentMethod = orderData.payment?.method || 'cash';
+                                const paymentMethodText = getPaymentMethodText(orderData);
 
-                                newText = `<b>${businessName}</b> · ${customerName}\n`;
-                                newText += `${references}\n\n`;
-                                newText += `Pedido: $${subtotal.toFixed(2)}\n`;
-                                newText += `Envío: $${deliveryCost.toFixed(2)}\n`;
-
-                                if (paymentMethod === 'cash') {
-                                    newText += `💵 Efectivo: $${total.toFixed(2)}`;
-                                } else if (paymentMethod === 'mixed') {
-                                    const cash = orderData.payment?.cashAmount || 0;
-                                    const transfer = orderData.payment?.transferAmount || 0;
-                                    newText += `💵 Efectivo: $${cash.toFixed(2)}\n`;
-                                    newText += `🏦 Transferencia: $${transfer.toFixed(2)}`;
-                                } else {
-                                    newText += `🏦 Transferencia`;
-                                }
-                                newText += `\n\n🎉 <b>Entregado</b>`;
+                                newText = `<b>${businessName}</b> • ${customerName}\n` +
+                                    `Total de pedido: $${total.toFixed(2)}\n` +
+                                    `${paymentMethodText}\n\n` +
+                                    `✅ <b>Entregado</b>`;
                             } else if (action !== 'discard') {
                                 let templateKey = 'delivery_accepted';
                                 if (action === 'on_way') templateKey = 'delivery_on_way';
@@ -1296,15 +1281,16 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
         const businessName = await resolveBusinessName(orderData, 'Tienda');
         let syncText = '';
 
-        if (orderData.status === 'ready') {
+        if (orderData.status === 'ready' || orderData.status === 'delivered') {
             const customerName = orderData.customer?.name || 'Cliente';
             const total = orderData.total || 0;
             const paymentMethodText = getPaymentMethodText(orderData);
+            const statusLabel = orderData.status === 'delivered' ? 'Entregado' : 'Listo';
 
             syncText = `<b>${businessName}</b> • ${customerName}\n` +
                        `Total de pedido: $${total.toFixed(2)}\n` +
                        `${paymentMethodText}\n\n` +
-                       `✅ <b>Listo</b>`;
+                       `✅ <b>${statusLabel}</b>`;
         } else {
             const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
