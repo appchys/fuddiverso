@@ -1967,6 +1967,37 @@ export function CheckoutContent({
         return
       }
 
+      let verifiedDeliveryCost: number | null = null
+      let verifiedDeliverySector = ''
+
+      if (deliveryData.type === 'delivery') {
+        const rawLatLong = selectedLocation?.latlong || ''
+        const coordinates = rawLatLong.split(',').map(coord => parseFloat(coord.trim()))
+
+        if (!selectedLocation || coordinates.length !== 2 || coordinates.some(coord => !Number.isFinite(coord))) {
+          alert('Selecciona una ubicación guardada válida para calcular el valor de envío antes de confirmar.')
+          setLoading(false)
+          setIsProcessingOrder(false)
+          return
+        }
+
+        setCalculatingTariff(true)
+        try {
+          const deliveryDetails = await calculateDeliveryFee({ lat: coordinates[0], lng: coordinates[1] })
+          if (!Number.isFinite(deliveryDetails.fee) || deliveryDetails.fee <= 0 || deliveryDetails.isOutOfCoverage) {
+            alert('No se pudo calcular un valor de envío válido para esta ubicación. Selecciona otra ubicación o inténtalo nuevamente.')
+            setLoading(false)
+            setIsProcessingOrder(false)
+            return
+          }
+
+          verifiedDeliveryCost = deliveryDetails.fee
+          verifiedDeliverySector = deliveryDetails.zoneName || selectedLocation.sector || ''
+        } finally {
+          setCalculatingTariff(false)
+        }
+      }
+
       // Validación de restricción de retiro en tienda
       if (deliveryData.type === 'pickup' && business?.pickupSettings?.restrictToPrevious) {
         if (hasPreviousPickup === false) {
@@ -2083,7 +2114,7 @@ export function CheckoutContent({
 
       // Calcular todos los valores necesarios primero
       const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-      const deliveryCost = getDeliveryCost();
+      const deliveryCost = deliveryData.type === 'delivery' ? (verifiedDeliveryCost ?? getDeliveryCost()) : 0;
       const creditToApply = paymentData.useCredits ? (paymentData.creditsAmount || 0) : 0;
       // Si la campaña de delivery gratis aplica, el cliente no paga el costo de envío
       const clientDeliveryCost = isFreeDeliveryActive ? 0 : deliveryCost;
@@ -2141,6 +2172,7 @@ export function CheckoutContent({
           ...(deliveryData.type === 'delivery' && {
             latlong: selectedLocation?.latlong || '',
             references: deliveryData.address || '',
+            sector: verifiedDeliverySector || selectedLocation?.sector || '',
             photo: selectedLocation?.photo || '',
             deliveryCost: deliveryCost,
             assignedDelivery: assignedDeliveryId
