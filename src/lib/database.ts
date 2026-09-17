@@ -3506,12 +3506,6 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
     const finalAdminBusinesses = [...adminBusinesses, ...extraBranches];
     const hasAccess = ownedBusinesses.length > 0 || finalAdminBusinesses.length > 0;
 
-    console.log('✅ User business access with branches:', {
-      owned: ownedBusinesses.length,
-      admin: finalAdminBusinesses.length,
-      hasAccess
-    });
-
     return {
       ownedBusinesses,
       adminBusinesses: finalAdminBusinesses,

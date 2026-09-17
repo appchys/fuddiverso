@@ -25,72 +25,78 @@ const StoreRatingsView = dynamic(() => import('@/components/StoreRatingsView'), 
 const ReferralModal = dynamic(() => import('@/components/ReferralModal'), { ssr: false })
 const ProductDetailSidebar = dynamic(() => import('@/components/ProductDetailSidebar'), { ssr: false })
 
-// Componente para structured data JSON-LD
+// Componente para structured data JSON-LD (inyectado limpiamente en el head sin desajustes de hidratación)
 function BusinessStructuredData({ business }: { business: Business }) {
-  const structuredData = {
-    "@context": "https://schema.org",
-    "@type": "Restaurant",
-    "name": business.name,
-    "description": business.description,
-    "image": business.image,
-    "url": `https://fuddi.shop/${business.username}`,
-    "telephone": business.phone,
-    "email": business.email,
-    "address": {
-      "@type": "PostalAddress",
-      "streetAddress": business.pickupSettings?.references || '',
-      "addressCountry": "EC"
-    },
-    "servesCuisine": business.categories || [],
-    "priceRange": "$$",
-    "acceptsReservations": "False",
-    "hasDeliveryService": "True",
-    "hasOnlineOrdering": "True",
-    "paymentAccepted": ["Cash", "Credit Card", "Bank Transfer"],
-    "currenciesAccepted": "USD",
-    "openingHours": business.schedule ? Object.entries(business.schedule).map(([day, hours]: [string, any]) =>
-      hours?.isOpen ? `${day.substring(0, 2).toUpperCase()} ${hours.open}-${hours.close}` : null
-    ).filter(Boolean) : [],
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": (business.ratingAverage || 5.0).toString(),
-      "reviewCount": (business.ratingCount || 10).toString()
-    },
-    "potentialAction": {
-      "@type": "OrderAction",
-      "target": {
-        "@type": "EntryPoint",
-        "urlTemplate": `https://fuddi.shop/${business.username}`,
-        "actionPlatform": [
-          "http://schema.org/DesktopWebPlatform",
-          "http://schema.org/MobileWebPlatform"
+  const structuredData = useMemo(() => {
+    return {
+      "@context": "https://schema.org",
+      "@type": "Restaurant",
+      "name": business.name,
+      "description": business.description,
+      "image": business.image,
+      "url": `https://fuddi.shop/${business.username}`,
+      "telephone": business.phone,
+      "email": business.email,
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": business.pickupSettings?.references || '',
+        "addressCountry": "EC"
+      },
+      "servesCuisine": business.categories || [],
+      "priceRange": "$$",
+      "acceptsReservations": "False",
+      "hasDeliveryService": "True",
+      "hasOnlineOrdering": "True",
+      "paymentAccepted": ["Cash", "Credit Card", "Bank Transfer"],
+      "currenciesAccepted": "USD",
+      "openingHours": business.schedule ? Object.entries(business.schedule).map(([day, hours]: [string, any]) =>
+        hours?.isOpen ? `${day.substring(0, 2).toUpperCase()} ${hours.open}-${hours.close}` : null
+      ).filter(Boolean) : [],
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": (business.ratingAverage || 5.0).toString(),
+        "reviewCount": (business.ratingCount || 10).toString()
+      },
+      "potentialAction": {
+        "@type": "OrderAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": `https://fuddi.shop/${business.username}`,
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform"
+          ]
+        },
+        "deliveryMethod": [
+          "http://purl.org/goodrelations/v1#DeliveryModePickup",
+          "http://purl.org/goodrelations/v1#DeliveryModeDirectDownload"
         ]
       },
-      "deliveryMethod": [
-        "http://purl.org/goodrelations/v1#DeliveryModePickup",
-        "http://purl.org/goodrelations/v1#DeliveryModeDirectDownload"
+      "sameAs": [
+        `https://fuddi.shop/${business.username}`
       ]
-    },
-    "sameAs": [
-      `https://fuddi.shop/${business.username}`,
-      // Aquí se pueden agregar redes sociales del negocio cuando las tengamos
-    ]
-  }
+    }
+  }, [business])
 
-  return (
-    <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
-      />
-      {/* Meta tags adicionales para WhatsApp en el head */}
-      <meta property="og:rich_attachment" content="true" />
-      <meta property="og:locale" content="es_ES" />
-      <meta property="og:locale:alternate" content="es_EC" />
-      <meta name="twitter:app:name:iphone" content="fuddi.shop" />
-      <meta name="twitter:app:name:googleplay" content="fuddi.shop" />
-    </>
-  )
+  useEffect(() => {
+    if (!business) return
+    const id = `ld-json-${business.username || business.id}`
+    let script = document.getElementById(id) as HTMLScriptElement | null
+    if (!script) {
+      script = document.createElement('script')
+      script.id = id
+      script.type = 'application/ld+json'
+      document.head.appendChild(script)
+    }
+    script.textContent = JSON.stringify(structuredData)
+
+    return () => {
+      const el = document.getElementById(id)
+      if (el) el.remove()
+    }
+  }, [business, structuredData])
+
+  return null
 }
 
 function getMinVariantPrice(variants: any[], biz: any): number {
@@ -405,6 +411,12 @@ function RestaurantContent() {
   const { user, user: clientUser } = useAuth()
   const params = useParams()
   const username = typeof params?.username === 'string' ? params.username : Array.isArray(params?.username) ? params.username[0] : ''
+
+  const [hasMounted, setHasMounted] = useState(false)
+
+  useEffect(() => {
+    setHasMounted(true)
+  }, [])
 
   const [business, setBusiness] = useState<Business | null>(() => {
     if (!username) return null
@@ -1453,8 +1465,8 @@ function RestaurantContent() {
     )
   }
 
-  // Si aún no se ha obtenido la tienda desde Firestore, mostrar skeleton enriquecido con nombre y botones
-  if (!business) {
+  // Si aún no se ha montado o no se ha obtenido la tienda desde Firestore, mostrar skeleton enriquecido con nombre y botones
+  if (!hasMounted || !business) {
     return <StoreProfileSkeleton username={username} />
   }
 

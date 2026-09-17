@@ -26,6 +26,10 @@ interface LocationSelectionModalProps {
     onLocationUpdated?: (location: ClientLocation) => void
 }
 
+const DEFAULT_MANUAL_LAT = -1.861971
+const DEFAULT_MANUAL_LNG = -79.978529
+const DEFAULT_MANUAL_LATLONG = `${DEFAULT_MANUAL_LAT}, ${DEFAULT_MANUAL_LNG}`
+
 export default function LocationSelectionModal({
     isOpen,
     onClose,
@@ -48,6 +52,8 @@ export default function LocationSelectionModal({
     const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
     const [gpsAttempts, setGpsAttempts] = useState(0)
     const [isManualMode, setIsManualMode] = useState(false)
+    const [pinMovementMode, setPinMovementMode] = useState<'map' | 'pin'>('map')
+    const [hasMovedPin, setHasMovedPin] = useState(false)
     const [locationImageFile, setLocationImageFile] = useState<File | null>(null)
     const [locationImagePreview, setLocationImagePreview] = useState<string>('')
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -55,8 +61,15 @@ export default function LocationSelectionModal({
     const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
     const [isInsideCoverage, setIsInsideCoverage] = useState<boolean>(false)
 
+    useEffect(() => {
+        if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+            setPinMovementMode('pin')
+        }
+    }, [])
+
     const resetLocationForm = useCallback(() => {
         setIsManualMode(false)
+        setHasMovedPin(false)
         setGpsAttempts(0)
         setLocationPermissionError(null)
         setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25', sector: '' })
@@ -150,6 +163,7 @@ export default function LocationSelectionModal({
                         tarifa,
                         sector
                     }));
+                    setHasMovedPin(true)
                     setIsRequestingLocation(false)
                 },
                 (error) => {
@@ -170,9 +184,12 @@ export default function LocationSelectionModal({
         } else {
             // Coordenadas por defecto si no hay geolocalización
             setIsManualMode(true)
+            setHasMovedPin(false)
             setNewLocationData(prev => ({
                 ...prev,
-                latlong: '-1.861971, -79.978529'
+                latlong: DEFAULT_MANUAL_LATLONG,
+                tarifa: '0.00',
+                sector: ''
             }));
             setLocationPermissionError('Geolocalización no soportada por el navegador.')
         }
@@ -180,9 +197,12 @@ export default function LocationSelectionModal({
 
     const handleManualLocation = () => {
         setIsManualMode(true)
+        setHasMovedPin(false)
         setNewLocationData(prev => ({
             ...prev,
-            latlong: '-1.861971, -79.978529'
+            latlong: DEFAULT_MANUAL_LATLONG,
+            tarifa: '0.00',
+            sector: ''
         }))
         setLocationPermissionError(null)
     }
@@ -205,6 +225,11 @@ export default function LocationSelectionModal({
 
     // Función para manejar cambio de ubicación en el mapa
     const handleLocationChange = useCallback(async (lat: number, lng: number) => {
+        const isDefaultLocation = Math.abs(lat - DEFAULT_MANUAL_LAT) < 0.0001 && Math.abs(lng - DEFAULT_MANUAL_LNG) < 0.0001
+        if (!isDefaultLocation) {
+            setHasMovedPin(true)
+        }
+
         const { tarifa, sector } = await resolveDeliveryFeeValue(lat, lng)
 
         setNewLocationData(prev => ({
@@ -237,6 +262,7 @@ export default function LocationSelectionModal({
         setOpenMenuId(null);
         setIsAddingNewLocation(true);
         setIsManualMode(false);
+        setHasMovedPin(true);
         setGpsAttempts(0);
         setLocationPermissionError(null);
         setIsSubmitting(false);
@@ -267,6 +293,11 @@ export default function LocationSelectionModal({
     }
 
     const handleSaveNewLocation = async () => {
+        if (isManualMode && !hasMovedPin) {
+            alert('Por favor mueve el pin en el mapa para ubicar tu dirección.');
+            return;
+        }
+
         if (!clientId || !newLocationData.latlong || !newLocationData.referencia) {
             alert('Por favor completa todos los campos requeridos');
             return;
@@ -599,17 +630,60 @@ export default function LocationSelectionModal({
                                 <div className="rounded-2xl overflow-hidden shadow-sm border border-gray-200 bg-gray-50 h-[220px] relative">
 
                                     {mapCoordinates ? (
-                                        <GoogleMap
-                                            latitude={mapCoordinates.lat}
-                                            longitude={mapCoordinates.lng}
-                                            height="100%"
-                                            width="100%"
-                                            zoom={16}
-                                            marker={!isManualMode}
-                                            draggable={!isManualMode}
-                                            fixedCenterMarker={isManualMode}
-                                            onLocationChange={handleLocationChange}
-                                        />
+                                        <>
+                                            <GoogleMap
+                                                latitude={mapCoordinates.lat}
+                                                longitude={mapCoordinates.lng}
+                                                height="100%"
+                                                width="100%"
+                                                zoom={16}
+                                                marker={isManualMode ? (pinMovementMode === 'pin') : true}
+                                                draggable={isManualMode ? (pinMovementMode === 'pin') : false}
+                                                fixedCenterMarker={isManualMode && pinMovementMode === 'map'}
+                                                onLocationChange={handleLocationChange}
+                                            />
+                                            {/* Selector de modo para mover el pin / mover el mapa */}
+                                            {isManualMode && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPinMovementMode(prev => prev === 'map' ? 'pin' : 'map')}
+                                                    title={pinMovementMode === 'pin' ? 'Cambiar a modo: mover mapa' : 'Cambiar a modo: mover pin'}
+                                                    className="absolute top-2.5 left-2.5 z-20 bg-white/95 hover:bg-white text-gray-800 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-md border border-gray-200/90 text-xs font-bold flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 cursor-pointer select-none"
+                                                >
+                                                    {pinMovementMode === 'pin' ? (
+                                                        <>
+                                                            <i className="bi bi-geo-alt-fill text-red-500 text-sm"></i>
+                                                            <span className="hidden xs:inline">Mover pin</span>
+                                                            <i className="bi bi-arrow-left-right text-[10px] text-gray-400"></i>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <i className="bi bi-arrows-move text-indigo-600 text-sm"></i>
+                                                            <span className="hidden xs:inline">Mover mapa</span>
+                                                            <i className="bi bi-arrow-left-right text-[10px] text-gray-400"></i>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            )}
+                                            {isManualMode && !editingLocation && !hasMovedPin && (
+                                                <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none max-w-[62%]">
+                                                    <div className="bg-gray-900/90 backdrop-blur-sm text-white text-[11px] font-semibold py-1.5 px-2.5 rounded-xl shadow-lg flex items-center gap-1.5 border border-white/10 animate-pulse">
+                                                        <i className={`bi ${pinMovementMode === 'pin' ? 'bi-hand-index-thumb text-amber-400' : 'bi-arrows-move text-amber-400'} text-xs shrink-0`}></i>
+                                                        <span className="truncate">
+                                                            {pinMovementMode === 'pin' ? 'Mueve el pin o toca el mapa' : 'Mueve el mapa'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {isManualMode && !editingLocation && hasMovedPin && (
+                                                <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none">
+                                                    <div className="bg-emerald-600/90 backdrop-blur-sm text-white text-[11px] font-semibold py-1 px-2.5 rounded-lg shadow flex items-center gap-1.5 border border-white/20">
+                                                        <i className="bi bi-check-circle-fill"></i>
+                                                        <span>Ubicación fijada</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
                                     ) : (
                                         <button
                                             type="button"
@@ -632,7 +706,7 @@ export default function LocationSelectionModal({
                                                     Obteniendo ubicación...
                                                 </span>
                                             )}
-                                            {gpsAttempts >= 2 && !isRequestingLocation && (
+                                            {(gpsAttempts >= 1 || locationPermissionError) && !isRequestingLocation && (
                                                 <button
                                                     type="button"
                                                     onClick={(e) => {
@@ -662,38 +736,54 @@ export default function LocationSelectionModal({
 
                             {/* Delivery Fee Status */}
                             {newLocationData.latlong && (
-                                <div className={`p-3.5 rounded-xl border ${!isInsideCoverage
-                                    ? 'bg-amber-50 border-amber-100'
-                                    : 'bg-green-50 border-green-100'
-                                    }`}>
-                                    <div className="flex justify-between items-center">
-                                        {isResolvingDeliveryFee ? (
-                                            <span className="inline-flex items-center gap-2 text-sm font-bold text-gray-700">
-                                                <span className="w-4 h-4 rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin"></span>
-                                                Calculando tarifa de envío...
+                                isManualMode && !editingLocation && !hasMovedPin ? (
+                                    <div className="p-3.5 rounded-xl border bg-amber-50 border-amber-200">
+                                        <div className="flex items-center gap-2">
+                                            <i className="bi bi-geo-alt-fill text-amber-600 text-sm"></i>
+                                            <span className="text-sm font-bold text-amber-900">
+                                                Ubica tu dirección en el mapa
                                             </span>
-                                        ) : (
-                                            <div className="flex items-center gap-2">
-                                                <span className={`text-sm font-bold ${!isInsideCoverage
-                                                    ? 'text-amber-800'
-                                                    : 'text-green-800'
-                                                    }`}>
-                                                    Tarifa de envío: ${newLocationData.tarifa}
+                                        </div>
+                                        <p className="text-xs text-amber-700 mt-1">
+                                            {pinMovementMode === 'pin'
+                                                ? 'Arrastra el pin o toca el mapa en tu dirección exacta para calcular la tarifa de envío.'
+                                                : 'Arrastra el mapa hasta tu dirección exacta para fijar el pin y calcular la tarifa de envío.'}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className={`p-3.5 rounded-xl border ${!isInsideCoverage
+                                        ? 'bg-amber-50 border-amber-100'
+                                        : 'bg-green-50 border-green-100'
+                                        }`}>
+                                        <div className="flex justify-between items-center">
+                                            {isResolvingDeliveryFee ? (
+                                                <span className="inline-flex items-center gap-2 text-sm font-bold text-gray-700">
+                                                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin"></span>
+                                                    Calculando tarifa de envío...
                                                 </span>
-                                                {isInsideCoverage ? (
-                                                    <i className="bi bi-check-circle-fill text-green-600 text-sm"></i>
-                                                ) : (
-                                                    <i className="bi bi-exclamation-triangle-fill text-amber-600 text-sm"></i>
-                                                )}
-                                            </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-sm font-bold ${!isInsideCoverage
+                                                        ? 'text-amber-800'
+                                                        : 'text-green-800'
+                                                        }`}>
+                                                        Tarifa de envío: ${newLocationData.tarifa}
+                                                    </span>
+                                                    {isInsideCoverage ? (
+                                                        <i className="bi bi-check-circle-fill text-green-600 text-sm"></i>
+                                                    ) : (
+                                                        <i className="bi bi-exclamation-triangle-fill text-amber-600 text-sm"></i>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                        {!isInsideCoverage && !isResolvingDeliveryFee && (
+                                            <p className="text-xs text-amber-700 mt-1">
+                                                Tu ubicación parece estar fuera de nuestra zona principal. Revisaremos la tarifa al confirmar.
+                                            </p>
                                         )}
                                     </div>
-                                    {!isInsideCoverage && !isResolvingDeliveryFee && (
-                                        <p className="text-xs text-amber-700 mt-1">
-                                            Tu ubicación parece estar fuera de nuestra zona principal. Revisaremos la tarifa al confirmar.
-                                        </p>
-                                    )}
-                                </div>
+                                )
                             )}
 
                             {/* Reference Textarea */}
@@ -786,23 +876,41 @@ export default function LocationSelectionModal({
                             >
                                 Cancelar
                             </button>
-                            <button
-                                className={`flex-[2] py-3.5 rounded-xl transition-all font-bold text-sm shadow-lg flex items-center justify-center transform active:scale-[0.98] ${mapCoordinates && !isSubmitting
-                                    ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-gray-200'
-                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                                    }`}
-                                onClick={mapCoordinates && !isSubmitting && !isResolvingDeliveryFee ? (editingLocation ? handleUpdateExistingLocation : handleSaveNewLocation) : (e) => e.preventDefault()}
-                                disabled={!mapCoordinates || isSubmitting || isResolvingDeliveryFee}
-                            >
-                                {isSubmitting ? (
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-5 h-5 rounded-full border-2 border-gray-400 border-t-gray-600 animate-spin"></span>
-                                        <span>Guardando...</span>
-                                    </div>
-                                ) : (
-                                    <span>{editingLocation ? 'Guardar Cambios' : 'Guardar y Seleccionar'}</span>
-                                )}
-                            </button>
+                            {(() => {
+                                const isManualAndNotMoved = isManualMode && !editingLocation && !hasMovedPin;
+                                const canSave = Boolean(
+                                    mapCoordinates &&
+                                    !isSubmitting &&
+                                    !isResolvingDeliveryFee &&
+                                    !isManualAndNotMoved &&
+                                    newLocationData.referencia.trim().length > 0
+                                );
+
+                                return (
+                                    <button
+                                        className={`flex-[2] py-3.5 rounded-xl transition-all font-bold text-sm shadow-lg flex items-center justify-center transform active:scale-[0.98] ${canSave
+                                            ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-gray-200'
+                                            : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
+                                            }`}
+                                        onClick={canSave ? (editingLocation ? handleUpdateExistingLocation : handleSaveNewLocation) : (e) => e.preventDefault()}
+                                        disabled={!canSave}
+                                    >
+                                        {isSubmitting ? (
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-5 h-5 rounded-full border-2 border-gray-400 border-t-gray-600 animate-spin"></span>
+                                                <span>Guardando...</span>
+                                            </div>
+                                        ) : isManualAndNotMoved ? (
+                                            <span className="flex items-center gap-1.5 text-xs sm:text-sm">
+                                                <i className={`bi ${pinMovementMode === 'pin' ? 'bi-geo-alt' : 'bi-arrows-move'}`}></i>
+                                                {pinMovementMode === 'pin' ? 'Mueve el pin en el mapa' : 'Mueve el mapa'}
+                                            </span>
+                                        ) : (
+                                            <span>{editingLocation ? 'Guardar Cambios' : 'Guardar y Seleccionar'}</span>
+                                        )}
+                                    </button>
+                                );
+                            })()}
                         </div>
                     )}
                 </div>

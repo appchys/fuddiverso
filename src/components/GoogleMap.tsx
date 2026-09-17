@@ -120,7 +120,7 @@ export function GoogleMap({
     onLocationChangeRef.current = onLocationChange
   }, [onLocationChange])
 
-  // Inicializar mapa
+  // Inicializar mapa (solo una vez cuando isLoaded es true)
   useEffect(() => {
     if (!isLoaded || !mapRef.current || !window.google || map) return
 
@@ -130,67 +130,118 @@ export function GoogleMap({
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
-      gestureHandling: fixedCenterMarker ? 'cooperative' : 'auto',
+      gestureHandling: 'auto',
     })
 
     setMap(mapInstance)
-
-    if (marker && !fixedCenterMarker) {
-      const newMarkerInstance = new window.google.maps.Marker({
-        position: { lat: latitude, lng: longitude },
-        map: mapInstance,
-        draggable: draggable,
-        title: 'Ubicación'
-      })
-
-      if (draggable) {
-        newMarkerInstance.addListener('dragend', () => {
-          const position = newMarkerInstance.getPosition()
-          if (onLocationChangeRef.current) onLocationChangeRef.current(position.lat(), position.lng())
-        })
-      }
-
-      setMarkerInstance(newMarkerInstance)
-    }
-
-    // Click en el mapa para mover marcador (solo si es draggable)
-    if (draggable) {
-      mapInstance.addListener('click', (e: any) => {
-        const lat = e.latLng.lat()
-        const lng = e.latLng.lng()
-
-        // we can't reliably update markerInstance here directly in closure, 
-        // but it will be updated by the outer tracking if we call onLocationChangeRef.
-        if (onLocationChangeRef.current) onLocationChangeRef.current(lat, lng)
-      })
-    }
-
-    if (fixedCenterMarker) {
-      mapInstance.addListener('dragend', () => {
-        const center = mapInstance.getCenter()
-        if (onLocationChangeRef.current) onLocationChangeRef.current(center.lat(), center.lng())
-      })
-      mapInstance.addListener('idle', () => {
-        const center = mapInstance.getCenter()
-        if (onLocationChangeRef.current) onLocationChangeRef.current(center.lat(), center.lng())
-      })
-    }
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded])
+
+  // Gestionar el marcador nativo de Google Maps reactivamente
+  useEffect(() => {
+    if (!map || !window.google) return
+
+    if (marker && !fixedCenterMarker) {
+      let currentMarker = markerInstance
+      if (!currentMarker) {
+        currentMarker = new window.google.maps.Marker({
+          position: { lat: latitude, lng: longitude },
+          map: map,
+          draggable: draggable,
+          title: 'Ubicación'
+        })
+        setMarkerInstance(currentMarker)
+      } else {
+        currentMarker.setMap(map)
+        currentMarker.setDraggable(draggable)
+        currentMarker.setPosition({ lat: latitude, lng: longitude })
+      }
+
+      const dragListener = currentMarker.addListener('dragend', () => {
+        const pos = currentMarker.getPosition()
+        if (onLocationChangeRef.current && pos) {
+          onLocationChangeRef.current(pos.lat(), pos.lng())
+        }
+      })
+
+      return () => {
+        window.google.maps.event.removeListener(dragListener)
+      }
+    } else {
+      if (markerInstance) {
+        markerInstance.setMap(null)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, marker, fixedCenterMarker, draggable])
+
+  // Gestionar listeners del mapa según el modo
+  useEffect(() => {
+    if (!map || !window.google) return
+
+    const listeners: any[] = []
+
+    if (fixedCenterMarker) {
+      let isUserDragging = false
+      let userHasMoved = false
+
+      listeners.push(
+        map.addListener('dragstart', () => {
+          isUserDragging = true
+          userHasMoved = true
+        }),
+        map.addListener('dragend', () => {
+          isUserDragging = false
+          const center = map.getCenter()
+          if (onLocationChangeRef.current && center) {
+            onLocationChangeRef.current(center.lat(), center.lng())
+          }
+        }),
+        map.addListener('idle', () => {
+          // Solo disparar onLocationChange en idle si el usuario interactuó y no está arrastrando en este instante
+          if (userHasMoved && !isUserDragging) {
+            const center = map.getCenter()
+            if (onLocationChangeRef.current && center) {
+              onLocationChangeRef.current(center.lat(), center.lng())
+            }
+          }
+        }),
+        map.addListener('click', (e: any) => {
+          userHasMoved = true
+          map.panTo(e.latLng)
+        })
+      )
+    } else if (draggable) {
+      // Modo mover pin directamente: click en cualquier parte traslada el pin y notifica
+      listeners.push(
+        map.addListener('click', (e: any) => {
+          const lat = e.latLng.lat()
+          const lng = e.latLng.lng()
+          if (markerInstance) {
+            markerInstance.setPosition(e.latLng)
+          }
+          if (onLocationChangeRef.current) {
+            onLocationChangeRef.current(lat, lng)
+          }
+        })
+      )
+    }
+
+    return () => {
+      listeners.forEach((listener) => window.google.maps.event.removeListener(listener))
+    }
+  }, [map, fixedCenterMarker, draggable, markerInstance])
 
   // Actualizar posición cuando cambien las props
   useEffect(() => {
     if (map) {
-      const currentCenter = map.getCenter();
-      // Only set center if we don't have a fixedCenterMarker or if the new position is significantly different 
-      // (meaning it comes from an external update, not from the map panning itself)
+      const currentCenter = map.getCenter()
       if (!fixedCenterMarker || (currentCenter && (Math.abs(currentCenter.lat() - latitude) > 0.0001 || Math.abs(currentCenter.lng() - longitude) > 0.0001))) {
         const newPosition = { lat: latitude, lng: longitude }
         map.panTo(newPosition)
-        if (markerInstance && !fixedCenterMarker) {
-          markerInstance.setPosition(newPosition)
-        }
+      }
+      if (markerInstance && !fixedCenterMarker) {
+        markerInstance.setPosition({ lat: latitude, lng: longitude })
       }
     }
   }, [latitude, longitude, map, markerInstance, fixedCenterMarker])
