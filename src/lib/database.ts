@@ -574,8 +574,20 @@ export function getCachedProductsByBusiness(businessId: string): Product[] | nul
 export function invalidateProductsCache(businessId?: string) {
   if (businessId) {
     productsByBusinessCache.delete(businessId)
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem(`fuddi_prods_${businessId}`)
+      } catch { /* ignore */ }
+    }
   } else {
     productsByBusinessCache.clear()
+    if (typeof window !== 'undefined') {
+      try {
+        Object.keys(sessionStorage)
+          .filter(key => key.startsWith('fuddi_prods_'))
+          .forEach(key => sessionStorage.removeItem(key))
+      } catch { /* ignore */ }
+    }
   }
 }
 

@@ -7,6 +7,7 @@ import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredient
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
 import { evaluateProductStock, checkVariantStockAvailability, isProductEffectivelyAvailable as checkProductEffectiveAvailability } from '@/lib/stock-utils'
+import StockConfigModal from '@/components/StockConfigModal'
 
 interface ProductListProps {
   business: Business | null
@@ -128,6 +129,7 @@ export default function ProductList({
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const [hasVariants, setHasVariants] = useState(false)
   const [availableBranches, setAvailableBranches] = useState<Business[]>([])
+  const [stockConfigIngredient, setStockConfigIngredient] = useState<IngredientStockSummary | null>(null)
 
   // Cargar resumen de stock de ingredientes (entradas, salidas, límites y mínimos)
   const loadStockSummary = useCallback(async () => {
@@ -162,6 +164,29 @@ export default function ProductList({
       availableVariants: evaluation.availableVariants,
       outOfStockVariants: evaluation.outOfStockVariants
     }
+  }, [stockSummaryMap])
+
+  const getProductStockIngredients = useCallback((product: Product) => {
+    const productIngredients = product.ingredients || []
+    const variantIngredients = (product.variants || []).flatMap(variant => variant.ingredients || [])
+    const ingredients = [...productIngredients, ...variantIngredients]
+    const seen = new Set<string>()
+
+    return ingredients.reduce<Array<{ name: string; currentStock: number; unit: string }>>((result, ingredient) => {
+      const name = ingredient.name.trim()
+      const key = name.toLowerCase()
+      const stock = stockSummaryMap.get(key)
+
+      if (!name || seen.has(key) || !stock?.isStockLimited) return result
+
+      seen.add(key)
+      result.push({
+        name,
+        currentStock: stock.currentStock,
+        unit: stock.unit || ingredient.unit || 'uds'
+      })
+      return result
+    }, [])
   }, [stockSummaryMap])
 
   /**
@@ -492,7 +517,7 @@ export default function ProductList({
     setFormData({
       name: product.name,
       description: product.description,
-      price: (product.basePrice || product.price).toString(),
+      price: (product.basePrice ?? product.price).toString(),
       category: categoryToSet,
       isAvailable: product.isAvailable,
       autoHideByStock: product.autoHideByStock ?? false,
@@ -504,7 +529,7 @@ export default function ProductList({
       imagePosition: product.imagePosition || '50% 50%',
       imageScale: product.imageScale || 1
     })
-    setVariants(product.variants?.map(v => ({ ...v, price: v.basePrice || v.price })) || [])
+    setVariants(product.variants?.map(v => ({ ...v, price: v.basePrice ?? v.price })) || [])
     setIngredients((product.ingredients || []) as any)
 
     // Cargar visibilidad de variantes
@@ -808,7 +833,7 @@ export default function ProductList({
   const handleEditVariant = (variant: ProductVariant) => {
     setCurrentVariant({
       name: variant.name,
-      price: (variant.basePrice || variant.price).toString(),
+      price: (variant.basePrice ?? variant.price).toString(),
       description: variant.description || '',
       imageFile: null,
       imageUrl: variant.image || ''
@@ -823,7 +848,7 @@ export default function ProductList({
     }
 
     const price = currentVariant.price ? Number(currentVariant.price) : Number(formData.price)
-    if (isNaN(price) || price <= 0) {
+    if (isNaN(price) || price < 0) {
       alert('El precio debe ser válido')
       return
     }
@@ -1280,7 +1305,7 @@ export default function ProductList({
 
     const newErrors: Record<string, string> = {}
     if (!formData.name.trim()) newErrors.name = 'El nombre es requerido'
-    if (!formData.price || isNaN(Number(formData.price)) || Number(formData.price) <= 0) {
+    if (!formData.price || isNaN(Number(formData.price)) || Number(formData.price) < 0) {
       newErrors.price = 'El precio debe ser válido'
     }
 
@@ -1950,10 +1975,30 @@ export default function ProductList({
                             </h4>
                             {isDecidedByStock ? (
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="inline-flex items-center gap-1 text-[9px] font-black bg-rose-50 text-rose-700 px-2 py-0.5 rounded-md border border-rose-100 uppercase tracking-tight">
-                                  <i className="bi bi-boxes text-[10px]"></i>
-                                  Por stock
-                                </span>
+                                {getProductStockIngredients(product).map(ingredient => (
+                                  <span
+                                    key={ingredient.name}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setStockConfigIngredient(stockSummaryMap.get(ingredient.name.toLowerCase()) || null)
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                        setStockConfigIngredient(stockSummaryMap.get(ingredient.name.toLowerCase()) || null)
+                                      }
+                                    }}
+                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${ingredient.currentStock <= (stockSummaryMap.get(ingredient.name.toLowerCase())?.minStock ?? 0)
+                                      ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                      : 'bg-slate-50 text-slate-600 border-slate-100'} cursor-pointer hover:brightness-95`}
+                                    title="Configurar stock"
+                                  >
+                                    {ingredient.name}: {Math.round(ingredient.currentStock)} {ingredient.unit}
+                                  </span>
+                                ))}
                                 {!stockStatus.isAvailableByStock && (
                                   <span className="text-[9px] font-black bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-tight flex items-center gap-1" title={stockStatus.outOfStockIngredients.join(', ')}>
                                     <i className="bi bi-exclamation-circle text-[9px]"></i>
@@ -1977,7 +2022,7 @@ export default function ProductList({
                         <div className="mt-2 flex flex-col">
                           <div className="flex items-center gap-3">
                             <span className="text-base sm:text-xl font-black text-emerald-600 tracking-tight">
-                              ${(product.basePrice || product.price).toFixed(2)}
+                              ${(product.basePrice ?? product.price).toFixed(2)}
                             </span>
                             {product.variants && product.variants.length > 0 && (
                               <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
@@ -1988,7 +2033,7 @@ export default function ProductList({
                               </div>
                             )}
                           </div>
-                          {product.basePrice && product.basePrice !== product.price && (
+                          {product.basePrice != null && product.basePrice !== product.price && (
                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
                               Público: ${product.price.toFixed(2)}
                             </span>
@@ -4691,6 +4736,18 @@ export default function ProductList({
             </div>
           </div>
         </div>,
+        document.body
+      )}
+
+      {stockConfigIngredient && business?.id && isMounted && createPortal(
+        <StockConfigModal
+          businessId={business.id}
+          ingredient={stockConfigIngredient}
+          onClose={() => setStockConfigIngredient(null)}
+          onSaved={async () => {
+            await loadStockSummary()
+          }}
+        />,
         document.body
       )}
 
