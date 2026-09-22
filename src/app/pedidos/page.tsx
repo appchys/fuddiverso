@@ -1678,12 +1678,22 @@ export default function AdminPedidosPage() {
                                 <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-600"></div>
                             </div>
                         ) : orders.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-24 px-4 text-center bg-white rounded-3xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
-                                <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center text-red-600 mb-4">
-                                    <i className="bi bi-inbox text-2xl"></i>
+                            <div className="space-y-6">
+                                {selectedBusinessId && (
+                                    <LiveCheckoutsPanel
+                                        businessId={selectedBusinessId}
+                                        orders={orders}
+                                        onCountChange={setCheckoutCount}
+                                        onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                    />
+                                )}
+                                <div className="flex flex-col items-center justify-center py-24 px-4 text-center bg-white rounded-3xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
+                                    <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center text-red-600 mb-4">
+                                        <i className="bi bi-inbox text-2xl"></i>
+                                    </div>
+                                    <h3 className="text-xs font-black text-gray-900 uppercase tracking-wider mb-1">Sin pedidos para hoy</h3>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">Aquí aparecerán los pedidos de la tienda conforme vayan llegando.</p>
                                 </div>
-                                <h3 className="text-xs font-black text-gray-900 uppercase tracking-wider mb-1">Sin pedidos para hoy</h3>
-                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">Aquí aparecerán los pedidos de la tienda conforme vayan llegando.</p>
                             </div>
                         ) : (
                             <div className="space-y-6">
