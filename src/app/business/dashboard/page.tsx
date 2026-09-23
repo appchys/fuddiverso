@@ -10,6 +10,7 @@ import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, Timestam
 import {
     getBusiness,
     getProductsByBusiness,
+    getCachedProductsByBusiness,
     deleteOrder,
     getDeliveriesByStatus,
     updateOrderStatus,
@@ -393,7 +394,7 @@ export default function TodayOrdersPage() {
     // Resetear productos cargados cuando cambie el negocio/sucursal
     useEffect(() => {
         setProductsLoaded(false)
-        setProducts([])
+        setProducts(businessId ? (getCachedProductsByBusiness(businessId) || []) : [])
     }, [businessId])
 
     // OPTIMIZED: Load products when needed (products tab, manual order sidebar) OR in background after initial dashboard load (!loading)

@@ -253,6 +253,7 @@ export default function ManualOrderSidebar({
   // Refs para optimización de búsqueda por teléfono (debounce + cancelación de peticiones desactualizadas)
   const phoneSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const phoneSearchRequestIdRef = useRef<number>(0)
+  const clientLocationsRequestRef = useRef<Record<string, Promise<ClientLocation[]>>>({})
 
   const handleCycleTable = () => {
     const currentNum = manualOrderData.customerName.trim().startsWith('Mesa ')
@@ -877,7 +878,7 @@ export default function ManualOrderSidebar({
       }
 
       // Usar la nueva función con Round Robin
-      const deliveryId = await getDeliveryForLocation({ lat, lng })
+      const deliveryId = await getDeliveryForLocation({ lat, lng }, effectiveBusinessId)
 
       if (deliveryId) {
         const delivery = availableDeliveries.find(d => d.id === deliveryId)
@@ -1088,7 +1089,7 @@ export default function ManualOrderSidebar({
     setSearchTimeout(timeout)
   }
 
-  const loadClientLocations = async (clientId: string, bypassCache = false) => {
+  const loadClientLocationsInternal = async (clientId: string, bypassCache = false) => {
     if (!clientId) return []
 
     setLoadingClientLocations(true)
@@ -1153,6 +1154,27 @@ export default function ManualOrderSidebar({
       return []
     } finally {
       setLoadingClientLocations(false)
+    }
+  }
+
+  const loadClientLocations = async (clientId: string, bypassCache = false) => {
+    if (!clientId) return []
+
+    if (!bypassCache) {
+      const pendingRequest = clientLocationsRequestRef.current[clientId]
+      if (pendingRequest) return pendingRequest
+    }
+
+    const request = loadClientLocationsInternal(clientId, bypassCache)
+    if (bypassCache) return request
+
+    clientLocationsRequestRef.current[clientId] = request
+    try {
+      return await request
+    } finally {
+      if (clientLocationsRequestRef.current[clientId] === request) {
+        delete clientLocationsRequestRef.current[clientId]
+      }
     }
   }
 
@@ -3683,7 +3705,7 @@ export default function ManualOrderSidebar({
               <div className="border border-dashed border-gray-300 rounded-lg p-4 text-center text-sm text-gray-500">
                 Selecciona una tienda para ver sus productos.
               </div>
-            ) : loadingBusinessProducts ? (
+            ) : loadingBusinessProducts && products.length === 0 ? (
               <div className="border border-gray-200 rounded-lg p-4 text-center text-sm text-gray-500">
                 Cargando productos...
               </div>
@@ -4549,7 +4571,7 @@ export default function ManualOrderSidebar({
               disabled={
                 creatingOrder ||
                 (showBusinessSelector && !business?.id) ||
-                loadingBusinessProducts ||
+                (loadingBusinessProducts && products.length === 0) ||
                 (manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01)
               }
               className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -4980,16 +5002,16 @@ export default function ManualOrderSidebar({
                             setShowLocationModal(false)
                             calculateTotal(manualOrderData.selectedProducts)
 
+                            void findDeliveryForLocation(initialSelected)
+
                             // 2. Si no tiene coordenadas válidas o es pluscode, asignar repartidor directamente
                             if (!location.latlong || location.latlong.startsWith('pluscode:')) {
-                              findDeliveryForLocation(initialSelected)
                               return
                             }
 
                             // 3. Si hay coordenadas, verificar tarifa y repartidor en segundo plano (sin bloquear la UI)
                             const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
                             if (isNaN(lat) || isNaN(lng)) {
-                              findDeliveryForLocation(initialSelected)
                               return
                             }
 
@@ -5007,11 +5029,9 @@ export default function ManualOrderSidebar({
                                   return prev
                                 })
                                 calculateTotal(manualOrderData.selectedProducts)
-                                findDeliveryForLocation(updatedLocation)
                               })
                               .catch(error => {
                                 console.error('Error calculating delivery fee in background:', error)
-                                findDeliveryForLocation(initialSelected)
                               })
                               .finally(() => {
                                 setCalculatingTariff(false)
