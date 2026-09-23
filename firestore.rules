@@ -108,6 +108,12 @@ service cloud.firestore {
       allow create, read, update, delete: if true;
     }
 
+    // Cola temporal para enviar trabajos de impresión entre navegadores.
+    match /printJobs/{document} {
+      allow create, read, update: if true;
+      allow delete: if false;
+    }
+
     // Colección para contadores de visitas por negocio
     // Documento ID = businessId
     // Permitir lecturas públicas y permitir incrementos controlados desde frontend.

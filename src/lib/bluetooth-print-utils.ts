@@ -200,6 +200,14 @@ export function getBluetoothPrinterStatus(): {
     return { connected: false, deviceName: null };
 }
 
+/**
+ * Solicita o recupera la conexión a la impresora sin imprimir un ticket.
+ */
+export async function connectBluetoothPrinter(): Promise<{ deviceName: string | null }> {
+    const connection = await _getConnection();
+    return { deviceName: connection.device.name || connection.device.id };
+}
+
 // ─── Fin del Manager ────────────────────────────────────────────────────────
 
 function getPrintableImageUrl(url: string): string {

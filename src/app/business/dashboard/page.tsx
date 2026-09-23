@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product, BusinessAdministrator } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
-import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'
+import { addDoc, collection, query, where, orderBy, onSnapshot, doc, updateDoc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
 import {
     getBusiness,
     getProductsByBusiness,
@@ -40,6 +40,11 @@ import { usePushNotifications } from '@/hooks/usePushNotifications'
 import DashboardSidebar from '@/components/DashboardSidebar'
 import { optimizeImage } from '@/lib/image-utils'
 import { logDebug } from '@/lib/debug-log'
+import {
+    connectBluetoothPrinter,
+    disconnectBluetoothPrinter,
+    getBluetoothPrinterStatus
+} from '@/lib/bluetooth-print-utils'
 
 // Dashboard-specific imports (extracted modules)
 import {
@@ -110,6 +115,10 @@ export default function TodayOrdersPage() {
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
     const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('standard')
+    const [showPrinterPopover, setShowPrinterPopover] = useState(false)
+    const [printerStatus, setPrinterStatus] = useState({ connected: false, deviceName: null as string | null })
+    const [connectingPrinter, setConnectingPrinter] = useState(false)
+    const [printerError, setPrinterError] = useState('')
     const [toast, setToast] = useState<{ show: boolean; message: string; icon?: string } | null>(null)
 
     const showToastMessage = (message: string, icon: string = 'bi-printer') => {
@@ -124,6 +133,35 @@ export default function TodayOrdersPage() {
     const businessDropdownRef = useRef<HTMLDivElement>(null)
     // Ref for time dropdown container
     const timeDropdownRef = useRef<HTMLDivElement>(null)
+    const processingPrintJobsRef = useRef(new Set<string>())
+    const printBridgeIdRef = useRef<string | null>(null)
+
+    useEffect(() => {
+        const refreshPrinterStatus = () => setPrinterStatus(getBluetoothPrinterStatus())
+        refreshPrinterStatus()
+        const intervalId = window.setInterval(refreshPrinterStatus, 1000)
+        return () => window.clearInterval(intervalId)
+    }, [])
+
+    const handleConnectPrinter = async () => {
+        setConnectingPrinter(true)
+        setPrinterError('')
+        try {
+            const connection = await connectBluetoothPrinter()
+            setPrinterStatus({ connected: true, deviceName: connection.deviceName })
+        } catch (error: any) {
+            if (error?.name !== 'NotFoundError') {
+                setPrinterError(error?.message || 'No se pudo conectar la impresora')
+            }
+        } finally {
+            setConnectingPrinter(false)
+        }
+    }
+
+    const handleDisconnectPrinter = () => {
+        disconnectBluetoothPrinter()
+        setPrinterStatus({ connected: false, deviceName: null })
+    }
 
     // Notifications Hook
     const pushNotifications = usePushNotifications()
@@ -1766,6 +1804,21 @@ export default function TodayOrdersPage() {
         try {
             const orderBusiness = businesses.find(b => b.id === order.businessId) || business
             if (printMode === 'bluetooth') {
+                if (typeof navigator === 'undefined' || !('bluetooth' in navigator)) {
+                    await addDoc(collection(db, 'printJobs'), {
+                        businessId: order.businessId || business?.id,
+                        order,
+                        businessName: orderBusiness?.name || 'Negocio',
+                        businessLogo: orderBusiness?.image || null,
+                        groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true,
+                        status: 'pending',
+                        createdAt: serverTimestamp(),
+                        source: 'browser-relay'
+                    })
+                    if (!silent) showToastMessage('Enviado al Android de impresión', 'bi-send-check')
+                    return
+                }
+
                 const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
                 await printOrderBluetooth({
                     order: order as any,
@@ -1793,6 +1846,76 @@ export default function TodayOrdersPage() {
             alert("Error al imprimir: " + (e.message || "Error desconocido"))
         }
     }, [businesses, business, printMode])
+
+    // Puente de impresión: un navegador Android conectado toma los trabajos enviados desde iPhone.
+    useEffect(() => {
+        if (!businessId || typeof navigator === 'undefined' || !('bluetooth' in navigator)) return
+        if (!printerStatus.connected) return
+
+        if (!printBridgeIdRef.current) {
+            printBridgeIdRef.current = `browser-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        }
+
+        const jobsQuery = query(
+            collection(db, 'printJobs'),
+            where('businessId', '==', businessId)
+        )
+
+        const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
+            snapshot.docs
+                .filter(jobSnapshot => jobSnapshot.data().status === 'pending')
+                .forEach((jobSnapshot) => {
+                    const jobId = jobSnapshot.id
+                    if (processingPrintJobsRef.current.has(jobId)) return
+                    processingPrintJobsRef.current.add(jobId)
+
+                    void (async () => {
+                        const jobRef = doc(db, 'printJobs', jobId)
+                        try {
+                            const claimed = await runTransaction(db, async (transaction) => {
+                                const currentJob = await transaction.get(jobRef)
+                                if (!currentJob.exists() || currentJob.data().status !== 'pending') return false
+
+                                transaction.update(jobRef, {
+                                    status: 'processing',
+                                    processorId: printBridgeIdRef.current,
+                                    processingAt: serverTimestamp()
+                                })
+                                return true
+                            })
+
+                            if (!claimed) return
+
+                            const job = jobSnapshot.data()
+                            const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
+                            await printOrderBluetooth({
+                                order: job.order,
+                                businessName: job.businessName || business?.name || 'Negocio',
+                                businessLogo: job.businessLogo || business?.image,
+                                groupItemsByProduct: job.groupItemsByProduct ?? true
+                            })
+                            await updateDoc(jobRef, {
+                                status: 'printed',
+                                printedAt: serverTimestamp()
+                            })
+                        } catch (error: any) {
+                            console.error('[Print Bridge] Error procesando trabajo:', error)
+                            await updateDoc(jobRef, {
+                                status: 'failed',
+                                error: error?.message || 'Error desconocido',
+                                failedAt: serverTimestamp()
+                            }).catch(() => undefined)
+                        } finally {
+                            processingPrintJobsRef.current.delete(jobId)
+                        }
+                    })()
+                })
+        }, (error) => {
+            console.error('[Print Bridge] Error escuchando trabajos:', error)
+        })
+
+        return unsubscribe
+    }, [businessId, business, printerStatus.connected])
 
     const handleOpenManualOrderFromCheckout = (checkoutSession: CheckoutSession) => {
         logDebug('checkout', 'Admin presiona Completar en sesión de checkout activo', {
@@ -1999,6 +2122,74 @@ export default function TodayOrdersPage() {
                                     {business?.id && (
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
+
+                                    {/* Conexión de impresora térmica */}
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => { setShowPrinterPopover(!showPrinterPopover); setPrinterError('') }}
+                                            className={`p-2 rounded-lg transition-colors ${printerStatus.connected ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-gray-500 hover:bg-gray-100'}`}
+                                            title={printerStatus.connected ? `Impresora conectada: ${printerStatus.deviceName || 'Bluetooth'}` : 'Conectar impresora térmica'}
+                                            aria-label={printerStatus.connected ? 'Gestionar impresora conectada' : 'Conectar impresora térmica'}
+                                        >
+                                            <i className="bi bi-printer text-xl"></i>
+                                        </button>
+
+                                        {showPrinterPopover && (
+                                            <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-100 p-4 z-50">
+                                                <div className="flex items-center gap-3 mb-3">
+                                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${printerStatus.connected ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
+                                                        <i className="bi bi-printer"></i>
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-bold text-gray-900">Impresora térmica</p>
+                                                        <p className={`text-xs truncate ${printerStatus.connected ? 'text-green-600' : 'text-gray-500'}`}>
+                                                            {printerStatus.connected ? (printerStatus.deviceName || 'Conectada') : 'No conectada'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                {printerError && <p className="text-xs text-red-600 mb-3">{printerError}</p>}
+                                                {printerStatus.connected ? (
+                                                    <button
+                                                        onClick={handleDisconnectPrinter}
+                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-bold text-gray-700 hover:bg-gray-50"
+                                                    >
+                                                        Desconectar
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={handleConnectPrinter}
+                                                        disabled={connectingPrinter}
+                                                        className="w-full px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                                                    >
+                                                        {connectingPrinter && <i className="bi bi-arrow-repeat animate-spin"></i>}
+                                                        {connectingPrinter ? 'Conectando...' : 'Conectar impresora'}
+                                                    </button>
+                                                )}
+
+                                                <div className="border-t border-gray-100 mt-4 pt-3">
+                                                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Modo de impresión</p>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <button
+                                                            onClick={() => printMode === 'bluetooth' && togglePrintMode()}
+                                                            className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-bold transition-colors ${printMode === 'standard' ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                                            aria-pressed={printMode === 'standard'}
+                                                        >
+                                                            <i className="bi bi-file-earmark-pdf"></i>
+                                                            PDF
+                                                        </button>
+                                                        <button
+                                                            onClick={() => printMode === 'standard' && togglePrintMode()}
+                                                            className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-bold transition-colors ${printMode === 'bluetooth' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                                            aria-pressed={printMode === 'bluetooth'}
+                                                        >
+                                                            <i className="bi bi-bluetooth"></i>
+                                                            Bluetooth
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
 
 
                                     {/* Business Selector */}
