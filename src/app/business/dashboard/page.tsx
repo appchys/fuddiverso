@@ -1998,6 +1998,22 @@ export default function TodayOrdersPage() {
         const targetBusinessId = order.businessId || business?.id
         const cleanedOrder = cleanFirestoreData(order)
 
+        // Marcar la orden como enviada a imprimir inmediatamente
+        patchOrderEverywhere(order.id, o => ({
+            ...o,
+            isPrinted: true,
+            printedAt: new Date()
+        }))
+
+        if (order.id) {
+            updateDoc(doc(db, 'orders', order.id), {
+                isPrinted: true,
+                printedAt: serverTimestamp()
+            }).catch(err => {
+                console.warn('[Print] Error actualizando isPrinted en Firestore:', err)
+            })
+        }
+
         try {
             if (printMode === 'bluetooth') {
                 if (typeof navigator === 'undefined' || !('bluetooth' in navigator)) {
@@ -2119,7 +2135,7 @@ export default function TodayOrdersPage() {
             }
             alert("Error al imprimir: " + (e.message || "Error desconocido"))
         }
-    }, [businesses, business, printMode])
+    }, [businesses, business, printMode, patchOrderEverywhere])
 
     // Puente de impresión: un navegador Android conectado toma los trabajos enviados desde iPhone.
     useEffect(() => {

@@ -186,6 +186,17 @@ export const OrderCard = memo(function OrderCard({
         return 0; // Keep original order if both are zero or both are non-zero
     });
     const isOptimistic = Boolean((order as any)._isOptimistic)
+    const isPrinted = Boolean(order.isPrinted || (order as any).printed || order.printedAt)
+
+    const handlePrintClick = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        if (isPrinted) {
+            if (!window.confirm('¿Desea volver a imprimir esta orden?')) {
+                return
+            }
+        }
+        onPrint(order)
+    }
 
     return (
         <div className={`bg-white rounded-xl shadow-sm border transition-all ${isOptimistic ? 'border-dashed border-amber-300 opacity-75' : 'border-gray-100'} ${statusMenuOpen ? 'relative z-30' : ''} ${urgent && !isOptimistic ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
@@ -376,9 +387,14 @@ export const OrderCard = memo(function OrderCard({
 
                         {/* Print Button */}
                         <button
-                            onClick={() => onPrint(order)}
-                            className="p-1.5 text-lg text-gray-500 rounded-lg transition-all hover:bg-gray-200/60 hover:text-gray-800"
-                            title="Imprimir ticket"
+                            type="button"
+                            onClick={handlePrintClick}
+                            className={`p-1.5 text-lg rounded-lg transition-all ${
+                                isPrinted
+                                    ? 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+                                    : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200/60'
+                            }`}
+                            title={isPrinted ? '¿Desea volver a imprimir esta orden?' : 'Imprimir ticket'}
                         >
                             <i className="bi bi-printer"></i>
                         </button>

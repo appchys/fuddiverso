@@ -427,6 +427,8 @@ export interface Order {
   deliverySettlementId?: string // ID del corte de delivery
   telegramBusinessMessages?: { chatId: string, messageId: number }[] // Rastreo de mensajes enviados a la tienda
   confirmationSource?: 'email' | 'app' | 'telegram_bot' | 'telegram_miniapp' // Origen desde donde el restaurante confirmó la orden
+  isPrinted?: boolean // Indica si la orden ya fue enviada a imprimir
+  printedAt?: Date | Timestamp // Fecha y hora de impresión
   _isOptimistic?: boolean // Marcador temporal: la orden aún se está guardando en la base de datos
 }
 
