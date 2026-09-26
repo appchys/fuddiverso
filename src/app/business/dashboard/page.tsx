@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product, BusinessAdministrator } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
-import { addDoc, collection, query, where, orderBy, onSnapshot, doc, updateDoc, deleteDoc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { addDoc, collection, query, where, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
 import {
     getBusiness,
     getProductsByBusiness,
@@ -121,6 +121,8 @@ export default function TodayOrdersPage() {
     const [printerStatus, setPrinterStatus] = useState({ connected: false, deviceName: null as string | null })
     const [connectingPrinter, setConnectingPrinter] = useState(false)
     const [printerError, setPrinterError] = useState('')
+    const [isSyncingOrders, setIsSyncingOrders] = useState(false)
+    const [ordersRefreshTrigger, setOrdersRefreshTrigger] = useState(0)
     const [toast, setToast] = useState<{ show: boolean; message: string; icon?: string } | null>(null)
 
     const showToastMessage = (message: string, icon: string = 'bi-printer') => {
@@ -1373,7 +1375,7 @@ export default function TodayOrdersPage() {
             unsubScheduledString()
             unsubMultiStore()
         }
-    }, [businessId])
+    }, [businessId, ordersRefreshTrigger])
 
     // Sincronizar órdenes optimistas cuando terminan de guardarse en Firestore
     useEffect(() => {
@@ -1899,6 +1901,78 @@ export default function TodayOrdersPage() {
         }
     }, [business?.id])
 
+    const handleSyncOrders = useCallback(async () => {
+        if (isSyncingOrders || !businessId) return
+        setIsSyncingOrders(true)
+        showToastMessage('Actualizando pedidos...', 'bi-arrow-repeat')
+
+        try {
+            // Re-ejecutar listeners en tiempo real
+            setOrdersRefreshTrigger(prev => prev + 1)
+
+            // Consultar órdenes de hoy directamente del servidor para garantizar datos al instante
+            const now = new Date()
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+            const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+
+            const qCreatedToday = query(
+                collection(db, 'orders'),
+                where('businessId', '==', businessId),
+                where('createdAt', '>=', Timestamp.fromDate(startOfDay)),
+                where('createdAt', '<', Timestamp.fromDate(endOfDay))
+            )
+            const qActive = query(
+                collection(db, 'orders'),
+                where('businessId', '==', businessId),
+                where('status', 'in', ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'])
+            )
+
+            const [snapToday, snapActive] = await Promise.all([
+                getDocs(qCreatedToday).catch(() => null),
+                getDocs(qActive).catch(() => null)
+            ])
+
+            if (snapToday || snapActive) {
+                const freshOrdersMap = new Map<string, Order>()
+                snapToday?.docs.forEach(doc => {
+                    freshOrdersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+                })
+                snapActive?.docs.forEach(doc => {
+                    freshOrdersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+                })
+
+                if (freshOrdersMap.size > 0) {
+                    setOrders(prev => {
+                        const merged = new Map<string, Order>()
+                        prev.forEach(o => merged.set(o.id, o))
+                        freshOrdersMap.forEach((val, key) => merged.set(key, val))
+                        const arr = Array.from(merged.values())
+                        arr.sort((a, b) => {
+                            const getMinutes = (o: Order) => {
+                                if (o.timing?.type === 'scheduled' && o.timing.scheduledTime) {
+                                    const [h, m] = o.timing.scheduledTime.split(':').map(Number);
+                                    return h * 60 + m;
+                                }
+                                const date = toSafeDate(o.createdAt);
+                                return date.getHours() * 60 + date.getMinutes();
+                            };
+                            return getMinutes(a) - getMinutes(b);
+                        })
+                        return arr
+                    })
+                }
+            }
+            showToastMessage('Pedidos actualizados', 'bi-check2-circle')
+        } catch (error) {
+            console.error('Error sincronizando pedidos:', error)
+            showToastMessage('Error al sincronizar pedidos', 'bi-exclamation-triangle')
+        } finally {
+            setTimeout(() => {
+                setIsSyncingOrders(false)
+            }, 600)
+        }
+    }, [businessId, isSyncingOrders])
+
     const cleanFirestoreData = (obj: any): any => {
         if (obj === null || obj === undefined) return null
         if (Array.isArray(obj)) {
@@ -2250,83 +2324,82 @@ export default function TodayOrdersPage() {
                                 </div>
 
                                 <div className="flex items-center space-x-2 sm:space-x-4">
-                                    {/* Control Manual de Tienda */}
+                                    {/* Control de Estado de Tienda (Abierto / Cerrado) */}
+                                    {business && (() => {
+                                        const isManualActive = business.manualStoreStatus && (!business.manualStatusExpiry || new Date() < toSafeDate(business.manualStatusExpiry))
+                                        const isOpen = isStoreOpen(business)
+                                        const iconName = isManualActive
+                                            ? (business.manualStoreStatus === 'open' ? 'bi-unlock-fill' : 'bi-lock-fill')
+                                            : (isOpen ? 'bi-clock-fill' : 'bi-clock')
+
+                                        return (
+                                            <button
+                                                onClick={handleToggleStoreStatus}
+                                                disabled={updatingStoreStatus}
+                                                className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                                                    isOpen
+                                                        ? 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                                        : 'text-rose-600 bg-rose-50 hover:bg-rose-100'
+                                                }`}
+                                                title={`Tienda: ${isOpen ? 'Abierta' : 'Cerrada'} ${isManualActive ? '(Manual)' : '(Horario Automático)'} - Clic para cambiar`}
+                                                aria-label={`Tienda ${isOpen ? 'abierta' : 'cerrada'} ${isManualActive ? 'manual' : 'horario'}`}
+                                            >
+                                                <i className={`bi ${iconName} text-xl`}></i>
+                                            </button>
+                                        )
+                                    })()}
+
+                                    {/* Control del Tiempo de Entrega (Tiempo Añadido) */}
                                     {business && (
-                                        <div className="flex items-center gap-2">
-                                            <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                                                <div className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                                                <span className="text-sm font-medium text-gray-700">
-                                                    {isStoreOpen(business) ? 'Abierto' : 'Cerrado'}
-                                                </span>
-                                            </div>
+                                        <div className="relative" ref={timeDropdownRef}>
+                                            <button
+                                                onClick={() => setShowTimeDropdown(!showTimeDropdown)}
+                                                className={`h-9 min-w-[36px] px-2 flex items-center justify-center rounded-lg transition-colors font-black text-xs tracking-tight ${
+                                                    isDeliveryTimeExtended
+                                                        ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 ring-1 ring-amber-300'
+                                                        : 'text-gray-600 bg-gray-100 hover:bg-gray-200 hover:text-gray-900'
+                                                }`}
+                                                title={`Tiempo de entrega: ${currentDeliveryTime} min ${isDeliveryTimeExtended ? '(Tiempo extendido)' : ''} - Clic para ajustar`}
+                                                aria-label="Ajustar tiempo de entrega"
+                                            >
+                                                <span>{currentDeliveryTime}m</span>
+                                            </button>
 
-                                            {(() => {
-                                                const isManualActive = business.manualStoreStatus && (!business.manualStatusExpiry || new Date() < toSafeDate(business.manualStatusExpiry))
-                                                
-                                                return (
-                                                    <button
-                                                        onClick={handleToggleStoreStatus}
-                                                        disabled={updatingStoreStatus}
-                                                        className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50"
-                                                        title={isManualActive ? (business.manualStoreStatus === 'open' ? 'Abierto (Manual)' : 'Cerrado (Manual)') : 'Horario Automático'}
-                                                    >
-                                                        <i className={`bi ${isManualActive ? (business.manualStoreStatus === 'open' ? 'bi-unlock-fill text-green-600' : 'bi-lock-fill text-red-600') : `bi-clock-fill ${isStoreOpen(business) ? 'text-green-600' : 'text-gray-400'}`}`} />
-                                                    </button>
-                                                )
-                                            })()}
-                                        </div>
-                                    )}
-
-                                    {/* Control del Tiempo de Entrega */}
-                                    {business && (
-                                        <div className="flex items-center gap-2">
-                                            <div className="relative group" ref={timeDropdownRef}>
-                                                <button
-                                                    onClick={() => setShowTimeDropdown(!showTimeDropdown)}
-                                                    className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg border transition-colors ${isDeliveryTimeExtended ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
-                                                >
-                                                    <i className={`bi bi-clock-history hidden sm:inline ${isDeliveryTimeExtended ? 'text-orange-600' : 'text-gray-600'}`}></i>
-                                                    <span className="text-sm font-bold">
-                                                        {currentDeliveryTime}<span className="sm:hidden">m</span><span className="hidden sm:inline"> min</span>
-                                                    </span>
-                                                </button>
-
-                                                {showTimeDropdown && (
-                                                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
-                                                        {[5, 10, 30].map((mins) => (
-                                                            <button
-                                                                key={mins}
-                                                                onClick={() => { handleUpdateDeliveryTime(mins); setShowTimeDropdown(false); }}
-                                                                disabled={updatingDeliveryTime}
-                                                                className="w-full px-4 py-2 text-left hover:bg-red-50 hover:text-red-600 text-sm font-bold flex items-center justify-between"
-                                                            >
-                                                                <span>+{mins} minutos</span>
-                                                            </button>
-                                                        ))}
-                                                        <div className="border-t border-gray-50 mt-1 pt-1">
-                                                            <button
-                                                                onClick={() => { handleUpdateDeliveryTime(0); setShowTimeDropdown(false); }}
-                                                                disabled={updatingDeliveryTime}
-                                                                className="w-full px-4 py-2 text-left hover:bg-gray-50 text-xs text-gray-500 font-medium"
-                                                            >
-                                                                Restablecer a {configuredDeliveryTime} min
-                                                            </button>
-                                                        </div>
+                                            {showTimeDropdown && (
+                                                <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
+                                                    <div className="px-3.5 py-2 border-b border-gray-100 mb-1">
+                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Tiempo de entrega</p>
+                                                        <p className="text-xs font-bold text-gray-800">Actual: {currentDeliveryTime} min</p>
                                                     </div>
-                                                )}
-                                            </div>
+                                                    {[5, 10, 30].map((mins) => (
+                                                        <button
+                                                            key={mins}
+                                                            onClick={() => { handleUpdateDeliveryTime(mins); setShowTimeDropdown(false); }}
+                                                            disabled={updatingDeliveryTime}
+                                                            className="w-full px-3.5 py-2 text-left hover:bg-amber-50 hover:text-amber-700 text-xs font-bold flex items-center justify-between transition-colors"
+                                                        >
+                                                            <span>Añadir +{mins} minutos</span>
+                                                            <span className="text-[10px] text-gray-400 font-medium">({configuredDeliveryTime + mins} min)</span>
+                                                        </button>
+                                                    ))}
+                                                    <div className="border-t border-gray-100 mt-1 pt-1">
+                                                        <button
+                                                            onClick={() => { handleUpdateDeliveryTime(0); setShowTimeDropdown(false); }}
+                                                            disabled={updatingDeliveryTime}
+                                                            className="w-full px-3.5 py-2 text-left hover:bg-gray-50 text-xs text-gray-500 font-medium transition-colors"
+                                                        >
+                                                            Restablecer a {configuredDeliveryTime} min
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
                                     {/* Queue Status */}
                                     <QueueStatusIndicator status={queueStatus} onRetry={retryFailed} className="hidden sm:flex" />
 
-                                    {/* Bell */}
-                                    {business?.id && (
-                                        <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
-                                    )}
-
-                                    {/* Conexión de impresora térmica y cola de impresión */}
+                                     {/* Conexión de impresora térmica y cola de impresión */}
                                     <div className="relative" ref={printerContainerRef}>
                                         <button
                                             onClick={() => { setShowPrinterPopover(!showPrinterPopover); setPrinterError('') }}
@@ -2362,6 +2435,22 @@ export default function TodayOrdersPage() {
                                             printJobs={printJobs}
                                         />
                                     </div>
+
+                                    {/* Bell */}
+                                    {business?.id && (
+                                        <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
+                                    )}
+
+                                    {/* Sincronizar Pedidos de Hoy */}
+                                    <button
+                                        onClick={handleSyncOrders}
+                                        disabled={isSyncingOrders}
+                                        className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50 group"
+                                        title="Sincronizar pedidos de hoy"
+                                        aria-label="Sincronizar pedidos de hoy"
+                                    >
+                                        <i className={`bi bi-arrow-repeat text-xl block transition-transform ${isSyncingOrders ? 'animate-spin text-rose-500' : 'group-hover:rotate-180 duration-500'}`}></i>
+                                    </button>
 
 
                                     {/* Business Selector */}
