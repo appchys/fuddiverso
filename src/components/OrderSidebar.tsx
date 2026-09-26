@@ -1931,7 +1931,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
             
             <div className="flex-1 overflow-y-auto flex items-center justify-center py-4 bg-slate-50 rounded-2xl border border-slate-100/50 mt-3">
               <img
-                src={order.payment.receiptImageUrl}
+                src={order?.payment?.receiptImageUrl || ''}
                 alt="Comprobante de Pago"
                 className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-sm"
               />
@@ -1945,7 +1945,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
         isOpen={isDeliveryModalOpen}
         onClose={() => setIsDeliveryModalOpen(false)}
         order={order}
-        deliveryAgent={(deliveryPerson || order.delivery?.assignedDeliveryData) as any || undefined}
+        deliveryAgent={(deliveryPerson || order?.delivery?.assignedDeliveryData) as any || undefined}
         availableDeliveries={availableDeliveries}
         canChangeDelivery={true}
         onDeliveryAssign={handleDeliveryAssign}
