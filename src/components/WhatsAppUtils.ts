@@ -6,7 +6,7 @@ const openExternalLink = (url: string) => {
     if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.openLink) {
         (window as any).Telegram.WebApp.openLink(url)
     } else if (typeof window !== 'undefined') {
-        window.open(url, '_blank', 'noopener,noreferrer')
+        window.open(url, '_blank')
     }
 }
 
@@ -308,7 +308,7 @@ export const sendWhatsAppToDelivery = async (
         total: effectiveTotal.toFixed(2)
     })
 
-    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(phone)}?text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(phone)}&text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
 
     if (nextStatus && onStatusUpdate && updateLocalOrder) {
@@ -378,7 +378,7 @@ export const sendWhatsAppToCustomer = async (order: Order) => {
         orderLinkLine
     })
 
-    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(customerPhoneRaw)}?text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(customerPhoneRaw)}&text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
 }
 
@@ -426,7 +426,7 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
         orderLinkLine
     })
 
-    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(storePhone)}?text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
     
     if (targetWindow && !targetWindow.closed) {
         targetWindow.location.href = whatsappUrl
@@ -544,6 +544,6 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
         })
     }
 
-    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(storePhone)}?text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
 }
