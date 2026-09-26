@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product, BusinessAdministrator } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
-import { addDoc, collection, query, where, orderBy, onSnapshot, doc, updateDoc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { addDoc, collection, query, where, orderBy, onSnapshot, doc, updateDoc, deleteDoc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
 import {
     getBusiness,
     getProductsByBusiness,
@@ -61,6 +61,7 @@ import {
 import { OrderStatusColumn } from './OrderStatusColumn'
 import { DeliveryStatusModal } from './DeliveryStatusModal'
 import { CustomerContactModal } from './CustomerContactModal'
+import { PrinterModal, PrintJob } from './PrinterModal'
 
 // Lazy-loaded components
 const ProductList = dynamic(() => import('@/components/ProductList'), { ssr: false })
@@ -134,8 +135,10 @@ export default function TodayOrdersPage() {
     const businessDropdownRef = useRef<HTMLDivElement>(null)
     // Ref for time dropdown container
     const timeDropdownRef = useRef<HTMLDivElement>(null)
+    const printerContainerRef = useRef<HTMLDivElement>(null)
     const processingPrintJobsRef = useRef(new Set<string>())
     const printBridgeIdRef = useRef<string | null>(null)
+    const [printJobs, setPrintJobs] = useState<PrintJob[]>([])
 
     useEffect(() => {
         const refreshPrinterStatus = () => setPrinterStatus(getBluetoothPrinterStatus())
@@ -1540,6 +1543,64 @@ export default function TodayOrdersPage() {
         }
     }, [showTimeDropdown])
 
+    // Close printer popover when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (printerContainerRef.current && !printerContainerRef.current.contains(event.target as Node)) {
+                setShowPrinterPopover(false)
+            }
+        }
+
+        if (showPrinterPopover) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [showPrinterPopover])
+
+    // Escuchar la cola de impresión del negocio en tiempo real
+    useEffect(() => {
+        if (!businessId) {
+            setPrintJobs([])
+            return
+        }
+
+        const jobsQuery = query(
+            collection(db, 'printJobs'),
+            where('businessId', '==', businessId)
+        )
+
+        const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
+            // Limpiar automáticamente de Firestore los trabajos que ya finalizaron
+            snapshot.docs.forEach((d) => {
+                if (d.data().status === 'printed') {
+                    deleteDoc(d.ref).catch(() => undefined)
+                }
+            })
+
+            const list: PrintJob[] = snapshot.docs
+                .map(d => ({
+                    id: d.id,
+                    ...d.data()
+                } as PrintJob))
+                .filter(job => job.status !== 'printed')
+
+            list.sort((a, b) => {
+                const dateA = toSafeDate(a.createdAt).getTime()
+                const dateB = toSafeDate(b.createdAt).getTime()
+                return dateB - dateA
+            })
+
+            setPrintJobs(list.slice(0, 50))
+        }, (error) => {
+            console.error('[Print Queue] Error escuchando cola de impresión:', error)
+        })
+
+        return () => unsubscribe()
+    }, [businessId])
+
     // Dashboard Handlers
     const handleLogout = () => {
         logout()
@@ -1838,43 +1899,141 @@ export default function TodayOrdersPage() {
         }
     }, [business?.id])
 
+    const cleanFirestoreData = (obj: any): any => {
+        if (obj === null || obj === undefined) return null
+        if (Array.isArray(obj)) {
+            return obj.map(cleanFirestoreData)
+        }
+        if (typeof obj === 'object') {
+            const cleaned: Record<string, any> = {}
+            for (const [key, value] of Object.entries(obj)) {
+                if (value !== undefined) {
+                    cleaned[key] = cleanFirestoreData(value)
+                }
+            }
+            return cleaned
+        }
+        return obj
+    }
+
     const handlePrint = useCallback(async (order: Order, silent: boolean = false) => {
         if (!silent) {
             showToastMessage('Imprimiendo...', 'bi-printer')
         }
+        const orderBusiness = businesses.find(b => b.id === order.businessId) || business
+        const targetBusinessId = order.businessId || business?.id
+        const cleanedOrder = cleanFirestoreData(order)
+
         try {
-            const orderBusiness = businesses.find(b => b.id === order.businessId) || business
             if (printMode === 'bluetooth') {
                 if (typeof navigator === 'undefined' || !('bluetooth' in navigator)) {
-                    await addDoc(collection(db, 'printJobs'), {
-                        businessId: order.businessId || business?.id,
-                        order,
-                        businessName: orderBusiness?.name || 'Negocio',
-                        businessLogo: orderBusiness?.image || null,
-                        groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true,
-                        status: 'pending',
-                        createdAt: serverTimestamp(),
-                        source: 'browser-relay'
-                    })
+                    if (targetBusinessId) {
+                        await addDoc(collection(db, 'printJobs'), {
+                            businessId: targetBusinessId,
+                            order: cleanedOrder,
+                            businessName: orderBusiness?.name || 'Negocio',
+                            businessLogo: orderBusiness?.image || null,
+                            groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true,
+                            status: 'pending',
+                            createdAt: serverTimestamp(),
+                            source: 'browser-relay'
+                        })
+                    }
                     if (!silent) showToastMessage('Enviado al Android de impresión', 'bi-send-check')
                     return
                 }
 
-                const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
-                await printOrderBluetooth({
-                    order: order as any,
-                    businessName: orderBusiness?.name || "Negocio",
-                    businessLogo: orderBusiness?.image,
-                    groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true
-                })
+                let jobDocRef: any = null
+                if (targetBusinessId) {
+                    try {
+                        jobDocRef = await addDoc(collection(db, 'printJobs'), {
+                            businessId: targetBusinessId,
+                            order: cleanedOrder,
+                            businessName: orderBusiness?.name || 'Negocio',
+                            businessLogo: orderBusiness?.image || null,
+                            groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true,
+                            status: 'processing',
+                            createdAt: serverTimestamp(),
+                            source: 'direct-bluetooth'
+                        })
+                    } catch (e) {
+                        console.warn('[Print] No se pudo guardar trabajo en la cola:', e)
+                    }
+                }
+
+                try {
+                    const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
+                    await printOrderBluetooth({
+                        order: order as any,
+                        businessName: orderBusiness?.name || "Negocio",
+                        businessLogo: orderBusiness?.image,
+                        groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true
+                    })
+                    if (jobDocRef) {
+                        await updateDoc(jobDocRef, {
+                            status: 'printed',
+                            printedAt: serverTimestamp()
+                        }).catch(() => undefined)
+                        setTimeout(() => {
+                            deleteDoc(jobDocRef).catch(() => undefined)
+                        }, 1200)
+                    }
+                } catch (err: any) {
+                    if (jobDocRef) {
+                        await updateDoc(jobDocRef, {
+                            status: 'failed',
+                            error: err?.message || 'Error al imprimir por Bluetooth',
+                            failedAt: serverTimestamp()
+                        }).catch(() => undefined)
+                    }
+                    throw err
+                }
             } else {
-                const { printOrder } = await import('@/lib/print-utils')
-                await printOrder({
-                    order: order as any,
-                    businessName: orderBusiness?.name || "Negocio",
-                    businessLogo: orderBusiness?.image,
-                    groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true
-                })
+                let jobDocRef: any = null
+                if (targetBusinessId) {
+                    try {
+                        jobDocRef = await addDoc(collection(db, 'printJobs'), {
+                            businessId: targetBusinessId,
+                            order: cleanedOrder,
+                            businessName: orderBusiness?.name || 'Negocio',
+                            businessLogo: orderBusiness?.image || null,
+                            groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true,
+                            status: 'processing',
+                            createdAt: serverTimestamp(),
+                            source: 'direct-pdf'
+                        })
+                    } catch (e) {
+                        console.warn('[Print] No se pudo guardar trabajo en la cola:', e)
+                    }
+                }
+
+                try {
+                    const { printOrder } = await import('@/lib/print-utils')
+                    await printOrder({
+                        order: order as any,
+                        businessName: orderBusiness?.name || "Negocio",
+                        businessLogo: orderBusiness?.image,
+                        groupItemsByProduct: orderBusiness?.notificationSettings?.groupItemsByProduct ?? true
+                    })
+                    if (jobDocRef) {
+                        await updateDoc(jobDocRef, {
+                            status: 'printed',
+                            printedAt: serverTimestamp()
+                        }).catch(() => undefined)
+                        setTimeout(() => {
+                            deleteDoc(jobDocRef).catch(() => undefined)
+                        }, 1200)
+                    }
+                } catch (err: any) {
+                    if (jobDocRef) {
+                        await updateDoc(jobDocRef, {
+                            status: 'failed',
+                            error: err?.message || 'Error al generar PDF',
+                            failedAt: serverTimestamp()
+                        }).catch(() => undefined)
+                    }
+                    throw err
+                }
             }
         } catch (e: any) {
             console.error("Error printing", e)
@@ -1939,6 +2098,9 @@ export default function TodayOrdersPage() {
                                 status: 'printed',
                                 printedAt: serverTimestamp()
                             })
+                            setTimeout(() => {
+                                deleteDoc(jobRef).catch(() => undefined)
+                            }, 1200)
                         } catch (error: any) {
                             console.error('[Print Bridge] Error procesando trabajo:', error)
                             await updateDoc(jobRef, {
@@ -2164,72 +2326,41 @@ export default function TodayOrdersPage() {
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
 
-                                    {/* Conexión de impresora térmica */}
-                                    <div className="relative">
+                                    {/* Conexión de impresora térmica y cola de impresión */}
+                                    <div className="relative" ref={printerContainerRef}>
                                         <button
                                             onClick={() => { setShowPrinterPopover(!showPrinterPopover); setPrinterError('') }}
-                                            className={`p-2 rounded-lg transition-colors ${printerStatus.connected ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-gray-500 hover:bg-gray-100'}`}
-                                            title={printerStatus.connected ? `Impresora conectada: ${printerStatus.deviceName || 'Bluetooth'}` : 'Conectar impresora térmica'}
-                                            aria-label={printerStatus.connected ? 'Gestionar impresora conectada' : 'Conectar impresora térmica'}
+                                            className={`relative p-2 rounded-lg transition-colors ${printerStatus.connected ? 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100' : 'text-gray-500 hover:bg-gray-100'}`}
+                                            title={printerStatus.connected ? `Impresora conectada: ${printerStatus.deviceName || 'Bluetooth'}` : 'Conectar impresora / Ver cola'}
+                                            aria-label={printerStatus.connected ? 'Gestionar impresora y cola' : 'Conectar impresora y ver cola'}
                                         >
                                             <i className="bi bi-printer text-xl"></i>
+                                            {/* Badge indicador de cola */}
+                                            {printJobs.some(j => j.status === 'failed') ? (
+                                                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-sm ring-2 ring-white">
+                                                    !
+                                                </span>
+                                            ) : printJobs.filter(j => j.status === 'pending' || j.status === 'processing').length > 0 ? (
+                                                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-white shadow-sm ring-2 ring-white animate-pulse">
+                                                    {printJobs.filter(j => j.status === 'pending' || j.status === 'processing').length}
+                                                </span>
+                                            ) : null}
                                         </button>
 
-                                        {showPrinterPopover && (
-                                            <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-100 p-4 z-50">
-                                                <div className="flex items-center gap-3 mb-3">
-                                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${printerStatus.connected ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
-                                                        <i className="bi bi-printer"></i>
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-bold text-gray-900">Impresora térmica</p>
-                                                        <p className={`text-xs truncate ${printerStatus.connected ? 'text-green-600' : 'text-gray-500'}`}>
-                                                            {printerStatus.connected ? (printerStatus.deviceName || 'Conectada') : 'No conectada'}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                {printerError && <p className="text-xs text-red-600 mb-3">{printerError}</p>}
-                                                {printerStatus.connected ? (
-                                                    <button
-                                                        onClick={handleDisconnectPrinter}
-                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-bold text-gray-700 hover:bg-gray-50"
-                                                    >
-                                                        Desconectar
-                                                    </button>
-                                                ) : (
-                                                    <button
-                                                        onClick={handleConnectPrinter}
-                                                        disabled={connectingPrinter}
-                                                        className="w-full px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
-                                                    >
-                                                        {connectingPrinter && <i className="bi bi-arrow-repeat animate-spin"></i>}
-                                                        {connectingPrinter ? 'Conectando...' : 'Conectar impresora'}
-                                                    </button>
-                                                )}
-
-                                                <div className="border-t border-gray-100 mt-4 pt-3">
-                                                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Modo de impresión</p>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <button
-                                                            onClick={() => printMode === 'bluetooth' && togglePrintMode()}
-                                                            className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-bold transition-colors ${printMode === 'standard' ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                                                            aria-pressed={printMode === 'standard'}
-                                                        >
-                                                            <i className="bi bi-file-earmark-pdf"></i>
-                                                            PDF
-                                                        </button>
-                                                        <button
-                                                            onClick={() => printMode === 'standard' && togglePrintMode()}
-                                                            className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-bold transition-colors ${printMode === 'bluetooth' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                                                            aria-pressed={printMode === 'bluetooth'}
-                                                        >
-                                                            <i className="bi bi-bluetooth"></i>
-                                                            Bluetooth
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
+                                        <PrinterModal
+                                            isOpen={showPrinterPopover}
+                                            onClose={() => setShowPrinterPopover(false)}
+                                            businessId={businessId}
+                                            printerStatus={printerStatus}
+                                            connectingPrinter={connectingPrinter}
+                                            printerError={printerError}
+                                            printMode={printMode}
+                                            onConnect={handleConnectPrinter}
+                                            onDisconnect={handleDisconnectPrinter}
+                                            onTogglePrintMode={togglePrintMode}
+                                            onPrintOrder={handlePrint}
+                                            printJobs={printJobs}
+                                        />
                                     </div>
 
 
