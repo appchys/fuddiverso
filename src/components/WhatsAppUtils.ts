@@ -5,8 +5,8 @@ import { Order, Business } from '@/types'
 const openExternalLink = (url: string) => {
     if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.openLink) {
         (window as any).Telegram.WebApp.openLink(url)
-    } else {
-        window.open(url, '_blank')
+    } else if (typeof window !== 'undefined') {
+        window.open(url, '_blank', 'noopener,noreferrer')
     }
 }
 
@@ -139,9 +139,78 @@ const normalizePhoneForWhatsApp = (phone: string) => {
     return `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
 }
 
-const getSavedTemplate = async (key: string) => {
-    const savedTemplates = await getWhatsAppTemplates()
-    return savedTemplates[key] || WHATSAPP_TEMPLATE_DEFAULTS[key]
+// Caché en memoria para plantillas de WhatsApp
+let cachedTemplates: Record<string, string> = { ...WHATSAPP_TEMPLATE_DEFAULTS }
+let isCacheLoaded = false
+let preloadPromise: Promise<Record<string, string>> | null = null
+
+// Cargar caché de localStorage inmediatamente si está disponible
+if (typeof window !== 'undefined') {
+    try {
+        const stored = localStorage.getItem('fuddi_whatsapp_templates_cache')
+        if (stored) {
+            const parsed = JSON.parse(stored)
+            if (parsed && typeof parsed === 'object') {
+                cachedTemplates = { ...WHATSAPP_TEMPLATE_DEFAULTS, ...parsed }
+                isCacheLoaded = true
+            }
+        }
+    } catch {
+        // ignore
+    }
+}
+
+/**
+ * Precargar plantillas en segundo plano sin bloquear ninguna acción del usuario
+ */
+export const preloadWhatsAppTemplates = async (): Promise<Record<string, string>> => {
+    if (preloadPromise) return preloadPromise
+
+    preloadPromise = (async () => {
+        try {
+            const fresh = await getWhatsAppTemplates()
+            if (fresh && Object.keys(fresh).length > 0) {
+                cachedTemplates = { ...WHATSAPP_TEMPLATE_DEFAULTS, ...fresh }
+                isCacheLoaded = true
+                if (typeof window !== 'undefined') {
+                    try {
+                        localStorage.setItem('fuddi_whatsapp_templates_cache', JSON.stringify(fresh))
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+            return cachedTemplates
+        } catch (e) {
+            console.warn('Error precargando plantillas de WhatsApp:', e)
+            return cachedTemplates
+        } finally {
+            preloadPromise = null
+        }
+    })()
+
+    return preloadPromise
+}
+
+// Iniciar precarga de fondo inmediatamente
+if (typeof window !== 'undefined') {
+    setTimeout(() => {
+        preloadWhatsAppTemplates().catch(() => {})
+    }, 200)
+}
+
+/**
+ * Obtener la plantilla de forma 100% síncrona desde memoria o defaults (0ms)
+ */
+export const getSavedTemplateSync = (key: string): string => {
+    if (!isCacheLoaded && typeof window !== 'undefined') {
+        preloadWhatsAppTemplates().catch(() => {})
+    }
+    return cachedTemplates[key] || WHATSAPP_TEMPLATE_DEFAULTS[key] || ''
+}
+
+export const getSavedTemplate = async (key: string): Promise<string> => {
+    return getSavedTemplateSync(key)
 }
 
 export const sendWhatsAppToDelivery = async (
@@ -219,7 +288,8 @@ export const sendWhatsAppToDelivery = async (
         ? 'delivery_assignment'
         : 'pickup_store_notification'
 
-    const template = await getSavedTemplate(templateKey)
+    // Obtención síncrona instantánea desde memoria para preservar el gesto de usuario (User Activation)
+    const template = getSavedTemplateSync(templateKey)
     const message = renderWhatsAppTemplate(template, {
         businessName: business?.name || 'Tienda',
         businessPhoneLine: business?.phone ? `+593${business.phone.replace(/\D/g, '').startsWith('0') ? business.phone.replace(/\D/g, '').slice(1) : business.phone.replace(/\D/g, '')}` : '',
@@ -238,7 +308,7 @@ export const sendWhatsAppToDelivery = async (
         total: effectiveTotal.toFixed(2)
     })
 
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(phone)}&text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(phone)}?text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
 
     if (nextStatus && onStatusUpdate && updateLocalOrder) {
@@ -293,7 +363,7 @@ export const sendWhatsAppToCustomer = async (order: Order) => {
         // ignore
     }
 
-    const template = await getSavedTemplate('customer_status')
+    const template = getSavedTemplateSync('customer_status')
     const message = renderWhatsAppTemplate(template, {
         initialMessage,
         deliveryInfo,
@@ -308,7 +378,7 @@ export const sendWhatsAppToCustomer = async (order: Order) => {
         orderLinkLine
     })
 
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(customerPhoneRaw)}&text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(customerPhoneRaw)}?text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
 }
 
@@ -343,7 +413,7 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
         // ignore
     }
 
-    const template = await getSavedTemplate('client_to_store')
+    const template = getSavedTemplateSync('client_to_store')
     const message = renderWhatsAppTemplate(template, {
         businessName: business.name,
         customerName,
@@ -356,7 +426,7 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
         orderLinkLine
     })
 
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(storePhone)}?text=${encodeURIComponent(message)}`
     
     if (targetWindow && !targetWindow.closed) {
         targetWindow.location.href = whatsappUrl
@@ -457,7 +527,7 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
                   `${paymentMethodText}\n\n` +
                   `${statusLabel}`
     } else {
-        const template = await getSavedTemplate('admin_to_store')
+        const template = getSavedTemplateSync('admin_to_store')
         message = renderWhatsAppTemplate(template, {
             businessName: business.name,
             customerName,
@@ -474,6 +544,6 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
         })
     }
 
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://wa.me/${normalizePhoneForWhatsApp(storePhone)}?text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
 }

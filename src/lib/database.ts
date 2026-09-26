@@ -9223,17 +9223,37 @@ export async function saveWhatsAppTemplate(
       template,
       updatedAt: serverTimestamp()
     }, { merge: true })
+    if (cachedWhatsAppTemplates) {
+      cachedWhatsAppTemplates[key] = template
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('fuddi_whatsapp_templates_cache')
+        const current = raw ? JSON.parse(raw) : {}
+        current[key] = template
+        localStorage.setItem('fuddi_whatsapp_templates_cache', JSON.stringify(current))
+      } catch {
+        // ignore
+      }
+    }
   } catch (error) {
     console.error('Error saving WhatsApp template:', error)
     throw error
   }
 }
 
+let cachedWhatsAppTemplates: Record<string, string> | null = null
+let cachedWhatsAppTemplatesTime = 0
+
 /**
  * Obtener todas las plantillas de WhatsApp
  * Retorna { [key]: text }
  */
-export async function getWhatsAppTemplates(): Promise<Record<string, string>> {
+export async function getWhatsAppTemplates(forceRefresh = false): Promise<Record<string, string>> {
+  const now = Date.now()
+  if (!forceRefresh && cachedWhatsAppTemplates && (now - cachedWhatsAppTemplatesTime < 10 * 60 * 1000)) {
+    return cachedWhatsAppTemplates
+  }
   try {
     const snapshot = await getDocs(collection(db, 'whatsAppTemplates'))
     const templates: Record<string, string> = {}
@@ -9243,10 +9263,19 @@ export async function getWhatsAppTemplates(): Promise<Record<string, string>> {
         templates[data.key] = data.template || ''
       }
     })
+    cachedWhatsAppTemplates = templates
+    cachedWhatsAppTemplatesTime = now
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('fuddi_whatsapp_templates_cache', JSON.stringify(templates))
+      } catch {
+        // ignore
+      }
+    }
     return templates
   } catch (error) {
     console.error('Error getting WhatsApp templates:', error)
-    return {}
+    return cachedWhatsAppTemplates || {}
   }
 }
 
