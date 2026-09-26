@@ -190,9 +190,9 @@ export default function OrderHistory({
     const [menuView, setMenuView] = useState<'main' | 'statuses' | 'whatsapp'>('main')
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [discardReason, setDiscardReason] = useState('')
-    const assignedDelivery = availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
+    const assignedDelivery = (order.delivery?.assignedDeliveryData as any) || availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
     const deliveryLabel = order.delivery?.assignedDelivery
-        ? assignedDelivery?.nombres || 'Delivery asignado'
+        ? assignedDelivery?.nombres || order.delivery?.assignedDeliveryData?.nombres || 'Delivery asignado'
         : 'Buscando delivery'
     const deliveryLabelClass = !order.delivery?.assignedDelivery
         ? 'bg-gray-100 text-gray-600 border-gray-200'
@@ -593,7 +593,7 @@ export default function OrderHistory({
                             {isDelivery && (
                                 <p className="flex items-start gap-1.5 text-sm text-gray-500 line-clamp-2">
                                     <i className="bi bi-geo-alt-fill mt-0.5 flex-shrink-0 text-gray-400"></i>
-                                    <span>{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}</span>
+                                    <span>{order.delivery?.references || (order.delivery as any)?.selectedLocation?.referencia || (order.delivery as any)?.reference || "Ubicación"}</span>
                                 </p>
                             )}
                         </div>

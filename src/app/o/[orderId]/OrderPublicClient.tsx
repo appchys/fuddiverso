@@ -49,6 +49,19 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
 
   // Verificar si la orden ya fue calificada
   useEffect(() => {
+    if (order?.rating) {
+      setOrderRated(true);
+      setExistingRating({
+        id: 'embedded',
+        orderId,
+        businessId: order.businessId,
+        rating: order.rating.rating,
+        comment: order.rating.comment,
+        createdAt: order.rating.createdAt
+      } as any);
+      return;
+    }
+
     const checkOrderRating = async () => {
       try {
         if (!order?.businessId) return
@@ -67,7 +80,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
     if (orderId && order?.businessId) {
       checkOrderRating();
     }
-  }, [orderId, order?.businessId]);
+  }, [orderId, order?.businessId, order?.rating]);
 
   // Manejar el envío de la calificación
   const handleRatingSubmit = async (e: React.FormEvent) => {
@@ -300,8 +313,23 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
             const data = { id: snapshot.id, ...snapshot.data() } as any
             setOrder(data)
 
-            // Cargar información del negocio si no está cargada
-            if (data.businessId && !business) {
+            // Cargar información del negocio de inmediato si viene el snapshot en la orden
+            if (data.businessSnapshot) {
+              setBusiness((prev: any) => prev || ({
+                id: data.businessSnapshot.id,
+                name: data.businessSnapshot.name,
+                phone: data.businessSnapshot.phone,
+                image: data.businessSnapshot.logo,
+                address: data.businessSnapshot.address,
+                username: data.businessSnapshot.username,
+                ...(data.businessSnapshot.latlong ? {
+                  mapLocation: {
+                    lat: parseFloat(data.businessSnapshot.latlong.split(',')[0]),
+                    lng: parseFloat(data.businessSnapshot.latlong.split(',')[1])
+                  }
+                } : {})
+              } as any))
+            } else if (data.businessId && !business) {
               try {
                 const businessData = await getBusiness(data.businessId)
                 setBusiness(businessData)
@@ -312,11 +340,15 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
 
             // Cargar información del repartidor si existe
             if (data.delivery?.assignedDelivery) {
-              try {
-                const deliveryData = await getDelivery(data.delivery.assignedDelivery)
-                setDeliveryPerson(deliveryData)
-              } catch (deliveryError) {
-                console.error('Error loading delivery person:', deliveryError)
+              if (data.delivery?.assignedDeliveryData) {
+                setDeliveryPerson(data.delivery.assignedDeliveryData)
+              } else {
+                try {
+                  const deliveryData = await getDelivery(data.delivery.assignedDelivery)
+                  setDeliveryPerson(deliveryData)
+                } catch (deliveryError) {
+                  console.error('Error loading delivery person:', deliveryError)
+                }
               }
             } else {
               setDeliveryPerson(null)
@@ -1136,14 +1168,14 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
               Información del repartidor
             </h3>
 
-            {deliveryPerson ? (
+            {(deliveryPerson || order.delivery?.assignedDeliveryData) ? (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="relative">
-                    {deliveryPerson.fotoUrl ? (
+                    {(deliveryPerson || order.delivery?.assignedDeliveryData)?.fotoUrl ? (
                       <img
-                        src={deliveryPerson.fotoUrl}
-                        alt={deliveryPerson.nombres}
+                        src={(deliveryPerson || order.delivery?.assignedDeliveryData)?.fotoUrl}
+                        alt={(deliveryPerson || order.delivery?.assignedDeliveryData)?.nombres}
                         className="w-14 h-14 rounded-2xl object-cover border border-gray-100 shadow-sm"
                       />
                     ) : (
@@ -1156,7 +1188,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
                     </div>
                   </div>
                   <div>
-                    <p className="text-sm font-black text-gray-900 leading-tight">{deliveryPerson.nombres || 'Repartidor'}</p>
+                    <p className="text-sm font-black text-gray-900 leading-tight">{(deliveryPerson || order.delivery?.assignedDeliveryData)?.nombres || 'Repartidor'}</p>
                     <p className="text-[11px] font-bold text-gray-400 mt-0.5">
                       {order.status === 'delivered' ? '¡Ya entregó tu pedido!' : 'En camino a tu ubicación'}
                     </p>

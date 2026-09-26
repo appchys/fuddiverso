@@ -89,9 +89,9 @@ export const OrderCard = memo(function OrderCard({
     const [discardReason, setDiscardReason] = useState('')
     const [deliveryInfoExpanded, setDeliveryInfoExpanded] = useState(false)
     const statusMenuRef = useRef<HTMLDivElement>(null)
-    const assignedDelivery = availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
+    const assignedDelivery = (order.delivery?.assignedDeliveryData as any) || availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
     const deliveryLabel = order.delivery?.assignedDelivery
-        ? assignedDelivery?.nombres || 'Delivery asignado'
+        ? assignedDelivery?.nombres || order.delivery?.assignedDeliveryData?.nombres || 'Delivery asignado'
         : 'Buscando delivery'
     const deliveryLabelClass = !order.delivery?.assignedDelivery
         ? 'bg-gray-100 text-gray-600 border-gray-200'
@@ -116,7 +116,9 @@ export const OrderCard = memo(function OrderCard({
     // Only compute map data when expanded
     const deliveryCoordinates = isExpanded ? getDeliveryCoordinates(order) : null
     const deliveryZone = isExpanded ? getDeliveryZone(order) : ''
-    const deliveryCost = order.delivery?.deliveryCost || 0
+    const deliveryCost = order.delivery?.deliveryCost !== undefined
+        ? order.delivery.deliveryCost
+        : (parseFloat(order.delivery?.tarifa || (order.delivery as any)?.selectedLocation?.tarifa || '0') || 0)
     const deliveryMapsUrl = deliveryCoordinates
         ? `https://www.google.com/maps/search/?api=1&query=${deliveryCoordinates.lat},${deliveryCoordinates.lng}`
         : undefined
@@ -600,7 +602,7 @@ export const OrderCard = memo(function OrderCard({
                                         aria-expanded={deliveryInfoExpanded}
                                     >
                                         <i className="bi bi-geo-alt-fill mt-0.5 flex-shrink-0 text-gray-400 group-hover:text-red-500"></i>
-                                        <span className="line-clamp-2">{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}</span>
+                                        <span className="line-clamp-2">{order.delivery?.references || (order.delivery as any)?.selectedLocation?.referencia || (order.delivery as any)?.reference || "Ubicación"}</span>
                                         <i className={`bi bi-chevron-${deliveryInfoExpanded ? 'up' : 'down'} mt-0.5 flex-shrink-0 text-[11px] text-gray-300 group-hover:text-red-500`}></i>
                                     </button>
                                     {deliveryInfoExpanded && (

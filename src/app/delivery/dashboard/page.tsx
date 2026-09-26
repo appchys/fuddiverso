@@ -292,7 +292,7 @@ function DeliveryDashboardContent() {
     const cleanPhone = customerPhoneRaw.replace(/\D/g, '')
     const waPhone = `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
 
-    const business = businesses.find(b => b.id === order.businessId)
+    const business = order.businessSnapshot || businesses.find(b => b.id === order.businessId)
     const businessName = business?.name || 'la tienda'
 
     const message = `Hola soy delivery de ${businessName}, estoy en camino con tu pedido.\nLlegaré en aprox 7 minutos 🛵`
@@ -703,9 +703,18 @@ function DeliveryDashboardContent() {
       const { db } = await import('@/lib/firebase')
       const { doc, updateDoc } = await import('firebase/firestore')
 
+      const deliveryPayload = delivery ? {
+        id: delivery.id,
+        nombres: delivery.nombres,
+        celular: delivery.celular || '',
+        fotoUrl: delivery.fotoUrl || '',
+        email: delivery.email || ''
+      } : null
+
       const orderRef = doc(db, 'orders', order.id)
       await updateDoc(orderRef, {
         'delivery.assignedDelivery': deliveryId,
+        'delivery.assignedDeliveryData': deliveryPayload,
         'delivery.acceptanceStatus': 'accepted'
       })
 
@@ -764,6 +773,7 @@ function DeliveryDashboardContent() {
       // Liberar el pedido para otros repartidores pero registrar el rechazo
       await updateDoc(orderRef, {
         'delivery.assignedDelivery': null,
+        'delivery.assignedDeliveryData': null,
         'delivery.acceptanceStatus': 'pending',
         'delivery.rejectedBy': arrayUnion(deliveryId),
         'delivery.rejectionReason': reason
@@ -892,7 +902,15 @@ function DeliveryDashboardContent() {
                       {groupOrders.map((order) => {
                         const isExpanded = expandedOrderIds.has(order.id);
                         const timeElapsed = getTimeElapsed(order)
-                        const orderBusiness = businesses.find(b => b.id === order.businessId)
+                        const matchedBusiness = businesses.find(b => b.id === order.businessId)
+                        const orderBusiness = {
+                          name: order.businessSnapshot?.name || matchedBusiness?.name || 'Tienda',
+                          image: order.businessSnapshot?.logo || matchedBusiness?.image || '',
+                          phone: order.businessSnapshot?.phone || matchedBusiness?.phone || '',
+                          latlong: order.businessSnapshot?.latlong || matchedBusiness?.pickupSettings?.latlong || '',
+                          references: order.businessSnapshot?.address || matchedBusiness?.pickupSettings?.references || matchedBusiness?.address || '',
+                          pickupSettings: matchedBusiness?.pickupSettings
+                        }
 
                         return (
                           <div
@@ -962,7 +980,7 @@ function DeliveryDashboardContent() {
                                             WhatsApp
                                           </a>
                                           <a
-                                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderBusiness?.pickupSettings?.latlong || orderBusiness?.pickupSettings?.references || '')}`}
+                                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderBusiness?.pickupSettings?.latlong || orderBusiness?.pickupSettings?.references || orderBusiness?.latlong || orderBusiness?.references || '')}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             onClick={(e) => {

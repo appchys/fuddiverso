@@ -159,7 +159,7 @@ export const getDeliveryCoordinates = (order: Order | null) => {
 
 export const getDeliveryZone = (order: Order | null) => {
     const delivery = order?.delivery as any
-    return delivery?.sector || delivery?.address || delivery?.zoneName || delivery?.coverageZoneName || 'No especificado'
+    return delivery?.sector || delivery?.selectedLocation?.sector || delivery?.address || delivery?.zoneName || delivery?.coverageZoneName || 'No especificado'
 }
 
 // ── Auto-assign Logic ──────────────────────────────────────────────────

@@ -161,18 +161,26 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
 
   const handleDeliveryAssign = async (targetOrderId: string, deliveryId: string) => {
     try {
+      let dData: any = null
+      if (deliveryId) {
+        dData = await getDelivery(deliveryId)
+      }
+      const deliveryPayload = dData ? {
+        id: dData.id,
+        nombres: dData.nombres,
+        celular: dData.celular || '',
+        fotoUrl: dData.fotoUrl || '',
+        email: dData.email || ''
+      } : null
+
       const orderRef = doc(db, 'orders', targetOrderId)
       await updateDoc(orderRef, {
-        'delivery.assignedDelivery': deliveryId,
+        'delivery.assignedDelivery': deliveryId || null,
+        'delivery.assignedDeliveryData': deliveryPayload,
         'delivery.acceptanceStatus': 'pending',
         updatedAt: serverTimestamp()
       })
-      if (deliveryId) {
-        const dData = await getDelivery(deliveryId)
-        setDeliveryPerson(dData)
-      } else {
-        setDeliveryPerson(null)
-      }
+      setDeliveryPerson(dData)
     } catch (err) {
       console.error('Error asignando repartidor:', err)
     }
@@ -420,11 +428,41 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
             const orderData = { id: snapshot.id, ...snapshot.data() } as any
             setOrder(orderData)
 
-            // Cargar información del negocio si no está cargada
+            // Renderizado instantáneo de negocio si existe snapshot en la orden
+            if (orderData.businessSnapshot) {
+              setBusiness((prev: any) => prev || ({
+                id: orderData.businessSnapshot.id,
+                name: orderData.businessSnapshot.name,
+                phone: orderData.businessSnapshot.phone,
+                image: orderData.businessSnapshot.logo,
+                address: orderData.businessSnapshot.address,
+                username: orderData.businessSnapshot.username,
+                ...(orderData.businessSnapshot.latlong ? {
+                  mapLocation: {
+                    lat: parseFloat(orderData.businessSnapshot.latlong.split(',')[0]),
+                    lng: parseFloat(orderData.businessSnapshot.latlong.split(',')[1])
+                  }
+                } : {})
+              } as any))
+            }
+
+            // Renderizado instantáneo de calificación si ya existe en la orden
+            if (orderData.rating) {
+              setExistingRating({
+                id: 'embedded',
+                orderId,
+                businessId: orderData.businessId,
+                rating: orderData.rating.rating,
+                comment: orderData.rating.comment,
+                createdAt: orderData.rating.createdAt
+              } as any)
+            }
+
+            // Cargar información completa del negocio si es necesario
             if (orderData.businessId) {
               try {
                 const businessData = await getBusiness(orderData.businessId)
-                setBusiness(businessData)
+                if (businessData) setBusiness(businessData)
 
                 // Cargar repartidores activos (igual que el Dashboard de Tienda)
                 getDeliveriesByStatus('activo')
@@ -437,10 +475,12 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                   })
                   .catch(err => console.error('Error cargando repartidores:', err))
 
-                // Buscar si la orden ya tiene calificación
-                const ratingData = await getOrderRating(orderData.businessId, orderId)
-                if (ratingData) {
-                  setExistingRating(ratingData)
+                // Buscar calificación solo si no vino embebida en la orden
+                if (!orderData.rating) {
+                  const ratingData = await getOrderRating(orderData.businessId, orderId)
+                  if (ratingData) {
+                    setExistingRating(ratingData)
+                  }
                 }
               } catch (e) {
                 console.error('Error cargando datos del negocio:', e)
@@ -449,11 +489,16 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
 
             // Cargar datos de repartidor
             if (orderData.delivery?.assignedDelivery) {
-              try {
-                const deliveryData = await getDelivery(orderData.delivery.assignedDelivery)
-                setDeliveryPerson(deliveryData)
-              } catch (e) {
-                console.error('Error cargando repartidor:', e)
+              if (orderData.delivery?.assignedDeliveryData) {
+                // Inmediato desde el documento de la orden, sin consulta adicional
+                setDeliveryPerson(orderData.delivery.assignedDeliveryData)
+              } else {
+                try {
+                  const deliveryData = await getDelivery(orderData.delivery.assignedDelivery)
+                  setDeliveryPerson(deliveryData)
+                } catch (e) {
+                  console.error('Error cargando repartidor:', e)
+                }
               }
             } else {
               setDeliveryPerson(null)
@@ -970,7 +1015,8 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                     }
 
                     const primaryAction = getPrimaryActionDetails(order.status)
-                    const fulfillmentLabel = isPickup ? 'Retiro en tienda' : (deliveryPerson ? deliveryPerson.nombres : 'Delivery asignado')
+                    const effectiveDeliveryName = deliveryPerson?.nombres || order.delivery?.assignedDeliveryData?.nombres
+                    const fulfillmentLabel = isPickup ? 'Retiro en tienda' : (effectiveDeliveryName || (order.delivery?.assignedDelivery ? 'Delivery asignado' : 'Buscando delivery'))
                     const fulfillmentClass = isPickup ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-green-100 text-green-700 border-green-200'
 
                     const deliveryCoordinates = order.delivery?.latlong ? (() => {
@@ -1060,9 +1106,16 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                           {/* Información de Ubicación & Mapa */}
                           {isDelivery && (
                             <div className="space-y-2">
-                              <div className="flex items-start gap-2 text-sm text-gray-700 font-medium">
-                                <i className="bi bi-geo-alt-fill text-red-500 mt-0.5 flex-shrink-0"></i>
-                                <span>{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación de entrega"}</span>
+                              <div className="flex items-start justify-between gap-2 text-sm text-gray-700 font-medium">
+                                <div className="flex items-start gap-2">
+                                  <i className="bi bi-geo-alt-fill text-red-500 mt-0.5 flex-shrink-0"></i>
+                                  <span>{order.delivery?.references || (order.delivery as any)?.selectedLocation?.referencia || (order.delivery as any)?.reference || "Ubicación de entrega"}</span>
+                                </div>
+                                {(order.delivery?.sector || (order.delivery as any)?.selectedLocation?.sector) && (
+                                  <span className="shrink-0 text-xs font-semibold px-2 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-100">
+                                    {order.delivery?.sector || (order.delivery as any)?.selectedLocation?.sector}
+                                  </span>
+                                )}
                               </div>
                               {deliveryMapImageUrl && deliveryMapsUrl ? (
                                 <a
@@ -1892,7 +1945,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
         isOpen={isDeliveryModalOpen}
         onClose={() => setIsDeliveryModalOpen(false)}
         order={order}
-        deliveryAgent={deliveryPerson || undefined}
+        deliveryAgent={(deliveryPerson || order.delivery?.assignedDeliveryData) as any || undefined}
         availableDeliveries={availableDeliveries}
         canChangeDelivery={true}
         onDeliveryAssign={handleDeliveryAssign}

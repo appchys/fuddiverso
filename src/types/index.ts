@@ -19,6 +19,7 @@ export interface Business {
   description: string
   phone: string // Formato ecuatoriano: 09XXXXXXXX (10 dígitos)
   email: string
+  address?: string // Dirección física / referencia del local
   ownerId?: string // UID del usuario propietario en Firebase Auth
   administrators?: BusinessAdministrator[] // Lista de administradores
   adminEmails?: string[] // Array de emails de administradores para queries optimizadas
@@ -323,23 +324,50 @@ export interface DeliveryInfo {
   type: 'delivery' | 'pickup'
   references?: string
   sector?: string // Zona de cobertura usada para determinar la tarifa
+  tarifa?: string | number // Tarifa de delivery calculada y grabada en la orden
   latlong?: string // Coordenadas en formato "lat, lng" desde tabla ubicaciones
   mapLocation?: {
     lat: number
     lng: number
   }
   photo?: string
+  selectedLocation?: ClientLocation | null // Datos completos de la ubicación seleccionada guardados en la orden
   assignedDelivery?: string // ID del delivery asignado
+  assignedDeliveryData?: AssignedDeliveryData | null // Datos embebidos del delivery asignado para carga inmediata
   deliveryCost?: number // Costo de envío desde tabla ubicaciones
   acceptanceStatus?: 'pending' | 'accepted' | 'rejected' // Estado de aceptación por parte del delivery
   rejectedBy?: string[] // Lista de IDs de repartidores que han rechazado este pedido
   rejectionReason?: string // Motivo del rechazo
 }
 
+export interface AssignedDeliveryData {
+  id: string
+  nombres: string
+  celular?: string
+  fotoUrl?: string
+  email?: string
+}
+
 export interface OrderTiming {
   type: 'immediate' | 'scheduled'
   scheduledDate?: Date | Timestamp
   scheduledTime?: string
+}
+
+export interface BusinessSnapshot {
+  id: string
+  name: string
+  phone?: string
+  address?: string
+  logo?: string
+  username?: string
+  latlong?: string
+}
+
+export interface OrderRatingSnapshot {
+  rating: number // 1-5 estrellas
+  comment?: string
+  createdAt?: any
 }
 
 export interface PaymentInfo {
@@ -355,12 +383,15 @@ export interface PaymentInfo {
     accountType: string
     accountNumber: string
     accountHolder: string
+    idNumber?: string
   }
 }
 
 export interface Order {
   id: string
   businessId: string
+  businessSnapshot?: BusinessSnapshot | null // Snapshot de la tienda para evitar consultas a businesses
+  rating?: OrderRatingSnapshot // Snapshot de la calificación del pedido
   customer: Customer
   items: CartItem[]
   delivery: DeliveryInfo

@@ -633,23 +633,25 @@ export default function ManualOrderSidebar({
         deliveriesList?.find(d => d.id === id) || null
 
       const deliveryType = eo.delivery?.type || ''
+      const savedLoc = eo.delivery?.selectedLocation
       const selectedLocation = deliveryType === 'delivery' ? {
-        id: 'from-order',
-        id_cliente: '',
+        id: savedLoc?.id || 'from-order',
+        id_cliente: savedLoc?.id_cliente || '',
         latlong: (() => {
-          const ll = (eo.delivery as any)?.latlong as string | undefined
+          const ll = savedLoc?.latlong || (eo.delivery as any)?.latlong as string | undefined
           if (ll && typeof ll === 'string' && ll.trim()) {
             return ll.replace(/\s*,\s*/, ',')
           }
-          const ml = (eo.delivery as any)?.mapLocation as { lat: number; lng: number } | undefined
+          const ml = savedLoc?.mapLocation || (eo.delivery as any)?.mapLocation as { lat: number; lng: number } | undefined
           if (ml && typeof ml.lat === 'number' && typeof ml.lng === 'number') {
             return `${ml.lat},${ml.lng}`
           }
           return ''
         })(),
-        referencia: (eo._isFromCheckout && eo.delivery?.address) ? eo.delivery.address : (eo.delivery?.references || (eo.delivery as any)?.reference || eo.delivery?.address || ''),
-        sector: (eo.delivery as any)?.sector || (eo.delivery as any)?.zoneName || 'Sin especificar',
-        tarifa: String(eo.delivery?.deliveryCost || 0)
+        referencia: savedLoc?.referencia || ((eo._isFromCheckout && eo.delivery?.address) ? eo.delivery.address : (eo.delivery?.references || (eo.delivery as any)?.reference || eo.delivery?.address || '')),
+        sector: savedLoc?.sector || (eo.delivery as any)?.sector || (eo.delivery as any)?.zoneName || 'Sin especificar',
+        tarifa: String(savedLoc?.tarifa || eo.delivery?.tarifa || eo.delivery?.deliveryCost || 0),
+        photo: savedLoc?.photo || eo.delivery?.photo || ''
       } as any : null
 
       const timingType = eo.timing?.type || 'immediate'
@@ -739,6 +741,7 @@ export default function ManualOrderSidebar({
 
       setManualOrderData(prev => ({
         ...prev,
+        customerId: eo.customer?.id || '',
         customerPhone: eo.customer?.phone || '',
         customerName: eo.customer?.name || '',
         customerTelegramChatId: eo.customer?.telegramChatId || (eo as any).telegramChatId || '',
@@ -759,7 +762,8 @@ export default function ManualOrderSidebar({
         orderStatus: eo.status || 'pending',
         notas: eo.notas || '',
         notaImageUrl: eo.notaImageUrl || '',
-        receiptImageUrl: eo.payment?.receiptImageUrl || ''
+        receiptImageUrl: eo.payment?.receiptImageUrl || '',
+        customDeliveryCost: eo.delivery?.deliveryCost !== undefined ? eo.delivery.deliveryCost : (parseFloat(eo.delivery?.tarifa || eo.delivery?.selectedLocation?.tarifa || '0') || null)
       }))
       setNotaImageFile(null)
       setNotaImagePreview(eo.notaImageUrl || '')
@@ -767,15 +771,32 @@ export default function ManualOrderSidebar({
       // Mostrar inmediatamente tarjeta de cliente encontrado y cargar ubicaciones
       setClientFound(true)
       setShowCreateClient(false)
+      const customerIdToLoad = eo.customer?.id || ''
       const phoneToLoad = eo.customer?.phone || ''
-      if (phoneToLoad) {
+      if (customerIdToLoad || phoneToLoad) {
         setLoadingClientLocations(true)
           ; (async () => {
             try {
-              const client = await searchClientByPhone(phoneToLoad)
-              if (client) {
-                const locations = await getClientLocations(client.id)
-                setManualOrderData(prev => ({ ...prev, customerId: client.id, customerTelegramChatId: client.telegramChatId || prev.customerTelegramChatId || '', customerLocations: locations }))
+              let resolvedClientId = customerIdToLoad
+              let resolvedTelegramChatId = eo.customer?.telegramChatId || ''
+              if (!resolvedClientId && phoneToLoad) {
+                const client = await searchClientByPhone(phoneToLoad)
+                if (client) {
+                  resolvedClientId = client.id
+                  resolvedTelegramChatId = client.telegramChatId || ''
+                }
+              }
+              if (resolvedClientId) {
+                const locations = await getClientLocations(resolvedClientId)
+                setManualOrderData(prev => ({
+                  ...prev,
+                  customerId: resolvedClientId,
+                  customerTelegramChatId: resolvedTelegramChatId || prev.customerTelegramChatId || '',
+                  // Preservar la ubicación fija de la orden al frente de la lista
+                  customerLocations: prev.selectedLocation
+                    ? [prev.selectedLocation, ...locations.filter(l => l.id !== prev.selectedLocation?.id)]
+                    : locations
+                }))
               }
             } catch (e) {
               console.error('Error loading client locations for edit:', e)
@@ -1134,8 +1155,8 @@ export default function ManualOrderSidebar({
         ).then(enriched => {
           setManualOrderData(prev => {
             const updated = { ...prev, customerLocations: enriched }
-            // Si la ubicación seleccionada es una de estas, actualizarla de inmediato con su tarifa real
-            if (prev.selectedLocation) {
+            // Si la ubicación seleccionada es una de estas, actualizarla con tarifa real SOLO si no estamos en modo edit
+            if (prev.selectedLocation && mode !== 'edit') {
               const matched = enriched.find(e => e.id === prev.selectedLocation?.id)
               if (matched && matched.tarifa !== prev.selectedLocation.tarifa) {
                 updated.selectedLocation = matched
@@ -2907,8 +2928,19 @@ export default function ManualOrderSidebar({
         nanoseconds: 0
       };
 
+      const businessSnapshotData = effectiveBusiness ? {
+        id: effectiveBusiness.id,
+        name: effectiveBusiness.name,
+        phone: effectiveBusiness.phone,
+        address: effectiveBusiness.address || effectiveBusiness.references || '',
+        logo: effectiveBusiness.image || '',
+        username: effectiveBusiness.username || '',
+        latlong: effectiveBusiness.mapLocation ? `${effectiveBusiness.mapLocation.lat},${effectiveBusiness.mapLocation.lng}` : ''
+      } : null;
+
       let orderData: any = {
         businessId: effectiveBusinessId,
+        businessSnapshot: businessSnapshotData,
         items: manualOrderData.selectedProducts.map(item => {
           const storePrice = (typeof item.basePrice === 'number' && !isNaN(item.basePrice))
             ? item.basePrice
@@ -2932,6 +2964,7 @@ export default function ManualOrderSidebar({
         customer: {
           name: manualOrderData.customerName,
           phone: manualOrderData.customerPhone,
+          ...(manualOrderData.customerId ? { id: manualOrderData.customerId } : {}),
           ...(manualOrderData.customerTelegramChatId ? { telegramChatId: manualOrderData.customerTelegramChatId } : {})
         },
         delivery: {
@@ -2941,18 +2974,42 @@ export default function ManualOrderSidebar({
             latlong: manualOrderData.selectedLocation?.latlong || '',
             references: manualOrderData.selectedLocation?.referencia || '',
             sector: manualOrderData.selectedLocation?.sector || '',
+            tarifa: String(manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined
+              ? manualOrderData.customDeliveryCost
+              : (manualOrderData.selectedLocation?.tarifa || '0')),
             photo: manualOrderData.selectedLocation?.photo || '', // AÑADIDO: Guardar la foto de ubicación
             deliveryCost: manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined
               ? manualOrderData.customDeliveryCost
               : parseFloat(manualOrderData.selectedLocation?.tarifa || '0'),
-            assignedDelivery: manualOrderData.selectedDelivery?.id || null
+            selectedLocation: manualOrderData.selectedLocation ? {
+              id: manualOrderData.selectedLocation.id || '',
+              id_cliente: manualOrderData.selectedLocation.id_cliente || '',
+              latlong: manualOrderData.selectedLocation.latlong || '',
+              referencia: manualOrderData.selectedLocation.referencia || '',
+              sector: manualOrderData.selectedLocation.sector || '',
+              tarifa: String(manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined
+                ? manualOrderData.customDeliveryCost
+                : (manualOrderData.selectedLocation.tarifa || '0')),
+              photo: manualOrderData.selectedLocation.photo || ''
+            } : null,
+            assignedDelivery: manualOrderData.selectedDelivery?.id || null,
+            assignedDeliveryData: manualOrderData.selectedDelivery ? {
+              id: manualOrderData.selectedDelivery.id,
+              nombres: manualOrderData.selectedDelivery.nombres,
+              celular: manualOrderData.selectedDelivery.celular || '',
+              fotoUrl: manualOrderData.selectedDelivery.fotoUrl || '',
+              email: manualOrderData.selectedDelivery.email || ''
+            } : null
           } : {
             latlong: '',
             references: '',
             sector: '',
+            tarifa: '0',
             photo: '',
             deliveryCost: 0,
+            selectedLocation: null,
             assignedDelivery: null,
+            assignedDeliveryData: null,
             acceptanceStatus: null
           })
         },
@@ -3010,6 +3067,16 @@ export default function ManualOrderSidebar({
           paymentStatus: manualOrderData.paymentStatus,
           selectedBank: manualOrderData.selectedBank,
           receiptImageUrl: manualOrderData.receiptImageUrl || '',
+          ...(() => {
+            if (manualOrderData.paymentMethod === 'transfer' && manualOrderData.selectedBank && effectiveBusiness?.bankAccounts) {
+              const matchedBank = effectiveBusiness.bankAccounts.find(b => b.bankName === manualOrderData.selectedBank || b.accountNumber === manualOrderData.selectedBank);
+              if (matchedBank) return { bankAccount: matchedBank };
+            }
+            if (manualOrderData.paymentMethod === 'transfer' && effectiveBusiness?.bankAccount) {
+              return { bankAccount: effectiveBusiness.bankAccount };
+            }
+            return {};
+          })(),
           ...(manualOrderData.paymentMethod === 'mixed' && {
             cashAmount: manualOrderData.cashAmount || 0,
             transferAmount: manualOrderData.transferAmount || 0
@@ -3118,6 +3185,7 @@ export default function ManualOrderSidebar({
             const updatePayload: any = {
               businessId: effectiveBusinessId,
               businessIds: orderData.businessIds,
+              ...(orderData.businessSnapshot ? { businessSnapshot: orderData.businessSnapshot } : {}),
               ...(orderData.isMultiStore ? { isMultiStore: true } : {}),
               items: orderData.items,
               customer: orderData.customer,

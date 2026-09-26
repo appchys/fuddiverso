@@ -2162,19 +2162,40 @@ export function CheckoutContent({
             ...(item.comboSelection ? { comboSelection: item.comboSelection } : {})
           }
         }),
+        businessSnapshot: business ? {
+          id: business.id,
+          name: business.name || '',
+          phone: business.phone || '',
+          address: business.address || business.references || '',
+          logo: business.image || '',
+          username: business.username || '',
+          latlong: business.mapLocation ? `${business.mapLocation.lat},${business.mapLocation.lng}` : ''
+        } : null,
         customer: {
           name: customerData.name,
-          phone: customerData.phone
+          phone: customerData.phone,
+          ...(clientFound?.id && { id: clientFound.id }),
+          ...(clientFound?.telegramChatId && { telegramChatId: clientFound.telegramChatId })
         },
         // ESTRUCTURA IDÉNTICA A ÓRDENES MANUALES: conditional spread para delivery
         delivery: {
           type: deliveryData.type as 'delivery' | 'pickup',
           ...(deliveryData.type === 'delivery' && {
             latlong: selectedLocation?.latlong || '',
-            references: deliveryData.address || '',
+            references: deliveryData.address || selectedLocation?.referencia || '',
             sector: verifiedDeliverySector || selectedLocation?.sector || '',
-            photo: selectedLocation?.photo || '',
+            tarifa: String(deliveryCost),
             deliveryCost: deliveryCost,
+            photo: selectedLocation?.photo || '',
+            selectedLocation: selectedLocation ? {
+              id: selectedLocation.id || '',
+              id_cliente: selectedLocation.id_cliente || '',
+              latlong: selectedLocation.latlong || '',
+              referencia: deliveryData.address || selectedLocation.referencia || '',
+              sector: verifiedDeliverySector || selectedLocation.sector || '',
+              tarifa: String(deliveryCost),
+              photo: selectedLocation.photo || ''
+            } : null,
             assignedDelivery: assignedDeliveryId
           })
         },
@@ -2187,6 +2208,17 @@ export function CheckoutContent({
           method: (paymentData.method || 'cash') as 'cash' | 'transfer' | 'mixed',
           paymentStatus: (paymentData.method === 'transfer' ? 'pending' : undefined) as 'pending' | 'validating' | 'paid' | undefined,
           selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
+          ...(paymentData.method === 'transfer' && (() => {
+            const matchedAccount = (Array.isArray(business?.bankAccounts) && business?.bankAccounts.find((a: any) => a.id === paymentData.selectedBank || a.bankName === paymentData.selectedBank)) || business?.bankAccount
+            return matchedAccount ? {
+              bankAccount: {
+                bankName: matchedAccount.bankName || '',
+                accountType: matchedAccount.accountType || '',
+                accountNumber: matchedAccount.accountNumber || '',
+                accountHolder: matchedAccount.accountHolder || ''
+              }
+            } : {}
+          })()),
           ...(paymentData.receiptImageUrl && {
             receiptImageUrl: paymentData.receiptImageUrl
           })

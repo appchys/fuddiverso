@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       // La orden permanece en su estado actual pero sin delivery asignado
       await updateDoc(doc(db, 'orders', orderId), {
         'delivery.assignedDelivery': null,
+        'delivery.assignedDeliveryData': null,
         updatedAt: new Date()
       });
     }

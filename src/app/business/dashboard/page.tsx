@@ -12,6 +12,7 @@ import {
     getProductsByBusiness,
     getCachedProductsByBusiness,
     deleteOrder,
+    getDelivery,
     getDeliveriesByStatus,
     updateOrderStatus,
     updateBusiness,
@@ -1663,12 +1664,32 @@ export default function TodayOrdersPage() {
                     const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
+                        const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);
+                        if (dData) {
+                            assignmentUpdate['delivery.assignedDeliveryData'] = {
+                                id: dData.id,
+                                nombres: dData.nombres,
+                                celular: dData.celular || '',
+                                fotoUrl: dData.fotoUrl || '',
+                                email: dData.email || ''
+                            };
+                        }
                     }
                 }
                 else if (previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
                     const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
+                        const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);
+                        if (dData) {
+                            assignmentUpdate['delivery.assignedDeliveryData'] = {
+                                id: dData.id,
+                                nombres: dData.nombres,
+                                celular: dData.celular || '',
+                                fotoUrl: dData.fotoUrl || '',
+                                email: dData.email || ''
+                            };
+                        }
                     }
                 }
             }
@@ -1685,7 +1706,10 @@ export default function TodayOrdersPage() {
                     delivery: {
                         ...order.delivery,
                         ...(assignmentUpdate['delivery.assignedDelivery']
-                            ? { assignedDelivery: assignmentUpdate['delivery.assignedDelivery'] }
+                            ? { 
+                                assignedDelivery: assignmentUpdate['delivery.assignedDelivery'],
+                                assignedDeliveryData: assignmentUpdate['delivery.assignedDeliveryData'] || order.delivery?.assignedDeliveryData
+                              }
                             : {})
                     }
                 }))
@@ -1716,9 +1740,25 @@ export default function TodayOrdersPage() {
 
     const handleDeliveryAssignment = useCallback(async (orderId: string, deliveryId: string) => {
         try {
+            let deliveryPayload: any = null
+            if (deliveryId) {
+                const found = availableDeliveries.find(d => d.id === deliveryId)
+                const dData = found || await getDelivery(deliveryId)
+                if (dData) {
+                    deliveryPayload = {
+                        id: dData.id,
+                        nombres: dData.nombres,
+                        celular: dData.celular || '',
+                        fotoUrl: dData.fotoUrl || '',
+                        email: dData.email || ''
+                    }
+                }
+            }
+
             const orderRef = doc(db, 'orders', orderId)
             await updateDoc(orderRef, {
                 'delivery.assignedDelivery': deliveryId || null,
+                'delivery.assignedDeliveryData': deliveryPayload,
                 'delivery.acceptanceStatus': 'pending'
             })
             const applyDeliveryUpdate = (order: Order) => order.id === orderId
@@ -1727,6 +1767,7 @@ export default function TodayOrdersPage() {
                     delivery: {
                         ...order.delivery,
                         assignedDelivery: deliveryId || undefined,
+                        assignedDeliveryData: deliveryPayload,
                         acceptanceStatus: 'pending' as const
                     }
                 }
@@ -1739,7 +1780,7 @@ export default function TodayOrdersPage() {
             console.error("Error assigning delivery:", error)
             alert("Error al asignar repartidor")
         }
-    }, [])
+    }, [availableDeliveries, patchOrderEverywhere])
 
     const handleAutoAssignFuddi = async (orderToAssign: Order) => {
         try {

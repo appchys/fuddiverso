@@ -285,6 +285,13 @@ function TMADeliveryContent() {
       const orderRef = doc(db, 'orders', orderId)
       await updateDoc(orderRef, {
         'delivery.assignedDelivery': rider.id,
+        'delivery.assignedDeliveryData': {
+          id: rider.id,
+          nombres: rider.nombres,
+          celular: rider.celular || '',
+          fotoUrl: rider.fotoUrl || '',
+          email: rider.email || ''
+        },
         'delivery.acceptanceStatus': 'accepted'
       })
     } catch (err) {
@@ -311,6 +318,7 @@ function TMADeliveryContent() {
       const orderRef = doc(db, 'orders', orderId)
       await updateDoc(orderRef, {
         'delivery.assignedDelivery': null,
+        'delivery.assignedDeliveryData': null,
         'delivery.acceptanceStatus': 'pending',
         'delivery.rejectedBy': arrayUnion(rider.id)
       })

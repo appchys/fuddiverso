@@ -1464,19 +1464,44 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       createdByAdmin: cleanOrderData.createdByAdmin ?? false,
       delivery: {
         type: cleanOrderData.delivery?.type || 'pickup',
-        references: cleanOrderData.delivery?.references || '',
-        sector: cleanOrderData.delivery?.sector || '',
-        latlong: cleanOrderData.delivery?.latlong || '',
-        deliveryCost: cleanOrderData.delivery?.deliveryCost || 0,
-        // Preservar TODOS los campos de delivery, incluyendo photo
-        ...(cleanOrderData.delivery?.photo && { photo: cleanOrderData.delivery.photo }),
-        // preservar repartidor asignado cuando viene desde la UI (p. ej. ManualOrderSidebar)
-        assignedDelivery: cleanOrderData.delivery?.assignedDelivery ?? null
+        references: cleanOrderData.delivery?.references || cleanOrderData.delivery?.referencia || cleanOrderData.delivery?.selectedLocation?.referencia || '',
+        sector: cleanOrderData.delivery?.sector || cleanOrderData.delivery?.selectedLocation?.sector || '',
+        tarifa: cleanOrderData.delivery?.tarifa || cleanOrderData.delivery?.selectedLocation?.tarifa || (cleanOrderData.delivery?.deliveryCost !== undefined ? String(cleanOrderData.delivery.deliveryCost) : '0'),
+        latlong: cleanOrderData.delivery?.latlong || cleanOrderData.delivery?.selectedLocation?.latlong || '',
+        deliveryCost: cleanOrderData.delivery?.deliveryCost !== undefined
+          ? cleanOrderData.delivery.deliveryCost
+          : (parseFloat(cleanOrderData.delivery?.tarifa || cleanOrderData.delivery?.selectedLocation?.tarifa || '0') || 0),
+        // Preservar photo
+        ...((cleanOrderData.delivery?.photo || cleanOrderData.delivery?.selectedLocation?.photo) && {
+          photo: cleanOrderData.delivery?.photo || cleanOrderData.delivery?.selectedLocation?.photo
+        }),
+        // Preservar mapLocation si existe
+        ...((cleanOrderData.delivery?.mapLocation || cleanOrderData.delivery?.selectedLocation?.mapLocation) && {
+          mapLocation: cleanOrderData.delivery?.mapLocation || cleanOrderData.delivery?.selectedLocation?.mapLocation
+        }),
+        // Preservar objeto completo de la ubicación seleccionada para cero reconsultas
+        ...(cleanOrderData.delivery?.selectedLocation && { selectedLocation: cleanOrderData.delivery.selectedLocation }),
+        // Preservar repartidor asignado cuando viene desde la UI
+        assignedDelivery: cleanOrderData.delivery?.assignedDelivery ?? null,
+        assignedDeliveryData: cleanOrderData.delivery?.assignedDeliveryData ?? null
       },
       statusHistory: {
         ...(cleanOrderData.statusHistory || {}),
         pendingAt: cleanOrderData.statusHistory?.pendingAt || serverTimestamp(),
         ...(cleanOrderData.createdByAdmin ? { confirmedAt: serverTimestamp() } : {})
+      },
+      businessSnapshot: cleanOrderData.businessSnapshot || null,
+      rating: cleanOrderData.rating || null,
+      customer: {
+        name: cleanOrderData.customer?.name || 'Cliente',
+        phone: cleanOrderData.customer?.phone || '',
+        ...(cleanOrderData.customer?.id && { id: cleanOrderData.customer.id }),
+        ...(cleanOrderData.customer?.telegramChatId && { telegramChatId: cleanOrderData.customer.telegramChatId })
+      },
+      payment: {
+        ...(cleanOrderData.payment || {}),
+        method: cleanOrderData.payment?.method || 'cash',
+        ...(cleanOrderData.payment?.bankAccount && { bankAccount: cleanOrderData.payment.bankAccount })
       },
       paymentCollector: cleanOrderData.paymentCollector || (
         (cleanOrderData.createdByAdmin || cleanOrderData.delivery?.type === 'pickup') ? 'store' : 'fuddi'
@@ -2076,6 +2101,57 @@ export async function getDelivery(deliveryId: string): Promise<Delivery | null> 
     throw error
   }
 }
+
+/**
+ * Asigna un repartidor a una orden guardando tanto su ID como sus datos embebidos
+ * para evitar consultas adicionales a la colección de deliveries al visualizar la orden.
+ */
+export async function assignDeliveryToOrder(
+  orderId: string,
+  deliveryId: string | null,
+  deliveryData?: Partial<Delivery> | null,
+  acceptanceStatus: 'pending' | 'accepted' = 'pending'
+) {
+  try {
+    let assignedData: any = null
+    if (deliveryId) {
+      if (deliveryData && deliveryData.nombres) {
+        assignedData = {
+          id: deliveryId,
+          nombres: deliveryData.nombres,
+          celular: deliveryData.celular || '',
+          fotoUrl: deliveryData.fotoUrl || '',
+          email: deliveryData.email || ''
+        }
+      } else {
+        const fetched = await getDelivery(deliveryId)
+        if (fetched) {
+          assignedData = {
+            id: fetched.id,
+            nombres: fetched.nombres,
+            celular: fetched.celular || '',
+            fotoUrl: fetched.fotoUrl || '',
+            email: fetched.email || ''
+          }
+        }
+      }
+    }
+
+    const orderRef = doc(db, 'orders', orderId)
+    await updateDoc(orderRef, {
+      'delivery.assignedDelivery': deliveryId || null,
+      'delivery.assignedDeliveryData': assignedData,
+      'delivery.acceptanceStatus': acceptanceStatus,
+      updatedAt: serverTimestamp()
+    })
+
+    return assignedData
+  } catch (error) {
+    console.error('Error assigning delivery to order:', error)
+    throw error
+  }
+}
+
 
 // Funciones para subir imágenes con compresión automática defensiva
 export async function uploadImage(file: File | Blob, path: string): Promise<string> {
@@ -5554,6 +5630,22 @@ export async function saveBusinessRating(
     }
 
     const docRef = await addDoc(ratingsRef, ratingData);
+
+    // Guardar snapshot de la calificación directamente en la orden para evitar consultas secundarias
+    if (orderId) {
+      try {
+        const orderRef = doc(db, 'orders', orderId);
+        await updateDoc(orderRef, {
+          rating: {
+            rating,
+            comment: comment || '',
+            createdAt: serverTimestamp()
+          }
+        });
+      } catch (orderUpdateErr) {
+        console.error('Error updating order with rating snapshot:', orderUpdateErr);
+      }
+    }
 
     // Update business rating stats
     await updateBusinessRatingStats(businessId);

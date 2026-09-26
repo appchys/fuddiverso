@@ -101,6 +101,21 @@ async function processOrderStatusUpdate(action: string, orderId: string, token: 
       const assignedId = await autoAssignDeliveryForOrder(order, business?.defaultDeliveryId);
       if (assignedId) {
         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
+        try {
+          const deliverySnap = await getDoc(doc(db, 'deliveries', assignedId));
+          if (deliverySnap.exists()) {
+            const d = deliverySnap.data();
+            assignmentUpdate['delivery.assignedDeliveryData'] = {
+              id: assignedId,
+              nombres: d.nombres || '',
+              celular: d.celular || '',
+              fotoUrl: d.fotoUrl || '',
+              email: d.email || ''
+            };
+          }
+        } catch (delivErr) {
+          console.error('Error obteniendo datos del delivery asignado:', delivErr);
+        }
       }
     } catch (error) {
       console.error('Error auto-asignando delivery:', error);

@@ -175,7 +175,7 @@ export function DeliveryStatusModal({
                                             ))}
                                         </select>
                                     ) : (
-                                        <p className="text-lg font-bold text-gray-900 truncate">{deliveryAgent?.nombres || 'No identificado'}</p>
+                                        <p className="text-lg font-bold text-gray-900 truncate">{deliveryAgent?.nombres || order.delivery?.assignedDeliveryData?.nombres || 'No identificado'}</p>
                                     )}
                                     <div className="mt-2 flex items-center gap-2">
                                         <span className={`h-2 w-2 rounded-full ${!order.delivery?.assignedDelivery ? 'bg-gray-400' :
