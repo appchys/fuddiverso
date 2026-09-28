@@ -2,12 +2,171 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup } from '@/types'
+import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup, ProductScheduleAvailability, ProductSchedule } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
 import { evaluateProductStock, checkVariantStockAvailability, isProductEffectivelyAvailable as checkProductEffectiveAvailability } from '@/lib/stock-utils'
 import StockConfigModal from '@/components/StockConfigModal'
+
+export const EXAMPLE_MENU_JSON = [
+  {
+    "name": "Papas Rústicas con Queso Cheddar",
+    "category": "Acompañamientos",
+    "price": 3.50,
+    "description": "Crujientes papas cortadas a mano bañadas con salsa cheddar artesanal y tocino crocante.",
+    "image": "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=600&auto=format&fit=crop&q=80",
+    "isAvailable": true
+  },
+  {
+    "name": "Pizza Cuatro Quesos Artesanal",
+    "category": "Pizzas",
+    "price": 8.99,
+    "description": "Masa madurada con salsa pomodoro, mozzarella, gorgonzola, parmesano y provolone.",
+    "isAvailable": true,
+    "variants": [
+      {
+        "name": "Personal (4 Porciones)",
+        "price": 8.99,
+        "isAvailable": true
+      },
+      {
+        "name": "Mediana (8 Porciones)",
+        "price": 13.50,
+        "isAvailable": true
+      },
+      {
+        "name": "Familiar (12 Porciones)",
+        "price": 18.00,
+        "isAvailable": true
+      }
+    ]
+  },
+  {
+    "name": "Combo Dúo Burger & Drinks",
+    "category": "Combos",
+    "price": 12.99,
+    "description": "Arma tu combo eligiendo 2 hamburguesas favoritas de la lista.",
+    "isCombo": true,
+    "minComboItems": 2,
+    "countComboUnits": true,
+    "isAvailable": true,
+    "variants": [
+      {
+        "name": "Clásica con Queso Cheddar",
+        "price": 0,
+        "description": "150g carne de res, queso cheddar y salsa especial",
+        "isAvailable": true
+      },
+      {
+        "name": "Crispy Chicken Bacon",
+        "price": 0,
+        "description": "Pechuga crocante, tocino y aderezo ranch",
+        "isAvailable": true
+      },
+      {
+        "name": "Smash Burger Monster",
+        "price": 1.50,
+        "description": "Doble carne smash caramelizada (+1.50)",
+        "isAvailable": true
+      }
+    ]
+  },
+  {
+    "name": "Desayuno Americano Especial",
+    "category": "Desayunos",
+    "price": 4.50,
+    "description": "Huevos revueltos, tostadas francesas, tocineta crocante y café recién preparado.",
+    "isAvailable": true,
+    "scheduleAvailability": {
+      "enabled": true,
+      "schedules": [
+        {
+          "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+          "startTime": "07:30",
+          "endTime": "11:30"
+        },
+        {
+          "days": ["Saturday", "Sunday"],
+          "startTime": "08:00",
+          "endTime": "12:30"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Hamburguesa Fuddi Deluxe",
+    "category": "Hamburguesas",
+    "price": 6.50,
+    "description": "Carne angus jugosa en pan brioche artesanal con vegetales frescos.",
+    "isAvailable": true,
+    "optionGroups": [
+      {
+        "name": "Término de la Carne (Obligatorio)",
+        "minSelect": 1,
+        "maxSelect": 1,
+        "options": [
+          { "name": "Término Medio", "price": 0, "isAvailable": true },
+          { "name": "Tres Cuartos", "price": 0, "isAvailable": true },
+          { "name": "Bien Cocida", "price": 0, "isAvailable": true }
+        ]
+      },
+      {
+        "name": "Toppings y Adiciones Extras",
+        "minSelect": 0,
+        "maxSelect": 4,
+        "options": [
+          { "name": "Doble Queso Cheddar", "price": 0.75, "isAvailable": true },
+          { "name": "Tocineta Ahumada Extra", "price": 1.25, "isAvailable": true },
+          { "name": "Huevo Frito", "price": 0.50, "isAvailable": true },
+          { "name": "Cebolla Caramelizada", "price": 0.60, "isAvailable": true }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Batido Tropical de Fresa y Plátano",
+    "category": "Bebidas",
+    "price": 3.00,
+    "description": "Bebida refrescante a base de fruta natural con control de costos e insumos.",
+    "isAvailable": true,
+    "ingredients": [
+      {
+        "name": "Fresas Frescas",
+        "quantity": 150,
+        "unit": "g",
+        "unitCost": 0.45
+      },
+      {
+        "name": "Plátano Maduro",
+        "quantity": 1,
+        "unit": "unidad",
+        "unitCost": 0.20
+      },
+      {
+        "name": "Leche Entera",
+        "quantity": 200,
+        "unit": "ml",
+        "unitCost": 0.25
+      }
+    ],
+    "autoHideByStock": false
+  }
+]
+
+const normalizeScheduleDay = (d: string): string => {
+  const raw = String(d || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const map: Record<string, string> = {
+    lunes: 'Monday', lun: 'Monday', mon: 'Monday', monday: 'Monday',
+    martes: 'Tuesday', mar: 'Tuesday', tue: 'Tuesday', tuesday: 'Tuesday',
+    miercoles: 'Wednesday', mie: 'Wednesday', wed: 'Wednesday', wednesday: 'Wednesday',
+    jueves: 'Thursday', jue: 'Thursday', thu: 'Thursday', thursday: 'Thursday',
+    viernes: 'Friday', vie: 'Friday', fri: 'Friday', friday: 'Friday',
+    sabado: 'Saturday', sab: 'Saturday', sat: 'Saturday', saturday: 'Saturday',
+    domingo: 'Sunday', dom: 'Sunday', sun: 'Sunday', sunday: 'Sunday'
+  }
+  return map[raw] || d
+}
 
 interface ProductListProps {
   business: Business | null
@@ -1591,6 +1750,20 @@ export default function ProductList({
     setVariants(newVariants)
   }
 
+  const [copiedExample, setCopiedExample] = useState(false)
+
+  const handleLoadExampleJson = () => {
+    setJsonText(JSON.stringify(EXAMPLE_MENU_JSON, null, 2))
+    setJsonError(null)
+    setParsedProducts([])
+  }
+
+  const handleCopyExampleJson = () => {
+    navigator.clipboard.writeText(JSON.stringify(EXAMPLE_MENU_JSON, null, 2))
+    setCopiedExample(true)
+    setTimeout(() => setCopiedExample(false), 2000)
+  }
+
   const handleParseJson = () => {
     setJsonError(null)
     setParsedProducts([])
@@ -1653,38 +1826,101 @@ export default function ProductList({
         }
 
         if (name && !isNaN(price)) {
+          // Procesar variantes
+          const parsedVariants = Array.isArray(p.variants)
+            ? p.variants.map((v: any, vIdx: number) => ({
+                id: v.id || `var_${Date.now()}_${vIdx}`,
+                name: typeof v.name === 'string' ? v.name.trim() : `Variante ${vIdx + 1}`,
+                description: typeof v.description === 'string' ? v.description.trim() : '',
+                price: typeof v.price === 'number' ? v.price : parseFloat(v.price) || 0,
+                isAvailable: v.isAvailable !== false,
+                image: typeof v.image === 'string' ? v.image.trim() : '',
+                ingredients: Array.isArray(v.ingredients)
+                  ? v.ingredients.map((ing: any, ingIdx: number) => ({
+                      id: ing.id || `ing_${Date.now()}_${ingIdx}`,
+                      name: typeof ing.name === 'string' ? ing.name.trim() : 'Ingrediente',
+                      quantity: typeof ing.quantity === 'number' ? ing.quantity : parseFloat(ing.quantity) || 0,
+                      unitCost: typeof ing.unitCost === 'number' ? ing.unitCost : parseFloat(ing.unitCost) || 0,
+                      unit: typeof ing.unit === 'string' ? ing.unit.trim() : ''
+                    }))
+                  : []
+              }))
+            : []
+
+          // Procesar ingredientes
+          const parsedIngredients = Array.isArray(p.ingredients)
+            ? p.ingredients.map((ing: any, ingIdx: number) => ({
+                id: ing.id || `ing_${Date.now()}_${ingIdx}`,
+                name: typeof ing.name === 'string' ? ing.name.trim() : 'Ingrediente',
+                quantity: typeof ing.quantity === 'number' ? ing.quantity : parseFloat(ing.quantity) || 0,
+                unitCost: typeof ing.unitCost === 'number' ? ing.unitCost : parseFloat(ing.unitCost) || 0,
+                unit: typeof ing.unit === 'string' ? ing.unit.trim() : ''
+              }))
+            : []
+
+          // Procesar scheduleAvailability (Horarios)
+          let parsedScheduleAvailability: ProductScheduleAvailability | null = null
+          if (p.scheduleAvailability && typeof p.scheduleAvailability === 'object') {
+            const enabled = p.scheduleAvailability.enabled !== false
+            const rawSchedules = Array.isArray(p.scheduleAvailability.schedules) ? p.scheduleAvailability.schedules : []
+            const schedules: ProductSchedule[] = rawSchedules.map((s: any, sIdx: number) => ({
+              id: s.id || `sch_${Date.now()}_${sIdx}`,
+              days: Array.isArray(s.days) && s.days.length > 0
+                ? s.days.map((day: any) => normalizeScheduleDay(day))
+                : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+              startTime: typeof s.startTime === 'string' && s.startTime.trim() ? s.startTime.trim() : '09:00',
+              endTime: typeof s.endTime === 'string' && s.endTime.trim() ? s.endTime.trim() : '17:00'
+            }))
+            parsedScheduleAvailability = {
+              enabled,
+              schedules
+            }
+          }
+
+          // Procesar optionGroups (Toppings / Modificadores)
+          const rawGroups = Array.isArray(p.optionGroups)
+            ? p.optionGroups
+            : Array.isArray(p.toppings)
+              ? p.toppings
+              : Array.isArray(p.modificadores)
+                ? p.modificadores
+                : []
+
+          const parsedOptionGroups: ProductOptionGroup[] = rawGroups.map((g: any, gIdx: number) => {
+            const groupName = typeof g.name === 'string' && g.name.trim() ? g.name.trim() : `Grupo ${gIdx + 1}`
+            const minSelect = typeof g.minSelect === 'number' ? g.minSelect : (parseInt(g.minSelect) || 0)
+            const maxSelect = typeof g.maxSelect === 'number' ? g.maxSelect : (parseInt(g.maxSelect) || 1)
+            const rawOptions = Array.isArray(g.options) ? g.options : []
+            const options: ProductOption[] = rawOptions.map((opt: any) => ({
+              name: typeof opt.name === 'string' ? opt.name.trim() : 'Opción',
+              price: typeof opt.price === 'number' ? opt.price : (parseFloat(opt.price) || 0),
+              isAvailable: opt.isAvailable !== false
+            }))
+            return {
+              id: g.id || `grp_${Date.now()}_${gIdx}`,
+              name: groupName,
+              minSelect,
+              maxSelect,
+              options
+            }
+          })
+
           validated.push({
             name,
             price,
             category,
             commissionType: typeof p.commissionType === 'string' ? p.commissionType : undefined,
             description: typeof p.description === 'string' ? p.description.trim() : '',
+            image: typeof p.image === 'string' ? p.image.trim() : '',
             isAvailable: p.isAvailable !== false,
+            autoHideByStock: !!p.autoHideByStock,
             isCombo: !!p.isCombo,
-            minComboItems: typeof p.minComboItems === 'number' ? p.minComboItems : 1,
-            variants: Array.isArray(p.variants) ? p.variants.map((v: any, vIdx: number) => ({
-              id: v.id || Math.random().toString(36).substring(2, 9),
-              name: typeof v.name === 'string' ? v.name.trim() : `Variante ${vIdx + 1}`,
-              description: typeof v.description === 'string' ? v.description.trim() : '',
-              price: typeof v.price === 'number' ? v.price : parseFloat(v.price) || 0,
-              isAvailable: v.isAvailable !== false,
-              image: typeof v.image === 'string' ? v.image : '',
-              ingredients: Array.isArray(v.ingredients) ? v.ingredients.map((ing: any) => ({
-                id: ing.id || Math.random().toString(36).substring(2, 9),
-                name: typeof ing.name === 'string' ? ing.name.trim() : 'Ingrediente',
-                quantity: typeof ing.quantity === 'number' ? ing.quantity : parseFloat(ing.quantity) || 0,
-                unitCost: typeof ing.unitCost === 'number' ? ing.unitCost : parseFloat(ing.unitCost) || 0,
-                unit: typeof ing.unit === 'string' ? ing.unit.trim() : ''
-              })) : []
-            })) : [],
-            ingredients: Array.isArray(p.ingredients) ? p.ingredients.map((ing: any) => ({
-              id: ing.id || Math.random().toString(36).substring(2, 9),
-              name: typeof ing.name === 'string' ? ing.name.trim() : 'Ingrediente',
-              quantity: typeof ing.quantity === 'number' ? ing.quantity : parseFloat(ing.quantity) || 0,
-              unitCost: typeof ing.unitCost === 'number' ? ing.unitCost : parseFloat(ing.unitCost) || 0,
-              unit: typeof ing.unit === 'string' ? ing.unit.trim() : ''
-            })) : [],
-            scheduleAvailability: p.scheduleAvailability || null
+            minComboItems: typeof p.minComboItems === 'number' ? p.minComboItems : (parseInt(p.minComboItems) || 1),
+            countComboUnits: !!p.countComboUnits,
+            variants: parsedVariants,
+            ingredients: parsedIngredients,
+            scheduleAvailability: parsedScheduleAvailability,
+            optionGroups: parsedOptionGroups.length > 0 ? parsedOptionGroups : undefined
           })
         }
       })
@@ -1747,9 +1983,13 @@ export default function ProductList({
           image: p.image || '',
           variants: p.variants && p.variants.length > 0 ? variantsWithCommission : undefined,
           ingredients: p.ingredients && p.ingredients.length > 0 ? p.ingredients : undefined,
-          isAvailable: p.isAvailable,
-          isCombo: p.isCombo,
-          minComboItems: p.minComboItems,
+          isAvailable: p.isAvailable !== false,
+          autoHideByStock: !!p.autoHideByStock,
+          isCombo: !!p.isCombo,
+          minComboItems: p.isCombo ? (p.minComboItems || 1) : 1,
+          countComboUnits: p.isCombo ? !!p.countComboUnits : false,
+          scheduleAvailability: p.scheduleAvailability?.enabled ? p.scheduleAvailability : undefined,
+          optionGroups: p.optionGroups && p.optionGroups.length > 0 ? p.optionGroups : undefined,
           businessId: business.id,
           updatedAt: new Date()
         }
@@ -4493,26 +4733,57 @@ export default function ProductList({
                   {/* Resumen y lista */}
                   <div className="space-y-3">
                     <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Previsualización de los Productos</p>
-                    <div className="border border-gray-100 rounded-2xl divide-y divide-gray-100 max-h-64 overflow-y-auto custom-scrollbar shadow-sm bg-gray-50/30">
+                    <div className="border border-gray-100 rounded-2xl divide-y divide-gray-100 max-h-72 overflow-y-auto custom-scrollbar shadow-sm bg-gray-50/30">
                       {parsedProducts.map((p, index) => (
                         <div key={index} className="p-4 flex items-start justify-between gap-4 text-sm hover:bg-gray-50 transition-colors">
-                          <div className="min-w-0">
-                            <p className="font-bold text-gray-900 truncate">{p.name}</p>
-                            {p.description && <p className="text-xs text-gray-500 truncate mt-0.5">{p.description}</p>}
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 uppercase tracking-wide">
-                                {p.category}
-                              </span>
-                              {p.variants && p.variants.length > 0 && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700">
-                                  {p.variants.length} variantes
+                          <div className="flex items-start gap-3 min-w-0">
+                            {p.image ? (
+                              <img
+                                src={p.image}
+                                alt={p.name}
+                                className="w-12 h-12 rounded-xl object-cover border border-gray-200 flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 flex-shrink-0">
+                                <i className="bi bi-box-seam text-lg"></i>
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-bold text-gray-900 truncate">{p.name}</p>
+                              {p.description && <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{p.description}</p>}
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 uppercase tracking-wide">
+                                  {p.category}
                                 </span>
-                              )}
-                              {p.ingredients && p.ingredients.length > 0 && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-50 text-orange-700">
-                                  Con receta ({p.ingredients.length} ing.)
-                                </span>
-                              )}
+                                {p.isCombo && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                    <i className="bi bi-layers-fill mr-1 text-[9px]"></i>
+                                    Combo ({p.minComboItems || 1} opc.)
+                                  </span>
+                                )}
+                                {p.variants && p.variants.length > 0 && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700">
+                                    {p.variants.length} variantes
+                                  </span>
+                                )}
+                                {p.scheduleAvailability?.enabled && p.scheduleAvailability.schedules?.length > 0 && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <i className="bi bi-clock mr-1 text-[9px]"></i>
+                                    Horarios ({p.scheduleAvailability.schedules.length})
+                                  </span>
+                                )}
+                                {p.optionGroups && p.optionGroups.length > 0 && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-pink-50 text-pink-700 border border-pink-200">
+                                    <i className="bi bi-sliders mr-1 text-[9px]"></i>
+                                    {p.optionGroups.length} grupo(s) toppings
+                                  </span>
+                                )}
+                                {p.ingredients && p.ingredients.length > 0 && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-50 text-orange-700">
+                                    Con receta ({p.ingredients.length} ing.)
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <div className="text-right flex-shrink-0">
@@ -4528,37 +4799,104 @@ export default function ProductList({
               ) : (
                 /* Estado: Input Textarea de JSON + Instrucciones */
                 <div className="space-y-4">
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Instrucciones y Formatos</h4>
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      Puedes proporcionar el menú en un arreglo general de productos, o agrupados en un objeto cuyas llaves sean las categorías. Los campos requeridos por producto son: <code className="font-mono font-bold text-red-600">name</code> y <code className="font-mono font-bold text-red-600">price</code>.
-                    </p>
-                    <div className="mt-3">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase">Ejemplo en Arreglo:</p>
-                      <pre className="bg-slate-900 text-slate-300 p-3 rounded-xl text-[10px] overflow-x-auto font-mono mt-1 max-h-36">
-                        {`[
-  {
-    "name": "Hamburguesa Clásica",
-    "price": 5.50,
-    "category": "Hamburguesas",
-    "description": "Carne de res, queso cheddar y vegetales",
-    "variants": [
-      { "name": "Doble Carne", "price": 7.50 }
-    ]
-  }
-]`}
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/60 pb-3">
+                      <div>
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <i className="bi bi-info-circle-fill text-blue-600"></i>
+                          Todas las Alternativas de Menú Soportadas
+                        </h4>
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          Fuddi permite importar productos simples, con variantes, combos, horarios programados, toppings y recetas.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        <button
+                          type="button"
+                          onClick={handleCopyExampleJson}
+                          className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+                          title="Copiar JSON al portapapeles"
+                        >
+                          <i className={`bi ${copiedExample ? 'bi-check2 text-emerald-600' : 'bi-clipboard'}`}></i>
+                          <span>{copiedExample ? '¡Copiado!' : 'Copiar Ejemplo'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLoadExampleJson}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+                          title="Llenar el editor con la plantilla completa de ejemplo"
+                        >
+                          <i className="bi bi-box-arrow-in-down"></i>
+                          <span>Cargar Plantilla al Editor</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Chips resumen de alternativas */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                        <p className="font-bold text-slate-800">1. Simple</p>
+                        <p className="text-[10px] text-slate-500">Nombre, precio, categoría, imagen y descripción.</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                        <p className="font-bold text-purple-800">2. Variantes</p>
+                        <p className="text-[10px] text-slate-500">Múltiples tamaños o porciones con precios propios.</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                        <p className="font-bold text-amber-800">3. Combos</p>
+                        <p className="text-[10px] text-slate-500"><code className="text-amber-700 font-mono">isCombo: true</code> con mínimo de opciones a elegir.</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                        <p className="font-bold text-emerald-800">4. Horarios</p>
+                        <p className="text-[10px] text-slate-500"><code className="text-emerald-700 font-mono">scheduleAvailability</code> por días y horas de atención.</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                        <p className="font-bold text-pink-800">5. Toppings / Opciones</p>
+                        <p className="text-[10px] text-slate-500"><code className="text-pink-700 font-mono">optionGroups</code> obligatorios u opcionales con extras.</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                        <p className="font-bold text-orange-800">6. Recetas / Stock</p>
+                        <p className="text-[10px] text-slate-500"><code className="text-orange-700 font-mono">ingredients</code> para costeo y control de insumos.</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                          Arreglo de Ejemplo Maestro (JSON):
+                        </p>
+                        <span className="text-[10px] text-slate-400 font-medium">6 ejemplos incluidos</span>
+                      </div>
+                      <pre className="bg-slate-900 text-slate-200 p-3.5 rounded-xl text-[10px] overflow-x-auto font-mono max-h-48 border border-slate-800 shadow-inner">
+                        {JSON.stringify(EXAMPLE_MENU_JSON, null, 2)}
                       </pre>
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Pega el código JSON aquí</label>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
+                        Pega o edita el código JSON del Menú
+                      </label>
+                      {jsonText && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setJsonText('')
+                            setJsonError(null)
+                          }}
+                          className="text-[11px] text-red-500 hover:text-red-700 font-semibold"
+                        >
+                          Limpiar editor
+                        </button>
+                      )}
+                    </div>
                     <textarea
                       value={jsonText}
                       onChange={(e) => setJsonText(e.target.value)}
-                      placeholder="Paste your JSON menu here..."
-                      rows={8}
-                      className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-gray-50 focus:bg-white transition-all shadow-inner"
+                      placeholder='Pega tu arreglo JSON de productos aquí o haz clic en "Cargar Plantilla al Editor"...'
+                      rows={9}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-gray-50 focus:bg-white transition-all shadow-inner"
                     />
                   </div>
 
