@@ -20,7 +20,8 @@ import {
   signInWithGoogle
 } from '@/lib/database'
 import { Business } from '@/types'
-import CartSidebar from '@/components/CartSidebar'
+import dynamic from 'next/dynamic'
+const CartSidebar = dynamic(() => import('@/components/CartSidebar'), { ssr: false })
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone } from '@/lib/validation'

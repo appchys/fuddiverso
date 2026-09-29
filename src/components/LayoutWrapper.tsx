@@ -3,7 +3,9 @@
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import Header from './Header'
-import BottomNavigation from './BottomNavigation'
+import dynamic from 'next/dynamic'
+
+const BottomNavigation = dynamic(() => import('./BottomNavigation'), { ssr: false })
 
 export default function LayoutWrapper({
   children,

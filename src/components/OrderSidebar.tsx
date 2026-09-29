@@ -1,16 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { db, auth } from '@/lib/firebase'
 import { onAuthStateChanged } from 'firebase/auth'
-import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit } from 'firebase/firestore'
 import {
   getBusiness,
   getDelivery,
   saveBusinessRating,
   getOrderRating,
+  getBusinessRatings,
   createRatingNotification,
   createProductRatingNotification,
   ProductRating,
@@ -18,11 +19,16 @@ import {
   updateBusinessRatingStats,
   updateOrderStatus,
   getDeliveriesByBusiness,
-  getDeliveriesByStatus
+  getDeliveriesByStatus,
+  toggleRatingLike,
+  addStoreRatingReply
 } from '@/lib/database'
+import { Heart, MessageSquare, ArrowUp, Package, Store, Star } from 'lucide-react'
+import { formatRelativeTime } from '@/lib/date-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatPrice } from '@/lib/price-utils'
 import { calculateETASimple } from '@/lib/eta-utils'
+import StarRating from '@/components/StarRating'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 import { DeliveryStatusModal } from '@/app/business/dashboard/DeliveryStatusModal'
@@ -75,28 +81,37 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
     return () => unsub()
   }, [])
 
+  const [localBizAuth, setLocalBizAuth] = useState<{ businessId: string | null; ownerId: string | null }>({ businessId: null, ownerId: null })
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        setLocalBizAuth({
+          businessId: localStorage.getItem('businessId'),
+          ownerId: localStorage.getItem('ownerId')
+        })
+      }
+    } catch (e) {
+      // Error accediendo a localStorage en contextos restringidos
+    }
+  }, [])
+
   // Verificación estricta si el usuario actual es Administrador de ESTE negocio específico
   const isStoreAdmin = (() => {
     if (!order || !order.businessId) return false
     const targetBusinessId = order.businessId
 
     // 1. Sesión activa del negocio desde el Dashboard de la tienda (localStorage)
-    if (typeof window !== 'undefined') {
-      const savedBusinessId = localStorage.getItem('businessId')
-      const savedOwnerId = localStorage.getItem('ownerId')
-      
-      // La sesión activa en el navegador DEBE ser para este negocio específico
-      if (savedBusinessId && savedBusinessId === targetBusinessId) {
-        const currentFbUser = fbUser || auth.currentUser
-        if (currentFbUser) {
-          if (savedOwnerId === currentFbUser.uid) return true
-          if (business?.ownerId === currentFbUser.uid) return true
-          if (business?.administrators && Array.isArray(business.administrators)) {
-            if (business.administrators.some((a: any) => a.uid === currentFbUser.uid || a.email === currentFbUser.email)) return true
-          }
+    if (localBizAuth.businessId && localBizAuth.businessId === targetBusinessId) {
+      const currentFbUser = fbUser || auth.currentUser
+      if (currentFbUser) {
+        if (localBizAuth.ownerId === currentFbUser.uid) return true
+        if (business?.ownerId === currentFbUser.uid) return true
+        if (business?.administrators && Array.isArray(business.administrators)) {
+          if (business.administrators.some((a: any) => a.uid === currentFbUser.uid || a.email === currentFbUser.email)) return true
         }
-        return true
       }
+      return true
     }
 
     // 2. Autenticación de Firebase Auth contra el negocio del pedido
@@ -230,6 +245,226 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
   const [productRatings, setProductRatings] = useState<{ [productId: string]: { rating: number; hover: number; comment: string } }>({})
   const [isSubmittingStoreRating, setIsSubmittingStoreRating] = useState(false)
   const [submittingProducts, setSubmittingProducts] = useState<{ [productId: string]: boolean }>({})
+  interface DisplayComment {
+    id: string
+    ratingDocId?: string
+    type: 'store' | 'product'
+    clientName: string
+    clientPhotoURL?: string
+    rating: number
+    comment: string
+    image?: string
+    createdAt: any
+    replies?: any[]
+    likes?: string[]
+    productId?: string
+    productName?: string
+    productImage?: string
+  }
+
+  const [allComments, setAllComments] = useState<DisplayComment[]>([])
+  const [loadingComments, setLoadingComments] = useState(false)
+  const [viewingPhotoModalUrl, setViewingPhotoModalUrl] = useState<string | null>(null)
+  const [activeCardId, setActiveCardId] = useState<string | null>(null)
+  const [replyInputText, setReplyInputText] = useState<{ [cardId: string]: string }>({})
+  const [isSendingReply, setIsSendingReply] = useState<{ [cardId: string]: boolean }>({})
+  const storeCommentTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const productCommentTextareaRefs = useRef<{ [productId: string]: HTMLTextAreaElement | null }>({})
+
+  // Escuchar comentarios recibidos por la tienda y productos en tiempo real (feed unificado)
+  useEffect(() => {
+    const targetBusinessId = business?.id || order?.businessId
+    if (!isOpen || activeTab !== 'rate' || !targetBusinessId) return
+
+    setLoadingComments(true)
+    const ratingsRef = collection(db, 'businesses', targetBusinessId, 'ratings')
+    const q = query(ratingsRef, orderBy('createdAt', 'desc'), limit(60))
+
+    const processRatingsDocs = (docs: any[]) => {
+      const cList: DisplayComment[] = []
+
+      docs.forEach((d) => {
+        const data = (typeof d.data === 'function' ? d.data() : d) as any
+        const docId = d.id || data.id || Math.random().toString()
+        const clientName = data.clientName || 'Cliente'
+        const clientPhotoURL = data.clientPhotoURL || data.clientPhotoUrl || data.photoURL || ''
+        const createdAt = data.createdAt
+        const likes = Array.isArray(data.likes) ? data.likes : []
+        const replies = Array.isArray(data.replies) ? data.replies : []
+
+        // 1. Comentario de la tienda
+        if (!data.isProductOnlyRating && data.comment && typeof data.comment === 'string' && data.comment.trim().length > 0) {
+          cList.push({
+            id: `${docId}_store`,
+            ratingDocId: docId,
+            type: 'store',
+            clientName,
+            clientPhotoURL,
+            rating: data.rating || 5,
+            comment: data.comment.trim(),
+            image: data.image || '',
+            createdAt,
+            replies,
+            likes
+          })
+        }
+
+        // 2. Comentarios de los productos
+        if (data.productRatings && Array.isArray(data.productRatings)) {
+          data.productRatings.forEach((pr: any, idx: number) => {
+            if (pr.comment && typeof pr.comment === 'string' && pr.comment.trim().length > 0) {
+              const matchedOrderItem = order?.items?.find((it: any) => (it.productId || it.id) === pr.productId)
+              const fallbackName = matchedOrderItem ? (matchedOrderItem.variant || matchedOrderItem.name) : 'Producto'
+              const fallbackImg = matchedOrderItem ? getItemImage(matchedOrderItem) : ''
+
+              cList.push({
+                id: `${docId}_prod_${pr.productId || idx}`,
+                ratingDocId: docId,
+                type: 'product',
+                clientName,
+                clientPhotoURL,
+                rating: pr.rating || 5,
+                comment: pr.comment.trim(),
+                image: pr.image || '',
+                createdAt,
+                productId: pr.productId,
+                productName: pr.productName || fallbackName,
+                productImage: pr.productImage || fallbackImg,
+                replies: Array.isArray(pr.replies) ? pr.replies : replies,
+                likes: Array.isArray(pr.likes) ? pr.likes : likes
+              })
+            }
+          })
+        }
+      })
+
+      // Ordenar de más reciente a más antiguo
+      const getTimestamp = (input: any) => {
+        if (!input) return 0
+        if (typeof input === 'object' && typeof input.seconds === 'number') return input.seconds * 1000
+        if (typeof input === 'object' && typeof input.toDate === 'function') return input.toDate().getTime()
+        if (input instanceof Date) return input.getTime()
+        const d = new Date(input)
+        return isNaN(d.getTime()) ? 0 : d.getTime()
+      }
+      cList.sort((a, b) => getTimestamp(b.createdAt) - getTimestamp(a.createdAt))
+
+      setAllComments(cList)
+    }
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        processRatingsDocs(snapshot.docs)
+        setLoadingComments(false)
+      },
+      (error) => {
+        console.error('Error al escuchar comentarios:', error)
+        getBusinessRatings(targetBusinessId, 60)
+          .then((ratings) => {
+            processRatingsDocs(ratings)
+          })
+          .catch((err) => console.error('Fallback getBusinessRatings error:', err))
+          .finally(() => setLoadingComments(false))
+      }
+    )
+
+    return () => unsubscribe()
+  }, [isOpen, activeTab, business?.id, order?.businessId])
+
+  // Manejo de Me Gusta en Opiniones
+  const handleToggleLike = async (item: DisplayComment, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    const targetBusinessId = business?.id || order?.businessId
+    if (!targetBusinessId) return
+
+    const effectiveUserIdentifier = clientUser?.celular || clientUser?.id || fbUser?.uid || order?.client?.phone || order?.clientId
+    if (!effectiveUserIdentifier) {
+      alert('Por favor inicia sesión para interactuar con las opiniones.')
+      return
+    }
+
+    const docId = item.ratingDocId || item.id.split('_')[0]
+    const likes = item.likes || []
+    const isCurrentlyLiked = likes.includes(effectiveUserIdentifier)
+    const nextLikes = isCurrentlyLiked
+      ? likes.filter((u) => u !== effectiveUserIdentifier)
+      : [...likes, effectiveUserIdentifier]
+
+    // Actualización optimista inmediata
+    setAllComments((prev) =>
+      prev.map((r) => (r.id === item.id ? { ...r, likes: nextLikes } : r))
+    )
+
+    try {
+      await toggleRatingLike(targetBusinessId, docId, effectiveUserIdentifier)
+    } catch (err) {
+      console.error('Error al actualizar Me gusta:', err)
+      // Rollback en caso de error
+      setAllComments((prev) =>
+        prev.map((r) => (r.id === item.id ? { ...r, likes } : r))
+      )
+    }
+  }
+
+  // Manejo de Respuesta en Opiniones
+  const handleSendReply = async (item: DisplayComment, e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const targetBusinessId = business?.id || order?.businessId
+    const text = (replyInputText[item.id] || '').trim()
+    if (!text || !targetBusinessId) return
+
+    const effectiveUserIdentifier = clientUser?.celular || clientUser?.id || fbUser?.uid || order?.client?.phone || order?.clientId
+    if (!effectiveUserIdentifier) {
+      alert('Por favor inicia sesión para responder a las opiniones.')
+      return
+    }
+
+    const docId = item.ratingDocId || item.id.split('_')[0]
+    const effectiveUserName = clientUser?.nombres || fbUser?.displayName || order?.client?.name || 'Cliente'
+    const effectiveUserPhone = clientUser?.celular || order?.client?.phone || ''
+    const effectiveUserPhoto = clientUser?.photoURL || fbUser?.photoURL || ''
+
+    setIsSendingReply((prev) => ({ ...prev, [item.id]: true }))
+
+    const newReplyObj = {
+      id: `reply_${Date.now()}`,
+      userPhone: effectiveUserPhone,
+      userName: isStoreAdmin ? (business?.name || 'Tienda') : effectiveUserName,
+      userPhoto: isStoreAdmin ? (business?.image || '') : effectiveUserPhoto,
+      comment: text,
+      createdAt: new Date(),
+      isBusinessReply: isStoreAdmin,
+      businessReplyName: isStoreAdmin ? (business?.name || 'Tienda') : undefined
+    }
+
+    // Actualización optimista
+    setAllComments((prev) =>
+      prev.map((r) => {
+        if (r.id === item.id) {
+          return { ...r, replies: [...(r.replies || []), newReplyObj] }
+        }
+        return r
+      })
+    )
+    setReplyInputText((prev) => ({ ...prev, [item.id]: '' }))
+
+    try {
+      await addStoreRatingReply(targetBusinessId, docId, {
+        userName: isStoreAdmin ? (business?.name || 'Tienda') : effectiveUserName,
+        userPhone: effectiveUserPhone,
+        userPhoto: isStoreAdmin ? (business?.image || '') : effectiveUserPhoto,
+        comment: text,
+        isBusinessReply: isStoreAdmin,
+        businessReplyName: isStoreAdmin ? (business?.name || 'Tienda') : undefined,
+        businessOwnerId: isStoreAdmin ? business?.ownerId : undefined
+      })
+    } catch (err) {
+      console.error('Error enviando respuesta:', err)
+    } finally {
+      setIsSendingReply((prev) => ({ ...prev, [item.id]: false }))
+    }
+  }
 
   // Obtener la mejor imagen del producto/variante/combo con fallback a la foto principal del producto
   const getItemImage = (item: any): string => {
@@ -928,43 +1163,69 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
           </div>
         ) : (
           <>
-            {/* Tabs Navigation (Pestañas premium) */}
-            <div className="bg-white px-4 border-b border-gray-100 flex">
-              <button
-                onClick={() => setActiveTab('tracking')}
-                className={`flex-1 py-3 text-xs sm:text-sm font-black uppercase tracking-widest border-b-2 text-center transition-all flex items-center justify-center gap-1.5 ${
-                  activeTab === 'tracking'
-                    ? 'border-slate-900 text-slate-900'
-                    : 'border-transparent text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                <i className="bi bi-box-seam text-sm"></i>
-                <span>Seguimiento</span>
-              </button>
-              {isStoreAdmin && (
+            {/* Barra de Pestañas (Estilo idéntico a Detalle de Producto) */}
+            <div className="bg-white px-4 py-2 border-b border-gray-100">
+              <div className={`grid ${isStoreAdmin ? 'grid-cols-3' : 'grid-cols-2'} gap-1.5`}>
+                {/* Pestaña 1: Seguimiento */}
                 <button
-                  onClick={() => setActiveTab('gestion')}
-                  className={`flex-1 py-3 text-xs sm:text-sm font-black uppercase tracking-widest border-b-2 text-center transition-all flex items-center justify-center gap-1.5 ${
-                    activeTab === 'gestion'
-                      ? 'border-blue-600 text-blue-600 font-black'
-                      : 'border-transparent text-slate-400 hover:text-slate-600'
+                  type="button"
+                  onClick={() => setActiveTab('tracking')}
+                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                    activeTab === 'tracking'
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
-                  <i className="bi bi-shop text-sm"></i>
-                  <span>Gestión</span>
+                  <Package
+                    size={17}
+                    className={activeTab === 'tracking' ? 'text-gray-900' : 'text-gray-400'}
+                  />
+                  <span>Seguimiento</span>
                 </button>
-              )}
-              <button
-                onClick={() => setActiveTab('rate')}
-                className={`flex-1 py-3 text-xs sm:text-sm font-black uppercase tracking-widest border-b-2 text-center transition-all flex items-center justify-center gap-1.5 ${
-                  activeTab === 'rate'
-                    ? 'border-slate-900 text-slate-900'
-                    : 'border-transparent text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                <i className="bi bi-star-fill text-yellow-500 text-xs"></i>
-                <span>Calificar</span>
-              </button>
+
+                {/* Pestaña 2: Gestión (si es admin) */}
+                {isStoreAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('gestion')}
+                    className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                      activeTab === 'gestion'
+                        ? 'bg-gray-100 text-gray-900'
+                        : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Store
+                      size={17}
+                      className={activeTab === 'gestion' ? 'text-gray-900' : 'text-gray-400'}
+                    />
+                    <span>Gestión</span>
+                  </button>
+                )}
+
+                {/* Pestaña 3: Opiniones */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('rate')}
+                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                    activeTab === 'rate'
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="relative flex items-center justify-center">
+                    <Star
+                      size={17}
+                      className={activeTab === 'rate' || existingRating ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}
+                    />
+                    {existingRating?.rating && (
+                      <span className="absolute -top-1.5 -right-3 text-[9px] text-amber-700 font-extrabold bg-amber-100 px-1 py-0.2 rounded-full leading-none">
+                        {existingRating.rating.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <span>Opiniones</span>
+                </button>
+              </div>
             </div>
 
             {/* Contenido con scroll independiente */}
@@ -1559,331 +1820,578 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                   ratableItems.every((i: any) => existingRating.productRatings?.some((pr: any) => pr.productId === (i.productId || i.id)))
                 )
 
+                const storeRatingAvg = (() => {
+                  if (business?.rating && business.rating > 0) return business.rating
+                  if (allComments.length > 0) {
+                    const sum = allComments.reduce((acc, c) => acc + (c.rating || 5), 0)
+                    return sum / allComments.length
+                  }
+                  return 5.0
+                })()
+                const totalReviewsCount = allComments.length
+
                 return (
-                  <div className="space-y-4">
-                    {/* Banner de Calificación */}
-                    <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-1">
-                      <h4 className="text-base font-black text-slate-900">
-                        {isFullyRated
-                          ? '¡Pedido calificado por completo! ❤️'
-                          : 'Califica tu experiencia ⭐'}
-                      </h4>
-                      <p className="text-xs text-slate-400">
-                        {isFullyRated
-                          ? 'Tus valoraciones nos ayudan a mantener la máxima calidad.'
-                          : 'Puedes calificar la tienda y tus productos de forma independiente.'}
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    {/* Resumen de Calificación General - Centrado y sin fondo como ProductDetailSidebar */}
+                    <div className="py-2 text-center flex flex-col items-center justify-center">
+                      <p className="text-4xl font-black text-gray-900 tracking-tight leading-none">
+                        {storeRatingAvg > 0 ? storeRatingAvg.toFixed(1) : '5.0'}
+                      </p>
+                      <div className="mt-2 flex justify-center">
+                        <StarRating
+                          rating={storeRatingAvg > 0 ? storeRatingAvg : 5}
+                          size="md"
+                          showGrayStars={totalReviewsCount === 0}
+                          showRatingText={false}
+                        />
+                      </div>
+                      <p className="text-xs font-bold text-gray-500 mt-1.5">
+                        {totalReviewsCount > 0
+                          ? `${totalReviewsCount} ${totalReviewsCount === 1 ? 'opinión' : 'opiniones'}`
+                          : 'Sin opiniones aún'}
                       </p>
                     </div>
 
-                    {/* 1. SECCIÓN: CALIFICACIÓN DE LA TIENDA */}
-                    {existingRating?.storeRated ? (
-                      /* Caso Tienda: Ya calificada */
-                      <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-3 relative overflow-hidden">
-                        <div className="absolute top-3 right-3 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-100">
-                          Tienda Calificada ✓
-                        </div>
-                        
-                        <div className="flex flex-col items-center justify-center space-y-2 pt-1">
-                          <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-50 border-2 border-slate-100 flex-shrink-0 flex items-center justify-center shadow-md">
-                            {business?.image ? (
-                              <img
-                                src={business.image}
-                                alt={business.name || 'Tienda'}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <i className="bi bi-shop text-slate-400 text-2xl"></i>
-                            )}
-                          </div>
-                          <div>
-                            <h6 className="font-extrabold text-base text-slate-900 leading-tight">
-                              {business?.name || 'Tienda'}
-                            </h6>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">Opinión del servicio</span>
-                          </div>
-
-                          <div className="flex justify-center gap-1 pt-1">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <i
-                                key={star}
-                                className={`bi bi-star-fill text-lg ${
-                                  star <= existingRating.rating ? 'text-amber-400' : 'text-slate-200'
-                                }`}
-                              ></i>
-                            ))}
-                          </div>
-                        </div>
-
-                        {existingRating.comment && (
-                          <p className="text-xs text-slate-600 italic bg-slate-50/50 p-3 rounded-xl border border-slate-100 mt-2">
-                            "{existingRating.comment}"
-                          </p>
-                        )}
+                    {/* 1. SECCIÓN: TIENDA */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">
+                          Tienda
+                        </span>
                       </div>
-                    ) : (
-                      /* Caso Tienda: Formulario para calificar */
-                      <div className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm text-center space-y-4">
-                        <div className="flex flex-col items-center justify-center space-y-2">
-                          <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-50 border-2 border-slate-100 flex-shrink-0 flex items-center justify-center shadow-md">
-                            {business?.image ? (
-                              <img
-                                src={business.image}
-                                alt={business.name || 'Tienda'}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <i className="bi bi-shop text-slate-400 text-2xl"></i>
-                            )}
-                          </div>
-                          <div>
-                            <h5 className="font-black text-base text-slate-900 leading-tight">
-                              {business?.name || 'Tienda'}
-                            </h5>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">
-                              Calificación de la tienda
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <div className="text-center space-y-3 pt-2 border-t border-slate-50">
-                          <div className="flex justify-center gap-2">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <button
-                                key={star}
-                                type="button"
-                                onClick={() => setGeneralRating(star)}
-                                onMouseEnter={() => setGeneralHover(star)}
-                                onMouseLeave={() => setGeneralHover(0)}
-                                className="text-3xl focus:outline-none transition-transform duration-100 transform active:scale-95"
-                              >
-                                <i
-                                  className={`bi bi-star-fill ${
-                                    star <= (generalHover || generalRating)
-                                      ? 'text-amber-400 scale-110'
-                                      : 'text-slate-200'
-                                  }`}
-                                ></i>
-                              </button>
-                            ))}
-                          </div>
 
-                          {/* Texto descriptivo de la estrella seleccionada */}
-                          {generalRating > 0 && (
-                            <p className="text-xs font-bold text-slate-800 uppercase tracking-widest animate-pulse">
-                              {generalRating === 1 && '💔 Muy malo'}
-                              {generalRating === 2 && '👎 Regular'}
-                              {generalRating === 3 && '⭐ Bueno'}
-                              {generalRating === 4 && '✨ Muy Bueno'}
-                              {generalRating === 5 && '🔥 ¡Excelente servicio!'}
+                      {existingRating?.storeRated ? (
+                        <div className="bg-white rounded-2xl p-3.5 border border-gray-100 shadow-sm space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-10 h-10 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 flex items-center justify-center">
+                                {business?.image ? (
+                                  <img
+                                    src={business.image}
+                                    alt={business.name || 'Tienda'}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <i className="bi bi-shop text-gray-400 text-lg"></i>
+                                )}
+                              </div>
+                              <p className="text-xs font-black text-gray-900 truncate">
+                                {business?.name || 'Tienda'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <StarRating rating={existingRating.rating} size="sm" showRatingText={false} />
+                            </div>
+                          </div>
+                          {existingRating.comment && (
+                            <p className="text-xs text-gray-600 font-medium leading-relaxed pt-1.5 border-t border-gray-50">
+                              {existingRating.comment}
                             </p>
                           )}
+                        </div>
+                      ) : (
+                        <div className="bg-white border border-gray-100 rounded-2xl p-3.5 shadow-sm space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="w-10 h-10 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 flex items-center justify-center">
+                                {business?.image ? (
+                                  <img
+                                    src={business.image}
+                                    alt={business.name || 'Tienda'}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <i className="bi bi-shop text-gray-400 text-lg"></i>
+                                )}
+                              </div>
+                              <p className="text-xs font-black text-gray-900 truncate">
+                                {business?.name || 'Tienda'}
+                              </p>
+                            </div>
 
-                          <textarea
-                            placeholder="Déjanos un comentario sobre el servicio en general... (opcional)"
-                            value={generalComment}
-                            onChange={(e) => setGeneralComment(e.target.value)}
-                            className="w-full text-xs p-3.5 bg-slate-50 border border-slate-100 rounded-xl focus:border-slate-300 focus:bg-white focus:outline-none transition-colors duration-250 resize-none h-18"
-                          />
+                            <div className="flex items-center gap-0.5 flex-shrink-0">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button
+                                  key={star}
+                                  type="button"
+                                  onClick={() => {
+                                    setGeneralRating(star)
+                                    setTimeout(() => {
+                                      storeCommentTextareaRef.current?.focus()
+                                    }, 50)
+                                  }}
+                                  onMouseEnter={() => setGeneralHover(star)}
+                                  onMouseLeave={() => setGeneralHover(0)}
+                                  className="p-1 transition-transform hover:scale-125 active:scale-95 text-amber-400"
+                                >
+                                  <i
+                                    className={`bi ${
+                                      star <= (generalHover || generalRating)
+                                        ? 'bi-star-fill text-amber-400'
+                                        : 'bi-star text-gray-300'
+                                    } text-lg`}
+                                  ></i>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
 
                           {generalRating > 0 && (
-                            <button
-                              type="button"
-                              onClick={handleSaveStoreRating}
-                              disabled={isSubmittingStoreRating}
-                              className="w-full bg-[#0F172A] text-white py-3 px-4 rounded-xl flex items-center justify-center font-bold text-xs gap-1.5 hover:bg-slate-800 transition-all shadow-md active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400"
-                            >
-                              {isSubmittingStoreRating ? (
-                                <>
-                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                  <span>Guardando Calificación...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <i className="bi bi-star text-sm"></i>
-                                  <span>GUARDAR CALIFICACIÓN DE TIENDA</span>
-                                </>
-                              )}
-                            </button>
+                            <div className="space-y-2 pt-2 border-t border-gray-50 animate-in fade-in duration-200">
+                              <textarea
+                                ref={storeCommentTextareaRef}
+                                placeholder="Escribe una opinión sobre la tienda (opcional)..."
+                                value={generalComment}
+                                onChange={(e) => setGeneralComment(e.target.value)}
+                                rows={2}
+                                className="w-full bg-gray-50 border border-gray-200/80 rounded-2xl px-3.5 py-2 text-xs text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 font-medium transition-all resize-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleSaveStoreRating}
+                                disabled={isSubmittingStoreRating}
+                                className="w-full rounded-2xl bg-gray-900 hover:bg-black text-white font-black text-xs py-2.5 px-4 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                              >
+                                {isSubmittingStoreRating ? (
+                                  <>
+                                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    <span>Publicando...</span>
+                                  </>
+                                ) : (
+                                  <span>Publicar opinión</span>
+                                )}
+                              </button>
+                            </div>
                           )}
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
 
-                    {/* 2. SECCIÓN: CALIFICACIÓN DE PRODUCTOS (Omitiendo precio 0) */}
+                    {/* 2. SECCIÓN: PRODUCTOS */}
                     {ratableItems.length > 0 && (
-                      <div className="space-y-3.5">
-                        <h5 className="text-xs text-slate-400 font-black uppercase tracking-wider px-1">Califica tus Productos</h5>
-                        
+                      <div className="space-y-2 pt-1">
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">
+                            Productos
+                          </span>
+                        </div>
+
                         {ratableItems.map((item: any, index: number) => {
                           const pId = item.productId || item.id
-                          // Comprobar si este producto ya fue calificado en Firestore
                           const existingProductRating = existingRating?.productRatings?.find((pr: any) => pr.productId === pId)
                           const itemState = productRatings[pId] || { rating: 0, hover: 0, comment: '' }
                           const pImg = getItemImage(item)
                           const fallbackMainImg = item.product?.image || item.product?.mainImage || item.productImage || ''
 
+                          if (existingProductRating) {
+                            return (
+                              <div
+                                key={index}
+                                className="bg-white rounded-2xl p-3.5 border border-gray-100 shadow-sm space-y-2"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 flex items-center justify-center">
+                                      {pImg ? (
+                                        <img
+                                          src={pImg}
+                                          alt={item.variant || item.name}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            const target = e.target as HTMLImageElement
+                                            if (fallbackMainImg && target.src !== fallbackMainImg) {
+                                              target.src = fallbackMainImg
+                                            } else {
+                                              target.style.display = 'none'
+                                              if (target.parentElement) {
+                                                target.parentElement.innerHTML = '<i class="bi bi-box-seam text-gray-400 text-sm"></i>'
+                                              }
+                                            }
+                                          }}
+                                        />
+                                      ) : (
+                                        <i className="bi bi-box-seam text-gray-400 text-sm"></i>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-black text-gray-900 truncate">
+                                        {item.variant || item.name}
+                                      </p>
+                                      <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
+                                        {formatPrice(item.price)} • x{item.quantity}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    <StarRating rating={existingProductRating.rating} size="sm" showRatingText={false} />
+                                  </div>
+                                </div>
+                                {existingProductRating.comment && (
+                                  <p className="text-xs text-gray-600 font-medium leading-relaxed pt-1.5 border-t border-gray-50">
+                                    {existingProductRating.comment}
+                                  </p>
+                                )}
+                              </div>
+                            )
+                          }
+
                           return (
                             <div
                               key={index}
-                              className="bg-white p-4 rounded-[24px] border border-gray-100 shadow-sm space-y-3.5 relative overflow-hidden"
+                              className="bg-white rounded-2xl p-3.5 border border-gray-100 shadow-sm space-y-3"
                             >
-                              {existingProductRating ? (
-                                /* Caso Producto: Ya calificado */
-                                <div className="space-y-3">
-                                  <div className="absolute top-3 right-3 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-100">
-                                    Calificado ✓
-                                  </div>
-                                  <div className="flex items-center gap-3.5">
-                                    <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex-shrink-0 flex items-center justify-center">
-                                      {pImg ? (
-                                        <img
-                                          src={pImg}
-                                          alt={item.variant || item.name}
-                                          className="w-full h-full object-cover"
-                                          onError={(e) => {
-                                            const target = e.target as HTMLImageElement
-                                            if (fallbackMainImg && target.src !== fallbackMainImg) {
-                                              target.src = fallbackMainImg
-                                            } else {
-                                              target.style.display = 'none'
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 flex items-center justify-center">
+                                    {pImg ? (
+                                      <img
+                                        src={pImg}
+                                        alt={item.variant || item.name}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          const target = e.target as HTMLImageElement
+                                          if (fallbackMainImg && target.src !== fallbackMainImg) {
+                                            target.src = fallbackMainImg
+                                          } else {
+                                            target.style.display = 'none'
                                               if (target.parentElement) {
-                                                target.parentElement.innerHTML = '<i class="bi bi-box-seam text-slate-400 text-lg"></i>'
+                                                target.parentElement.innerHTML = '<i class="bi bi-box-seam text-gray-400 text-sm"></i>'
                                               }
-                                            }
-                                          }}
-                                        />
-                                      ) : (
-                                        <i className="bi bi-box-seam text-slate-400 text-lg"></i>
-                                      )}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <h6 className="font-extrabold text-sm text-slate-900 leading-tight truncate">
-                                        {item.variant || item.name}
-                                      </h6>
-                                      {/* Estrellas del Producto (Modo Lectura) */}
-                                      <div className="flex gap-0.5 my-1">
-                                        {[1, 2, 3, 4, 5].map((star) => (
-                                          <i
-                                            key={star}
-                                            className={`bi bi-star-fill text-xs ${
-                                              star <= existingProductRating.rating
-                                                ? 'text-amber-400'
-                                                : 'text-slate-100'
-                                            }`}
-                                          ></i>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  {existingProductRating.comment && (
-                                    <p className="text-xs text-slate-500 italic bg-slate-50/50 p-2 rounded-lg border border-slate-100/50 mt-1">
-                                      "{existingProductRating.comment}"
-                                    </p>
-                                  )}
-                                </div>
-                              ) : (
-                                /* Caso Producto: Formulario para calificar */
-                                <>
-                                  <div className="flex items-center gap-3.5">
-                                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex-shrink-0 flex items-center justify-center">
-                                      {pImg ? (
-                                        <img
-                                          src={pImg}
-                                          alt={item.variant || item.name}
-                                          className="w-full h-full object-cover"
-                                          onError={(e) => {
-                                            const target = e.target as HTMLImageElement
-                                            if (fallbackMainImg && target.src !== fallbackMainImg) {
-                                              target.src = fallbackMainImg
-                                            } else {
-                                              target.style.display = 'none'
-                                              if (target.parentElement) {
-                                                target.parentElement.innerHTML = '<i class="bi bi-box-seam text-slate-400 text-xl"></i>'
-                                              }
-                                            }
-                                          }}
-                                        />
-                                      ) : (
-                                        <i className="bi bi-box-seam text-slate-400 text-xl"></i>
-                                      )}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <h6 className="font-extrabold text-sm text-slate-900 leading-tight">
-                                        {item.variant || item.name}
-                                      </h6>
-                                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                                        {formatPrice(item.price)} c/u
-                                      </p>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 font-black bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg flex-shrink-0">
-                                      x{item.quantity}
-                                    </span>
-                                  </div>
-
-                                  {/* Sección de Selección de Estrellas del Producto */}
-                                  <div className="pt-2 border-t border-slate-50 flex items-center justify-between">
-                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                      Calificar Producto
-                                    </span>
-                                    
-                                    <div className="flex gap-1.5">
-                                      {[1, 2, 3, 4, 5].map((star) => (
-                                        <button
-                                          key={star}
-                                          type="button"
-                                          onClick={() => handleProductRatingChange(pId, star)}
-                                          onMouseEnter={() => handleProductRatingHover(pId, star)}
-                                          onMouseLeave={() => handleProductRatingHover(pId, 0)}
-                                          className="focus:outline-none transition-transform active:scale-90"
-                                        >
-                                          <i
-                                            className={`bi bi-star-fill text-lg transition-colors ${
-                                              star <= (itemState.hover || itemState.rating)
-                                                ? 'text-amber-400'
-                                                : 'text-slate-200'
-                                            }`}
-                                          ></i>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  {/* Input de Comentario y Botón de Guardado */}
-                                  {itemState.rating > 0 && (
-                                    <div className="animate-fadeIn mt-2.5 space-y-2">
-                                      <textarea
-                                        placeholder={`¿Qué tal estuvo este ${item.variant || item.name}? (opcional)`}
-                                        value={itemState.comment}
-                                        onChange={(e) => handleProductCommentChange(pId, e.target.value)}
-                                        className="w-full text-xs p-3 bg-slate-50 border border-slate-100 rounded-xl focus:border-slate-300 focus:bg-white focus:outline-none transition-colors duration-200 resize-none h-14"
+                                          }
+                                        }}
                                       />
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSaveProductRating(pId, item)}
-                                        disabled={submittingProducts[pId]}
-                                        className="w-full bg-[#0F172A] text-white py-2 px-3 rounded-xl flex items-center justify-center font-bold text-xs gap-1 hover:bg-slate-800 transition-all shadow active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400"
-                                      >
-                                        {submittingProducts[pId] ? (
-                                          <>
-                                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                            <span>Guardando...</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <i className="bi bi-check2"></i>
-                                            <span>GUARDAR RESEÑA PRODUCTO</span>
-                                          </>
-                                        )}
-                                      </button>
-                                    </div>
-                                  )}
-                                </>
+                                    ) : (
+                                      <i className="bi bi-box-seam text-gray-400 text-sm"></i>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-black text-gray-900 truncate">
+                                      {item.variant || item.name}
+                                    </p>
+                                    <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
+                                      {formatPrice(item.price)} • x{item.quantity}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-0.5 flex-shrink-0">
+                                  {[1, 2, 3, 4, 5].map((star) => (
+                                    <button
+                                      key={star}
+                                      type="button"
+                                      onClick={() => {
+                                        handleProductRatingChange(pId, star);
+                                        setTimeout(() => {
+                                          productCommentTextareaRefs.current[pId]?.focus();
+                                        }, 50);
+                                      }}
+                                      onMouseEnter={() => handleProductRatingHover(pId, star)}
+                                      onMouseLeave={() => handleProductRatingHover(pId, 0)}
+                                      className="p-1 transition-transform hover:scale-125 active:scale-95 text-amber-400"
+                                    >
+                                      <i
+                                        className={`bi ${
+                                          star <= (itemState.hover || itemState.rating)
+                                            ? 'bi-star-fill text-amber-400'
+                                            : 'bi-star text-gray-300'
+                                        } text-lg`}
+                                      ></i>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {itemState.rating > 0 && (
+                                <div className="space-y-2 pt-2 border-t border-gray-50 animate-in fade-in duration-200">
+                                  <textarea
+                                    ref={(el) => {
+                                      productCommentTextareaRefs.current[pId] = el;
+                                    }}
+                                    placeholder="Escribe una opinión sobre el producto (opcional)..."
+                                    value={itemState.comment}
+                                    onChange={(e) => handleProductCommentChange(pId, e.target.value)}
+                                    rows={2}
+                                    className="w-full bg-gray-50 border border-gray-200/80 rounded-2xl px-3.5 py-2 text-xs text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 font-medium transition-all resize-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveProductRating(pId, item)}
+                                    disabled={submittingProducts[pId]}
+                                    className="w-full rounded-2xl bg-gray-900 hover:bg-black text-white font-black text-xs py-2.5 px-4 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                  >
+                                    {submittingProducts[pId] ? (
+                                      <>
+                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        <span>Publicando...</span>
+                                      </>
+                                    ) : (
+                                      <span>Publicar opinión</span>
+                                    )}
+                                  </button>
+                                </div>
                               )}
                             </div>
                           )
                         })}
                       </div>
                     )}
+
+                    {/* 3. SECCIÓN: FEED DE OPINIONES */}
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center justify-between px-1 pt-1 pb-0.5">
+                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+                          Todas las opiniones
+                        </span>
+                        {allComments.length > 0 && (
+                          <span className="text-[11px] font-bold text-gray-400">
+                            {allComments.length}
+                          </span>
+                        )}
+                      </div>
+
+                      {loadingComments && allComments.length === 0 ? (
+                        <div className="py-12 flex flex-col items-center justify-center text-gray-400 gap-2">
+                          <i className="bi bi-arrow-repeat animate-spin text-xl text-amber-500"></i>
+                          <span className="text-xs font-medium">Cargando opiniones...</span>
+                        </div>
+                      ) : allComments.length === 0 ? (
+                        <div className="py-10 text-center flex flex-col items-center justify-center bg-gray-50/60 rounded-2xl border border-dashed border-gray-200 p-6">
+                          <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center text-xl mb-2.5 border border-amber-100">
+                            ⭐
+                          </div>
+                          <h5 className="text-xs font-black text-gray-900 uppercase tracking-wider">
+                            Aún no hay opiniones
+                          </h5>
+                          <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed font-medium">
+                            Las opiniones se registran cuando los clientes califican la tienda o los productos al recibir su pedido.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {allComments.map((item) => {
+                            const isSelected = activeCardId === item.id
+                            const effectiveUserIdentifier = clientUser?.celular || clientUser?.id || fbUser?.uid || order?.client?.phone || order?.clientId || ''
+                            const likes = item.likes || []
+                            const isLiked = effectiveUserIdentifier ? likes.includes(effectiveUserIdentifier) : false
+                            const likesCount = likes.length
+                            const repliesCount = item.replies?.length || 0
+
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => setActiveCardId(isSelected ? null : item.id)}
+                                className={`bg-white rounded-2xl p-4 border transition-all cursor-pointer space-y-2.5 ${
+                                  isSelected
+                                    ? 'border-amber-300 ring-2 ring-amber-100/70 shadow-md'
+                                    : 'border-gray-100 shadow-sm hover:border-gray-200'
+                                }`}
+                              >
+                                {/* Cabecera de la tarjeta */}
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className="w-8 h-8 rounded-full bg-amber-100/80 text-amber-800 font-black text-xs flex items-center justify-center border border-amber-200/60 flex-shrink-0 overflow-hidden">
+                                      {item.clientPhotoURL ? (
+                                        <img
+                                          src={item.clientPhotoURL}
+                                          alt={item.clientName || 'Cliente'}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            (e.target as HTMLElement).style.display = 'none'
+                                          }}
+                                        />
+                                      ) : (
+                                        <span>{item.clientName?.charAt(0)?.toUpperCase() || 'C'}</span>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-black text-gray-900 truncate leading-none">
+                                        {item.clientName || 'Cliente'}
+                                      </p>
+                                      <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
+                                        {item.createdAt ? formatRelativeTime(item.createdAt) : 'Calificó en pedido'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <StarRating rating={item.rating || 5} size="sm" showRatingText={false} />
+                                  </div>
+                                </div>
+
+                                {/* Si es de producto: banner sutil con miniatura y nombre de producto */}
+                                {item.type === 'product' && item.productName && (
+                                  <div className="flex items-center gap-2 p-1.5 bg-gray-50/80 rounded-xl border border-gray-100">
+                                    <div className="w-7 h-7 rounded-lg overflow-hidden bg-white border border-gray-200/60 flex-shrink-0 flex items-center justify-center">
+                                      {item.productImage ? (
+                                        <img
+                                          src={item.productImage}
+                                          alt={item.productName}
+                                          className="w-full h-full object-cover"
+                                        />
+                                      ) : (
+                                        <i className="bi bi-box-seam text-gray-400 text-[10px]"></i>
+                                      )}
+                                    </div>
+                                    <p className="text-xs font-bold text-gray-800 truncate leading-tight">
+                                      {item.productName}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {/* Comentario principal sin comillas */}
+                                {item.comment ? (
+                                  <p className="text-xs text-gray-700 font-medium leading-relaxed px-0.5">
+                                    {item.comment}
+                                  </p>
+                                ) : null}
+
+                                {/* Foto adjunta de la opinión */}
+                                {item.image && (
+                                  <div className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 max-w-[200px]">
+                                    <img
+                                      src={item.image}
+                                      alt="Foto adjunta"
+                                      className="w-full h-28 object-cover hover:scale-105 transition-transform duration-300 cursor-pointer"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setViewingPhotoModalUrl(item.image!)
+                                      }}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Barra de Opciones: Me gusta y Comentar (sin fondo ni bordes) */}
+                                <div className="flex items-center gap-4 pt-0 -mt-0.5">
+                                  {/* Botón Me Gusta */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleToggleLike(item, e)}
+                                    className={`flex items-center gap-1.5 py-0.5 text-xs font-bold transition-all active:scale-95 ${
+                                      isLiked
+                                        ? 'text-rose-600'
+                                        : 'text-gray-500 hover:text-gray-800'
+                                    }`}
+                                  >
+                                    <Heart
+                                      size={14}
+                                      className={isLiked ? 'fill-rose-500 text-rose-500' : 'text-gray-400'}
+                                    />
+                                    <span>
+                                      {likesCount > 0 ? likesCount : ''} Me gusta
+                                    </span>
+                                  </button>
+
+                                  {/* Botón Comentar / Responder */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setActiveCardId(isSelected ? null : item.id)
+                                    }}
+                                    className={`flex items-center gap-1.5 py-1 text-xs font-bold transition-all active:scale-95 ${
+                                      isSelected
+                                        ? 'text-amber-600'
+                                        : 'text-gray-500 hover:text-gray-800'
+                                    }`}
+                                  >
+                                    <MessageSquare size={15} className={isSelected ? 'text-amber-600' : 'text-gray-400'} />
+                                    <span>
+                                      {repliesCount > 0 ? `${repliesCount} ${repliesCount === 1 ? 'respuesta' : 'respuestas'}` : 'Comentar'}
+                                    </span>
+                                  </button>
+                                </div>
+
+                                {/* Respuestas SIEMPRE desplegadas si el post tiene comentarios */}
+                                {item.replies && item.replies.length > 0 && (
+                                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                                    <div className="space-y-2 pl-2 border-l-2 border-gray-200">
+                                      {item.replies.map((reply: any, rIdx: number) => (
+                                        <div
+                                          key={reply.id || rIdx}
+                                          className="bg-gray-50/80 border border-gray-100 p-2.5 rounded-xl text-xs space-y-1"
+                                        >
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-1.5">
+                                              <div className="w-5 h-5 rounded-full bg-gray-200 text-gray-800 font-black text-[9px] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                {reply.userPhoto || reply.authorPhoto ? (
+                                                  <img
+                                                    src={reply.userPhoto || reply.authorPhoto}
+                                                    alt={reply.userName || 'Usuario'}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                      (e.target as HTMLElement).style.display = 'none'
+                                                    }}
+                                                  />
+                                                ) : (
+                                                  <span>{(reply.userName || reply.authorName || (reply.isBusinessReply ? 'T' : 'C'))?.charAt(0)?.toUpperCase()}</span>
+                                                )}
+                                              </div>
+                                              <span className="font-black text-gray-800 text-[11px]">
+                                                {reply.userName || reply.authorName || (reply.isBusinessReply ? (business?.name || 'Tienda') : 'Cliente')}
+                                              </span>
+                                            </div>
+                                            <span className="text-[10px] text-gray-400">
+                                              {reply.createdAt ? formatRelativeTime(reply.createdAt) : ''}
+                                            </span>
+                                          </div>
+                                          <p className="text-gray-600 font-medium leading-relaxed pl-6.5">
+                                            {reply.comment || reply.text}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Casillero para responder cuando se activa Comentar / Responder */}
+                                {isSelected && (
+                                  <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={`space-y-2 animate-in fade-in duration-200 ${
+                                      item.replies && item.replies.length > 0 ? 'pt-1' : 'pt-2 border-t border-gray-100'
+                                    }`}
+                                  >
+                                    <form
+                                      onSubmit={(e) => handleSendReply(item, e)}
+                                      className="flex items-center gap-2 pt-1"
+                                    >
+                                      <input
+                                        type="text"
+                                        autoFocus
+                                        value={replyInputText[item.id] || ''}
+                                        onChange={(e) =>
+                                          setReplyInputText({
+                                            ...replyInputText,
+                                            [item.id]: e.target.value
+                                          })
+                                        }
+                                        placeholder="Escribe una respuesta..."
+                                        className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
+                                      />
+                                      <button
+                                        type="submit"
+                                        disabled={
+                                          !replyInputText[item.id]?.trim() ||
+                                          isSendingReply[item.id]
+                                        }
+                                        className="w-8 h-8 bg-gray-900 hover:bg-black text-white rounded-xl flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 active:scale-95 shadow-sm"
+                                        title="Enviar respuesta"
+                                      >
+                                        {isSendingReply[item.id] ? (
+                                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        ) : (
+                                          <ArrowUp size={14} strokeWidth={2.5} />
+                                        )}
+                                      </button>
+                                    </form>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })()}
@@ -1960,6 +2468,30 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
           setOrder(updatedOrder)
         }}
       />
+
+      {/* Modal para ver imagen de opinión en grande */}
+      {viewingPhotoModalUrl && (
+        <div className="fixed inset-0 z-[200] overflow-hidden flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setViewingPhotoModalUrl(null)}
+          />
+          <div className="relative max-w-lg w-full max-h-[85vh] z-10 flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => setViewingPhotoModalUrl(null)}
+              className="absolute -top-12 right-0 w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-colors"
+            >
+              <i className="bi bi-x-lg text-sm"></i>
+            </button>
+            <img
+              src={viewingPhotoModalUrl}
+              alt="Foto adjunta"
+              className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

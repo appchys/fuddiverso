@@ -69,6 +69,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     const [reviewImageFile, setReviewImageFile] = useState<File | null>(null)
     const [reviewImagePreview, setReviewImagePreview] = useState<string | null>(null)
     const reviewFileInputRef = useRef<HTMLInputElement>(null)
+    const reviewCommentInputRef = useRef<HTMLInputElement>(null)
+    const editCommentTextareaRef = useRef<HTMLTextAreaElement>(null)
 
     // Estados para interacción con tarjetas de opinión (Me gusta y Comentar)
     const [activeCardId, setActiveCardId] = useState<string | null>(null)
@@ -1534,7 +1536,12 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                     <button
                                                         key={star}
                                                         type="button"
-                                                        onClick={() => setNewReviewRating(star)}
+                                                        onClick={() => {
+                                                            setNewReviewRating(star)
+                                                            setTimeout(() => {
+                                                                reviewCommentInputRef.current?.focus()
+                                                            }, 50)
+                                                        }}
                                                         className="p-0.5 transition-transform hover:scale-125 active:scale-95 text-amber-400"
                                                         title={`${star} estrellas`}
                                                     >
@@ -1579,6 +1586,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
 
                                             <input
                                                 type="text"
+                                                ref={reviewCommentInputRef}
                                                 value={newReviewComment}
                                                 onChange={(e) => setNewReviewComment(e.target.value)}
                                                 placeholder="Escribe una opinión sobre el producto..."
@@ -1666,7 +1674,12 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                     <button
                                                                         key={star}
                                                                         type="button"
-                                                                        onClick={() => setEditRatingScore(star)}
+                                                                        onClick={() => {
+                                                                            setEditRatingScore(star)
+                                                                            setTimeout(() => {
+                                                                                editCommentTextareaRef.current?.focus()
+                                                                            }, 50)
+                                                                        }}
                                                                         className="p-0.5 text-amber-400 hover:scale-110 active:scale-95 transition-transform"
                                                                     >
                                                                         <i className={`bi ${editRatingScore >= star ? 'bi-star-fill' : 'bi-star text-gray-300'} text-sm`}></i>
@@ -1676,6 +1689,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                         </div>
 
                                                         <textarea
+                                                            ref={editCommentTextareaRef}
                                                             value={editCommentText}
                                                             onChange={(e) => setEditCommentText(e.target.value)}
                                                             placeholder="Escribe tu opinión..."
@@ -1883,59 +1897,63 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                         </button>
                                                     </div>
 
-                                                    {/* Sección Expandida: Respuestas y Casillero para responder */}
+                                                    {/* Respuestas SIEMPRE desplegadas si el post tiene comentarios */}
+                                                    {item.replies && item.replies.length > 0 && (
+                                                        <div className="pt-2 border-t border-gray-100 space-y-2">
+                                                            <div className="space-y-2 pl-2 border-l-2 border-gray-200">
+                                                                {item.replies.map((reply: any, rIdx: number) => (
+                                                                    <div
+                                                                        key={reply.id || rIdx}
+                                                                        className="bg-gray-50/80 border border-gray-100 p-2.5 rounded-xl text-xs space-y-1"
+                                                                    >
+                                                                        <div className="flex items-center justify-between">
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <div className="w-5 h-5 rounded-full bg-gray-200 text-gray-800 font-black text-[9px] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                                                    {reply.userPhoto ? (
+                                                                                        <img
+                                                                                            src={reply.userPhoto}
+                                                                                            alt={reply.userName || 'Cliente'}
+                                                                                            className="w-full h-full object-cover"
+                                                                                            onError={(e) => {
+                                                                                                (e.target as HTMLElement).style.display = 'none'
+                                                                                            }}
+                                                                                        />
+                                                                                    ) : (
+                                                                                        <span>{reply.userName?.charAt(0)?.toUpperCase() || 'C'}</span>
+                                                                                    )}
+                                                                                </div>
+                                                                                <span className="font-black text-gray-800 text-[11px]">
+                                                                                    {reply.userName || 'Cliente'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <span className="text-[10px] text-gray-400">
+                                                                                {reply.createdAt ? formatRelativeTime(reply.createdAt) : ''}
+                                                                            </span>
+                                                                        </div>
+                                                                        <p className="text-gray-600 font-medium leading-relaxed pl-6.5">
+                                                                            {reply.comment}
+                                                                        </p>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Casillero para responder cuando se activa Comentar / Responder */}
                                                     {isSelected && (
                                                         <div
                                                             onClick={(e) => e.stopPropagation()}
-                                                            className="pt-2 border-t border-gray-100 space-y-2.5 animate-in fade-in duration-200"
+                                                            className={`space-y-2 animate-in fade-in duration-200 ${
+                                                                item.replies && item.replies.length > 0 ? 'pt-1' : 'pt-2 border-t border-gray-100'
+                                                            }`}
                                                         >
-                                                            {/* Lista de respuestas existentes */}
-                                                            {item.replies && item.replies.length > 0 && (
-                                                                <div className="space-y-2 pl-2 border-l-2 border-gray-200">
-                                                                    {item.replies.map((reply: any, rIdx: number) => (
-                                                                        <div
-                                                                            key={reply.id || rIdx}
-                                                                            className="bg-gray-50/80 border border-gray-100 p-2.5 rounded-xl text-xs space-y-1"
-                                                                        >
-                                                                            <div className="flex items-center justify-between">
-                                                                                <div className="flex items-center gap-1.5">
-                                                                                    <div className="w-5 h-5 rounded-full bg-gray-200 text-gray-800 font-black text-[9px] flex items-center justify-center flex-shrink-0 overflow-hidden">
-                                                                                        {reply.userPhoto ? (
-                                                                                            <img
-                                                                                                src={reply.userPhoto}
-                                                                                                alt={reply.userName || 'Cliente'}
-                                                                                                className="w-full h-full object-cover"
-                                                                                                onError={(e) => {
-                                                                                                    (e.target as HTMLElement).style.display = 'none'
-                                                                                                }}
-                                                                                            />
-                                                                                        ) : (
-                                                                                            <span>{reply.userName?.charAt(0)?.toUpperCase() || 'C'}</span>
-                                                                                        )}
-                                                                                    </div>
-                                                                                    <span className="font-black text-gray-800 text-[11px]">
-                                                                                        {reply.userName || 'Cliente'}
-                                                                                    </span>
-                                                                                </div>
-                                                                                <span className="text-[10px] text-gray-400">
-                                                                                    {reply.createdAt ? formatRelativeTime(reply.createdAt) : ''}
-                                                                                </span>
-                                                                            </div>
-                                                                            <p className="text-gray-600 font-medium leading-relaxed pl-6.5">
-                                                                                {reply.comment}
-                                                                            </p>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-
-                                                            {/* Input para responder */}
                                                             <form
                                                                 onSubmit={(e) => handleSendReply(item, e)}
                                                                 className="flex items-center gap-2 pt-1"
                                                             >
                                                                 <input
                                                                     type="text"
+                                                                    autoFocus
                                                                     value={replyInputText[item.id] || ''}
                                                                     onChange={(e) =>
                                                                         setReplyInputText({
