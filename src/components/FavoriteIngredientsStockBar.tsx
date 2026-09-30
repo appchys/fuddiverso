@@ -182,33 +182,46 @@ export default function FavoriteIngredientsStockBar({
   }, [favoriteIngredients])
 
   // Manejar adición rápida de existencias
-  const handleQuickAdd = async (e: React.FormEvent) => {
+  const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault()
     if (!quickAddIngredient || !business?.id) return
     const qty = parseFloat(quickAddQty)
     if (isNaN(qty) || qty <= 0) return
 
-    setSavingQuickAdd(true)
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      await recordStockMovement({
-        businessId: business.id,
-        ingredientId: quickAddIngredient.ingredientId,
-        ingredientName: quickAddIngredient.ingredientName,
-        type: 'entry',
-        quantity: qty,
-        date: today,
-        notes: `Entrada rápida (+${qty} ${quickAddIngredient.unit || 'uds'})`
-      })
-      setQuickAddIngredient(null)
-      setQuickAddQty('10')
-      await loadStockData(true)
-    } catch (error) {
-      console.error('Error al registrar entrada rápida de stock:', error)
-      alert('Error al registrar la entrada de stock')
-    } finally {
-      setSavingQuickAdd(false)
-    }
+    const targetIngId = quickAddIngredient.ingredientId
+    const targetName = quickAddIngredient.ingredientName
+    const targetUnit = quickAddIngredient.unit || 'uds'
+
+    // 1. Actualización optimista inmediata en memoria (0ms de espera)
+    setStockSummary(prev => prev.map(item => {
+      if (item.ingredientId === targetIngId) {
+        return {
+          ...item,
+          currentStock: item.currentStock + qty
+        }
+      }
+      return item
+    }))
+
+    // Cerrar modal al instante
+    setQuickAddIngredient(null)
+    setQuickAddQty('10')
+
+    // 2. Guardar en segundo plano en Firebase
+    const today = new Date().toISOString().split('T')[0]
+    recordStockMovement({
+      businessId: business.id,
+      ingredientId: targetIngId,
+      ingredientName: targetName,
+      type: 'entry',
+      quantity: qty,
+      date: today,
+      notes: `Entrada rápida (+${qty} ${targetUnit})`
+    }).catch(error => {
+      console.error('Error al registrar entrada rápida de stock en segundo plano:', error)
+      alert(`Error al guardar entrada de stock para "${targetName}"`)
+      loadStockData(false)
+    })
   }
 
   return (
@@ -569,8 +582,15 @@ export default function FavoriteIngredientsStockBar({
           businessId={business.id}
           ingredient={stockConfigIngredient}
           onClose={() => setStockConfigIngredient(null)}
-          onSaved={async () => {
-            await loadStockData(true)
+          onSaved={(optimisticUpdate) => {
+            if (optimisticUpdate) {
+              setStockSummary(prev => prev.map(item => {
+                if (item.ingredientId === stockConfigIngredient.ingredientId) {
+                  return { ...item, ...optimisticUpdate }
+                }
+                return item
+              }))
+            }
           }}
         />
       )}
@@ -643,20 +663,10 @@ export default function FavoriteIngredientsStockBar({
                 </button>
                 <button
                   type="submit"
-                  disabled={savingQuickAdd}
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-600/30 flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-600/30 flex items-center justify-center gap-1.5 active:scale-95"
                 >
-                  {savingQuickAdd ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      <span>Guardando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <i className="bi bi-check-lg text-sm"></i>
-                      <span>Agregar Stock</span>
-                    </>
-                  )}
+                  <i className="bi bi-check-lg text-sm"></i>
+                  <span>Agregar Stock</span>
                 </button>
               </div>
             </form>

@@ -4828,15 +4828,17 @@ export async function saveIngredientStockConfig(
       }
     }
 
+    let updateDocPromise: Promise<any> | null = null
     if (targetLibraryId) {
       const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', targetLibraryId)
-      await updateDoc(docRef, {
+      updateDocPromise = updateDoc(docRef, {
         isStockLimited: config.isStockLimited,
         minStock: config.minStock,
         lastUsed: serverTimestamp()
       })
     }
 
+    let movementPromise: Promise<any> | null = null
     // Si es limitado y se especificó un targetStock que difiere del currentStock, registramos un movimiento de ajuste
     if (config.isStockLimited && config.targetStock !== undefined && config.currentStock !== undefined) {
       const diff = config.targetStock - config.currentStock
@@ -4845,7 +4847,7 @@ export async function saveIngredientStockConfig(
         const ingredientId = `ing_${normalize(ingredientName).replace(/\s+/g, '_')}`
         const today = new Date().toISOString().split('T')[0]
 
-        await recordStockMovement({
+        movementPromise = recordStockMovement({
           ingredientId,
           ingredientName: ingredientName.trim(),
           type: 'adjustment',
@@ -4856,6 +4858,8 @@ export async function saveIngredientStockConfig(
         })
       }
     }
+
+    await Promise.all([updateDocPromise, movementPromise].filter(Boolean))
   } catch (error) {
     console.error('Error saving ingredient stock config:', error)
     throw error
@@ -7443,12 +7447,14 @@ export async function recordStockMovement(
       movementData
     )
 
-    // Registrar en la biblioteca de ingredientes para mantener consistencia
-    await addOrUpdateIngredientInLibrary(
+    // Registrar en la biblioteca de ingredientes en segundo plano para no bloquear
+    addOrUpdateIngredientInLibrary(
       movement.businessId,
       movement.ingredientName,
       movement.type === 'entry' ? movement.unitCost || 0 : 0
-    )
+    ).catch(err => {
+      console.warn('Error no crítico al actualizar biblioteca de ingredientes:', err)
+    })
 
     return docRef.id
   } catch (error) {

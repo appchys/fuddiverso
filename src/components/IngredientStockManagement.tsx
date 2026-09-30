@@ -118,39 +118,82 @@ export default function IngredientStockManagement({ business }: IngredientStockM
     }
   }
 
-  const handleCreateMovement = async (e: React.FormEvent) => {
+  const handleCreateMovement = (e: React.FormEvent) => {
     e.preventDefault()
     if (!business?.id) return
 
-    try {
-      const ingId = selectedIngredient || `ing_${newMovement.ingredientName.toLowerCase().trim().replace(/\s+/g, '_')}`
-      const ingName = newMovement.ingredientName || stockSummary.find(s => s.ingredientId === selectedIngredient)?.ingredientName || ''
+    const ingId = selectedIngredient || `ing_${newMovement.ingredientName.toLowerCase().trim().replace(/\s+/g, '_')}`
+    const ingName = newMovement.ingredientName || stockSummary.find(s => s.ingredientId === selectedIngredient)?.ingredientName || ''
+    const qty = parseFloat(newMovement.quantity) || 0
+    const movType = newMovement.type
+    const movDate = newMovement.date
+    const movNotes = newMovement.notes
+    const movUnitCost = movType === 'entry' ? parseFloat(newMovement.unitCost) || 0 : 0
 
-      await recordStockMovement({
+    // 1. Actualización optimista inmediata en memoria (0ms)
+    setStockSummary(prev => prev.map(item => {
+      if (item.ingredientId === ingId) {
+        let delta = 0
+        if (movType === 'entry' || movType === 'adjustment') {
+          delta = qty
+        } else if (movType === 'sale') {
+          delta = -qty
+        }
+        return {
+          ...item,
+          currentStock: Math.max(0, item.currentStock + delta)
+        }
+      }
+      return item
+    }))
+
+    // Agregar movimiento al listado visible inmediatamente si está seleccionado
+    if (selectedIngredient === ingId) {
+      const optimisticMovement: IngredientStockMovement = {
+        id: `temp_${Date.now()}`,
         ingredientId: ingId,
         ingredientName: ingName,
-        type: newMovement.type,
-        quantity: parseFloat(newMovement.quantity),
-        date: newMovement.date,
-        notes: newMovement.notes,
+        type: movType,
+        quantity: qty,
+        date: movDate,
+        notes: movNotes,
         businessId: business.id,
-        unitCost: newMovement.type === 'entry' ? parseFloat(newMovement.unitCost) || 0 : 0
-      })
-
-      setShowMovementModal(false)
-      setNewMovement({
-        ingredientName: '',
-        type: 'entry',
-        quantity: '',
-        date: new Date().toISOString().split('T')[0],
-        notes: '',
-        unitCost: ''
-      })
-      await loadStockSummary()
-      if (selectedIngredient) await loadIngredientDetails()
-    } catch (error) {
-      alert('Error al registrar el movimiento')
+        unitCost: movUnitCost,
+        createdAt: new Date()
+      }
+      setMovements(prev => [optimisticMovement, ...prev])
     }
+
+    // Cerrar modal y limpiar campos de inmediato
+    setShowMovementModal(false)
+    setNewMovement({
+      ingredientName: '',
+      type: 'entry',
+      quantity: '',
+      date: new Date().toISOString().split('T')[0],
+      notes: '',
+      unitCost: ''
+    })
+
+    // 2. Guardar en segundo plano en Firebase
+    recordStockMovement({
+      ingredientId: ingId,
+      ingredientName: ingName,
+      type: movType,
+      quantity: qty,
+      date: movDate,
+      notes: movNotes,
+      businessId: business.id,
+      unitCost: movUnitCost
+    }).then(() => {
+      // Sincronización silenciosa en segundo plano
+      if (selectedIngredient) loadIngredientDetails()
+    }).catch(error => {
+      console.error('Error al registrar el movimiento en segundo plano:', error)
+      alert('Error al registrar el movimiento en el servidor')
+      loadStockSummary()
+      if (selectedIngredient) loadIngredientDetails()
+    })
   }
 
   const sortedSummary = useMemo(() => {
@@ -260,32 +303,50 @@ export default function IngredientStockManagement({ business }: IngredientStockM
     setShowStockConfigModal(true)
   }
 
-  const handleSaveStockConfig = async (e: React.FormEvent) => {
+  const handleSaveStockConfig = (e: React.FormEvent) => {
     e.preventDefault()
     if (!business?.id || !stockConfigIngredient) return
 
-    setSavingStockConfig(true)
-    try {
-      await saveIngredientStockConfig(
-        business.id,
-        stockConfigIngredient.ingredientName,
-        stockConfigIngredient.libraryId,
-        {
-          isStockLimited: stockConfigData.isStockLimited,
-          minStock: parseFloat(stockConfigData.minStock) || 0,
-          targetStock: stockConfigData.isStockLimited ? (parseFloat(stockConfigData.availableStock) || 0) : undefined,
-          currentStock: stockConfigIngredient.currentStock
+    const isStockLimited = stockConfigData.isStockLimited
+    const minStock = parseFloat(stockConfigData.minStock) || 0
+    const targetStock = isStockLimited ? (parseFloat(stockConfigData.availableStock) || 0) : stockConfigIngredient.currentStock
+    const targetId = stockConfigIngredient.ingredientId
+
+    // 1. Actualización optimista inmediata en memoria (0ms)
+    setStockSummary(prev => prev.map(item => {
+      if (item.ingredientId === targetId) {
+        return {
+          ...item,
+          isStockLimited,
+          minStock,
+          currentStock: targetStock
         }
-      )
-      setShowStockConfigModal(false)
-      await loadStockSummary()
-      if (selectedIngredient) await loadIngredientDetails()
-    } catch (error) {
-      console.error('Error guardando configuración de stock:', error)
-      alert('Error al guardar la configuración de stock')
-    } finally {
-      setSavingStockConfig(false)
-    }
+      }
+      return item
+    }))
+
+    // Cerrar modal de inmediato
+    setShowStockConfigModal(false)
+
+    // 2. Guardar en segundo plano en Firebase
+    saveIngredientStockConfig(
+      business.id,
+      stockConfigIngredient.ingredientName,
+      stockConfigIngredient.libraryId,
+      {
+        isStockLimited,
+        minStock,
+        targetStock: isStockLimited ? targetStock : undefined,
+        currentStock: stockConfigIngredient.currentStock
+      }
+    ).then(() => {
+      if (selectedIngredient) loadIngredientDetails()
+    }).catch(error => {
+      console.error('Error guardando configuración de stock en segundo plano:', error)
+      alert('Error al guardar la configuración de stock en el servidor')
+      loadStockSummary()
+      if (selectedIngredient) loadIngredientDetails()
+    })
   }
 
   const selectedIngredientData = useMemo(() => {

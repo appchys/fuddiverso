@@ -7,33 +7,47 @@ interface StockConfigModalProps {
   businessId: string
   ingredient: IngredientStockSummary
   onClose: () => void
-  onSaved: () => Promise<void> | void
+  onSaved: (optimisticUpdate?: Partial<IngredientStockSummary>) => Promise<void> | void
 }
 
 export default function StockConfigModal({ businessId, ingredient, onClose, onSaved }: StockConfigModalProps) {
   const [isStockLimited, setIsStockLimited] = useState(ingredient.isStockLimited ?? false)
   const [availableStock, setAvailableStock] = useState(Math.round(ingredient.currentStock).toString())
   const [minStock, setMinStock] = useState((ingredient.minStock ?? 0).toString())
-  const [saving, setSaving] = useState(false)
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-    setSaving(true)
-    try {
-      await saveIngredientStockConfig(businessId, ingredient.ingredientName, ingredient.libraryId, {
-        isStockLimited,
-        minStock: parseFloat(minStock) || 0,
-        targetStock: isStockLimited ? (parseFloat(availableStock) || 0) : undefined,
-        currentStock: ingredient.currentStock
-      })
-      await onSaved()
-      onClose()
-    } catch (error) {
-      console.error('Error guardando configuración de stock:', error)
-      alert('Error al guardar la configuración de stock')
-    } finally {
-      setSaving(false)
+    
+    const parsedAvailable = parseFloat(availableStock)
+    const targetStockVal = isStockLimited
+      ? (!isNaN(parsedAvailable) ? parsedAvailable : ingredient.currentStock)
+      : ingredient.currentStock
+    const minStockVal = parseFloat(minStock) || 0
+
+    const optimisticUpdate: Partial<IngredientStockSummary> = {
+      isStockLimited,
+      minStock: minStockVal,
+      currentStock: targetStockVal
     }
+
+    // 1. Notificar actualización optimista inmediatamente y cerrar modal (0ms de espera)
+    try {
+      onSaved(optimisticUpdate)
+    } catch (e) {
+      console.error('Error en onSaved callback:', e)
+    }
+    onClose()
+
+    // 2. Guardar en segundo plano en Firebase
+    saveIngredientStockConfig(businessId, ingredient.ingredientName, ingredient.libraryId, {
+      isStockLimited,
+      minStock: minStockVal,
+      targetStock: isStockLimited ? targetStockVal : undefined,
+      currentStock: ingredient.currentStock
+    }).catch(error => {
+      console.error('Error guardando configuración de stock en segundo plano:', error)
+      alert(`Error al guardar la configuración de stock de "${ingredient.ingredientName}"`)
+    })
   }
 
   return (
@@ -80,9 +94,9 @@ export default function StockConfigModal({ businessId, ingredient, onClose, onSa
           )}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} disabled={saving} className="w-1/3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-xl text-xs uppercase tracking-wider transition-colors">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 bg-gradient-to-r from-rose-500 to-red-600 text-white font-black py-4 rounded-xl text-xs uppercase tracking-wider hover:from-rose-600 hover:to-red-700 shadow-lg shadow-rose-500/25 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2">
-              {saving ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div><span>Guardando...</span></> : <span>Guardar Configuración</span>}
+            <button type="button" onClick={onClose} className="w-1/3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-xl text-xs uppercase tracking-wider transition-colors">Cancelar</button>
+            <button type="submit" className="flex-1 bg-gradient-to-r from-rose-500 to-red-600 text-white font-black py-4 rounded-xl text-xs uppercase tracking-wider hover:from-rose-600 hover:to-red-700 shadow-lg shadow-rose-500/25 transition-all active:scale-95 flex items-center justify-center gap-2">
+              <span>Guardar Configuración</span>
             </button>
           </div>
         </form>

@@ -5082,8 +5082,19 @@ export default function ProductList({
           businessId={business.id}
           ingredient={stockConfigIngredient}
           onClose={() => setStockConfigIngredient(null)}
-          onSaved={async () => {
-            await loadStockSummary()
+          onSaved={(optimisticUpdate) => {
+            if (optimisticUpdate) {
+              const normName = stockConfigIngredient.ingredientName.trim().toLowerCase()
+              setStockSummaryMap(prev => {
+                const next = new Map(prev)
+                const current = next.get(normName)
+                if (current) {
+                  next.set(normName, { ...current, ...optimisticUpdate })
+                }
+                return next
+              })
+            }
+            loadStockSummary()
           }}
         />,
         document.body
