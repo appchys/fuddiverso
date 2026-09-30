@@ -35,6 +35,7 @@ import { resolveItemIngredients } from '@/lib/stock-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
 import DailyCheckInBanner from '@/components/DailyCheckInBanner'
+import FavoriteIngredientsStockBar from '@/components/FavoriteIngredientsStockBar'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -2767,6 +2768,7 @@ export default function TodayOrdersPage() {
                                             />
                                         )}
 
+
                                         {loading ? (
                                             <div className="space-y-6">
                                                 {/* Mobile summary skeleton */}
@@ -2815,9 +2817,19 @@ export default function TodayOrdersPage() {
                                                 {/* Totals Summary for Mobile (Top) */}
                                                 <div 
                                                     onClick={() => setSummaryExpanded(!summaryExpanded)}
-                                                    className="lg:hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all"
+                                                    className="lg:hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all relative"
                                                 >
-                                                    <div className="grid grid-cols-3 gap-2">
+                                                    {/* Ícono de stock de ingredientes favoritos */}
+                                                    {business && (
+                                                        <div className="absolute top-2 right-2 z-20">
+                                                            <FavoriteIngredientsStockBar
+                                                                business={business}
+                                                                onNavigateToInventory={() => setActiveTab('inventory')}
+                                                            />
+                                                        </div>
+                                                    )}
+
+                                                    <div className="grid grid-cols-3 gap-2 pr-7">
                                                         <div className="text-left">
                                                             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas</p>
                                                             <p className="text-lg font-bold text-gray-900 flex items-center gap-1">
@@ -2960,9 +2972,19 @@ export default function TodayOrdersPage() {
                                                     {/* Totals Summary for Desktop ONLY */}
                                                     <div 
                                                         onClick={() => setSummaryExpanded(!summaryExpanded)}
-                                                        className="hidden lg:block bg-white rounded-xl border border-gray-100 p-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all"
+                                                        className="hidden lg:block bg-white rounded-xl border border-gray-100 p-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all relative"
                                                     >
-                                                        <div className="grid grid-cols-3 gap-4">
+                                                        {/* Ícono de stock de ingredientes favoritos */}
+                                                        {business && (
+                                                            <div className="absolute top-2.5 right-2.5 z-20">
+                                                                <FavoriteIngredientsStockBar
+                                                                    business={business}
+                                                                    onNavigateToInventory={() => setActiveTab('inventory')}
+                                                                />
+                                                            </div>
+                                                        )}
+
+                                                        <div className="grid grid-cols-3 gap-4 pr-8">
                                                             <div className="text-left">
                                                                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
                                                                 <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
