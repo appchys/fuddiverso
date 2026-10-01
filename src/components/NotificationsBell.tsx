@@ -9,7 +9,7 @@ import { Order } from '@/types'
 interface Notification {
   id: string
   orderId?: string
-  type: 'new_order' | 'order_status_change' | 'qr_scan' | 'rating'
+  type: 'new_order' | 'order_status_change' | 'qr_scan' | 'rating' | 'stock_out'
   title: string
   message: string
   createdAt: any
@@ -23,6 +23,9 @@ interface Notification {
   review?: string
   clientName?: string
   clientPhone?: string
+  productId?: string
+  productName?: string
+  variantName?: string
 }
 
 interface NotificationsBellProps {
@@ -296,6 +299,12 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
       setShowDropdown(false)
       router.push(`/business/qr-codes?tab=users`)
     }
+
+    // Si es una notificación de stock_out, navegar a la pestaña de productos
+    if (notif.type === 'stock_out') {
+      setShowDropdown(false)
+      router.push(`/business/dashboard?tab=profile&subtab=products`)
+    }
   }
 
   const unreadCount = notifications.filter(n => !n.read).length
@@ -381,12 +390,23 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                         {notif.type === 'rating' && (
                           <span className="mr-2 text-lg">⭐</span>
                         )}
+                        {notif.type === 'stock_out' && (
+                          <i className="bi bi-box-seam text-amber-500 mr-2 text-base"></i>
+                        )}
                         <h4 className={`font-semibold text-sm ${notif.read ? 'text-gray-700' : 'text-gray-900'
                           }`}>
                           {notif.title}
                         </h4>
                       </div>
                       <p className="text-sm text-gray-600 mt-1">{notif.message}</p>
+
+                      {/* Badge para notificación de stock */}
+                      {notif.type === 'stock_out' && (
+                        <div className="mt-2 text-xs text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-flex items-center">
+                          <i className="bi bi-exclamation-triangle-fill text-amber-600 me-1"></i>
+                          <span>{notif.variantName ? `${notif.productName || 'Producto'} (${notif.variantName})` : (notif.productName || 'Producto agotado')}</span>
+                        </div>
+                      )}
 
                       {/* Detalles de la orden si está disponible */}
                       {notif.orderData && notif.type === 'new_order' && (

@@ -39,6 +39,7 @@ import FavoriteIngredientsStockBar from '@/components/FavoriteIngredientsStockBa
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { useStockAlertMonitor } from '@/hooks/useStockAlertMonitor'
 import DashboardSidebar from '@/components/DashboardSidebar'
 import { optimizeImage } from '@/lib/image-utils'
 import { logDebug } from '@/lib/debug-log'
@@ -106,6 +107,9 @@ const getOrderDisplayTime = (order: Order) => {
 export default function TodayOrdersPage() {
     const router = useRouter()
     const { businessId, isAuthenticated, authLoading, logout, user, setBusinessId } = useBusinessAuth()
+
+    // Monitoreo en tiempo real de stock para notificaciones cuando se oculta un producto o variante
+    useStockAlertMonitor(businessId || null)
 
     // Dashboard Header State
     const [sidebarOpen, setSidebarOpen] = useState(false)

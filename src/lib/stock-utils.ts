@@ -17,7 +17,6 @@ export function getIngredientsForVariant(
   variant?: ProductVariant
 ): Ingredient[] {
   if (variant && variant.ingredients && variant.ingredients.length > 0) {
-    console.log(`[getIngredients] Variante "${variant.name}": usando variant.ingredients (${variant.ingredients.length})`, variant.ingredients)
     return variant.ingredients
   }
 
@@ -26,12 +25,10 @@ export function getIngredientsForVariant(
   if (variant && product.ingredients && product.ingredients.length > 0) {
     const { multiplier } = parseVariantUnitCount(variant.name || '')
     if (multiplier > 1) {
-      const derived = product.ingredients.map(ing => ({
+      return product.ingredients.map(ing => ({
         ...ing,
         quantity: (Number(ing.quantity) || 1) * multiplier
       }))
-      console.log(`[getIngredients] Variante "${variant.name}": derivada con multiplier ${multiplier}`, derived)
-      return derived
     }
   }
 
@@ -101,16 +98,9 @@ export function checkVariantStockAvailability(
       const remaining = current - required
       const isOutOfStock = current <= min || current < required || (min > 0 ? remaining < min : (remaining <= 0 && required > 1))
 
-      console.log(`[StockCheck] Variante "${variant?.name || 'Base'}" -> Insumo "${rawName}": ` +
-        `Requerido=${required}, StockActual=${current}, MinStock=${min}, isStockLimited=${itemStock.isStockLimited}, ` +
-        `remaining=${remaining}, isOutOfStock=${isOutOfStock}`)
-
       if (isOutOfStock) {
         outOfStockIngredients.push(rawName)
       }
-    } else {
-      console.log(`[StockCheck] Variante "${variant?.name || 'Base'}" -> Insumo "${rawName}": ` +
-        `EncontradoEnMap=${!!itemStock}, isStockLimited=${itemStock?.isStockLimited}, stockActual=${itemStock?.currentStock}`)
     }
   }
 
@@ -168,12 +158,6 @@ export function evaluateProductStock(
 
       const isVariantInStock = isVariantAutoHide ? result.isAvailableByStock : true
       const isVariantEffectivelyAvailable = isVariantInStock && variant.isAvailable !== false
-
-      console.log(`[StockEval] Producto "${product.name}" | Variante "${variant.name}": ` +
-        `insumosLimitados=${result.limitedIngredients.length}, ` +
-        `isAvailableByStock=${result.isAvailableByStock}, ` +
-        `isVariantAutoHide=${isVariantAutoHide}, ` +
-        `isVariantEffectivelyAvailable=${isVariantEffectivelyAvailable}`)
 
       if (isVariantEffectivelyAvailable) {
         availableVariants.push(variant)

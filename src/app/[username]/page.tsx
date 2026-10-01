@@ -646,16 +646,13 @@ function RestaurantContent() {
       setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
 
       // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO: Cargar stock de ingredientes de la tienda
-      console.log(`[StockPage] Iniciando carga de stock en segundo plano para tienda "${targetBiz.name}" (${targetBiz.id})`)
       Promise.all([
         hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
         getIngredientStockSummary(targetBiz.id).catch(e => {
-          console.error('[StockPage] Error cargando stock de ingredientes en segundo plano:', e)
+          console.error('Error cargando stock de ingredientes en segundo plano:', e)
           return [] as IngredientStockSummary[]
         })
       ]).then(async ([sharedProducts, stockSummaryData]) => {
-        console.log(`[StockPage] Stock recibido (${stockSummaryData?.length || 0} insumos):`, stockSummaryData?.map(s => `${s.ingredientName}: stock=${s.currentStock}, min=${s.minStock}, limitado=${s.isStockLimited}`))
-
         let enrichedProducts = [...initialAvailable]
 
         // Si hay control de stock de ingredientes, re-evaluar disponibilidad
@@ -676,8 +673,6 @@ function RestaurantContent() {
                   const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
                   return isAvailByStock && v.isAvailable !== false
                 })
-
-                console.log(`[StockPage] Producto "${product.name}": variantes iniciales=${product.variants.length}, filtradasPorStock=${availableVariantsList.length} (${availableVariantsList.map(v => v.name).join(', ')})`)
 
                 return {
                   ...product,
@@ -726,7 +721,6 @@ function RestaurantContent() {
         setSelectedProduct((prev: any) => {
           if (!prev) return prev
           const updated = enrichedProducts.find(ep => ep.id === prev.id)
-          console.log(`[StockPage] Actualizando selectedProduct modal:`, updated ? `${updated.name} con ${updated.variants?.length} variantes` : 'sin cambios')
           return updated || prev
         })
       }).catch(err => {

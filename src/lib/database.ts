@@ -4698,6 +4698,7 @@ export interface IngredientLibraryItem {
   usageCount: number
   isStockLimited?: boolean
   availableStock?: number
+  currentStock?: number
   minStock?: number
 }
 
@@ -4713,6 +4714,7 @@ export async function getIngredientLibrary(businessId: string): Promise<Ingredie
     const ingredients: IngredientLibraryItem[] = []
     snapshot.forEach((doc) => {
       const data = doc.data()
+      const rawStock = data.currentStock !== undefined ? data.currentStock : data.availableStock
       ingredients.push({
         id: doc.id,
         name: data.name,
@@ -4720,7 +4722,8 @@ export async function getIngredientLibrary(businessId: string): Promise<Ingredie
         lastUsed: toSafeDate(data.lastUsed),
         usageCount: data.usageCount || 0,
         isStockLimited: data.isStockLimited ?? false,
-        availableStock: data.availableStock !== undefined ? Number(data.availableStock) : undefined,
+        availableStock: rawStock !== undefined ? Number(rawStock) : undefined,
+        currentStock: rawStock !== undefined ? Number(rawStock) : undefined,
         minStock: data.minStock !== undefined ? Number(data.minStock) : 0
       })
     })
@@ -4792,6 +4795,48 @@ export async function updateIngredientLibraryItem(
 }
 
 /**
+ * Actualizar atómicamente el stock directo de un ingrediente en la biblioteca
+ */
+export async function updateIngredientStockInLibrary(
+  businessId: string,
+  name: string,
+  stockDelta: number,
+  unitCost?: number
+): Promise<void> {
+  try {
+    const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
+    const q = query(libraryRef, where('name', '==', name.trim()))
+    const snapshot = await getDocs(q)
+    if (!snapshot.empty) {
+      const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', snapshot.docs[0].id)
+      const updateData: any = {
+        currentStock: firestoreIncrement(stockDelta),
+        availableStock: firestoreIncrement(stockDelta),
+        lastUsed: serverTimestamp()
+      }
+      if (unitCost !== undefined && unitCost > 0) {
+        updateData.unitCost = unitCost
+      }
+      await updateDoc(docRef, updateData)
+    } else {
+      await addDoc(libraryRef, {
+        name: name.trim(),
+        unitCost: unitCost || 0,
+        currentStock: stockDelta,
+        availableStock: stockDelta,
+        isStockLimited: false,
+        minStock: 0,
+        lastUsed: serverTimestamp(),
+        usageCount: 1,
+        createdAt: serverTimestamp()
+      })
+    }
+  } catch (err) {
+    console.warn('Error actualizando stock directo en biblioteca de ingredientes:', err)
+  }
+}
+
+/**
  * Guardar la configuración de stock de un ingrediente (Ilimitado / Limitado con disponibilidad y mínimo)
  */
 export async function saveIngredientStockConfig(
@@ -4820,6 +4865,8 @@ export async function saveIngredientStockConfig(
           unitCost: 0,
           isStockLimited: config.isStockLimited,
           minStock: config.minStock,
+          currentStock: config.isStockLimited ? (config.targetStock ?? 0) : 0,
+          availableStock: config.isStockLimited ? (config.targetStock ?? 0) : 0,
           lastUsed: serverTimestamp(),
           usageCount: 1,
           createdAt: serverTimestamp()
@@ -4831,15 +4878,20 @@ export async function saveIngredientStockConfig(
     let updateDocPromise: Promise<any> | null = null
     if (targetLibraryId) {
       const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', targetLibraryId)
-      updateDocPromise = updateDoc(docRef, {
+      const updateData: any = {
         isStockLimited: config.isStockLimited,
         minStock: config.minStock,
         lastUsed: serverTimestamp()
-      })
+      }
+      if (config.isStockLimited && config.targetStock !== undefined) {
+        updateData.currentStock = config.targetStock
+        updateData.availableStock = config.targetStock
+      }
+      updateDocPromise = updateDoc(docRef, updateData)
     }
 
     let movementPromise: Promise<any> | null = null
-    // Si es limitado y se especificó un targetStock que difiere del currentStock, registramos un movimiento de ajuste
+    // Si es limitado y se especificó un targetStock que difiere del currentStock, registramos un movimiento de ajuste secundario
     if (config.isStockLimited && config.targetStock !== undefined && config.currentStock !== undefined) {
       const diff = config.targetStock - config.currentStock
       if (Math.abs(diff) > 0.0001) {
@@ -4847,6 +4899,7 @@ export async function saveIngredientStockConfig(
         const ingredientId = `ing_${normalize(ingredientName).replace(/\s+/g, '_')}`
         const today = new Date().toISOString().split('T')[0]
 
+        // Se pasa skipLibraryStockUpdate: true porque el valor fijo directo ya se actualizó en la biblioteca
         movementPromise = recordStockMovement({
           ingredientId,
           ingredientName: ingredientName.trim(),
@@ -4854,7 +4907,8 @@ export async function saveIngredientStockConfig(
           quantity: diff,
           date: today,
           notes: `Configuración de stock inicial (${config.targetStock})`,
-          businessId
+          businessId,
+          skipLibraryStockUpdate: true
         })
       }
     }
@@ -7240,6 +7294,60 @@ export async function createProductRatingNotification(
 }
 
 /**
+ * Crear notificación para producto o variante agotada por stock
+ */
+export async function createStockAlertNotification(
+  businessId: string,
+  params: {
+    title: string
+    message: string
+    productId: string
+    productName: string
+    variantId?: string
+    variantName?: string
+    outOfStockIngredients?: string[]
+  }
+): Promise<void> {
+  try {
+    const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
+
+    // Evitar notificaciones duplicadas no leídas para el mismo producto/variante
+    const unreadQuery = query(
+      notificationsRef,
+      where('type', '==', 'stock_out'),
+      where('read', '==', false),
+      limit(25)
+    )
+    const existingSnap = await getDocs(unreadQuery)
+    const alreadyExists = existingSnap.docs.some(docSnap => {
+      const data = docSnap.data()
+      return data.productId === params.productId && (data.variantName || null) === (params.variantName || null)
+    })
+
+    if (alreadyExists) {
+      return
+    }
+
+    const notificationData = {
+      type: 'stock_out' as const,
+      title: params.title,
+      message: params.message,
+      productId: params.productId,
+      productName: params.productName,
+      variantId: params.variantId || null,
+      variantName: params.variantName || null,
+      outOfStockIngredients: params.outOfStockIngredients || [],
+      read: false,
+      createdAt: serverTimestamp()
+    }
+
+    await addDoc(notificationsRef, notificationData)
+  } catch (error) {
+    console.error('[createStockAlertNotification] Error:', error)
+  }
+}
+
+/**
  * Obtener estadísticas de escaneos por código QR
  * Retorna la cantidad de escaneos para cada código
  */
@@ -7435,11 +7543,12 @@ export interface IngredientStockSummary {
  * Registrar un movimiento de stock (entrada, venta o ajuste)
  */
 export async function recordStockMovement(
-  movement: Omit<IngredientStockMovement, 'id' | 'createdAt'>
+  movement: Omit<IngredientStockMovement, 'id' | 'createdAt'> & { skipLibraryStockUpdate?: boolean }
 ): Promise<string> {
   try {
+    const { skipLibraryStockUpdate, ...cleanMovement } = movement as any
     const movementData = cleanObject({
-      ...movement,
+      ...cleanMovement,
       createdAt: serverTimestamp()
     })
     const docRef = await addDoc(
@@ -7447,14 +7556,35 @@ export async function recordStockMovement(
       movementData
     )
 
-    // Registrar en la biblioteca de ingredientes en segundo plano para no bloquear
-    addOrUpdateIngredientInLibrary(
-      movement.businessId,
-      movement.ingredientName,
-      movement.type === 'entry' ? movement.unitCost || 0 : 0
-    ).catch(err => {
-      console.warn('Error no crítico al actualizar biblioteca de ingredientes:', err)
-    })
+    // Si no se pide omitir, actualizar el stock fijo en ingredientLibrary de forma atómica
+    if (!skipLibraryStockUpdate) {
+      let delta = 0
+      if (movement.type === 'entry' || movement.type === 'adjustment') {
+        delta = movement.quantity
+      } else if (movement.type === 'sale') {
+        delta = -movement.quantity
+      }
+
+      if (delta !== 0) {
+        updateIngredientStockInLibrary(
+          movement.businessId,
+          movement.ingredientName,
+          delta,
+          movement.type === 'entry' ? movement.unitCost : undefined
+        ).catch(err => {
+          console.warn('Error no crítico al actualizar stock en biblioteca de ingredientes:', err)
+        })
+      }
+    } else {
+      // Registrar en la biblioteca de ingredientes en segundo plano para no bloquear
+      addOrUpdateIngredientInLibrary(
+        movement.businessId,
+        movement.ingredientName,
+        movement.type === 'entry' ? movement.unitCost || 0 : 0
+      ).catch(err => {
+        console.warn('Error no crítico al actualizar biblioteca de ingredientes:', err)
+      })
+    }
 
     return docRef.id
   } catch (error) {
@@ -7552,32 +7682,36 @@ export async function calculateCurrentStock(
 
 /**
  * Obtener resumen de stock de todos los ingredientes
+ * Optimizado: Lee directamente el valor fijo currentStock de cada ingrediente en la biblioteca.
+ * Solo si faltan datos en ingredientes antiguos ejecuta el cálculo por movimientos como fallback.
  */
 export async function getIngredientStockSummary(
   businessId: string
 ): Promise<IngredientStockSummary[]> {
   try {
-    // Obtener la biblioteca primero para tener la lista base de ingredientes
+    // 1. Obtener la biblioteca primero para tener los ingredientes y su stock fijo
     const library = await getIngredientLibrary(businessId)
-    const movementsRef = collection(db, 'ingredientStockMovements')
-    const q = query(movementsRef, where('businessId', '==', businessId))
-    const snapshot = await getDocs(q)
 
     const ingredientMap = new Map<string, IngredientStockSummary>()
-    const currentDate = new Date().toISOString().split('T')[0]
+    const normalize = (name: string) => name.trim().toLowerCase()
+    const generateId = (name: string) => `ing_${normalize(name).replace(/\s+/g, '_')}`
 
-    // Helper para normalizar
-    const normalize = (name: string) => name.trim().toLowerCase();
-    const generateId = (name: string) => `ing_${normalize(name).replace(/\s+/g, '_')}`;
+    let hasUninitializedStock = false
 
     // Inicializar el mapa con los ingredientes de la biblioteca
     library.forEach(item => {
       const normName = normalize(item.name)
+      const directStock = item.currentStock !== undefined ? item.currentStock : item.availableStock
+
+      if (directStock === undefined && item.isStockLimited) {
+        hasUninitializedStock = true
+      }
+
       ingredientMap.set(normName, {
         ingredientId: generateId(item.name),
         libraryId: item.id,
         ingredientName: item.name.trim(),
-        currentStock: 0,
+        currentStock: directStock !== undefined ? Number(directStock) : 0,
         unit: 'unidad',
         unitCost: item.unitCost,
         isStockLimited: item.isStockLimited ?? false,
@@ -7586,7 +7720,19 @@ export async function getIngredientStockSummary(
       })
     })
 
-    // Procesar todos los movimientos para actualizar el stock de los ingredientes
+    // Si todos los ingredientes con stock limitado ya tienen su stock guardado, retornamos de inmediato (ultra rápido)
+    if (!hasUninitializedStock && ingredientMap.size > 0) {
+      return Array.from(ingredientMap.values()).sort((a, b) =>
+        a.ingredientName.localeCompare(b.ingredientName)
+      )
+    }
+
+    // Fallback únicamente si hay ingredientes que no han sido inicializados con stock directo
+    const movementsRef = collection(db, 'ingredientStockMovements')
+    const q = query(movementsRef, where('businessId', '==', businessId))
+    const snapshot = await getDocs(q)
+    const currentDate = new Date().toISOString().split('T')[0]
+
     snapshot.docs.forEach(doc => {
       const m = doc.data() as IngredientStockMovement
       const normName = normalize(m.ingredientName)
@@ -7597,7 +7743,7 @@ export async function getIngredientStockSummary(
           ingredientId: ingId,
           ingredientName: m.ingredientName.trim(),
           currentStock: 0,
-          unit: 'unidad', // Valor por defecto
+          unit: 'unidad',
           isStockLimited: false,
           minStock: 0,
           movements: []
@@ -7605,13 +7751,17 @@ export async function getIngredientStockSummary(
       }
 
       const summary = ingredientMap.get(normName)!
+      const libItem = library.find(l => normalize(l.name) === normName)
+      const hasDirectStock = libItem && (libItem.currentStock !== undefined || libItem.availableStock !== undefined)
 
-      // Solo sumamos movimientos hasta la fecha actual
-      if (m.date <= currentDate) {
-        if (m.type === 'entry' || m.type === 'adjustment') {
-          summary.currentStock += m.quantity
-        } else if (m.type === 'sale') {
-          summary.currentStock -= m.quantity
+      // Solo sumamos movimientos para ingredientes que no tenían stock directo guardado
+      if (!hasDirectStock) {
+        if (m.date <= currentDate) {
+          if (m.type === 'entry' || m.type === 'adjustment') {
+            summary.currentStock += m.quantity
+          } else if (m.type === 'sale') {
+            summary.currentStock -= m.quantity
+          }
         }
       }
     })
