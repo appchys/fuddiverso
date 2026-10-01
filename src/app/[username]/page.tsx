@@ -646,7 +646,11 @@ function RestaurantContent() {
       setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
 
       // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO (Solo si hay productos con autoHideByStock o productos compartidos)
-      const anyTracksStock = productsData.some(p => p.autoHideByStock === true || (p.ingredients && p.ingredients.length > 0))
+      const anyTracksStock = productsData.some(p =>
+        p.autoHideByStock === true ||
+        (p.ingredients && p.ingredients.length > 0) ||
+        p.variants?.some(v => v.autoHideByStock === true || (v.ingredients && v.ingredients.length > 0))
+      )
 
       if (anyTracksStock || hasShared) {
         Promise.all([
@@ -722,6 +726,11 @@ function RestaurantContent() {
           }
 
           setProducts(enrichedProducts)
+          setSelectedProduct((prev: any) => {
+            if (!prev) return prev
+            const updated = enrichedProducts.find(ep => ep.id === prev.id)
+            return updated || prev
+          })
         }).catch(err => {
           console.error('Error en enriquecimiento de productos:', err)
         })

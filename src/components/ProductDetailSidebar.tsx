@@ -680,7 +680,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     useEffect(() => {
         if (product) {
             if (product.variants && product.variants.length > 0) {
-                setSelectedVariant(product.variants[0].name)
+                const firstAvailable = product.variants.find(v => v.isAvailable !== false);
+                setSelectedVariant(firstAvailable ? firstAvailable.name : product.variants[0].name)
             } else {
                 setSelectedVariant(null)
             }
@@ -694,6 +695,17 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             }
         }
     }, [product])
+
+    // Sincronizar selectedVariant si cambian las variantes disponibles (ej: cálculo de stock en segundo plano)
+    useEffect(() => {
+        if (availableVariants.length > 0) {
+            if (!selectedVariant || !availableVariants.some(v => v.name === selectedVariant)) {
+                setSelectedVariant(availableVariants[0].name)
+            }
+        } else if (product?.variants && product.variants.length > 0) {
+            setSelectedVariant(null)
+        }
+    }, [availableVariants, selectedVariant, product])
 
     // Manage body scroll
     useEffect(() => {
