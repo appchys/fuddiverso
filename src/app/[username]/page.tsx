@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating } from '@/lib/database'
-import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
+import { evaluateProductStock, isProductEffectivelyAvailable, normalizeIngredientName } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { isStoreOpen, getNextOpeningMessage, formatBusinessName } from '@/lib/store-utils'
@@ -645,33 +645,31 @@ function RestaurantContent() {
       setProducts(initialAvailable)
       setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
 
-      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO (Solo si hay productos con autoHideByStock o productos compartidos)
-      const anyTracksStock = productsData.some(p =>
-        p.autoHideByStock === true ||
-        (p.ingredients && p.ingredients.length > 0) ||
-        p.variants?.some(v => v.autoHideByStock === true || (v.ingredients && v.ingredients.length > 0))
-      )
+      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO (Control de stock de ingredientes y productos compartidos)
+      Promise.all([
+        hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
+        getIngredientStockSummary(targetBiz.id).catch(e => {
+          console.error('Error cargando stock de ingredientes en segundo plano:', e)
+          return [] as IngredientStockSummary[]
+        })
+      ]).then(async ([sharedProducts, stockSummaryData]) => {
+        let enrichedProducts = [...initialAvailable]
 
-      if (anyTracksStock || hasShared) {
-        Promise.all([
-          hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
-          anyTracksStock
-            ? getIngredientStockSummary(targetBiz.id).catch(e => {
-                console.error('Error cargando stock de ingredientes en segundo plano:', e)
-                return [] as IngredientStockSummary[]
-              })
-            : Promise.resolve([] as IngredientStockSummary[])
-        ]).then(async ([sharedProducts, stockSummaryData]) => {
-          let enrichedProducts = [...initialAvailable]
-
-          // Si hay control de stock de ingredientes, re-evaluar disponibilidad
-          if (stockSummaryData && stockSummaryData.length > 0) {
-            const stockMap = new Map<string, IngredientStockSummary>()
-            stockSummaryData.forEach(item => {
-              if (item.ingredientName) {
-                stockMap.set(item.ingredientName.toLowerCase().trim(), item)
-              }
-            })
+        // Si hay control de stock de ingredientes, re-evaluar disponibilidad
+        if (stockSummaryData && stockSummaryData.length > 0) {
+          const stockMap = new Map<string, IngredientStockSummary>()
+          stockSummaryData.forEach(item => {
+            if (item.ingredientName) {
+              stockMap.set(normalizeIngredientName(item.ingredientName), item)
+              stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+            }
+            if (item.ingredientId) {
+              stockMap.set(item.ingredientId, item)
+            }
+            if (item.libraryId) {
+              stockMap.set(item.libraryId, item)
+            }
+          })
 
             enrichedProducts = productsData
               .filter(product => isProductEffectivelyAvailable(product, stockMap))
@@ -734,7 +732,6 @@ function RestaurantContent() {
         }).catch(err => {
           console.error('Error en enriquecimiento de productos:', err)
         })
-      }
 
       // Defer loading of non-critical background data: other businesses only
       setTimeout(() => {

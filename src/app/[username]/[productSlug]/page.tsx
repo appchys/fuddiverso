@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize, trackReferralClick, getIngredientStockSummary } from '@/lib/database'
-import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
+import { evaluateProductStock, isProductEffectivelyAvailable, normalizeIngredientName } from '@/lib/stock-utils'
 import { getProductPublicPrice, formatPrice, ensureCartItemMetadata, getPackagingFee } from '@/lib/price-utils'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
@@ -75,7 +75,12 @@ export default function ProductPageByUsername() {
             const summary = await getIngredientStockSummary(businessData.id)
             const stockMap = new Map<string, any>()
             summary.forEach(item => {
-              if (item.ingredientName) stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+              if (item.ingredientName) {
+                stockMap.set(normalizeIngredientName(item.ingredientName), item)
+                stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+              }
+              if (item.ingredientId) stockMap.set(item.ingredientId, item)
+              if (item.libraryId) stockMap.set(item.libraryId, item)
             })
 
             const isEffectivelyAvailable = isProductEffectivelyAvailable(productData, stockMap)

@@ -5,7 +5,13 @@ import { ProductVariant } from '@/types';
  * Utilizado como fallback en caso de que la variante no tenga ingredientes explícitos.
  */
 export function parseVariantUnitCount(variantName: string): { multiplier: number; cleanName: string } {
-  const matchLeading = variantName.match(/^(\d+)\s*(?:x|\*|\s)?\s*(.+)$/i);
+  if (!variantName || typeof variantName !== 'string') {
+    return { multiplier: 1, cleanName: '' };
+  }
+  const trimmed = variantName.trim();
+
+  // 1. Número al inicio: "35 wantancitos", "35x wantancitos", "x35 wantancitos", "35 unid"
+  const matchLeading = trimmed.match(/^x?\s*(\d+)\s*(?:x|\*|\s|-)?\s*(?:unid|unidades|uds|pcs)?\s*(.+)$/i);
   if (matchLeading) {
     return {
       multiplier: parseInt(matchLeading[1], 10),
@@ -13,7 +19,8 @@ export function parseVariantUnitCount(variantName: string): { multiplier: number
     };
   }
 
-  const matchParen = variantName.match(/^(.+?)\s*\(\s*(\d+)\s*(?:unid|unidades|uds|pcs)?\s*\)$/i);
+  // 2. Número entre paréntesis: "Wantancitos (35)", "Wantancitos (35 unid)", "Wantancitos (x35)"
+  const matchParen = trimmed.match(/^(.+?)\s*\(\s*(?:x|\*)?\s*(\d+)\s*(?:unid|unidades|uds|pcs)?\s*\)$/i);
   if (matchParen) {
     return {
       multiplier: parseInt(matchParen[2], 10),
@@ -21,9 +28,27 @@ export function parseVariantUnitCount(variantName: string): { multiplier: number
     };
   }
 
+  // 3. Número al final: "Wantancitos x35", "Wantancitos x 35", "Wantancitos 35", "Wantancitos - 35"
+  const matchTrailing = trimmed.match(/^(.+?)\s*(?:x|\*|-|\s)\s*(\d+)\s*(?:unid|unidades|uds|pcs)?$/i);
+  if (matchTrailing) {
+    return {
+      multiplier: parseInt(matchTrailing[2], 10),
+      cleanName: matchTrailing[1].trim()
+    };
+  }
+
+  // 4. Solo dígitos: "35"
+  const matchDigits = trimmed.match(/^(\d+)$/);
+  if (matchDigits) {
+    return {
+      multiplier: parseInt(matchDigits[1], 10),
+      cleanName: trimmed
+    };
+  }
+
   return {
     multiplier: 1,
-    cleanName: variantName.trim()
+    cleanName: trimmed
   };
 }
 
