@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating } from '@/lib/database'
-import { evaluateProductStock, isProductEffectivelyAvailable, normalizeIngredientName } from '@/lib/stock-utils'
+import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { isStoreOpen, getNextOpeningMessage, formatBusinessName } from '@/lib/store-utils'
@@ -645,14 +645,17 @@ function RestaurantContent() {
       setProducts(initialAvailable)
       setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
 
-      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO (Control de stock de ingredientes y productos compartidos)
+      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO: Cargar stock de ingredientes de la tienda
+      console.log(`[StockPage] Iniciando carga de stock en segundo plano para tienda "${targetBiz.name}" (${targetBiz.id})`)
       Promise.all([
         hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
         getIngredientStockSummary(targetBiz.id).catch(e => {
-          console.error('Error cargando stock de ingredientes en segundo plano:', e)
+          console.error('[StockPage] Error cargando stock de ingredientes en segundo plano:', e)
           return [] as IngredientStockSummary[]
         })
       ]).then(async ([sharedProducts, stockSummaryData]) => {
+        console.log(`[StockPage] Stock recibido (${stockSummaryData?.length || 0} insumos):`, stockSummaryData?.map(s => `${s.ingredientName}: stock=${s.currentStock}, min=${s.minStock}, limitado=${s.isStockLimited}`))
+
         let enrichedProducts = [...initialAvailable]
 
         // Si hay control de stock de ingredientes, re-evaluar disponibilidad
@@ -660,78 +663,75 @@ function RestaurantContent() {
           const stockMap = new Map<string, IngredientStockSummary>()
           stockSummaryData.forEach(item => {
             if (item.ingredientName) {
-              stockMap.set(normalizeIngredientName(item.ingredientName), item)
               stockMap.set(item.ingredientName.toLowerCase().trim(), item)
             }
-            if (item.ingredientId) {
-              stockMap.set(item.ingredientId, item)
-            }
-            if (item.libraryId) {
-              stockMap.set(item.libraryId, item)
-            }
           })
 
-            enrichedProducts = productsData
-              .filter(product => isProductEffectivelyAvailable(product, stockMap))
-              .map(product => {
-                const evaluation = evaluateProductStock(product, stockMap)
-                if (product.variants && product.variants.length > 0) {
-                  const availableVariantsList = product.variants.filter(v => {
-                    const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
-                    return isAvailByStock && v.isAvailable !== false
-                  })
-                  return {
-                    ...product,
-                    packagingFee: storePackagingFee,
-                    variants: availableVariantsList
-                  }
-                }
+          enrichedProducts = productsData
+            .filter(product => isProductEffectivelyAvailable(product, stockMap))
+            .map(product => {
+              const evaluation = evaluateProductStock(product, stockMap)
+              if (product.variants && product.variants.length > 0) {
+                const availableVariantsList = product.variants.filter(v => {
+                  const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
+                  return isAvailByStock && v.isAvailable !== false
+                })
+
+                console.log(`[StockPage] Producto "${product.name}": variantes iniciales=${product.variants.length}, filtradasPorStock=${availableVariantsList.length} (${availableVariantsList.map(v => v.name).join(', ')})`)
+
                 return {
                   ...product,
-                  packagingFee: storePackagingFee
+                  packagingFee: storePackagingFee,
+                  variants: availableVariantsList
+                }
+              }
+              return {
+                ...product,
+                packagingFee: storePackagingFee
+              }
+            })
+        }
+
+        // Si hay productos compartidos, procesarlos y agregarlos
+        if (sharedProducts && sharedProducts.length > 0) {
+          try {
+            const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
+            const ownerBizs = await getBusinessesByIds(ownerIds)
+            const availableShared = sharedProducts
+              .filter(p => {
+                if (p.isAvailable === false) return false
+                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                if (!ownerBiz || ownerBiz.isActive === false) return false
+                return isStoreOpen(ownerBiz)
+              })
+              .map(p => {
+                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                return {
+                  ...p,
+                  category: 'Compartidos',
+                  isShared: true,
+                  packagingFee: storePackagingFee,
+                  originalBusinessId: p.businessId,
+                  originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                  originalBusinessImage: ownerBiz?.image || null
                 }
               })
+            enrichedProducts = [...enrichedProducts, ...availableShared]
+          } catch (e) {
+            console.error('Error procesando productos compartidos:', e)
           }
+        }
 
-          // Si hay productos compartidos, procesarlos y agregarlos
-          if (sharedProducts && sharedProducts.length > 0) {
-            try {
-              const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
-              const ownerBizs = await getBusinessesByIds(ownerIds)
-              const availableShared = sharedProducts
-                .filter(p => {
-                  if (p.isAvailable === false) return false
-                  const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                  if (!ownerBiz || ownerBiz.isActive === false) return false
-                  return isStoreOpen(ownerBiz)
-                })
-                .map(p => {
-                  const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                  return {
-                    ...p,
-                    category: 'Compartidos',
-                    isShared: true,
-                    packagingFee: storePackagingFee,
-                    originalBusinessId: p.businessId,
-                    originalBusinessName: ownerBiz?.name || 'Otra tienda',
-                    originalBusinessImage: ownerBiz?.image || null
-                  }
-                })
-              enrichedProducts = [...enrichedProducts, ...availableShared]
-            } catch (e) {
-              console.error('Error procesando productos compartidos:', e)
-            }
-          }
-
-          setProducts(enrichedProducts)
-          setSelectedProduct((prev: any) => {
-            if (!prev) return prev
-            const updated = enrichedProducts.find(ep => ep.id === prev.id)
-            return updated || prev
-          })
-        }).catch(err => {
-          console.error('Error en enriquecimiento de productos:', err)
+        setProducts(enrichedProducts)
+        setSelectedProduct((prev: any) => {
+          if (!prev) return prev
+          const updated = enrichedProducts.find(ep => ep.id === prev.id)
+          console.log(`[StockPage] Actualizando selectedProduct modal:`, updated ? `${updated.name} con ${updated.variants?.length} variantes` : 'sin cambios')
+          return updated || prev
         })
+      }).catch(err => {
+        console.error('Error en enriquecimiento de productos:', err)
+      })
 
       // Defer loading of non-critical background data: other businesses only
       setTimeout(() => {

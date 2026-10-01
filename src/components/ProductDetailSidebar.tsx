@@ -623,7 +623,9 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     }
 
     const availableVariants = useMemo(() => {
-        return product?.variants?.filter(v => v.isAvailable !== false) || []
+        const list = product?.variants?.filter(v => v.isAvailable !== false) || []
+        console.log(`[ProductDetailSidebar] Producto "${product?.name}": ${list.length} variantes disponibles:`, list.map(v => `${v.name} (ingredientes: ${v.ingredients?.map(i => `${i.name}: ${i.quantity}`).join(', ') || 'sin ingredientes'})`))
+        return list
     }, [product])
 
     const anyVariantHasImage = useMemo(() => {

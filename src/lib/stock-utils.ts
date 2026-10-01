@@ -3,67 +3,10 @@ import { IngredientStockSummary } from '@/lib/database'
 import { parseVariantUnitCount } from '@/lib/combo-utils'
 
 /**
- * Normaliza nombres de ingredientes para matching consistente (sin tildes, minúsculas, sin espacios extra)
+ * Normaliza nombres de ingredientes para matching consistente
  */
 export function normalizeIngredientName(name: string): string {
-  return (name || '')
-    .toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .trim()
-}
-
-/**
- * Busca un ingrediente en el mapa de stock considerando nombres normalizados, plurales/singulares y coincidencias parciales
- */
-export function findStockForIngredient(
-  ingName: string,
-  stockMap: Map<string, IngredientStockSummary>,
-  ingId?: string
-): IngredientStockSummary | undefined {
-  if (!ingName && !ingId) return undefined
-
-  // 1. Búsqueda directa por ID si existe
-  if (ingId && stockMap.has(ingId)) {
-    return stockMap.get(ingId)
-  }
-
-  const normalized = normalizeIngredientName(ingName)
-  if (stockMap.has(normalized)) {
-    return stockMap.get(normalized)
-  }
-
-  // 2. Coincidencia por singular/plural (stemming)
-  const stem = (str: string) => {
-    let s = str
-    if (s.endsWith('es')) s = s.slice(0, -2)
-    else if (s.endsWith('s')) s = s.slice(0, -1)
-    return s
-  }
-  const stemmed = stem(normalized)
-
-  for (const [key, val] of stockMap.entries()) {
-    if (stem(key) === stemmed) {
-      return val
-    }
-    if (val.ingredientName && stem(normalizeIngredientName(val.ingredientName)) === stemmed) {
-      return val
-    }
-  }
-
-  // 3. Coincidencia por contención (ej: "wantancitos" y "wantan")
-  for (const [key, val] of stockMap.entries()) {
-    if (key.length >= 4 && (normalized.includes(key) || key.includes(normalized))) {
-      return val
-    }
-    if (val.ingredientName) {
-      const valNorm = normalizeIngredientName(val.ingredientName)
-      if (valNorm.length >= 4 && (normalized.includes(valNorm) || valNorm.includes(normalized))) {
-        return val
-      }
-    }
-  }
-
-  return undefined
+  return (name || '').toLowerCase().trim()
 }
 
 /**
@@ -71,52 +14,28 @@ export function findStockForIngredient(
  */
 export function getIngredientsForVariant(
   product: Product,
-  variant?: ProductVariant,
-  stockMap?: Map<string, IngredientStockSummary>
+  variant?: ProductVariant
 ): Ingredient[] {
-  // 1. Ingredientes definidos directamente en la variante
   if (variant && variant.ingredients && variant.ingredients.length > 0) {
+    console.log(`[getIngredients] Variante "${variant.name}": usando variant.ingredients (${variant.ingredients.length})`, variant.ingredients)
     return variant.ingredients
   }
 
-  // 2. Si la variante no tiene ingredientes propios, pero el producto base sí tiene ingredientes:
-  // verificar si el nombre de la variante define una cantidad multiplicadora (ej: "12 wantancitos", "20 wantancitos", "35 unid", "x35")
+  // Fallback: si la variante no tiene ingredientes propios, pero el producto tiene ingredientes base,
+  // verificar si el nombre de la variante define una cantidad multiplicadora (ej: "12 wantancitos", "20 wantancitos", "3 unid")
   if (variant && product.ingredients && product.ingredients.length > 0) {
     const { multiplier } = parseVariantUnitCount(variant.name || '')
     if (multiplier > 1) {
-      return product.ingredients.map(ing => ({
+      const derived = product.ingredients.map(ing => ({
         ...ing,
         quantity: (Number(ing.quantity) || 1) * multiplier
       }))
-    }
-    return product.ingredients
-  }
-
-  // 3. Si el producto base tiene ingredientes y no se pasó variante:
-  if (!variant && product.ingredients && product.ingredients.length > 0) {
-    return product.ingredients
-  }
-
-  // 4. Fallback inteligente: si ni el producto ni la variante tienen ingredientes configurados explícitamente,
-  // pero existe un ingrediente en stockMap cuyo nombre coincide con el producto o la variante:
-  if (stockMap && stockMap.size > 0) {
-    const { multiplier, cleanName } = parseVariantUnitCount(variant?.name || '')
-    const matchedStock = (cleanName ? findStockForIngredient(cleanName, stockMap) : undefined) ||
-                         findStockForIngredient(product.name, stockMap) ||
-                         (variant ? findStockForIngredient(variant.name, stockMap) : undefined)
-
-    if (matchedStock) {
-      return [{
-        id: matchedStock.ingredientId,
-        name: matchedStock.ingredientName,
-        quantity: multiplier || 1,
-        unitCost: matchedStock.unitCost || 0,
-        unit: matchedStock.unit || 'uds'
-      }]
+      console.log(`[getIngredients] Variante "${variant.name}": derivada con multiplier ${multiplier}`, derived)
+      return derived
     }
   }
 
-  return []
+  return product.ingredients || []
 }
 
 /**
@@ -137,7 +56,7 @@ export function checkVariantStockAvailability(
     minStock: number
   }>
 } {
-  const ingredients = getIngredientsForVariant(product, variant, stockMap)
+  const ingredients = getIngredientsForVariant(product, variant)
   const limitedIngredients: Array<{
     name: string
     requiredQty: number
@@ -147,14 +66,28 @@ export function checkVariantStockAvailability(
   const outOfStockIngredients: string[] = []
 
   for (const ing of ingredients) {
-    if (!ing.name && !ing.id) continue
-    const itemStock = findStockForIngredient(ing.name, stockMap, ing.id)
+    const rawName = ing.name || (ing as any).ingredientName || ''
+    if (!rawName) continue
+
+    const normName = normalizeIngredientName(rawName)
+    let itemStock = stockMap.get(normName)
+
+    // Búsqueda flexible si no coincide exacto por minúsculas (ej. plurales o pequeñas variaciones)
+    if (!itemStock && stockMap.size > 0) {
+      for (const [key, value] of stockMap.entries()) {
+        if (key === normName || key.startsWith(normName) || normName.startsWith(key)) {
+          itemStock = value
+          break
+        }
+      }
+    }
+
     if (itemStock && itemStock.isStockLimited) {
       const min = itemStock.minStock ?? 0
-      const current = itemStock.currentStock
-      const required = Number(ing.quantity) || 1
+      const current = itemStock.currentStock ?? 0
+      const required = Number(ing.quantity || (ing as any).qty || (ing as any).amount) || 1
       limitedIngredients.push({
-        name: ing.name,
+        name: rawName,
         requiredQty: required,
         currentStock: current,
         minStock: min
@@ -168,9 +101,16 @@ export function checkVariantStockAvailability(
       const remaining = current - required
       const isOutOfStock = current <= min || current < required || (min > 0 ? remaining < min : (remaining <= 0 && required > 1))
 
+      console.log(`[StockCheck] Variante "${variant?.name || 'Base'}" -> Insumo "${rawName}": ` +
+        `Requerido=${required}, StockActual=${current}, MinStock=${min}, isStockLimited=${itemStock.isStockLimited}, ` +
+        `remaining=${remaining}, isOutOfStock=${isOutOfStock}`)
+
       if (isOutOfStock) {
-        outOfStockIngredients.push(ing.name)
+        outOfStockIngredients.push(rawName)
       }
+    } else {
+      console.log(`[StockCheck] Variante "${variant?.name || 'Base'}" -> Insumo "${rawName}": ` +
+        `EncontradoEnMap=${!!itemStock}, isStockLimited=${itemStock?.isStockLimited}, stockActual=${itemStock?.currentStock}`)
     }
   }
 
@@ -220,16 +160,20 @@ export function evaluateProductStock(
         hasAnyLimited = true
       }
 
-      // Si la variante tiene ingredientes limitados, siempre debe controlarse por stock
-      // excepto si variant.autoHideByStock está explícitamente en false
-      const isControlledByStock = variant.autoHideByStock !== false && (
-        result.hasLimitedIngredients ||
-        variant.autoHideByStock === true ||
-        product.autoHideByStock === true
-      )
+      // La variante debe ocultarse/bloquearse si sus ingredientes limitados están agotados
+      // O si tiene autoHideByStock / hereda del producto
+      const isVariantAutoHide = result.hasLimitedIngredients
+        || variant.autoHideByStock === true
+        || product.autoHideByStock === true
 
-      const isVariantInStock = isControlledByStock ? result.isAvailableByStock : true
+      const isVariantInStock = isVariantAutoHide ? result.isAvailableByStock : true
       const isVariantEffectivelyAvailable = isVariantInStock && variant.isAvailable !== false
+
+      console.log(`[StockEval] Producto "${product.name}" | Variante "${variant.name}": ` +
+        `insumosLimitados=${result.limitedIngredients.length}, ` +
+        `isAvailableByStock=${result.isAvailableByStock}, ` +
+        `isVariantAutoHide=${isVariantAutoHide}, ` +
+        `isVariantEffectivelyAvailable=${isVariantEffectivelyAvailable}`)
 
       if (isVariantEffectivelyAvailable) {
         availableVariants.push(variant)
@@ -277,17 +221,8 @@ export function isProductEffectivelyAvailable(
   stockMap: Map<string, IngredientStockSummary>
 ): boolean {
   if (product.isAvailable === false) return false
-
-  const evaluation = evaluateProductStock(product, stockMap)
-
-  // Si tiene variantes y ninguna variante está disponible por stock, ocultar el producto de la tienda
-  if (product.variants && product.variants.length > 0 && evaluation.hasLimitedIngredients) {
-    if (evaluation.availableVariants.length === 0) {
-      return false
-    }
-  }
-
-  if (product.autoHideByStock || evaluation.hasLimitedIngredients) {
+  if (product.autoHideByStock) {
+    const evaluation = evaluateProductStock(product, stockMap)
     return evaluation.isAvailableByStock
   }
   return true
