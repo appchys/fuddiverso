@@ -128,10 +128,6 @@ export default function TodayOrdersPage() {
     const [printerError, setPrinterError] = useState('')
     const [isSyncingOrders, setIsSyncingOrders] = useState(false)
     const [ordersRefreshTrigger, setOrdersRefreshTrigger] = useState(0)
-    const [pullDistance, setPullDistance] = useState(0)
-    const [isPulling, setIsPulling] = useState(false)
-    const [isRefreshing, setIsRefreshing] = useState(false)
-    const mainScrollRef = useRef<HTMLDivElement>(null)
     const [toast, setToast] = useState<{ show: boolean; message: string; icon?: string } | null>(null)
 
     const showToastMessage = (message: string, icon: string = 'bi-printer') => {
@@ -2042,183 +2038,6 @@ export default function TodayOrdersPage() {
 
     const handleSyncOrders = handleRefreshDashboardData
 
-    // Gesto Pull-to-refresh para arrastrar hacia abajo y refrescar pedidos y cola de impresión
-    const refreshFnRef = useRef(handleRefreshDashboardData)
-    refreshFnRef.current = handleRefreshDashboardData
-    const isRefreshingRef = useRef(false)
-    isRefreshingRef.current = isRefreshing
-
-    // Deshabilitar pull-to-refresh nativo del navegador a nivel de documento en el dashboard
-    useEffect(() => {
-        const prevHtml = document.documentElement.style.overscrollBehaviorY
-        const prevBody = document.body.style.overscrollBehaviorY
-        document.documentElement.style.overscrollBehaviorY = 'contain'
-        document.body.style.overscrollBehaviorY = 'contain'
-        return () => {
-            document.documentElement.style.overscrollBehaviorY = prevHtml
-            document.body.style.overscrollBehaviorY = prevBody
-        }
-    }, [])
-
-    useEffect(() => {
-        const container = mainScrollRef.current
-
-        let startY: number | null = null
-        let startX: number | null = null
-        let isDragging = false
-
-        const isAtTop = () => {
-            const containerTop = container ? container.scrollTop : 0
-            const windowTop = typeof window !== 'undefined' ? window.scrollY : 0
-            return containerTop <= 1 && windowTop <= 1
-        }
-
-        // Manejo táctil (móvil y tabletas) en window para interceptar preventDefault antes que el navegador
-        const handleTouchStart = (e: TouchEvent) => {
-            if (isAtTop() && !isRefreshingRef.current) {
-                startY = e.touches[0].clientY
-                startX = e.touches[0].clientX
-                isDragging = false
-            } else {
-                startY = null
-                startX = null
-            }
-        }
-
-        const handleTouchMove = (e: TouchEvent) => {
-            if (startY === null || startX === null || isRefreshingRef.current) return
-
-            if (!isAtTop()) {
-                startY = null
-                startX = null
-                isDragging = false
-                setIsPulling(false)
-                setPullDistance(0)
-                return
-            }
-
-            const currentY = e.touches[0].clientY
-            const currentX = e.touches[0].clientX
-            const diffY = currentY - startY
-            const diffX = currentX - startX
-
-            // Si es un scroll horizontal más pronunciado, ignorar
-            if (Math.abs(diffX) > Math.abs(diffY)) {
-                return
-            }
-
-            if (diffY > 0) {
-                // Cancelar inmediatamente el pull to refresh nativo del navegador
-                if (e.cancelable) {
-                    e.preventDefault()
-                }
-                isDragging = true
-                setIsPulling(true)
-                const distance = Math.min(80, Math.pow(diffY, 0.82) * 1.5)
-                setPullDistance(distance)
-            } else {
-                startY = null
-                startX = null
-                isDragging = false
-                setIsPulling(false)
-                setPullDistance(0)
-            }
-        }
-
-        const handleTouchEnd = () => {
-            if (startY === null) return
-            startY = null
-            startX = null
-
-            if (isDragging) {
-                isDragging = false
-                setIsPulling(false)
-
-                setPullDistance(currentDist => {
-                    if (currentDist >= 55) {
-                        setIsRefreshing(true)
-                        void (async () => {
-                            try {
-                                await refreshFnRef.current()
-                            } finally {
-                                setIsRefreshing(false)
-                                setPullDistance(0)
-                            }
-                        })()
-                        return 46
-                    } else {
-                        return 0
-                    }
-                })
-            } else {
-                setPullDistance(0)
-            }
-        }
-
-        // Manejo ratón (desktop arrastre en tope)
-        const handleMouseDown = (e: MouseEvent) => {
-            if (e.button !== 0 || isRefreshingRef.current || !isAtTop()) return
-            const target = e.target as HTMLElement | null
-            if (target && target.closest('button, a, input, select, textarea, [role="button"]')) return
-
-            startY = e.clientY
-            startX = e.clientX
-            isDragging = false
-        }
-
-        const handleMouseMove = (e: MouseEvent) => {
-            if (startY === null || isRefreshingRef.current) return
-
-            if (!isAtTop()) {
-                startY = null
-                startX = null
-                isDragging = false
-                setIsPulling(false)
-                setPullDistance(0)
-                return
-            }
-
-            const diffY = e.clientY - startY
-            if (diffY > 8) {
-                isDragging = true
-                setIsPulling(true)
-                const distance = Math.min(80, Math.pow(diffY, 0.82) * 1.5)
-                setPullDistance(distance)
-            } else if (diffY < 0) {
-                startY = null
-                startX = null
-                isDragging = false
-                setIsPulling(false)
-                setPullDistance(0)
-            }
-        }
-
-        const handleMouseUp = () => {
-            if (startY === null) return
-            handleTouchEnd()
-        }
-
-        window.addEventListener('touchstart', handleTouchStart, { passive: true })
-        window.addEventListener('touchmove', handleTouchMove, { passive: false })
-        window.addEventListener('touchend', handleTouchEnd, { passive: true })
-        window.addEventListener('touchcancel', handleTouchEnd, { passive: true })
-
-        window.addEventListener('mousedown', handleMouseDown)
-        window.addEventListener('mousemove', handleMouseMove)
-        window.addEventListener('mouseup', handleMouseUp)
-
-        return () => {
-            window.removeEventListener('touchstart', handleTouchStart)
-            window.removeEventListener('touchmove', handleTouchMove)
-            window.removeEventListener('touchend', handleTouchEnd)
-            window.removeEventListener('touchcancel', handleTouchEnd)
-
-            window.removeEventListener('mousedown', handleMouseDown)
-            window.removeEventListener('mousemove', handleMouseMove)
-            window.removeEventListener('mouseup', handleMouseUp)
-        }
-    }, [])
-
     const cleanFirestoreData = (obj: any): any => {
         if (obj === null || obj === undefined) return null
         if (Array.isArray(obj)) {
@@ -2560,7 +2379,7 @@ export default function TodayOrdersPage() {
                     canManageAdmins={canManageAdmins}
                 />
 
-                <div ref={mainScrollRef} className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full overscroll-y-contain ${sidebarOpen ? 'lg:ml-72' : ''}`}>
+                <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
                     {/* Header */}
                     <header className="bg-white shadow-sm border-b sticky top-0 z-30 w-full">
                         <div className="px-4 sm:px-6">
@@ -2703,6 +2522,16 @@ export default function TodayOrdersPage() {
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
 
+                                    {/* Sincronizar Pedidos de Hoy */}
+                                    <button
+                                        onClick={handleSyncOrders}
+                                        disabled={isSyncingOrders}
+                                        className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50 group"
+                                        title="Sincronizar pedidos de hoy"
+                                        aria-label="Sincronizar pedidos de hoy"
+                                    >
+                                        <i className={`bi bi-arrow-repeat text-xl block transition-transform ${isSyncingOrders ? 'animate-spin text-rose-500' : 'group-hover:rotate-180 duration-500'}`}></i>
+                                    </button>
 
                                     {/* Business Selector */}
                                     <div className="relative business-dropdown-container" ref={businessDropdownRef}>
@@ -2826,38 +2655,6 @@ export default function TodayOrdersPage() {
                             </div>
                         </div>
                     </header>
-
-                    {/* Indicador visual de Pull-to-Refresh */}
-                    <div 
-                        className={`w-full overflow-hidden flex items-center justify-center transition-all ${
-                            isPulling ? 'duration-75' : 'duration-300 ease-out'
-                        }`}
-                        style={{
-                            height: `${isRefreshing ? Math.max(pullDistance, 46) : pullDistance}px`,
-                            opacity: (pullDistance > 6 || isRefreshing) ? 1 : 0,
-                            pointerEvents: 'none'
-                        }}
-                    >
-                        <div className="bg-white/95 backdrop-blur-md rounded-full px-4 py-1.5 shadow-md border border-gray-100 flex items-center gap-2.5 text-xs font-black tracking-tight text-gray-800 my-1">
-                            {isRefreshing ? (
-                                <>
-                                    <i className="bi bi-arrow-repeat animate-spin text-[#aa1918] text-base"></i>
-                                    <span className="text-gray-700">Actualizando pedidos y cola...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <i 
-                                        className={`bi bi-arrow-down text-base transition-transform duration-200 ${
-                                            pullDistance >= 55 ? 'rotate-180 text-[#aa1918]' : 'text-gray-400'
-                                        }`}
-                                    ></i>
-                                    <span className={pullDistance >= 55 ? 'text-[#aa1918]' : 'text-gray-500'}>
-                                        {pullDistance >= 55 ? 'Suelta para actualizar' : 'Desliza hacia abajo para actualizar'}
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    </div>
 
                     {/* Main Content Area: Conditional Rendering */}
                     {activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins') ? (

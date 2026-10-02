@@ -4,7 +4,6 @@
 
 html, body {
   touch-action: manipulation;
-  overscroll-behavior-y: contain;
 }
 
 /* Material Symbols configuration & FOIT protection */
