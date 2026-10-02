@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react'
 import { Business, Order } from '@/types'
 import { isStoreOpen, getStoreStatusDescription } from '@/lib/store-utils'
+import { openWhatsAppUrl } from '@/components/WhatsAppUtils'
 
 interface DayPreflightChecklistProps {
     business: Business | null
@@ -104,7 +105,7 @@ export default function DayPreflightChecklist({
     const handleShareWhatsApp = () => {
         if (!storeUrl || !business) return
         const message = `¡Hola! 👋 Mira nuestro menú de hoy en ${business.name} aquí: ${storeUrl}`
-        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank')
+        openWhatsAppUrl(`https://wa.me/?text=${encodeURIComponent(message)}`)
     }
 
     const handlePromoteProduct = (product: { name: string; slug?: string; productId: string }) => {
@@ -115,7 +116,7 @@ export default function DayPreflightChecklist({
         // Usually slug points to product page.
         const productUrl = `${storeUrl}/${product.slug || product.productId.split('-')[0]}`
         const message = `¡El favorito de hoy! 🔥 Nuestro ${product.name} es lo más pedido. Pide el tuyo aquí: ${productUrl}`
-        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank')
+        openWhatsAppUrl(`https://wa.me/?text=${encodeURIComponent(message)}`)
     }
 
     return (

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { Business, Order, Delivery } from '@/types'
 import { db } from '@/lib/firebase'
 import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'
+import { openWhatsAppUrl } from '@/components/WhatsAppUtils'
 
 // Helper to convert Firestore timestamp to Date
 const toSafeDate = (val: any): Date => {
@@ -873,7 +874,7 @@ export default function CierreSidebarView({
 
         const encodedText = encodeURIComponent(message.trim())
         const url = `https://wa.me/${cleanCel}?text=${encodedText}`
-        window.open(url, '_blank')
+        openWhatsAppUrl(url)
     }
 
     const handleSendWhatsAppSummary = () => {

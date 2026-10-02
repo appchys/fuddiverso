@@ -149,20 +149,14 @@ export default function FavoriteIngredientsStockBar({
     }
   }, [business?.id, loadStockData])
 
-  // Cerrar al hacer clic fuera
+  // Bloquear el scroll del documento cuando el sidebar esté abierto
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = originalOverflow
+      }
     }
   }, [isOpen])
 
@@ -315,105 +309,113 @@ export default function FavoriteIngredientsStockBar({
         ) : null}
       </button>
 
-      {/* Overlay translúcido en móviles para cerrar al tocar fuera */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-[65] md:hidden"
-          onClick={(e) => {
-            e.stopPropagation()
-            setIsOpen(false)
-          }}
-        />
-      )}
+      {/* Backdrop oscuro translúcido con desenfoque de fondo para el Sidebar */}
+      <div
+        className={`fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[80] transition-opacity duration-300 ${
+          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={(e) => {
+          e.stopPropagation()
+          setIsOpen(false)
+        }}
+        aria-hidden="true"
+      />
 
-      {/* Panel Desplegable (Popover) desde la esquina superior derecha */}
-      {isOpen && (
-        <div 
-          onClick={(e) => e.stopPropagation()}
-          className="fixed inset-x-3 top-16 md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[520px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-[70] overflow-hidden flex flex-col max-h-[85vh] md:max-h-[75vh] animate-in fade-in slide-in-from-top-2 duration-200"
-        >
-          {/* Cabecera del Panel */}
-          <div className="px-4 py-3 bg-gradient-to-r from-gray-50/90 via-white to-gray-50/40 border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
-                <i className="bi bi-star-fill text-sm"></i>
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-black text-gray-900 tracking-tight leading-tight truncate">
-                    Stock de Favoritos
-                  </h3>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
-                    {favoriteIngredients.length} fijado{favoriteIngredients.length === 1 ? '' : 's'}
-                  </span>
-                </div>
-                <p className="text-[10px] font-medium text-gray-400 truncate">
-                  Monitoreo de ingredientes clave en tiempo real
-                </p>
-              </div>
+      {/* Sidebar Lateral (Drawer) de Stock de Ingredientes */}
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label="Stock de Ingredientes Favoritos"
+        onClick={(e) => e.stopPropagation()}
+        className={`fixed inset-y-0 right-0 z-[85] w-full sm:w-[480px] md:w-[520px] max-w-full bg-white shadow-2xl border-l border-gray-200/80 flex flex-col h-full transform transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+        }`}
+      >
+        {/* Cabecera del Sidebar */}
+        <div className="px-5 py-4 bg-gradient-to-r from-gray-50/90 via-white to-gray-50/40 border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
+              <i className="bi bi-star-fill text-base"></i>
             </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              {/* Badges de alertas */}
-              {stats.outOfStockCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black border border-rose-100">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-                  {stats.outOfStockCount} sin stock
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-black text-gray-900 tracking-tight leading-tight truncate">
+                  Stock de Favoritos
+                </h3>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700">
+                  {favoriteIngredients.length} fijado{favoriteIngredients.length === 1 ? '' : 's'}
                 </span>
-              )}
-
-              {/* Botón Refrescar */}
-              <button
-                onClick={() => loadStockData(true)}
-                disabled={isRefreshing}
-                className={`p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all ${
-                  isRefreshing ? 'animate-spin text-amber-500' : ''
-                }`}
-                title="Actualizar stock"
-              >
-                <i className="bi bi-arrow-repeat text-sm"></i>
-              </button>
-
-              {/* Enlace rápido a Inventario */}
-              {onNavigateToInventory && (
-                <button
-                  onClick={() => {
-                    setIsOpen(false)
-                    onNavigateToInventory()
-                  }}
-                  className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all text-xs font-bold flex items-center gap-1"
-                  title="Gestionar en Inventario"
-                >
-                  <i className="bi bi-boxes"></i>
-                </button>
-              )}
-
-              {/* Botón Cerrar */}
-              <button
-                onClick={() => setIsOpen(false)}
-                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
-                title="Cerrar panel"
-              >
-                <i className="bi bi-x-lg text-xs"></i>
-              </button>
+              </div>
+              <p className="text-xs font-medium text-gray-500 truncate mt-0.5">
+                Monitoreo de ingredientes en tiempo real
+              </p>
             </div>
           </div>
 
-          {/* Leyenda de colores de la barra */}
-          <div className="px-4 py-2 bg-gray-50/70 border-b border-gray-100 flex items-center justify-between gap-2 text-[10px] text-gray-500 overflow-x-auto shrink-0">
-            <span className="font-bold text-gray-600 uppercase tracking-wider text-[9px] shrink-0">Barra:</span>
-            <div className="flex items-center gap-3.5 shrink-0">
-              <span className="flex items-center gap-1.5 font-semibold text-rose-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 border border-rose-400"></span> Mínimo
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Badges de alertas */}
+            {stats.outOfStockCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 text-xs font-black border border-rose-100">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                {stats.outOfStockCount} sin stock
               </span>
-              <span className="flex items-center gap-1.5 font-semibold text-amber-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-300"></span> Comprometidos
-              </span>
-              <span className="flex items-center gap-1.5 font-semibold text-blue-700">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-400"></span> Disponibles
-              </span>
-            </div>
+            )}
+
+            {/* Botón Refrescar */}
+            <button
+              onClick={() => loadStockData(true)}
+              disabled={isRefreshing}
+              className={`p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all ${
+                isRefreshing ? 'animate-spin text-amber-500' : ''
+              }`}
+              title="Actualizar stock"
+              aria-label="Actualizar stock"
+            >
+              <i className="bi bi-arrow-repeat text-base"></i>
+            </button>
+
+            {/* Enlace rápido a Inventario */}
+            {onNavigateToInventory && (
+              <button
+                onClick={() => {
+                  setIsOpen(false)
+                  onNavigateToInventory()
+                }}
+                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
+                title="Gestionar en Inventario"
+                aria-label="Gestionar en Inventario"
+              >
+                <i className="bi bi-boxes text-base"></i>
+              </button>
+            )}
+
+            {/* Botón Cerrar Sidebar */}
+            <button
+              onClick={() => setIsOpen(false)}
+              className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all ml-0.5"
+              title="Cerrar panel lateral"
+              aria-label="Cerrar panel lateral"
+            >
+              <i className="bi bi-x-lg text-sm"></i>
+            </button>
           </div>
+        </div>
+
+        {/* Leyenda de colores de la barra */}
+        <div className="px-5 py-2.5 bg-gray-50/70 border-b border-gray-100 flex items-center justify-between gap-2 text-xs text-gray-500 overflow-x-auto shrink-0 select-none">
+          <span className="font-bold text-gray-700 uppercase tracking-wider text-[10px] shrink-0">Barra:</span>
+          <div className="flex items-center gap-4 shrink-0">
+            <span className="flex items-center gap-1.5 font-semibold text-rose-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 border border-rose-400"></span> Mínimo
+            </span>
+            <span className="flex items-center gap-1.5 font-semibold text-amber-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-300"></span> Comprometidos
+            </span>
+            <span className="flex items-center gap-1.5 font-semibold text-blue-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-400"></span> Disponibles
+            </span>
+          </div>
+        </div>
 
           {/* Contenido / Listado con Barras Visuales de Stock */}
           <div className="p-3.5 space-y-2.5 overflow-y-auto flex-1 custom-scrollbar">
@@ -606,45 +608,62 @@ export default function FavoriteIngredientsStockBar({
                       </span>
                     </div>
 
-                    {/* Fila 3: Barra Visual de Stock (Rojo: Mínimo, Amarillo: Comprometidos, Azul: Disponibles) */}
+                    {/* Fila 3: Barra Visual de Stock (Rojo: Mínimo, Amarillo: Comprometidos, Azul: Disponibles) con cantidades internas */}
                     <div className="w-full pt-0.5">
                       {isLimited ? (
                         <div
-                          className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden flex border border-gray-200/70"
-                          title={`Mínimo: ${minVal} | Comprometidos: ${committedUnits} | Disponibles: ${stockVal} ${ing.unit || 'uds'}`}
+                          className="w-full h-5 bg-gray-100 rounded-full overflow-hidden flex border border-gray-200/80 shadow-inner select-none"
+                          title={`Mínimo: ${minVal} | Comprometidos: ${committedUnits} | Disponibles: ${rawAvailable} ${ing.unit || 'uds'}`}
                         >
                           {pctMin > 0 && (
                             <div
-                              className="h-full bg-rose-500 transition-all duration-300"
+                              className="h-full bg-rose-500 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
                               style={{ width: `${pctMin}%` }}
                               title={`Mínimo seguro: ${minVal} ${ing.unit || 'uds'}`}
-                            />
+                            >
+                              <span className="text-[10px] font-black text-white leading-none truncate drop-shadow-sm">
+                                {minVal}
+                              </span>
+                            </div>
                           )}
                           {pctCommitted > 0 && (
                             <div
-                              className="h-full bg-amber-400 transition-all duration-300"
+                              className="h-full bg-amber-400 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
                               style={{ width: `${pctCommitted}%` }}
                               title={`Comprometidos: ${committedUnits} ${ing.unit || 'uds'}`}
-                            />
+                            >
+                              <span className="text-[10px] font-black text-amber-950 leading-none truncate">
+                                {committedUnits}
+                              </span>
+                            </div>
                           )}
                           {pctAvailable > 0 && (
                             <div
-                              className="h-full bg-blue-500 transition-all duration-300"
+                              className="h-full bg-blue-500 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
                               style={{ width: `${pctAvailable}%` }}
                               title={`Disponibles libres: ${rawAvailable} ${ing.unit || 'uds'}`}
-                            />
+                            >
+                              <span className="text-[10px] font-black text-white leading-none truncate drop-shadow-sm">
+                                {rawAvailable}
+                              </span>
+                            </div>
                           )}
                           {totalUnits <= 0 && (
-                            <div className="h-full w-full bg-gray-200 rounded-full" />
+                            <div className="h-full w-full bg-gray-200 flex items-center justify-center text-[10px] font-black text-gray-500 leading-none">
+                              0
+                            </div>
                           )}
                         </div>
                       ) : (
                         <div
-                          className="w-full h-2.5 bg-blue-100 rounded-full overflow-hidden flex border border-blue-200/70"
+                          className="w-full h-5 bg-blue-100 rounded-full overflow-hidden flex border border-blue-200/80 shadow-inner select-none"
                           title="Stock ilimitado"
                         >
-                          <div className="h-full w-full bg-blue-500 rounded-full flex items-center justify-center">
-                            <span className="text-[7.5px] font-black uppercase tracking-widest text-white leading-none">Ilimitado</span>
+                          <div className="h-full w-full bg-blue-500 rounded-full flex items-center justify-center gap-1.5 px-2">
+                            <i className="bi bi-infinity text-xs text-white"></i>
+                            <span className="text-[9px] font-black uppercase tracking-wider text-white leading-none">
+                              Ilimitado
+                            </span>
                           </div>
                         </div>
                       )}
@@ -655,26 +674,25 @@ export default function FavoriteIngredientsStockBar({
             )}
           </div>
 
-          {/* Pie del Panel */}
-          {favoriteIngredients.length > 0 && onNavigateToInventory && (
-            <div className="px-4 py-2.5 bg-gray-50/60 border-t border-gray-100 flex items-center justify-between shrink-0">
-              <span className="text-[10px] font-medium text-gray-400">
-                ¿Necesitas agregar más favoritos?
-              </span>
-              <button
-                onClick={() => {
-                  setIsOpen(false)
-                  onNavigateToInventory()
-                }}
-                className="text-[11px] font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"
-              >
-                <span>Administrar en Inventario</span>
-                <i className="bi bi-arrow-right text-[10px]"></i>
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        {/* Pie del Sidebar */}
+        {favoriteIngredients.length > 0 && onNavigateToInventory && (
+          <div className="px-5 py-3.5 bg-gray-50/80 border-t border-gray-100 flex items-center justify-between shrink-0">
+            <span className="text-xs font-medium text-gray-500">
+              ¿Necesitas agregar más favoritos?
+            </span>
+            <button
+              onClick={() => {
+                setIsOpen(false)
+                onNavigateToInventory()
+              }}
+              className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1.5 transition-colors py-1.5 px-3 rounded-lg hover:bg-amber-50"
+            >
+              <span>Administrar en Inventario</span>
+              <i className="bi bi-arrow-right text-xs"></i>
+            </button>
+          </div>
+        )}
+      </aside>
 
       {/* Modal para Ajustar Stock de un Ingrediente */}
       {stockConfigIngredient && business?.id && (

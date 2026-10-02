@@ -2,12 +2,48 @@ import { getWhatsAppTemplates } from '@/lib/database'
 import { renderWhatsAppTemplate, WHATSAPP_TEMPLATE_DEFAULTS } from '@/lib/whatsappTemplates'
 import { Order, Business } from '@/types'
 
-const openExternalLink = (url: string) => {
-    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.openLink) {
+export const openWhatsAppUrl = (url: string) => {
+    if (typeof window === 'undefined') return
+
+    if ((window as any).Telegram?.WebApp?.openLink) {
         (window as any).Telegram.WebApp.openLink(url)
-    } else if (typeof window !== 'undefined') {
-        window.open(url, '_blank')
+        return
     }
+
+    try {
+        const origin = window.location.origin
+        const redirectUrl = `${origin}/wa?url=${encodeURIComponent(url)}`
+        const win = window.open(redirectUrl, '_blank')
+        if (win) {
+            // Respaldo de cierre desde la ventana padre
+            setTimeout(() => {
+                try {
+                    if (!win.closed) {
+                        win.close()
+                    }
+                } catch {
+                    // ignore
+                }
+            }, 2500)
+        }
+    } catch {
+        const fallbackWin = window.open(url, '_blank')
+        if (fallbackWin) {
+            setTimeout(() => {
+                try {
+                    if (!fallbackWin.closed) {
+                        fallbackWin.close()
+                    }
+                } catch {
+                    // ignore
+                }
+            }, 2500)
+        }
+    }
+}
+
+const openExternalLink = (url: string) => {
+    openWhatsAppUrl(url)
 }
 
 export const getNextStatus = (status: Order['status']): Order['status'] | null => {
@@ -429,7 +465,21 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
     
     if (targetWindow && !targetWindow.closed) {
-        targetWindow.location.href = whatsappUrl
+        try {
+            const redirectUrl = `${window.location.origin}/wa?url=${encodeURIComponent(whatsappUrl)}`
+            targetWindow.location.href = redirectUrl
+        } catch {
+            targetWindow.location.href = whatsappUrl
+        }
+        setTimeout(() => {
+            try {
+                if (!targetWindow.closed) {
+                    targetWindow.close()
+                }
+            } catch {
+                // ignore
+            }
+        }, 2500)
     } else {
         openExternalLink(whatsappUrl)
     }
