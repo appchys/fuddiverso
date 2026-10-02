@@ -319,10 +319,30 @@ export function extractBaseVariantName(variantStr?: string | null): string {
 }
 
 /**
+ * Agrupa y consolida una lista de ingredientes sumando cantidades de ingredientes con el mismo nombre normalizado.
+ */
+export function consolidateIngredients(ingredients: Ingredient[]): Ingredient[] {
+  const map = new Map<string, Ingredient>()
+  for (const ing of ingredients) {
+    if (!ing || !ing.name) continue
+    const key = normalizeIngredientName(ing.name)
+    const existing = map.get(key)
+    const qty = Number(ing.quantity) || 1
+    if (existing) {
+      existing.quantity = (Number(existing.quantity) || 0) + qty
+    } else {
+      map.set(key, { ...ing, quantity: qty })
+    }
+  }
+  return Array.from(map.values())
+}
+
+/**
  * Resuelve la lista de ingredientes correspondientes a un ítem de orden o carrito.
  * Prioridad:
  * 1. Si el ítem ya trae ingredientes resueltos en su snapshot (item.ingredients > 0), los usa.
  * 2. Si es combo y tiene comboSelection, desglosa los ingredientes de cada variante multiplicados por su respectiva cantidad en la selección.
+ * 2.1 Fallback si es combo pero solo se tiene el desglose en el texto de la variante (ej: "Combo: 15 Wantancitos, 9 Tequeños").
  * 3. Si tiene variante (o variantName / variantId), busca en product.variants (por nombre exacto, ID o nombre base) y extrae sus ingredientes.
  * 4. Fallback a ingredientes del producto base (product.ingredients).
  */
@@ -335,7 +355,7 @@ export function resolveItemIngredients(
 
   // 1. Snapshot directo en el ítem (si ya fue resuelto previamente)
   if (Array.isArray(item.ingredients) && item.ingredients.length > 0) {
-    return item.ingredients
+    return consolidateIngredients(item.ingredients)
   }
 
   // 1.1 Si es el premio automático especial o un premio y se provee rewardSettings
@@ -361,7 +381,7 @@ export function resolveItemIngredients(
         const variantObj = product.variants?.find((v: any) =>
           v.name === variantKey || v.id === variantKey || extractBaseVariantName(v.name) === variantKey
         )
-        if (variantObj?.ingredients && Array.isArray(variantObj.ingredients)) {
+        if (variantObj?.ingredients && Array.isArray(variantObj.ingredients) && variantObj.ingredients.length > 0) {
           variantObj.ingredients.forEach(ing => {
             if (!ing || !ing.name) return
             comboIngs.push({
@@ -369,11 +389,108 @@ export function resolveItemIngredients(
               quantity: (Number(ing.quantity) || 1) * count
             })
           })
+        } else {
+          // Fallback: si la variante no tiene ingredientes explícitos configurados,
+          // extraer del nombre (ej: "5 wantancitos", "3 Tequeños")
+          const { multiplier, cleanName } = parseVariantUnitCount(variantObj?.name || variantKey)
+          comboIngs.push({
+            name: cleanName,
+            quantity: multiplier * count,
+            unitCost: 0
+          })
         }
       }
     })
     if (comboIngs.length > 0) {
-      return comboIngs
+      return consolidateIngredients(comboIngs)
+    }
+  }
+
+  // 2.1 Fallback para combo sin comboSelection pero con desglose en el texto de la variante
+  // Ejemplo: "Combo: 15 Wantancitos, 9 Tequeños, 9 Aros de cebolla" o "Combo: 3x 5 wantancitos, 2x 3 Tequeños"
+  const rawVariantStr = typeof item.variant === 'string'
+    ? item.variant
+    : (item.variantName || item.variant?.name || '')
+
+  const isComboItem = Boolean(
+    item.isCombo ||
+    product.isCombo ||
+    (rawVariantStr && rawVariantStr.trim().startsWith('Combo:'))
+  )
+
+  if (isComboItem && rawVariantStr && rawVariantStr.includes('Combo:')) {
+    const comboIngs: Ingredient[] = []
+    const content = rawVariantStr.replace(/^Combo:\s*/i, '').trim()
+    const parts: string[] = content.split(',').map((p: string) => p.trim()).filter(Boolean)
+
+    for (const part of parts) {
+      // Formato A: "3x 5 wantancitos" o "2x Tequeños"
+      const matchX = part.match(/^(\d+)\s*(?:x|\*)\s*(.+)$/i)
+      if (matchX) {
+        const selQty = parseInt(matchX[1], 10)
+        const targetName = matchX[2].trim()
+        const variantObj = product.variants?.find((v: any) =>
+          v.name.toLowerCase() === targetName.toLowerCase() ||
+          extractBaseVariantName(v.name).toLowerCase() === targetName.toLowerCase()
+        )
+        if (variantObj?.ingredients && Array.isArray(variantObj.ingredients) && variantObj.ingredients.length > 0) {
+          variantObj.ingredients.forEach(ing => {
+            if (!ing || !ing.name) return
+            comboIngs.push({
+              ...ing,
+              quantity: (Number(ing.quantity) || 1) * selQty
+            })
+          })
+        } else {
+          const { multiplier, cleanName } = parseVariantUnitCount(targetName)
+          comboIngs.push({
+            name: cleanName,
+            quantity: multiplier * selQty,
+            unitCost: 0
+          })
+        }
+        continue
+      }
+
+      // Formato B: "15 Wantancitos" o "9 Tequeños" (cuando countComboUnits es true)
+      const matchLeadingNum = part.match(/^(\d+)\s+(.+)$/i)
+      if (matchLeadingNum) {
+        const totalUnits = parseInt(matchLeadingNum[1], 10)
+        const namePart = matchLeadingNum[2].trim()
+
+        let matchedVariantIng: Ingredient | undefined
+        if (product.variants) {
+          for (const v of product.variants) {
+            const ingFound = v.ingredients?.find(ing =>
+              normalizeIngredientName(ing.name) === normalizeIngredientName(namePart)
+            )
+            if (ingFound) {
+              matchedVariantIng = ingFound
+              break
+            }
+          }
+        }
+
+        comboIngs.push({
+          ...(matchedVariantIng || {}),
+          name: matchedVariantIng?.name || namePart,
+          quantity: totalUnits,
+          unitCost: matchedVariantIng?.unitCost || 0
+        })
+        continue
+      }
+
+      // Fallback genérico
+      const { multiplier, cleanName } = parseVariantUnitCount(part)
+      comboIngs.push({
+        name: cleanName,
+        quantity: multiplier,
+        unitCost: 0
+      })
+    }
+
+    if (comboIngs.length > 0) {
+      return consolidateIngredients(comboIngs)
     }
   }
 

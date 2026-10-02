@@ -1624,7 +1624,8 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
           productId: prodId || '',
           ingredients: resolvedIngs || [],
           ...(item.esPremio !== undefined ? { esPremio: item.esPremio } : (item.id === 'premio-especial-auto' ? { esPremio: true } : {})),
-          ...(item.comboSelection ? { comboSelection: item.comboSelection } : {})
+          ...(item.comboSelection ? { comboSelection: item.comboSelection } : {}),
+          ...(item.isCombo ? { isCombo: true } : {})
         }
       })
     }
@@ -4806,9 +4807,28 @@ export async function updateIngredientStockInLibrary(
   try {
     const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
     const q = query(libraryRef, where('name', '==', name.trim()))
-    const snapshot = await getDocs(q)
-    if (!snapshot.empty) {
-      const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', snapshot.docs[0].id)
+    let snapshot = await getDocs(q)
+    let docToUpdate = snapshot.empty ? null : snapshot.docs[0]
+
+    // Si no encontró coincidencia exacta, buscar coincidencia insensible a mayúsculas/minúsculas
+    if (!docToUpdate) {
+      try {
+        const allDocs = await getDocs(libraryRef)
+        const normTarget = name.trim().toLowerCase()
+        const matched = allDocs.docs.find(d => {
+          const dName = (d.data().name || '').trim().toLowerCase()
+          return dName === normTarget
+        })
+        if (matched) {
+          docToUpdate = matched
+        }
+      } catch (err) {
+        console.warn('Error buscando ingrediente con casing flexible:', err)
+      }
+    }
+
+    if (docToUpdate) {
+      const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', docToUpdate.id)
       const updateData: any = {
         currentStock: firestoreIncrement(stockDelta),
         availableStock: firestoreIncrement(stockDelta),

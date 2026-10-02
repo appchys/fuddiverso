@@ -736,7 +736,11 @@ export default function ManualOrderSidebar({
         basePrice: it.basePrice,
         commission: it.commission,
         commissionType: it.commissionType,
-        storeReceives: it.storeReceives
+        storeReceives: it.storeReceives,
+        ingredients: Array.isArray(it.ingredients) ? it.ingredients : [],
+        isCombo: Boolean(it.isCombo),
+        comboSelection: it.comboSelection || undefined,
+        image: it.image || ''
       }))
 
       setManualOrderData(prev => ({
@@ -2436,6 +2440,7 @@ export default function ManualOrderSidebar({
 
     const resolvedIngredients = resolveItemIngredients({
       ...product,
+      ingredients: undefined,
       variant: finalVariantName,
       isCombo: product.isCombo,
       comboSelection: product.isCombo ? comboSelection : undefined
@@ -2458,7 +2463,7 @@ export default function ManualOrderSidebar({
       commissionType: 'no_commission',
       storeReceives: unitPrice,
       ingredients: resolvedIngredients || [],
-      isCombo: product.isCombo || false,
+      isCombo: Boolean(product.isCombo),
       comboSelection: product.isCombo ? comboSelection : undefined
     };
 
@@ -2640,7 +2645,8 @@ export default function ManualOrderSidebar({
         basePrice: finalPrice,
         commission: 0,
         commissionType: 'no_commission',
-        storeReceives: finalPrice
+        storeReceives: finalPrice,
+        ingredients: variant.ingredients || product.ingredients || []
       };
     });
 
@@ -2686,7 +2692,8 @@ export default function ManualOrderSidebar({
       basePrice: storeProductPrice,
       commission: 0,
       commissionType: 'no_commission',
-      storeReceives: storeProductPrice
+      storeReceives: storeProductPrice,
+      ingredients: variant?.ingredients || product.ingredients || []
     }
 
     setManualOrderData(prev => ({
@@ -2948,9 +2955,11 @@ export default function ManualOrderSidebar({
           return {
             productId: item.productId,
             name: item.name,
+            productName: item.productName || item.name,
             price: storePrice,
             quantity: item.quantity,
             variant: item.variant,
+            variantName: item.variantName || item.variant || '',
             image: item.image || '',
             originalBusinessId: item.originalBusinessId || null,
             originalBusinessName: item.originalBusinessName || null,
@@ -2958,7 +2967,10 @@ export default function ManualOrderSidebar({
             basePrice: storePrice,
             commission: 0,
             commissionType: 'no_commission',
-            storeReceives: storePrice
+            storeReceives: storePrice,
+            ingredients: (Array.isArray(item.ingredients) && item.ingredients.length > 0) ? item.ingredients : [],
+            isCombo: Boolean(item.isCombo),
+            ...(item.comboSelection ? { comboSelection: item.comboSelection } : {})
           };
         }),
         customer: {
