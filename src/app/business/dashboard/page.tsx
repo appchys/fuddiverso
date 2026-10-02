@@ -2048,28 +2048,49 @@ export default function TodayOrdersPage() {
     const isRefreshingRef = useRef(false)
     isRefreshingRef.current = isRefreshing
 
+    // Deshabilitar pull-to-refresh nativo del navegador a nivel de documento en el dashboard
+    useEffect(() => {
+        const prevHtml = document.documentElement.style.overscrollBehaviorY
+        const prevBody = document.body.style.overscrollBehaviorY
+        document.documentElement.style.overscrollBehaviorY = 'contain'
+        document.body.style.overscrollBehaviorY = 'contain'
+        return () => {
+            document.documentElement.style.overscrollBehaviorY = prevHtml
+            document.body.style.overscrollBehaviorY = prevBody
+        }
+    }, [])
+
     useEffect(() => {
         const container = mainScrollRef.current
-        if (!container) return
 
         let startY: number | null = null
+        let startX: number | null = null
         let isDragging = false
 
-        // Manejo táctil (móvil y tabletas)
+        const isAtTop = () => {
+            const containerTop = container ? container.scrollTop : 0
+            const windowTop = typeof window !== 'undefined' ? window.scrollY : 0
+            return containerTop <= 1 && windowTop <= 1
+        }
+
+        // Manejo táctil (móvil y tabletas) en window para interceptar preventDefault antes que el navegador
         const handleTouchStart = (e: TouchEvent) => {
-            if (container.scrollTop <= 1 && !isRefreshingRef.current) {
+            if (isAtTop() && !isRefreshingRef.current) {
                 startY = e.touches[0].clientY
+                startX = e.touches[0].clientX
                 isDragging = false
             } else {
                 startY = null
+                startX = null
             }
         }
 
         const handleTouchMove = (e: TouchEvent) => {
-            if (startY === null || isRefreshingRef.current) return
+            if (startY === null || startX === null || isRefreshingRef.current) return
 
-            if (container.scrollTop > 1) {
+            if (!isAtTop()) {
                 startY = null
+                startX = null
                 isDragging = false
                 setIsPulling(false)
                 setPullDistance(0)
@@ -2077,9 +2098,17 @@ export default function TodayOrdersPage() {
             }
 
             const currentY = e.touches[0].clientY
+            const currentX = e.touches[0].clientX
             const diffY = currentY - startY
+            const diffX = currentX - startX
+
+            // Si es un scroll horizontal más pronunciado, ignorar
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+                return
+            }
 
             if (diffY > 0) {
+                // Cancelar inmediatamente el pull to refresh nativo del navegador
                 if (e.cancelable) {
                     e.preventDefault()
                 }
@@ -2089,6 +2118,7 @@ export default function TodayOrdersPage() {
                 setPullDistance(distance)
             } else {
                 startY = null
+                startX = null
                 isDragging = false
                 setIsPulling(false)
                 setPullDistance(0)
@@ -2098,6 +2128,7 @@ export default function TodayOrdersPage() {
         const handleTouchEnd = () => {
             if (startY === null) return
             startY = null
+            startX = null
 
             if (isDragging) {
                 isDragging = false
@@ -2126,19 +2157,21 @@ export default function TodayOrdersPage() {
 
         // Manejo ratón (desktop arrastre en tope)
         const handleMouseDown = (e: MouseEvent) => {
-            if (e.button !== 0 || isRefreshingRef.current || container.scrollTop > 1) return
+            if (e.button !== 0 || isRefreshingRef.current || !isAtTop()) return
             const target = e.target as HTMLElement | null
             if (target && target.closest('button, a, input, select, textarea, [role="button"]')) return
 
             startY = e.clientY
+            startX = e.clientX
             isDragging = false
         }
 
         const handleMouseMove = (e: MouseEvent) => {
             if (startY === null || isRefreshingRef.current) return
 
-            if (container.scrollTop > 1) {
+            if (!isAtTop()) {
                 startY = null
+                startX = null
                 isDragging = false
                 setIsPulling(false)
                 setPullDistance(0)
@@ -2153,6 +2186,7 @@ export default function TodayOrdersPage() {
                 setPullDistance(distance)
             } else if (diffY < 0) {
                 startY = null
+                startX = null
                 isDragging = false
                 setIsPulling(false)
                 setPullDistance(0)
@@ -2164,22 +2198,22 @@ export default function TodayOrdersPage() {
             handleTouchEnd()
         }
 
-        container.addEventListener('touchstart', handleTouchStart, { passive: true })
-        container.addEventListener('touchmove', handleTouchMove, { passive: false })
-        container.addEventListener('touchend', handleTouchEnd, { passive: true })
-        container.addEventListener('touchcancel', handleTouchEnd, { passive: true })
+        window.addEventListener('touchstart', handleTouchStart, { passive: true })
+        window.addEventListener('touchmove', handleTouchMove, { passive: false })
+        window.addEventListener('touchend', handleTouchEnd, { passive: true })
+        window.addEventListener('touchcancel', handleTouchEnd, { passive: true })
 
-        container.addEventListener('mousedown', handleMouseDown)
+        window.addEventListener('mousedown', handleMouseDown)
         window.addEventListener('mousemove', handleMouseMove)
         window.addEventListener('mouseup', handleMouseUp)
 
         return () => {
-            container.removeEventListener('touchstart', handleTouchStart)
-            container.removeEventListener('touchmove', handleTouchMove)
-            container.removeEventListener('touchend', handleTouchEnd)
-            container.removeEventListener('touchcancel', handleTouchEnd)
+            window.removeEventListener('touchstart', handleTouchStart)
+            window.removeEventListener('touchmove', handleTouchMove)
+            window.removeEventListener('touchend', handleTouchEnd)
+            window.removeEventListener('touchcancel', handleTouchEnd)
 
-            container.removeEventListener('mousedown', handleMouseDown)
+            window.removeEventListener('mousedown', handleMouseDown)
             window.removeEventListener('mousemove', handleMouseMove)
             window.removeEventListener('mouseup', handleMouseUp)
         }
@@ -2799,8 +2833,8 @@ export default function TodayOrdersPage() {
                             isPulling ? 'duration-75' : 'duration-300 ease-out'
                         }`}
                         style={{
-                            height: `${pullDistance}px`,
-                            opacity: pullDistance > 6 ? Math.min(1, pullDistance / 35) : 0,
+                            height: `${isRefreshing ? Math.max(pullDistance, 46) : pullDistance}px`,
+                            opacity: (pullDistance > 6 || isRefreshing) ? 1 : 0,
                             pointerEvents: 'none'
                         }}
                     >
