@@ -88,6 +88,7 @@ export const OrderCard = memo(function OrderCard({
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [discardReason, setDiscardReason] = useState('')
     const [deliveryInfoExpanded, setDeliveryInfoExpanded] = useState(false)
+    const [isSubmittingStatus, setIsSubmittingStatus] = useState(false)
     const statusMenuRef = useRef<HTMLDivElement>(null)
     const assignedDelivery = (order.delivery?.assignedDeliveryData as any) || availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
     const deliveryLabel = order.delivery?.assignedDelivery
@@ -328,22 +329,29 @@ export const OrderCard = memo(function OrderCard({
                         {/* Advance Status */}
                         {primaryActionStatus && (
                             <button
+                                disabled={isSubmittingStatus}
                                 onClick={() => {
-                                    // Si el siguiente estado es 'confirmed', verificar el tipo de timing
-                                    if (primaryActionStatus === 'confirmed') {
-                                        onStatusChange(order.id, 'confirmed');
-                                        
-                                        // Imprimir automáticamente (silenciosamente)
-                                        if (autoPrintOnConfirm) {
-                                            setTimeout(() => {
-                                                onPrint(order, true);
-                                            }, 500);
+                                    if (isSubmittingStatus) return;
+                                    setIsSubmittingStatus(true);
+                                    try {
+                                        // Si el siguiente estado es 'confirmed', verificar el tipo de timing
+                                        if (primaryActionStatus === 'confirmed') {
+                                            onStatusChange(order.id, 'confirmed');
+                                            
+                                            // Imprimir automáticamente (silenciosamente)
+                                            if (autoPrintOnConfirm) {
+                                                setTimeout(() => {
+                                                    onPrint(order, true);
+                                                }, 500);
+                                            }
+                                        } else {
+                                            onStatusChange(order.id, primaryActionStatus);
                                         }
-                                    } else {
-                                        onStatusChange(order.id, primaryActionStatus);
+                                    } finally {
+                                        setTimeout(() => setIsSubmittingStatus(false), 1200);
                                     }
                                 }}
-                                className={`flex items-center gap-1 rounded-lg transition-colors ${showReadyAction
+                                className={`flex items-center gap-1 rounded-lg transition-colors ${isSubmittingStatus ? 'opacity-50 pointer-events-none' : ''} ${showReadyAction
                                     ? 'px-2 py-1.5 text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50'
                                     : primaryActionStatus === 'confirmed'
                                         ? 'px-3 py-1.5 text-xs font-bold bg-green-600 text-white hover:bg-green-700 shadow-sm'

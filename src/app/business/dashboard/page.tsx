@@ -128,6 +128,10 @@ export default function TodayOrdersPage() {
     const [printerError, setPrinterError] = useState('')
     const [isSyncingOrders, setIsSyncingOrders] = useState(false)
     const [ordersRefreshTrigger, setOrdersRefreshTrigger] = useState(0)
+    const [pullDistance, setPullDistance] = useState(0)
+    const [isPulling, setIsPulling] = useState(false)
+    const [isRefreshing, setIsRefreshing] = useState(false)
+    const mainScrollRef = useRef<HTMLDivElement>(null)
     const [toast, setToast] = useState<{ show: boolean; message: string; icon?: string } | null>(null)
 
     const showToastMessage = (message: string, icon: string = 'bi-printer') => {
@@ -145,6 +149,7 @@ export default function TodayOrdersPage() {
     const printerContainerRef = useRef<HTMLDivElement>(null)
     const processingPrintJobsRef = useRef(new Set<string>())
     const printBridgeIdRef = useRef<string | null>(null)
+    const ordersMapRef = useRef<Map<string, Order>>(new Map())
     const [printJobs, setPrintJobs] = useState<PrintJob[]>([])
 
     useEffect(() => {
@@ -346,6 +351,9 @@ export default function TodayOrdersPage() {
         setSelectedOrderForPayment(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
         setSelectedOrderForStatusModal(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
         setSelectedOrderForEdit(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
+        if (ordersMapRef.current.has(updatedOrder.id)) {
+            ordersMapRef.current.set(updatedOrder.id, updatedOrder)
+        }
     }
 
     const patchOrderEverywhere = (orderId: string, patch: (order: Order) => Order) => {
@@ -356,6 +364,10 @@ export default function TodayOrdersPage() {
         setSelectedOrderForPayment(prev => prev?.id === orderId ? patch(prev) : prev)
         setSelectedOrderForStatusModal(prev => prev?.id === orderId ? patch(prev) : prev)
         setSelectedOrderForEdit(prev => prev?.id === orderId ? patch(prev) : prev)
+        const cached = ordersMapRef.current.get(orderId)
+        if (cached) {
+            ordersMapRef.current.set(orderId, patch(cached))
+        }
     }
 
     const removeOrderEverywhere = (orderId: string) => {
@@ -366,6 +378,7 @@ export default function TodayOrdersPage() {
         setSelectedOrderForPayment(prev => prev?.id === orderId ? null : prev)
         setSelectedOrderForStatusModal(prev => prev?.id === orderId ? null : prev)
         setSelectedOrderForEdit(prev => prev?.id === orderId ? null : prev)
+        ordersMapRef.current.delete(orderId)
     }
 
     const [customerContactModalOpen, setCustomerContactModalOpen] = useState(false)
@@ -1118,8 +1131,9 @@ export default function TodayOrdersPage() {
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
 
-        // Map to hold and merge orders from all three queries
-        const ordersMap = new Map<string, Order>()
+        // Map to hold and merge orders from all queries
+        ordersMapRef.current.clear()
+        const ordersMap = ordersMapRef.current
         let activeQueryLoaded = false
         let createdQueryLoaded = false
         let scheduledQueryLoaded = false
@@ -1131,6 +1145,14 @@ export default function TodayOrdersPage() {
             ? toSafeDate(order.timing.scheduledDate)
             : toSafeDate(order.createdAt)
         const isOrderForToday = (order: Order) => {
+            if (order.status === 'delivered') {
+                const deliveredDate = order.deliveredAt
+                    ? toSafeDate(order.deliveredAt)
+                    : (order.statusHistory?.deliveredAt ? toSafeDate(order.statusHistory.deliveredAt) : null)
+                if (deliveredDate && deliveredDate >= startOfDay && deliveredDate < endOfDay) {
+                    return true
+                }
+            }
             const orderDate = getOrderReferenceDate(order)
             return orderDate >= startOfDay && orderDate < endOfDay
         }
@@ -1240,7 +1262,9 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    if (!isActiveOrder(orderData)) {
+                    if (shouldShowInTodayOrders(orderData)) {
+                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
+                    } else {
                         ordersMap.delete(change.doc.id)
                     }
                 }
@@ -1267,7 +1291,9 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    if (!isOrderForToday(orderData)) {
+                    if (shouldShowInTodayOrders(orderData)) {
+                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
+                    } else {
                         ordersMap.delete(change.doc.id)
                     }
                 }
@@ -1296,10 +1322,9 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    const isActive = isActiveOrder(orderData)
-                    const orderDate = toSafeDate(orderData.createdAt)
-                    const isCreatedToday = orderDate >= startOfDay && orderDate < endOfDay
-                    if (!isActive && !isCreatedToday) {
+                    if (shouldShowInTodayOrders(orderData)) {
+                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
+                    } else {
                         ordersMap.delete(change.doc.id)
                     }
                 }
@@ -1329,10 +1354,9 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    const isActive = isActiveOrder(orderData)
-                    const orderDate = toSafeDate(orderData.createdAt)
-                    const isCreatedToday = orderDate >= startOfDay && orderDate < endOfDay
-                    if (!isActive && !isCreatedToday) {
+                    if (shouldShowInTodayOrders(orderData)) {
+                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
+                    } else {
                         ordersMap.delete(change.doc.id)
                     }
                 }
@@ -1359,7 +1383,9 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    if (!isOrderForToday(orderData)) {
+                    if (shouldShowInTodayOrders(orderData)) {
+                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
+                    } else {
                         ordersMap.delete(change.doc.id)
                     }
                 }
@@ -1716,6 +1742,7 @@ export default function TodayOrdersPage() {
             ...order,
             status: newStatus,
             updatedAt: new Date(),
+            ...(newStatus === 'delivered' ? { deliveredAt: new Date() } : {}),
             ...(reason ? { cancellationReason: reason } : {})
         }))
 
@@ -1906,10 +1933,9 @@ export default function TodayOrdersPage() {
         }
     }, [business?.id])
 
-    const handleSyncOrders = useCallback(async () => {
+    const handleRefreshDashboardData = useCallback(async () => {
         if (isSyncingOrders || !businessId) return
         setIsSyncingOrders(true)
-        showToastMessage('Actualizando pedidos...', 'bi-arrow-repeat')
 
         try {
             // Re-ejecutar listeners en tiempo real
@@ -1931,10 +1957,24 @@ export default function TodayOrdersPage() {
                 where('businessId', '==', businessId),
                 where('status', 'in', ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'])
             )
+            const jobsQuery = query(
+                collection(db, 'printJobs'),
+                where('businessId', '==', businessId)
+            )
 
-            const [snapToday, snapActive] = await Promise.all([
-                getDocs(qCreatedToday).catch(() => null),
-                getDocs(qActive).catch(() => null)
+            const [snapToday, snapActive, snapJobs] = await Promise.all([
+                getDocs(qCreatedToday).catch((err) => {
+                    console.error('[Refresh] Error obteniendo pedidos de hoy:', err)
+                    return null
+                }),
+                getDocs(qActive).catch((err) => {
+                    console.error('[Refresh] Error obteniendo pedidos activos:', err)
+                    return null
+                }),
+                getDocs(jobsQuery).catch((err) => {
+                    console.error('[Refresh] Error obteniendo cola de impresión:', err)
+                    return null
+                })
             ])
 
             if (snapToday || snapActive) {
@@ -1967,16 +2007,183 @@ export default function TodayOrdersPage() {
                     })
                 }
             }
-            showToastMessage('Pedidos actualizados', 'bi-check2-circle')
+
+            if (snapJobs) {
+                snapJobs.docs.forEach((d) => {
+                    if (d.data().status === 'printed') {
+                        deleteDoc(d.ref).catch(() => undefined)
+                    }
+                })
+                const list: PrintJob[] = snapJobs.docs
+                    .map(d => ({
+                        id: d.id,
+                        ...d.data()
+                    } as PrintJob))
+                    .filter(job => job.status !== 'printed')
+
+                list.sort((a, b) => {
+                    const dateA = toSafeDate(a.createdAt).getTime()
+                    const dateB = toSafeDate(b.createdAt).getTime()
+                    return dateB - dateA
+                })
+                setPrintJobs(list.slice(0, 50))
+            }
+
+            showToastMessage('Pedidos y cola de impresión actualizados', 'bi-check2-circle')
         } catch (error) {
-            console.error('Error sincronizando pedidos:', error)
-            showToastMessage('Error al sincronizar pedidos', 'bi-exclamation-triangle')
+            console.error('Error sincronizando pedidos y cola de impresión:', error)
+            showToastMessage('Error al sincronizar datos', 'bi-exclamation-triangle')
         } finally {
             setTimeout(() => {
                 setIsSyncingOrders(false)
-            }, 600)
+            }, 500)
         }
     }, [businessId, isSyncingOrders])
+
+    const handleSyncOrders = handleRefreshDashboardData
+
+    // Gesto Pull-to-refresh para arrastrar hacia abajo y refrescar pedidos y cola de impresión
+    const refreshFnRef = useRef(handleRefreshDashboardData)
+    refreshFnRef.current = handleRefreshDashboardData
+    const isRefreshingRef = useRef(false)
+    isRefreshingRef.current = isRefreshing
+
+    useEffect(() => {
+        const container = mainScrollRef.current
+        if (!container) return
+
+        let startY: number | null = null
+        let isDragging = false
+
+        // Manejo táctil (móvil y tabletas)
+        const handleTouchStart = (e: TouchEvent) => {
+            if (container.scrollTop <= 1 && !isRefreshingRef.current) {
+                startY = e.touches[0].clientY
+                isDragging = false
+            } else {
+                startY = null
+            }
+        }
+
+        const handleTouchMove = (e: TouchEvent) => {
+            if (startY === null || isRefreshingRef.current) return
+
+            if (container.scrollTop > 1) {
+                startY = null
+                isDragging = false
+                setIsPulling(false)
+                setPullDistance(0)
+                return
+            }
+
+            const currentY = e.touches[0].clientY
+            const diffY = currentY - startY
+
+            if (diffY > 0) {
+                if (e.cancelable) {
+                    e.preventDefault()
+                }
+                isDragging = true
+                setIsPulling(true)
+                const distance = Math.min(80, Math.pow(diffY, 0.82) * 1.5)
+                setPullDistance(distance)
+            } else {
+                startY = null
+                isDragging = false
+                setIsPulling(false)
+                setPullDistance(0)
+            }
+        }
+
+        const handleTouchEnd = () => {
+            if (startY === null) return
+            startY = null
+
+            if (isDragging) {
+                isDragging = false
+                setIsPulling(false)
+
+                setPullDistance(currentDist => {
+                    if (currentDist >= 55) {
+                        setIsRefreshing(true)
+                        void (async () => {
+                            try {
+                                await refreshFnRef.current()
+                            } finally {
+                                setIsRefreshing(false)
+                                setPullDistance(0)
+                            }
+                        })()
+                        return 46
+                    } else {
+                        return 0
+                    }
+                })
+            } else {
+                setPullDistance(0)
+            }
+        }
+
+        // Manejo ratón (desktop arrastre en tope)
+        const handleMouseDown = (e: MouseEvent) => {
+            if (e.button !== 0 || isRefreshingRef.current || container.scrollTop > 1) return
+            const target = e.target as HTMLElement | null
+            if (target && target.closest('button, a, input, select, textarea, [role="button"]')) return
+
+            startY = e.clientY
+            isDragging = false
+        }
+
+        const handleMouseMove = (e: MouseEvent) => {
+            if (startY === null || isRefreshingRef.current) return
+
+            if (container.scrollTop > 1) {
+                startY = null
+                isDragging = false
+                setIsPulling(false)
+                setPullDistance(0)
+                return
+            }
+
+            const diffY = e.clientY - startY
+            if (diffY > 8) {
+                isDragging = true
+                setIsPulling(true)
+                const distance = Math.min(80, Math.pow(diffY, 0.82) * 1.5)
+                setPullDistance(distance)
+            } else if (diffY < 0) {
+                startY = null
+                isDragging = false
+                setIsPulling(false)
+                setPullDistance(0)
+            }
+        }
+
+        const handleMouseUp = () => {
+            if (startY === null) return
+            handleTouchEnd()
+        }
+
+        container.addEventListener('touchstart', handleTouchStart, { passive: true })
+        container.addEventListener('touchmove', handleTouchMove, { passive: false })
+        container.addEventListener('touchend', handleTouchEnd, { passive: true })
+        container.addEventListener('touchcancel', handleTouchEnd, { passive: true })
+
+        container.addEventListener('mousedown', handleMouseDown)
+        window.addEventListener('mousemove', handleMouseMove)
+        window.addEventListener('mouseup', handleMouseUp)
+
+        return () => {
+            container.removeEventListener('touchstart', handleTouchStart)
+            container.removeEventListener('touchmove', handleTouchMove)
+            container.removeEventListener('touchend', handleTouchEnd)
+            container.removeEventListener('touchcancel', handleTouchEnd)
+
+            container.removeEventListener('mousedown', handleMouseDown)
+            window.removeEventListener('mousemove', handleMouseMove)
+            window.removeEventListener('mouseup', handleMouseUp)
+        }
+    }, [])
 
     const cleanFirestoreData = (obj: any): any => {
         if (obj === null || obj === undefined) return null
@@ -2319,7 +2526,7 @@ export default function TodayOrdersPage() {
                     canManageAdmins={canManageAdmins}
                 />
 
-                <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
+                <div ref={mainScrollRef} className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full overscroll-y-contain ${sidebarOpen ? 'lg:ml-72' : ''}`}>
                     {/* Header */}
                     <header className="bg-white shadow-sm border-b sticky top-0 z-30 w-full">
                         <div className="px-4 sm:px-6">
@@ -2462,17 +2669,6 @@ export default function TodayOrdersPage() {
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
 
-                                    {/* Sincronizar Pedidos de Hoy */}
-                                    <button
-                                        onClick={handleSyncOrders}
-                                        disabled={isSyncingOrders}
-                                        className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50 group"
-                                        title="Sincronizar pedidos de hoy"
-                                        aria-label="Sincronizar pedidos de hoy"
-                                    >
-                                        <i className={`bi bi-arrow-repeat text-xl block transition-transform ${isSyncingOrders ? 'animate-spin text-rose-500' : 'group-hover:rotate-180 duration-500'}`}></i>
-                                    </button>
-
 
                                     {/* Business Selector */}
                                     <div className="relative business-dropdown-container" ref={businessDropdownRef}>
@@ -2596,6 +2792,38 @@ export default function TodayOrdersPage() {
                             </div>
                         </div>
                     </header>
+
+                    {/* Indicador visual de Pull-to-Refresh */}
+                    <div 
+                        className={`w-full overflow-hidden flex items-center justify-center transition-all ${
+                            isPulling ? 'duration-75' : 'duration-300 ease-out'
+                        }`}
+                        style={{
+                            height: `${pullDistance}px`,
+                            opacity: pullDistance > 6 ? Math.min(1, pullDistance / 35) : 0,
+                            pointerEvents: 'none'
+                        }}
+                    >
+                        <div className="bg-white/95 backdrop-blur-md rounded-full px-4 py-1.5 shadow-md border border-gray-100 flex items-center gap-2.5 text-xs font-black tracking-tight text-gray-800 my-1">
+                            {isRefreshing ? (
+                                <>
+                                    <i className="bi bi-arrow-repeat animate-spin text-[#aa1918] text-base"></i>
+                                    <span className="text-gray-700">Actualizando pedidos y cola...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <i 
+                                        className={`bi bi-arrow-down text-base transition-transform duration-200 ${
+                                            pullDistance >= 55 ? 'rotate-180 text-[#aa1918]' : 'text-gray-400'
+                                        }`}
+                                    ></i>
+                                    <span className={pullDistance >= 55 ? 'text-[#aa1918]' : 'text-gray-500'}>
+                                        {pullDistance >= 55 ? 'Suelta para actualizar' : 'Desliza hacia abajo para actualizar'}
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                    </div>
 
                     {/* Main Content Area: Conditional Rendering */}
                     {activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins') ? (
@@ -2808,14 +3036,6 @@ export default function TodayOrdersPage() {
                                                     ))}
                                                 </div>
                                             </div>
-                                        ) : orders.length === 0 ? (
-                                            <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
-                                                <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
-                                                    <i className="bi bi-inbox text-xl"></i>
-                                                </div>
-                                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-1">Sin pedidos para hoy</h3>
-                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">Aquí aparecerán los pedidos de tus clientes conforme vayan llegando.</p>
-                                            </div>
                                         ) : (
                                             <>
                                                 {/* Totals Summary for Mobile (Top) */}
@@ -2828,6 +3048,8 @@ export default function TodayOrdersPage() {
                                                         <div className="absolute top-2 right-2 z-20">
                                                             <FavoriteIngredientsStockBar
                                                                 business={business}
+                                                                orders={orders}
+                                                                products={products}
                                                                 onNavigateToInventory={() => setActiveTab('inventory')}
                                                             />
                                                         </div>
@@ -2914,62 +3136,106 @@ export default function TodayOrdersPage() {
                                                     </div>
                                                 </div>
 
-                                                <div className="flex flex-col lg:flex-row gap-6 items-start">
-                                                {/* Columna 1: Borrador, Pendiente y Live Checkouts */}
-                                                <div className={`${showCol1 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
-                                                    {businessId && (
-                                                        <LiveCheckoutsPanel
-                                                            businessId={businessId}
-                                                            orders={orders}
-                                                            onCountChange={setCheckoutCount}
-                                                            onOpenManualOrder={handleOpenManualOrderFromCheckout}
-                                                        />
-                                                    )}
-                                                    <OrderStatusColumn
-                                                        statuses={['borrador', 'pending']}
-                                                        orders={orders}
-                                                        availableDeliveries={availableDeliveries}
-                                                        handleStatusChange={handleStatusChange}
-                                                        handleDeliveryAssignment={handleDeliveryAssignment}
-                                                        handlePaymentClick={handlePaymentClick}
-                                                        handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
-                                                        handlePrint={handlePrint}
-                                                        handleDeliveryStatusClick={handleDeliveryStatusClick}
-                                                        handleEditOrder={handleEditOrder}
-                                                        handleDeleteOrder={handleDeleteOrder}
-                                                        handleCustomerClick={handleCustomerClick}
-                                                        business={business}
-                                                        canChangeDelivery={canChangeDelivery}
-                                                        canDeleteOrders={canDeleteOrders}
-                                                        deliveryTimeMinutes={currentDeliveryTime}
-                                                        autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
-                                                        clientsWithNotes={clientsWithNotes}
-                                                    />
-                                                </div>
+                                                {/* Aviso móvil cuando no hay pedidos */}
+                                                {orders.length === 0 && (
+                                                    <div className="lg:hidden space-y-4 mb-4">
+                                                        {businessId && (
+                                                            <LiveCheckoutsPanel
+                                                                businessId={businessId}
+                                                                orders={orders}
+                                                                onCountChange={setCheckoutCount}
+                                                                onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                            />
+                                                        )}
+                                                        <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
+                                                            <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
+                                                                <i className="bi bi-inbox text-xl"></i>
+                                                            </div>
+                                                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-1">Sin pedidos para hoy</h3>
+                                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">Aquí aparecerán los pedidos de tus clientes conforme vayan llegando.</p>
+                                                        </div>
+                                                    </div>
+                                                )}
 
-                                                {/* Columna 2: Confirmados */}
-                                                <div className={`${showCol2 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
-                                                    <OrderStatusColumn
-                                                        statuses={['confirmed']}
-                                                        orders={orders}
-                                                        availableDeliveries={availableDeliveries}
-                                                        handleStatusChange={handleStatusChange}
-                                                        handleDeliveryAssignment={handleDeliveryAssignment}
-                                                        handlePaymentClick={handlePaymentClick}
-                                                        handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
-                                                        handlePrint={handlePrint}
-                                                        handleDeliveryStatusClick={handleDeliveryStatusClick}
-                                                        handleEditOrder={handleEditOrder}
-                                                        handleDeleteOrder={handleDeleteOrder}
-                                                        handleCustomerClick={handleCustomerClick}
-                                                        business={business}
-                                                        canChangeDelivery={canChangeDelivery}
-                                                        canDeleteOrders={canDeleteOrders}
-                                                        deliveryTimeMinutes={currentDeliveryTime}
-                                                        autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
-                                                        clientsWithNotes={clientsWithNotes}
-                                                    />
-                                                </div>
+                                                <div className="flex flex-col lg:flex-row gap-6 items-start">
+                                                {/* En escritorio si no hay pedidos, mostrar LiveCheckoutsPanel y estado vacío a la izquierda */}
+                                                {orders.length === 0 ? (
+                                                    <div className="hidden lg:block lg:flex-[2] w-full space-y-6">
+                                                        {businessId && (
+                                                            <LiveCheckoutsPanel
+                                                                businessId={businessId}
+                                                                orders={orders}
+                                                                onCountChange={setCheckoutCount}
+                                                                onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                            />
+                                                        )}
+                                                        <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm w-full animate-in fade-in duration-300">
+                                                            <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
+                                                                <i className="bi bi-inbox text-xl"></i>
+                                                            </div>
+                                                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-1">Sin pedidos para hoy</h3>
+                                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">Aquí aparecerán los pedidos de tus clientes conforme vayan llegando.</p>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        {/* Columna 1: Borrador, Pendiente y Live Checkouts */}
+                                                        <div className={`${showCol1 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
+                                                            {businessId && (
+                                                                <LiveCheckoutsPanel
+                                                                    businessId={businessId}
+                                                                    orders={orders}
+                                                                    onCountChange={setCheckoutCount}
+                                                                    onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                                />
+                                                            )}
+                                                            <OrderStatusColumn
+                                                                statuses={['borrador', 'pending']}
+                                                                orders={orders}
+                                                                availableDeliveries={availableDeliveries}
+                                                                handleStatusChange={handleStatusChange}
+                                                                handleDeliveryAssignment={handleDeliveryAssignment}
+                                                                handlePaymentClick={handlePaymentClick}
+                                                                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                                handlePrint={handlePrint}
+                                                                handleDeliveryStatusClick={handleDeliveryStatusClick}
+                                                                handleEditOrder={handleEditOrder}
+                                                                handleDeleteOrder={handleDeleteOrder}
+                                                                handleCustomerClick={handleCustomerClick}
+                                                                business={business}
+                                                                canChangeDelivery={canChangeDelivery}
+                                                                canDeleteOrders={canDeleteOrders}
+                                                                deliveryTimeMinutes={currentDeliveryTime}
+                                                                autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                                                clientsWithNotes={clientsWithNotes}
+                                                            />
+                                                        </div>
+
+                                                        {/* Columna 2: Confirmados */}
+                                                        <div className={`${showCol2 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
+                                                            <OrderStatusColumn
+                                                                statuses={['confirmed']}
+                                                                orders={orders}
+                                                                availableDeliveries={availableDeliveries}
+                                                                handleStatusChange={handleStatusChange}
+                                                                handleDeliveryAssignment={handleDeliveryAssignment}
+                                                                handlePaymentClick={handlePaymentClick}
+                                                                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                                handlePrint={handlePrint}
+                                                                handleDeliveryStatusClick={handleDeliveryStatusClick}
+                                                                handleEditOrder={handleEditOrder}
+                                                                handleDeleteOrder={handleDeleteOrder}
+                                                                handleCustomerClick={handleCustomerClick}
+                                                                business={business}
+                                                                canChangeDelivery={canChangeDelivery}
+                                                                canDeleteOrders={canDeleteOrders}
+                                                                deliveryTimeMinutes={currentDeliveryTime}
+                                                                autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                                                clientsWithNotes={clientsWithNotes}
+                                                            />
+                                                        </div>
+                                                    </>
+                                                )}
 
                                                 {/* Columna 3: El resto */}
                                                 <div className={`${showCol3 || orders.length > 0 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
@@ -2983,6 +3249,8 @@ export default function TodayOrdersPage() {
                                                             <div className="absolute top-2.5 right-2.5 z-20">
                                                                 <FavoriteIngredientsStockBar
                                                                     business={business}
+                                                                    orders={orders}
+                                                                    products={products}
                                                                     onNavigateToInventory={() => setActiveTab('inventory')}
                                                                 />
                                                             </div>

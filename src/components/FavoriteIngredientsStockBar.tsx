@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Business } from '@/types'
+import { Business, Order, Product } from '@/types'
 import {
   getIngredientStockSummary,
   getFavoriteIngredients,
@@ -11,14 +11,19 @@ import {
 import { db } from '@/lib/firebase'
 import { collection, query, where, onSnapshot, doc } from 'firebase/firestore'
 import StockConfigModal from '@/components/StockConfigModal'
+import { resolveItemIngredients } from '@/lib/stock-utils'
 
 interface FavoriteIngredientsStockBarProps {
   business: Business
+  orders?: Order[]
+  products?: Product[]
   onNavigateToInventory?: () => void
 }
 
 export default function FavoriteIngredientsStockBar({
   business,
+  orders,
+  products,
   onNavigateToInventory
 }: FavoriteIngredientsStockBarProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -32,6 +37,51 @@ export default function FavoriteIngredientsStockBar({
   const [savingQuickAdd, setSavingQuickAdd] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Calcular consumos de ingredientes de hoy agrupados por pendientes y entregados
+  const { pendingUsageByIngredient, deliveredUsageByIngredient } = useMemo(() => {
+    const pendingMap = new Map<string, number>()
+    const deliveredMap = new Map<string, number>()
+    if (!orders || orders.length === 0) {
+      return { pendingUsageByIngredient: pendingMap, deliveredUsageByIngredient: deliveredMap }
+    }
+
+    orders.forEach(order => {
+      if (order.status === 'cancelled') return
+      if (!order.items || !Array.isArray(order.items)) return
+
+      const isDelivered = order.status === 'delivered'
+      const isPending = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
+      if (!isDelivered && !isPending) return
+
+      const targetMap = isDelivered ? deliveredMap : pendingMap
+
+      order.items.forEach(item => {
+        const itemQty = Number(item.quantity) || 1
+        const rawId = item.productId || item.product?.id || item.id || ''
+        const prodId = (typeof rawId === 'string' && rawId.includes('-combo-'))
+          ? rawId.split('-combo-')[0]
+          : rawId
+
+        const productName = item.name || item.product?.name
+        const product = products?.find(p => p.id === prodId) || (productName && products ? products.find(p => p.name === productName) : undefined) || item.product
+
+        const resolved = resolveItemIngredients(item, product, business?.rewardSettings)
+        if (resolved && resolved.length > 0) {
+          resolved.forEach(ing => {
+            const normName = (ing.name || '').trim().toLowerCase()
+            const qty = (Number(ing.quantity) || 1) * itemQty
+            targetMap.set(normName, (targetMap.get(normName) || 0) + qty)
+          })
+        } else {
+          const prodName = (item.name || item.product?.name || '').trim().toLowerCase()
+          targetMap.set(prodName, (targetMap.get(prodName) || 0) + itemQty)
+        }
+      })
+    })
+
+    return { pendingUsageByIngredient: pendingMap, deliveredUsageByIngredient: deliveredMap }
+  }, [orders, products, business?.rewardSettings])
 
   // Cargar datos de stock y favoritos
   const loadStockData = useCallback(async (showIndicator = false) => {
@@ -280,7 +330,7 @@ export default function FavoriteIngredientsStockBar({
       {isOpen && (
         <div 
           onClick={(e) => e.stopPropagation()}
-          className="fixed inset-x-3 top-16 md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[480px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-[70] overflow-hidden flex flex-col max-h-[85vh] md:max-h-[75vh] animate-in fade-in slide-in-from-top-2 duration-200"
+          className="fixed inset-x-3 top-16 md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[520px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-[70] overflow-hidden flex flex-col max-h-[85vh] md:max-h-[75vh] animate-in fade-in slide-in-from-top-2 duration-200"
         >
           {/* Cabecera del Panel */}
           <div className="px-4 py-3 bg-gradient-to-r from-gray-50/90 via-white to-gray-50/40 border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
@@ -349,6 +399,25 @@ export default function FavoriteIngredientsStockBar({
             </div>
           </div>
 
+          {/* Leyenda de divisiones por color */}
+          <div className="px-4 py-2 bg-gray-50/70 border-b border-gray-100 flex items-center justify-between gap-2 text-[10px] text-gray-500 overflow-x-auto shrink-0">
+            <span className="font-bold text-gray-600 uppercase tracking-wider text-[9px] shrink-0">Divisiones:</span>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="flex items-center gap-1 font-semibold text-rose-600">
+                <span className="w-2 h-2 rounded-full bg-rose-500"></span> Mínimo
+              </span>
+              <span className="flex items-center gap-1 font-semibold text-indigo-600">
+                <span className="w-2 h-2 rounded-full bg-indigo-500"></span> Pendientes
+              </span>
+              <span className="flex items-center gap-1 font-semibold text-emerald-600">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Entregados
+              </span>
+              <span className="flex items-center gap-1 font-semibold text-teal-600">
+                <span className="w-2 h-2 rounded-full bg-teal-400"></span> Restante
+              </span>
+            </div>
+          </div>
+
           {/* Contenido / Listado con Barras Visuales de Stock */}
           <div className="p-3.5 space-y-2.5 overflow-y-auto flex-1 custom-scrollbar">
             {loading && stockSummary.length === 0 ? (
@@ -391,28 +460,30 @@ export default function FavoriteIngredientsStockBar({
                 const minVal = ing.minStock ?? 0
                 const isOutOfStock = isLimited && stockVal <= 0
                 const isLowStock = isLimited && !isOutOfStock && stockVal <= minVal
+                const normName = ing.ingredientName.trim().toLowerCase()
+                const pendingUnits = Math.round((pendingUsageByIngredient.get(normName) || 0) * 10) / 10
+                const deliveredUnits = Math.round((deliveredUsageByIngredient.get(normName) || 0) * 10) / 10
 
-                // Referencia máxima para el cálculo de porcentaje en la barra
-                const maxRef = Math.max(
-                  stockVal,
-                  (minVal > 0 ? minVal * 2.5 : 20),
-                  10
-                )
-                const percentage = isLimited
-                  ? Math.min(100, Math.max(isOutOfStock ? 2 : 5, Math.round((stockVal / maxRef) * 100)))
-                  : 100
+                // Cálculo de Stock Total y segmentos de la barra
+                const rawRemaining = Math.max(0, stockVal - minVal)
+                const totalStock = isLimited
+                  ? Math.max(minVal + rawRemaining + pendingUnits + deliveredUnits, minVal, 1)
+                  : 0
 
-                // Clases de color para la barra y bordes
-                let barColor = 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                const sumTotal = isLimited ? Math.max(minVal + pendingUnits + deliveredUnits + rawRemaining, 1) : 1
+                const pctMin = isLimited ? (minVal / sumTotal) * 100 : 0
+                const pctPending = isLimited ? (pendingUnits / sumTotal) * 100 : 0
+                const pctDelivered = isLimited ? (deliveredUnits / sumTotal) * 100 : 0
+                const pctRemaining = isLimited ? Math.max(0, 100 - (pctMin + pctPending + pctDelivered)) : 100
+
+                // Clases de color para badge y bordes de la tarjeta
                 let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-100'
                 let borderCard = 'border-gray-100 hover:border-gray-200'
 
                 if (isOutOfStock) {
-                  barColor = 'bg-gradient-to-r from-rose-500 to-red-600'
                   badgeBg = 'bg-rose-50 text-rose-700 border-rose-200'
                   borderCard = 'border-rose-200 bg-rose-50/20'
                 } else if (isLowStock) {
-                  barColor = 'bg-gradient-to-r from-amber-400 to-orange-500'
                   badgeBg = 'bg-amber-50 text-amber-700 border-amber-200'
                   borderCard = 'border-amber-200 bg-amber-50/15'
                 }
@@ -500,6 +571,9 @@ export default function FavoriteIngredientsStockBar({
                             <span className="text-[10px] font-bold uppercase text-gray-400">
                               {ing.unit || 'uds'}
                             </span>
+                            <span className="text-[10px] font-medium text-gray-400 ml-1">
+                              (restante)
+                            </span>
                           </>
                         ) : (
                           <span className="text-sm font-black text-emerald-600 flex items-center gap-1 leading-none">
@@ -525,29 +599,108 @@ export default function FavoriteIngredientsStockBar({
                         ) : (
                           <>
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            {isLimited ? `${percentage}%` : 'Óptimo'}
+                            {isLimited ? `${Math.round((stockVal / sumTotal) * 100)}% disp.` : 'Óptimo'}
                           </>
                         )}
                       </span>
                     </div>
 
-                    {/* Fila 3: Barra Visual de Stock */}
-                    <div className="w-full">
-                      <div
-                        className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden p-0.5 border border-gray-200/50"
-                        title={
-                          isLimited
-                            ? `Quedan ${stockVal} ${ing.unit || 'uds'} (mínimo: ${minVal})`
-                            : 'Stock no limitado'
-                        }
-                      >
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ease-out ${barColor}`}
-                          style={{
-                            width: `${percentage}%`
-                          }}
-                        />
-                      </div>
+                    {/* Fila 3: Barra Visual de Stock con Divisiones por Color */}
+                    <div className="w-full space-y-1.5 pt-0.5">
+                      {isLimited ? (
+                        <>
+                          <div
+                            className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex p-0.5 border border-gray-200/70 shadow-xs"
+                            title={`0 | Mínimo: ${minVal} | Pendientes: ${pendingUnits} | Entregados: ${deliveredUnits} | Total: ${Math.round(totalStock)} ${ing.unit || 'uds'}`}
+                          >
+                            {pctMin > 0 && (
+                              <div
+                                className="h-full bg-rose-500 transition-all duration-300 border-r-2 border-white/90 first:rounded-l-full"
+                                style={{ width: `${pctMin}%` }}
+                                title={`Mínimo: ${minVal} ${ing.unit || 'uds'}`}
+                              />
+                            )}
+                            {pctPending > 0 && (
+                              <div
+                                className="h-full bg-indigo-500 transition-all duration-300 border-r-2 border-white/90"
+                                style={{ width: `${pctPending}%` }}
+                                title={`Pendientes: ${pendingUnits} ${ing.unit || 'uds'}`}
+                              />
+                            )}
+                            {pctDelivered > 0 && (
+                              <div
+                                className="h-full bg-emerald-500 transition-all duration-300 border-r-2 border-white/90"
+                                style={{ width: `${pctDelivered}%` }}
+                                title={`Entregados: ${deliveredUnits} ${ing.unit || 'uds'}`}
+                              />
+                            )}
+                            {pctRemaining > 0 && (
+                              <div
+                                className="h-full bg-teal-400 transition-all duration-300 last:rounded-r-full"
+                                style={{ width: `${pctRemaining}%` }}
+                                title={`Restante libre: ${Math.round(rawRemaining * 10) / 10} ${ing.unit || 'uds'}`}
+                              />
+                            )}
+                            {sumTotal <= 0 && (
+                              <div className="h-full w-full bg-gray-200 rounded-full" />
+                            )}
+                          </div>
+
+                          {/* Escala graduada con divisiones según: 0 | Mínimo | Pendientes | Entregados | Stock total */}
+                          <div className="flex items-center justify-between text-[9px] font-semibold text-gray-500 px-0.5 select-none">
+                            <span className="text-gray-400 font-mono text-[10px]">0</span>
+                            <span className="text-gray-300 font-light">|</span>
+                            <span className="text-rose-600 font-bold flex items-center gap-1" title="Stock Mínimo de alerta">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                              Mínimo: {minVal}
+                            </span>
+                            <span className="text-gray-300 font-light">|</span>
+                            <span className="text-indigo-600 font-bold flex items-center gap-1" title="Comprometido en pedidos pendientes hoy">
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                              Pendientes: {pendingUnits}
+                            </span>
+                            <span className="text-gray-300 font-light">|</span>
+                            <span className="text-emerald-600 font-bold flex items-center gap-1" title="Consumido en pedidos entregados hoy">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              Entregados: {deliveredUnits}
+                            </span>
+                            <span className="text-gray-300 font-light">|</span>
+                            <span className="text-gray-900 font-black flex items-center gap-1" title="Stock Total">
+                              <span className="w-1.5 h-1.5 rounded-full bg-gray-700"></span>
+                              Stock total: {Math.round(totalStock)}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div
+                            className="w-full h-3 bg-gradient-to-r from-emerald-100 via-teal-100 to-emerald-200 rounded-full overflow-hidden flex p-0.5 border border-emerald-200/60"
+                            title="Stock ilimitado"
+                          >
+                            <div className="h-full w-full bg-gradient-to-r from-emerald-500/80 to-teal-500/80 rounded-full flex items-center justify-center">
+                              <span className="text-[8px] font-black uppercase tracking-widest text-white">Ilimitado</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[9px] font-semibold text-gray-500 px-0.5 select-none">
+                            <span className="text-gray-400 font-mono text-[10px]">0</span>
+                            <span className="text-gray-300 font-light">|</span>
+                            <span className="text-indigo-600 font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                              Pendientes: {pendingUnits}
+                            </span>
+                            <span className="text-gray-300 font-light">|</span>
+                            <span className="text-emerald-600 font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              Entregados: {deliveredUnits}
+                            </span>
+                            <span className="text-gray-300 font-light">|</span>
+                            <span className="text-emerald-700 font-black flex items-center gap-1">
+                              <i className="bi bi-infinity text-xs"></i>
+                              Stock total: Sin límite
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )
