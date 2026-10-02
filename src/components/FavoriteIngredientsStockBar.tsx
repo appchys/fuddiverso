@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Business, Order, Product } from '@/types'
 import {
   getIngredientStockSummary,
@@ -27,6 +28,12 @@ export default function FavoriteIngredientsStockBar({
   onNavigateToInventory
 }: FavoriteIngredientsStockBarProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
+
   const [stockSummary, setStockSummary] = useState<IngredientStockSummary[]>([])
   const [favoriteIds, setFavoriteIds] = useState<string[]>(business.favoriteIngredients || [])
   const [loading, setLoading] = useState(true)
@@ -309,97 +316,103 @@ export default function FavoriteIngredientsStockBar({
         ) : null}
       </button>
 
-      {/* Backdrop oscuro translúcido con desenfoque de fondo para el Sidebar */}
-      <div
-        className={`fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[80] transition-opacity duration-300 ${
-          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-        onClick={(e) => {
-          e.stopPropagation()
-          setIsOpen(false)
-        }}
-        aria-hidden="true"
-      />
+      {/* Renderizado mediante Portal en document.body para evitar recortes de overflow/transition del contenedor */}
+      {isMounted && createPortal(
+        <>
+          {/* Backdrop oscuro translúcido con desenfoque de fondo para el Sidebar */}
+          <div
+            className={`fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[9998] transition-opacity duration-300 ${
+              isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            }`}
+            onClick={(e) => {
+              e.stopPropagation()
+              setIsOpen(false)
+            }}
+            aria-hidden="true"
+          />
 
-      {/* Sidebar Lateral (Drawer) de Stock de Ingredientes */}
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-label="Stock de Ingredientes Favoritos"
-        onClick={(e) => e.stopPropagation()}
-        className={`fixed inset-y-0 right-0 z-[85] w-full sm:w-[480px] md:w-[520px] max-w-full bg-white shadow-2xl border-l border-gray-200/80 flex flex-col h-full transform transition-transform duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
-        }`}
-      >
-        {/* Cabecera del Sidebar */}
-        <div className="px-5 py-4 bg-gradient-to-r from-gray-50/90 via-white to-gray-50/40 border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
-              <i className="bi bi-star-fill text-base"></i>
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-black text-gray-900 tracking-tight leading-tight truncate">
-                  Stock de Favoritos
-                </h3>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700">
-                  {favoriteIngredients.length} fijado{favoriteIngredients.length === 1 ? '' : 's'}
-                </span>
+          {/* Sidebar Lateral (Drawer) de Stock de Ingredientes */}
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Stock de Ingredientes Favoritos"
+            onClick={(e) => e.stopPropagation()}
+            className={`fixed inset-y-0 right-0 z-[9999] w-full sm:w-[480px] md:w-[520px] max-w-full bg-white shadow-2xl border-l border-gray-200/80 flex flex-col h-full transform transition-transform duration-300 ease-in-out ${
+              isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+            }`}
+          >
+            {/* Cabecera del Sidebar */}
+            <div className="px-5 py-4 bg-gradient-to-r from-gray-50/90 via-white to-gray-50/40 border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
+                  <i className="bi bi-star-fill text-base"></i>
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-black text-gray-900 tracking-tight leading-tight truncate">
+                      Stock de Favoritos
+                    </h3>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700">
+                      {favoriteIngredients.length} fijado{favoriteIngredients.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <p className="text-xs font-medium text-gray-500 truncate mt-0.5">
+                    Monitoreo de ingredientes en tiempo real
+                  </p>
+                </div>
               </div>
-              <p className="text-xs font-medium text-gray-500 truncate mt-0.5">
-                Monitoreo de ingredientes en tiempo real
-              </p>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Badges de alertas */}
+                {stats.outOfStockCount > 0 && (
+                  <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 text-xs font-black border border-rose-100">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                    {stats.outOfStockCount} sin stock
+                  </span>
+                )}
+
+                {/* Botón Refrescar */}
+                <button
+                  type="button"
+                  onClick={() => loadStockData(true)}
+                  disabled={isRefreshing}
+                  className={`p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all ${
+                    isRefreshing ? 'animate-spin text-amber-500' : ''
+                  }`}
+                  title="Actualizar stock"
+                  aria-label="Actualizar stock"
+                >
+                  <i className="bi bi-arrow-repeat text-base"></i>
+                </button>
+
+                {/* Enlace rápido a Inventario */}
+                {onNavigateToInventory && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false)
+                      onNavigateToInventory()
+                    }}
+                    className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
+                    title="Gestionar en Inventario"
+                    aria-label="Gestionar en Inventario"
+                  >
+                    <i className="bi bi-boxes text-base"></i>
+                  </button>
+                )}
+
+                {/* Botón Cerrar Sidebar - Prominente y claro */}
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="w-9 h-9 rounded-full bg-gray-100 hover:bg-rose-50 text-gray-600 hover:text-rose-600 flex items-center justify-center transition-all shrink-0 active:scale-95 border border-gray-200 shadow-sm"
+                  title="Cerrar panel lateral"
+                  aria-label="Cerrar panel lateral"
+                >
+                  <i className="bi bi-x-lg text-sm font-bold"></i>
+                </button>
+              </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Badges de alertas */}
-            {stats.outOfStockCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 text-xs font-black border border-rose-100">
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-                {stats.outOfStockCount} sin stock
-              </span>
-            )}
-
-            {/* Botón Refrescar */}
-            <button
-              onClick={() => loadStockData(true)}
-              disabled={isRefreshing}
-              className={`p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all ${
-                isRefreshing ? 'animate-spin text-amber-500' : ''
-              }`}
-              title="Actualizar stock"
-              aria-label="Actualizar stock"
-            >
-              <i className="bi bi-arrow-repeat text-base"></i>
-            </button>
-
-            {/* Enlace rápido a Inventario */}
-            {onNavigateToInventory && (
-              <button
-                onClick={() => {
-                  setIsOpen(false)
-                  onNavigateToInventory()
-                }}
-                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
-                title="Gestionar en Inventario"
-                aria-label="Gestionar en Inventario"
-              >
-                <i className="bi bi-boxes text-base"></i>
-              </button>
-            )}
-
-            {/* Botón Cerrar Sidebar */}
-            <button
-              onClick={() => setIsOpen(false)}
-              className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all ml-0.5"
-              title="Cerrar panel lateral"
-              aria-label="Cerrar panel lateral"
-            >
-              <i className="bi bi-x-lg text-sm"></i>
-            </button>
-          </div>
-        </div>
 
         {/* Leyenda de colores de la barra */}
         <div className="px-5 py-2.5 bg-gray-50/70 border-b border-gray-100 flex items-center justify-between gap-2 text-xs text-gray-500 overflow-x-auto shrink-0 select-none">
@@ -675,23 +688,31 @@ export default function FavoriteIngredientsStockBar({
           </div>
 
         {/* Pie del Sidebar */}
-        {favoriteIngredients.length > 0 && onNavigateToInventory && (
-          <div className="px-5 py-3.5 bg-gray-50/80 border-t border-gray-100 flex items-center justify-between shrink-0">
-            <span className="text-xs font-medium text-gray-500">
-              ¿Necesitas agregar más favoritos?
-            </span>
+        <div className="px-5 py-3.5 bg-gray-50/90 border-t border-gray-100 flex items-center justify-between gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsOpen(false)}
+            className="py-2 px-4 rounded-xl border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+            title="Cerrar panel lateral"
+          >
+            <i className="bi bi-x-lg text-xs"></i>
+            <span>Cerrar</span>
+          </button>
+
+          {favoriteIngredients.length > 0 && onNavigateToInventory && (
             <button
+              type="button"
               onClick={() => {
                 setIsOpen(false)
                 onNavigateToInventory()
               }}
-              className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1.5 transition-colors py-1.5 px-3 rounded-lg hover:bg-amber-50"
+              className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1.5 transition-colors py-2 px-3 rounded-lg hover:bg-amber-50"
             >
               <span>Administrar en Inventario</span>
               <i className="bi bi-arrow-right text-xs"></i>
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </aside>
 
       {/* Modal para Ajustar Stock de un Ingrediente */}
@@ -791,6 +812,9 @@ export default function FavoriteIngredientsStockBar({
           </div>
         </div>
       )}
+      </>,
+      document.body
+    )}
     </div>
   )
 }
