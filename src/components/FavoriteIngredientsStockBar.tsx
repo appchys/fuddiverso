@@ -418,14 +418,14 @@ export default function FavoriteIngredientsStockBar({
         <div className="px-5 py-2.5 bg-gray-50/70 border-b border-gray-100 flex items-center justify-between gap-2 text-xs text-gray-500 overflow-x-auto shrink-0 select-none">
           <span className="font-bold text-gray-700 uppercase tracking-wider text-[10px] shrink-0">Barra:</span>
           <div className="flex items-center gap-4 shrink-0">
-            <span className="flex items-center gap-1.5 font-semibold text-rose-700">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 border border-rose-400"></span> Mínimo
-            </span>
             <span className="flex items-center gap-1.5 font-semibold text-amber-700">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-300"></span> Comprometidos
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-300"></span> Mínimo
             </span>
-            <span className="flex items-center gap-1.5 font-semibold text-blue-700">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-400"></span> Disponibles
+            <span className="flex items-center gap-1.5 font-semibold text-emerald-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-400"></span> Disponibles
+            </span>
+            <span className="flex items-center gap-1.5 font-semibold text-gray-600">
+              <span className="w-2.5 h-2.5 rounded-full bg-gray-400 border border-gray-300"></span> Comprometidos
             </span>
           </div>
         </div>
@@ -485,7 +485,7 @@ export default function FavoriteIngredientsStockBar({
                 const pctAvailable = totalUnits > 0 ? (rawAvailable / totalUnits) * 100 : 0
 
                 // Clases de color para badge y bordes de la tarjeta
-                let badgeBg = 'bg-blue-50 text-blue-700 border-blue-100'
+                let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-100'
                 let borderCard = 'border-gray-100 hover:border-gray-200'
 
                 if (isOutOfStock) {
@@ -511,7 +511,7 @@ export default function FavoriteIngredientsStockBar({
                                 ? 'bg-rose-500 animate-pulse'
                                 : isLowStock
                                 ? 'bg-amber-500'
-                                : 'bg-blue-500'
+                                : 'bg-emerald-500'
                             }`}
                           ></span>
                           <h4
@@ -521,20 +521,11 @@ export default function FavoriteIngredientsStockBar({
                             {ing.ingredientName}
                           </h4>
                         </div>
-                        <p className="text-[10px] font-medium mt-0.5 truncate pl-3">
-                          {isLimited ? (
-                            minVal > 0 ? (
-                              <span className="text-rose-600 font-semibold flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
-                                <span>Mínimo seguro: {minVal} {ing.unit || 'uds'}</span>
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">Sin mínimo definido</span>
-                            )
-                          ) : (
-                            <span className="text-blue-600 font-semibold">Stock ilimitado</span>
-                          )}
-                        </p>
+                        {!isLimited && (
+                          <p className="text-[10px] font-medium mt-0.5 truncate pl-3">
+                            <span className="text-emerald-600 font-semibold">Stock ilimitado</span>
+                          </p>
+                        )}
                       </div>
 
                       {/* Botones de acción rápida: Configurar y Entrada Rápida */}
@@ -585,14 +576,9 @@ export default function FavoriteIngredientsStockBar({
                             <span className="text-[10px] font-medium text-gray-400 ml-1">
                               disponibles
                             </span>
-                            {committedUnits > 0 && (
-                              <span className="text-[10px] font-bold text-amber-600 ml-1.5">
-                                • {committedUnits} comprometidos
-                              </span>
-                            )}
                           </>
                         ) : (
-                          <span className="text-sm font-black text-blue-600 flex items-center gap-1 leading-none">
+                          <span className="text-sm font-black text-emerald-600 flex items-center gap-1 leading-none">
                             <i className="bi bi-infinity text-base"></i>
                             <span className="text-[10px] uppercase font-bold tracking-tight">Ilimitado</span>
                           </span>
@@ -614,50 +600,50 @@ export default function FavoriteIngredientsStockBar({
                           </>
                         ) : (
                           <>
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                             {isLimited ? `${Math.round(totalUnits > 0 ? (stockVal / totalUnits) * 100 : 0)}% disp.` : 'Óptimo'}
                           </>
                         )}
                       </span>
                     </div>
 
-                    {/* Fila 3: Barra Visual de Stock (Rojo: Mínimo, Amarillo: Comprometidos, Azul: Disponibles) con cantidades internas */}
+                    {/* Fila 3: Barra Visual de Stock (Amarillo: Mínimo, Verde: Disponibles, Gris: Comprometidos al final) con cantidades internas */}
                     <div className="w-full pt-0.5">
                       {isLimited ? (
                         <div
                           className="w-full h-5 bg-gray-100 rounded-full overflow-hidden flex border border-gray-200/80 shadow-inner select-none"
-                          title={`Mínimo: ${minVal} | Comprometidos: ${committedUnits} | Disponibles: ${rawAvailable} ${ing.unit || 'uds'}`}
+                          title={`Mínimo: ${minVal} | Disponibles: ${rawAvailable} | Comprometidos: ${committedUnits} ${ing.unit || 'uds'}`}
                         >
                           {pctMin > 0 && (
                             <div
-                              className="h-full bg-rose-500 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
-                              style={{ width: `${pctMin}%` }}
-                              title={`Mínimo seguro: ${minVal} ${ing.unit || 'uds'}`}
-                            >
-                              <span className="text-[10px] font-black text-white leading-none truncate drop-shadow-sm">
-                                {minVal}
-                              </span>
-                            </div>
-                          )}
-                          {pctCommitted > 0 && (
-                            <div
                               className="h-full bg-amber-400 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
-                              style={{ width: `${pctCommitted}%` }}
-                              title={`Comprometidos: ${committedUnits} ${ing.unit || 'uds'}`}
+                              style={{ width: `${pctMin}%` }}
+                              title={`Mínimo: ${minVal} ${ing.unit || 'uds'}`}
                             >
                               <span className="text-[10px] font-black text-amber-950 leading-none truncate">
-                                {committedUnits}
+                                {minVal}
                               </span>
                             </div>
                           )}
                           {pctAvailable > 0 && (
                             <div
-                              className="h-full bg-blue-500 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
+                              className="h-full bg-emerald-500 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
                               style={{ width: `${pctAvailable}%` }}
                               title={`Disponibles libres: ${rawAvailable} ${ing.unit || 'uds'}`}
                             >
                               <span className="text-[10px] font-black text-white leading-none truncate drop-shadow-sm">
                                 {rawAvailable}
+                              </span>
+                            </div>
+                          )}
+                          {pctCommitted > 0 && (
+                            <div
+                              className="h-full bg-gray-400 transition-all duration-300 flex items-center justify-center px-1 overflow-hidden border-r border-white/20 last:border-r-0"
+                              style={{ width: `${pctCommitted}%` }}
+                              title={`Comprometidos: ${committedUnits} ${ing.unit || 'uds'}`}
+                            >
+                              <span className="text-[10px] font-black text-white leading-none truncate drop-shadow-sm">
+                                {committedUnits}
                               </span>
                             </div>
                           )}
@@ -669,10 +655,10 @@ export default function FavoriteIngredientsStockBar({
                         </div>
                       ) : (
                         <div
-                          className="w-full h-5 bg-blue-100 rounded-full overflow-hidden flex border border-blue-200/80 shadow-inner select-none"
+                          className="w-full h-5 bg-emerald-100 rounded-full overflow-hidden flex border border-emerald-200/80 shadow-inner select-none"
                           title="Stock ilimitado"
                         >
-                          <div className="h-full w-full bg-blue-500 rounded-full flex items-center justify-center gap-1.5 px-2">
+                          <div className="h-full w-full bg-emerald-500 rounded-full flex items-center justify-center gap-1.5 px-2">
                             <i className="bi bi-infinity text-xs text-white"></i>
                             <span className="text-[9px] font-black uppercase tracking-wider text-white leading-none">
                               Ilimitado
