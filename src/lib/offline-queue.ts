@@ -335,6 +335,12 @@ class OfflineManager {
     await this.processQueue()
   }
 
+  removeFromQueue(id: string): void {
+    this.orderQueue = this.orderQueue.filter(o => o.id !== id)
+    this.taskQueue = this.taskQueue.filter(t => t.id !== id)
+    this.saveQueues()
+  }
+
   clearQueue(): void {
     this.orderQueue = []
     this.taskQueue = []
