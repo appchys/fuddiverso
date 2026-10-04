@@ -32,8 +32,8 @@ import {
 } from '@/components/WhatsAppUtils'
 import { isStoreOpen, calculateManualStatusExpiry } from '@/lib/store-utils'
 import { resolveItemIngredients } from '@/lib/stock-utils'
-import QueueStatusIndicator from '@/components/QueueStatusIndicator'
-import { OfflineBanner } from '@/components/business/OfflineBanner'
+import { useConnectionStatus } from '@/hooks/useConnectionStatus'
+import { getOfflineQueue } from '@/lib/offline-queue'
 import NotificationsBell from '@/components/NotificationsBell'
 import DailyCheckInBanner from '@/components/DailyCheckInBanner'
 import FavoriteIngredientsStockBar from '@/components/FavoriteIngredientsStockBar'
@@ -59,9 +59,12 @@ import {
     getStatusText,
     getStatusColor,
     autoAssignDeliveryForOrder,
+    isPreviousActiveOrder,
     MUNCHYS_BUSINESS_ID,
 } from './dashboard-utils'
 import { OrderStatusColumn } from './OrderStatusColumn'
+import { CollapsibleSection } from './CollapsibleSection'
+import { OrderCard } from './OrderCard'
 import { DeliveryStatusModal } from './DeliveryStatusModal'
 import { CustomerContactModal } from './CustomerContactModal'
 import { PrinterModal, PrintJob } from './PrinterModal'
@@ -138,6 +141,26 @@ export default function TodayOrdersPage() {
         }, 2500)
     }
     const { queueStatus, retryFailed } = useOfflineQueue()
+    const {
+        online,
+        pendingWrites,
+        pendingTasks,
+        syncing: connectivitySyncing,
+        lastSyncedAt,
+        checkNow
+    } = useConnectionStatus()
+    const [showSyncedNotice, setShowSyncedNotice] = useState(false)
+
+    const totalPendingChanges = pendingWrites + pendingTasks + (queueStatus?.pending || 0) + (queueStatus?.failed || 0)
+    const isCurrentlySyncing = isSyncingOrders || connectivitySyncing || ((queueStatus?.syncing || 0) > 0)
+
+    useEffect(() => {
+        if (online && lastSyncedAt && totalPendingChanges === 0 && !isCurrentlySyncing) {
+            setShowSyncedNotice(true)
+            const timer = setTimeout(() => setShowSyncedNotice(false), 3500)
+            return () => clearTimeout(timer)
+        }
+    }, [online, lastSyncedAt, totalPendingChanges, isCurrentlySyncing])
 
     // Ref for business dropdown container
     const businessDropdownRef = useRef<HTMLDivElement>(null)
@@ -268,12 +291,21 @@ export default function TodayOrdersPage() {
     const [origin, setOrigin] = useState('')
     const [products, setProducts] = useState<Product[]>([])
 
+    // Separar órdenes de hoy vs órdenes de días anteriores sin entregar
+    const previousActiveOrders = useMemo(() => {
+        return orders.filter(isPreviousActiveOrder)
+    }, [orders])
+
+    const todayOrders = useMemo(() => {
+        return orders.filter(o => !isPreviousActiveOrder(o))
+    }, [orders])
+
     const totalTodayExpenses = useMemo(() => {
         return todayExpenses.reduce((sum, e) => sum + (e.amount || 0), 0)
     }, [todayExpenses])
 
     const totalTodaySales = useMemo(() => {
-        return orders.reduce((acc, order) => {
+        return todayOrders.reduce((acc, order) => {
             if (order.status === 'cancelled') return acc
             
             // Si tiene items, calcular lo que recibe la tienda
@@ -289,14 +321,14 @@ export default function TodayOrdersPage() {
             if (typeof order.subtotal === 'number') return acc + order.subtotal
             return acc + (order.total || 0)
         }, 0)
-    }, [orders])
+    }, [todayOrders])
 
     const totalTodayPublicSales = useMemo(() => {
-        return orders.reduce((acc, order) => {
+        return todayOrders.reduce((acc, order) => {
             if (order.status === 'cancelled') return acc
             return acc + (order.total || 0)
         }, 0)
-    }, [orders])
+    }, [todayOrders])
 
     // Sub-tab state for Orders
     const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today')
@@ -522,7 +554,7 @@ export default function TodayOrdersPage() {
     const [currentUnitsIndex, setCurrentUnitsIndex] = useState(0)
 
     const todaySoldUnitsSummary = useMemo(() => {
-        const activeOrders = orders.filter(o => o.status !== 'cancelled')
+        const activeOrders = todayOrders.filter(o => o.status !== 'cancelled')
 
         const ingredientMap = new Map<string, { name: string; quantity: number; unit?: string; isIngredient: boolean }>()
         let totalUnitsCount = 0
@@ -596,7 +628,7 @@ export default function TodayOrdersPage() {
             ingredientsList,
             slides
         }
-    }, [orders, products, business?.rewardSettings])
+    }, [todayOrders, products, business?.rewardSettings])
 
     const activeUnitsSlide = todaySoldUnitsSummary.slides.length > 0
         ? todaySoldUnitsSummary.slides[currentUnitsIndex % todaySoldUnitsSummary.slides.length]
@@ -620,9 +652,9 @@ export default function TodayOrdersPage() {
         }
     }, [business])
 
-    const showCol1 = useMemo(() => orders.some(o => ['borrador', 'pending'].includes(o.status)) || checkoutCount > 0, [orders, checkoutCount]);
-    const showCol2 = useMemo(() => orders.some(o => o.status === 'confirmed'), [orders]);
-    const showCol3 = useMemo(() => orders.some(o => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].includes(o.status)), [orders]);
+    const showCol1 = useMemo(() => todayOrders.some(o => ['borrador', 'pending'].includes(o.status)) || checkoutCount > 0, [todayOrders, checkoutCount]);
+    const showCol2 = useMemo(() => todayOrders.some(o => o.status === 'confirmed'), [todayOrders]);
+    const showCol3 = useMemo(() => todayOrders.some(o => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].includes(o.status)), [todayOrders]);
     const configuredDeliveryTime = getConfiguredDeliveryTime(business)
     const currentDeliveryTime = business?.deliveryTime ?? configuredDeliveryTime
     const isDeliveryTimeExtended = currentDeliveryTime > configuredDeliveryTime
@@ -1134,7 +1166,6 @@ export default function TodayOrdersPage() {
         let activeQueryLoaded = false
         let createdQueryLoaded = false
         let scheduledQueryLoaded = false
-        let scheduledStringQueryLoaded = false
 
         const isActiveOrder = (order: Order) => ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
         const isScheduledOrder = (order: Order) => order.timing?.type === 'scheduled' && Boolean(order.timing.scheduledDate)
@@ -1162,13 +1193,13 @@ export default function TodayOrdersPage() {
             const allMergedOrders = Array.from(ordersMap.values())
 
             // Scheduled orders only belong here when their scheduled date is today.
-            const todayOrders = allMergedOrders.filter(shouldShowInTodayOrders)
+            const firestoreTodayOrders = allMergedOrders.filter(shouldShowInTodayOrders)
 
             // Preservar órdenes optimistas que aún no se hayan guardado en Firestore.
             // Una orden optimista se descarta cuando aparece su equivalente real en la data de Firestore.
             setOrders(prev => {
                 const optimisticOrders = prev.filter(o => (o as any)._isOptimistic)
-                const firestoreIds = new Set(todayOrders.map(o => o.id))
+                const firestoreIds = new Set(firestoreTodayOrders.map(o => o.id))
 
                 // Mantener solo las optimistas que NO tienen aún su versión real
                 const stillPendingOptimistic = optimisticOrders.filter(opt => {
@@ -1176,7 +1207,7 @@ export default function TodayOrdersPage() {
                     if (firestoreIds.has(opt.id)) return false
 
                     // Buscar una orden real que coincida en datos clave (mismo cliente + total + status + businessId)
-                    const hasRealMatch = todayOrders.some(real =>
+                    const hasRealMatch = firestoreTodayOrders.some(real =>
                         real.customer?.phone === opt.customer?.phone &&
                         real.customer?.name === opt.customer?.name &&
                         Math.abs(real.total - opt.total) < 0.01 &&
@@ -1187,7 +1218,7 @@ export default function TodayOrdersPage() {
                 })
 
                 // Sort by time (nearest first)
-                const combined = [...todayOrders, ...stillPendingOptimistic]
+                const combined = [...firestoreTodayOrders, ...stillPendingOptimistic]
                 combined.sort((a, b) => {
                     const getMinutes = (o: Order) => {
                         if (o.timing?.type === 'scheduled' && o.timing.scheduledTime) {
@@ -1203,9 +1234,8 @@ export default function TodayOrdersPage() {
                 return combined
             })
             
-            // OPTIMIZACIÓN P0: Desbloquear carga tan pronto como respondan las órdenes activas o creadas hoy,
-            // sin tener que esperar obligatoriamente a las queries secundarias de fechas programadas.
-            if (activeQueryLoaded || createdQueryLoaded || (scheduledQueryLoaded && scheduledStringQueryLoaded)) {
+            // OPTIMIZACIÓN P0: Desbloquear carga tan pronto como respondan las órdenes activas, creadas hoy o programadas
+            if (activeQueryLoaded || createdQueryLoaded || scheduledQueryLoaded) {
                 setLoading(false)
                 isFirstOrdersLoad.current = false
             }
@@ -1303,7 +1333,7 @@ export default function TodayOrdersPage() {
             scheduleUpdateOrdersState()
         })
 
-        // Listener 3: Scheduled orders for today
+        // Listener 3: Scheduled orders for today (estandarizado como Firestore Timestamp)
         const qScheduledToday = query(
             collection(db, 'orders'),
             where('businessId', '==', businessId),
@@ -1334,39 +1364,7 @@ export default function TodayOrdersPage() {
             scheduleUpdateOrdersState()
         })
 
-        const todayString = toLocalDateInputValue(startOfDay)
-        const tomorrowString = toLocalDateInputValue(endOfDay)
-        const qScheduledTodayString = query(
-            collection(db, 'orders'),
-            where('businessId', '==', businessId),
-            where('timing.type', '==', 'scheduled'),
-            where('timing.scheduledDate', '>=', todayString),
-            where('timing.scheduledDate', '<', tomorrowString)
-        )
-        const unsubScheduledString = onSnapshot(qScheduledTodayString, (snapshot) => {
-            handleDocChanges(snapshot)
-            snapshot.docs.forEach(doc => {
-                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
-            })
-            snapshot.docChanges().forEach(change => {
-                if (change.type === 'removed') {
-                    const orderData = change.doc.data() as Order
-                    if (shouldShowInTodayOrders(orderData)) {
-                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
-                    } else {
-                        ordersMap.delete(change.doc.id)
-                    }
-                }
-            })
-            scheduledStringQueryLoaded = true
-            scheduleUpdateOrdersState()
-        }, (error) => {
-            console.error("Error in unsubScheduledString:", error)
-            scheduledStringQueryLoaded = true
-            scheduleUpdateOrdersState()
-        })
-
-        // Listener 5: Multi-store active orders where this business is a participant
+        // Listener 4: Multi-store active orders where this business is a participant
         const qMultiStore = query(
             collection(db, 'orders'),
             where('businessIds', 'array-contains', businessId),
@@ -1392,15 +1390,11 @@ export default function TodayOrdersPage() {
             console.error("Error in unsubMultiStore:", error)
         })
 
-        // REMOVED: loadLegacyScheduledToday — the 4 listeners above already cover all scheduled date formats
-        // REMOVED: setInterval polling for first load — now set directly in updateOrdersState
-
         return () => {
             clearTimeout(safetyTimer)
             unsubCreated()
             unsubActive()
             unsubScheduled()
-            unsubScheduledString()
             unsubMultiStore()
         }
     }, [businessId, ordersRefreshTrigger])
@@ -1935,14 +1929,28 @@ export default function TodayOrdersPage() {
     }, [business?.id])
 
     const handleRefreshDashboardData = useCallback(async () => {
-        if (isSyncingOrders || !businessId) return
+        if (isCurrentlySyncing || !businessId) return
         setIsSyncingOrders(true)
 
         try {
-            // Re-ejecutar listeners en tiempo real
+            // 1. Probar conectividad real y procesar colas offline pendientes si hay conexión
+            const isOnlineNow = await checkNow()
+            if (isOnlineNow) {
+                try {
+                    const queue = getOfflineQueue()
+                    await queue.processQueue()
+                    if (retryFailed) {
+                        retryFailed()
+                    }
+                } catch (e) {
+                    console.warn('[Refresh] Error procesando cola offline:', e)
+                }
+            }
+
+            // 2. Re-ejecutar listeners en tiempo real
             setOrdersRefreshTrigger(prev => prev + 1)
 
-            // Consultar órdenes de hoy directamente del servidor para garantizar datos al instante
+            // 3. Consultar órdenes de hoy directamente del servidor para garantizar datos al instante
             const now = new Date()
             const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
             const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
@@ -2030,7 +2038,9 @@ export default function TodayOrdersPage() {
                 setPrintJobs(list.slice(0, 50))
             }
 
-            showToastMessage('Pedidos y cola de impresión actualizados', 'bi-check2-circle')
+            setShowSyncedNotice(true)
+            setTimeout(() => setShowSyncedNotice(false), 3500)
+            showToastMessage('Pedidos y cola de impresión sincronizados', 'bi-check2-circle')
         } catch (error) {
             console.error('Error sincronizando pedidos y cola de impresión:', error)
             showToastMessage('Error al sincronizar datos', 'bi-exclamation-triangle')
@@ -2039,7 +2049,7 @@ export default function TodayOrdersPage() {
                 setIsSyncingOrders(false)
             }, 500)
         }
-    }, [businessId, isSyncingOrders])
+    }, [businessId, isCurrentlySyncing, checkNow, retryFailed])
 
     const handleSyncOrders = handleRefreshDashboardData
 
@@ -2385,7 +2395,6 @@ export default function TodayOrdersPage() {
                 />
 
                 <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
-                    <OfflineBanner />
                     {/* Header */}
                     <header className="bg-white shadow-sm border-b sticky top-0 z-30 w-full">
                         <div className="px-4 sm:px-6">
@@ -2483,8 +2492,6 @@ export default function TodayOrdersPage() {
                                         </div>
                                     )}
 
-                                    {/* Queue Status */}
-                                    <QueueStatusIndicator status={queueStatus} onRetry={retryFailed} className="hidden sm:flex" />
 
                                      {/* Conexión de impresora térmica y cola de impresión */}
                                     <div className="relative" ref={printerContainerRef}>
@@ -2528,15 +2535,68 @@ export default function TodayOrdersPage() {
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
 
-                                    {/* Sincronizar Pedidos de Hoy */}
+                                    {/* Sincronizar Pedidos y Cola de Impresión */}
                                     <button
                                         onClick={handleSyncOrders}
-                                        disabled={isSyncingOrders}
-                                        className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50 group"
-                                        title="Sincronizar pedidos de hoy"
-                                        aria-label="Sincronizar pedidos de hoy"
+                                        disabled={isCurrentlySyncing}
+                                        className={`relative p-2 rounded-lg transition-all duration-300 group ${
+                                            isCurrentlySyncing
+                                                ? 'text-blue-600 bg-blue-50/70 hover:bg-blue-100/70'
+                                                : !online
+                                                ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/80'
+                                                : totalPendingChanges > 0
+                                                ? 'text-amber-700 bg-amber-50/80 hover:bg-amber-100 border border-amber-200/60'
+                                                : showSyncedNotice
+                                                ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                                        }`}
+                                        title={
+                                            isCurrentlySyncing
+                                                ? 'Sincronizando cambios con el servidor...'
+                                                : !online
+                                                ? `Modo sin conexión${totalPendingChanges > 0 ? ` (${totalPendingChanges} cambio${totalPendingChanges !== 1 ? 's' : ''} pendiente${totalPendingChanges !== 1 ? 's' : ''})` : ''}. Clic para reintentar sincronización.`
+                                                : totalPendingChanges > 0
+                                                ? `${totalPendingChanges} cambio${totalPendingChanges !== 1 ? 's' : ''} pendiente${totalPendingChanges !== 1 ? 's' : ''} por subir. Clic para sincronizar ahora.`
+                                                : showSyncedNotice
+                                                ? 'Todo sincronizado con el servidor'
+                                                : 'Sincronizar pedidos y cola de impresión'
+                                        }
+                                        aria-label="Sincronizar pedidos y cola de impresión"
                                     >
-                                        <i className={`bi bi-arrow-repeat text-xl block transition-transform ${isSyncingOrders ? 'animate-spin text-rose-500' : 'group-hover:rotate-180 duration-500'}`}></i>
+                                        {/* Ícono dinámico */}
+                                        {showSyncedNotice && !isCurrentlySyncing && totalPendingChanges === 0 ? (
+                                            <i className="bi bi-check2-circle text-xl block text-emerald-600 animate-in fade-in zoom-in-75 duration-300"></i>
+                                        ) : !online && totalPendingChanges === 0 ? (
+                                            <i className="bi bi-wifi-off text-xl block text-amber-600"></i>
+                                        ) : (
+                                            <i
+                                                className={`bi bi-arrow-repeat text-xl block transition-transform ${
+                                                    isCurrentlySyncing
+                                                        ? 'animate-spin text-blue-600'
+                                                        : totalPendingChanges > 0
+                                                        ? 'text-amber-600 group-hover:rotate-180 duration-500'
+                                                        : 'group-hover:rotate-180 duration-500'
+                                                }`}
+                                            ></i>
+                                        )}
+
+                                        {/* Insignia / Badge de cambios pendientes o estado */}
+                                        {totalPendingChanges > 0 ? (
+                                            <span
+                                                className={`absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full text-[10px] font-black text-white shadow-sm ring-2 ring-white ${
+                                                    !online ? 'bg-amber-600' : 'bg-blue-600 animate-pulse'
+                                                }`}
+                                            >
+                                                {totalPendingChanges > 99 ? '99+' : totalPendingChanges}
+                                            </span>
+                                        ) : !online ? (
+                                            <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 ring-2 ring-white"></span>
+                                            </span>
+                                        ) : showSyncedNotice ? (
+                                            <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse"></span>
+                                        ) : null}
                                     </button>
 
                                     {/* Business Selector */}
@@ -2885,7 +2945,7 @@ export default function TodayOrdersPage() {
                                                         <div className="absolute top-2 right-2 z-20">
                                                             <FavoriteIngredientsStockBar
                                                                 business={business}
-                                                                orders={orders}
+                                                                orders={todayOrders}
                                                                 products={products}
                                                                 onNavigateToInventory={() => setActiveTab('inventory')}
                                                             />
@@ -2974,12 +3034,12 @@ export default function TodayOrdersPage() {
                                                 </div>
 
                                                 {/* Aviso móvil cuando no hay pedidos */}
-                                                {orders.length === 0 && (
+                                                {todayOrders.length === 0 && (
                                                     <div className="lg:hidden space-y-4 mb-4">
                                                         {businessId && (
                                                             <LiveCheckoutsPanel
                                                                 businessId={businessId}
-                                                                orders={orders}
+                                                                orders={todayOrders}
                                                                 onCountChange={setCheckoutCount}
                                                                 onOpenManualOrder={handleOpenManualOrderFromCheckout}
                                                             />
@@ -2996,12 +3056,12 @@ export default function TodayOrdersPage() {
 
                                                 <div className="flex flex-col lg:flex-row gap-6 items-start">
                                                 {/* En escritorio si no hay pedidos, mostrar LiveCheckoutsPanel y estado vacío a la izquierda */}
-                                                {orders.length === 0 ? (
+                                                {todayOrders.length === 0 ? (
                                                     <div className="hidden lg:block lg:flex-[2] w-full space-y-6">
                                                         {businessId && (
                                                             <LiveCheckoutsPanel
                                                                 businessId={businessId}
-                                                                orders={orders}
+                                                                orders={todayOrders}
                                                                 onCountChange={setCheckoutCount}
                                                                 onOpenManualOrder={handleOpenManualOrderFromCheckout}
                                                             />
@@ -3021,14 +3081,14 @@ export default function TodayOrdersPage() {
                                                             {businessId && (
                                                                 <LiveCheckoutsPanel
                                                                     businessId={businessId}
-                                                                    orders={orders}
+                                                                    orders={todayOrders}
                                                                     onCountChange={setCheckoutCount}
                                                                     onOpenManualOrder={handleOpenManualOrderFromCheckout}
                                                                 />
                                                             )}
                                                             <OrderStatusColumn
                                                                 statuses={['borrador', 'pending']}
-                                                                orders={orders}
+                                                                orders={todayOrders}
                                                                 availableDeliveries={availableDeliveries}
                                                                 handleStatusChange={handleStatusChange}
                                                                 handleDeliveryAssignment={handleDeliveryAssignment}
@@ -3052,7 +3112,7 @@ export default function TodayOrdersPage() {
                                                         <div className={`${showCol2 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
                                                             <OrderStatusColumn
                                                                 statuses={['confirmed']}
-                                                                orders={orders}
+                                                                orders={todayOrders}
                                                                 availableDeliveries={availableDeliveries}
                                                                 handleStatusChange={handleStatusChange}
                                                                 handleDeliveryAssignment={handleDeliveryAssignment}
@@ -3075,7 +3135,7 @@ export default function TodayOrdersPage() {
                                                 )}
 
                                                 {/* Columna 3: El resto */}
-                                                <div className={`${showCol3 || orders.length > 0 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
+                                                <div className={`${showCol3 || todayOrders.length > 0 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
                                                     {/* Totals Summary for Desktop ONLY */}
                                                     <div 
                                                         onClick={() => setSummaryExpanded(!summaryExpanded)}
@@ -3086,7 +3146,7 @@ export default function TodayOrdersPage() {
                                                             <div className="absolute top-2.5 right-2.5 z-20">
                                                                 <FavoriteIngredientsStockBar
                                                                     business={business}
-                                                                    orders={orders}
+                                                                    orders={todayOrders}
                                                                     products={products}
                                                                     onNavigateToInventory={() => setActiveTab('inventory')}
                                                                 />
@@ -3180,7 +3240,7 @@ export default function TodayOrdersPage() {
                                                             { key: 'delivered-group', title: 'Entregado', statuses: ['ready', 'on_way', 'delivered'], statusColor: 'delivered', countStatus: 'delivered', defaultExpanded: false },
                                                             'cancelled'
                                                         ]}
-                                                        orders={orders}
+                                                        orders={todayOrders}
                                                         availableDeliveries={availableDeliveries}
                                                         handleStatusChange={handleStatusChange}
                                                         handleDeliveryAssignment={handleDeliveryAssignment}
@@ -3200,6 +3260,49 @@ export default function TodayOrdersPage() {
                                                     />
                                                 </div>
                                             </div>
+
+                                            {/* Sección inferior para órdenes pendientes de días anteriores */}
+                                            {previousActiveOrders.length > 0 && (
+                                                <div className="mt-10 border-t-2 border-dashed border-amber-200/80 pt-6">
+                                                    <CollapsibleSection
+                                                        title="Órdenes anteriores pendientes"
+                                                        count={previousActiveOrders.length}
+                                                        status="borrador"
+                                                        defaultExpanded={false}
+                                                    >
+                                                        <div className="mb-3 px-1">
+                                                            <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 flex items-center gap-2">
+                                                                <i className="bi bi-info-circle-fill text-amber-600 text-sm shrink-0"></i>
+                                                                <span>Estos pedidos fueron creados o programados en días anteriores y continúan activos sin haberse marcado como entregados o cancelados.</span>
+                                                            </p>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                            {previousActiveOrders.map(order => (
+                                                                <OrderCard
+                                                                    key={order.id}
+                                                                    order={order}
+                                                                    availableDeliveries={availableDeliveries}
+                                                                    onStatusChange={handleStatusChange}
+                                                                    onDeliveryAssign={handleDeliveryAssignment}
+                                                                    onPaymentEdit={handlePaymentClick}
+                                                                    onWhatsAppDelivery={handleSendWhatsAppToDelivery}
+                                                                    onPrint={handlePrint}
+                                                                    onDeliveryStatusClick={handleDeliveryStatusClick}
+                                                                    onEdit={handleEditOrder}
+                                                                    onDelete={handleDeleteOrder}
+                                                                    onCustomerClick={handleCustomerClick}
+                                                                    businessPhone={business?.phone}
+                                                                    canChangeDelivery={canChangeDelivery}
+                                                                    canDeleteOrders={canDeleteOrders}
+                                                                    deliveryTimeMinutes={currentDeliveryTime}
+                                                                    autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                                                    customerNote={clientsWithNotes[order.customer?.phone || '']}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                    </CollapsibleSection>
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                     </div>
