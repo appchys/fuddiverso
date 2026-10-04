@@ -52,6 +52,17 @@ const TASKS_QUEUE_KEY = 'fuddi_pending_tasks'
 const MAX_RETRIES = 5
 const INITIAL_RETRY_DELAY = 1000 // 1 segundo
 const MAX_RETRY_DELAY = 60000 // 1 minuto
+const TASK_TIMEOUT_MS = 6000 // 6 segundos de tiempo límite por operación individual
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Tiempo de espera agotado (${ms}ms) en ${label}`)), ms)
+  })
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
 
 class OfflineManager {
   private orderQueue: PendingOrder[] = []
@@ -86,7 +97,41 @@ class OfflineManager {
       this.taskQueue = []
     }
 
+    this.purgeStaleTasks()
     this.updateConnectivityTasksCount()
+  }
+
+  purgeStaleTasks() {
+    const STALE_FAILED_MAX_AGE_MS = 4 * 60 * 60 * 1000 // 4 horas para tareas fallidas
+    const ABSOLUTE_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24 horas máximo absoluto
+    const now = Date.now()
+
+    const initialOrders = this.orderQueue.length
+    const initialTasks = this.taskQueue.length
+
+    this.orderQueue = this.orderQueue.filter(o => {
+      const age = now - (o.createdAt || now)
+      if (o.retryCount >= MAX_RETRIES && age > STALE_FAILED_MAX_AGE_MS) return false
+      if (age > ABSOLUTE_MAX_AGE_MS) return false
+      return true
+    })
+
+    this.taskQueue = this.taskQueue.filter(t => {
+      const age = now - (t.createdAt || now)
+      if (t.retryCount >= MAX_RETRIES && age > STALE_FAILED_MAX_AGE_MS) return false
+      if (age > ABSOLUTE_MAX_AGE_MS) return false
+      return true
+    })
+
+    if (this.orderQueue.length !== initialOrders || this.taskQueue.length !== initialTasks) {
+      console.log('[OfflineQueue] Tareas u órdenes obsoletas purgadas de la cola local.')
+      try {
+        localStorage.setItem(ORDER_QUEUE_KEY, JSON.stringify(this.orderQueue))
+        localStorage.setItem(TASKS_QUEUE_KEY, JSON.stringify(this.taskQueue))
+      } catch (e) {
+        console.error('[OfflineQueue] Error persistiendo tras purga:', e)
+      }
+    }
   }
 
   private saveQueues() {
@@ -106,8 +151,10 @@ class OfflineManager {
   }
 
   private updateConnectivityTasksCount() {
-    const totalPending = this.orderQueue.length + this.taskQueue.length
-    setPendingTasks(totalPending)
+    const failedOrders = this.orderQueue.filter(o => o.retryCount >= MAX_RETRIES).length
+    const failedTasks = this.taskQueue.filter(t => t.retryCount >= MAX_RETRIES).length
+    const activePending = (this.orderQueue.length - failedOrders) + (this.taskQueue.length - failedTasks)
+    setPendingTasks(activePending)
   }
 
   // --- Tareas Secundarias ---
@@ -176,31 +223,35 @@ class OfflineManager {
       return
     }
 
+    this.purgeStaleTasks()
     this.syncing = true
     this.notifyListeners()
 
     try {
       // 1. Procesar órdenes encoladas (si hubiera alguna legacy)
-      const ordersToProcess = [...this.orderQueue]
+      const ordersToProcess = this.orderQueue.filter(o => o.retryCount < MAX_RETRIES)
       const processedOrders: string[] = []
 
       for (const order of ordersToProcess) {
-        if (order.retryCount >= MAX_RETRIES) continue
-
         try {
           if (order.mode === 'create') {
-            await createOrder(order.orderData)
+            await withTimeout(createOrder(order.orderData), TASK_TIMEOUT_MS, 'creación de orden')
           } else if (order.mode === 'edit' && order.editOrderId) {
-            await updateOrder(order.editOrderId, order.orderData)
+            await withTimeout(updateOrder(order.editOrderId, order.orderData), TASK_TIMEOUT_MS, 'edición de orden')
           }
           processedOrders.push(order.id)
         } catch (error) {
-          console.error('[OfflineQueue] Error syncing order:', error)
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          console.error('[OfflineQueue] Error syncing order:', errorMsg)
           const idx = this.orderQueue.findIndex(o => o.id === order.id)
           if (idx !== -1) {
-            this.orderQueue[idx].retryCount++
+            const isUnrecoverable =
+              errorMsg.includes('No document to update') ||
+              errorMsg.includes('not-found') ||
+              errorMsg.includes('permission-denied')
+            this.orderQueue[idx].retryCount = isUnrecoverable ? MAX_RETRIES : this.orderQueue[idx].retryCount + 1
             this.orderQueue[idx].lastAttempt = Date.now()
-            this.orderQueue[idx].error = error instanceof Error ? error.message : 'Error desconocido'
+            this.orderQueue[idx].error = errorMsg
           }
         }
       }
@@ -209,25 +260,32 @@ class OfflineManager {
         this.orderQueue = this.orderQueue.filter(o => !processedOrders.includes(o.id))
       }
 
-      // 2. Procesar tareas secundarias
-      const tasksToProcess = [...this.taskQueue]
+      // 2. Procesar tareas secundarias en paralelo para sincronización rápida
+      const tasksToProcess = this.taskQueue.filter(t => t.retryCount < MAX_RETRIES)
       const processedTasks: string[] = []
 
-      for (const task of tasksToProcess) {
-        if (task.retryCount >= MAX_RETRIES) continue
-
-        try {
-          await this.executeTask(task)
-          processedTasks.push(task.id)
-        } catch (error) {
-          console.error(`[OfflineQueue] Error ejecutando tarea ${task.type}:`, error)
-          const idx = this.taskQueue.findIndex(t => t.id === task.id)
-          if (idx !== -1) {
-            this.taskQueue[idx].retryCount++
-            this.taskQueue[idx].lastAttempt = Date.now()
-            this.taskQueue[idx].error = error instanceof Error ? error.message : 'Error desconocido'
-          }
-        }
+      if (tasksToProcess.length > 0) {
+        await Promise.allSettled(
+          tasksToProcess.map(async (task) => {
+            try {
+              await withTimeout(this.executeTask(task), TASK_TIMEOUT_MS, `tarea ${task.type}`)
+              processedTasks.push(task.id)
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : String(error)
+              console.error(`[OfflineQueue] Error ejecutando tarea ${task.type}:`, errorMsg)
+              const idx = this.taskQueue.findIndex(t => t.id === task.id)
+              if (idx !== -1) {
+                const isUnrecoverable =
+                  errorMsg.includes('No document to update') ||
+                  errorMsg.includes('not-found') ||
+                  errorMsg.includes('permission-denied')
+                this.taskQueue[idx].retryCount = isUnrecoverable ? MAX_RETRIES : this.taskQueue[idx].retryCount + 1
+                this.taskQueue[idx].lastAttempt = Date.now()
+                this.taskQueue[idx].error = errorMsg
+              }
+            }
+          })
+        )
       }
 
       if (processedTasks.length > 0) {
@@ -345,6 +403,17 @@ class OfflineManager {
     this.orderQueue = []
     this.taskQueue = []
     this.saveQueues()
+  }
+
+  clearFailed(): void {
+    const prevOrderCount = this.orderQueue.length
+    const prevTaskCount = this.taskQueue.length
+    this.orderQueue = this.orderQueue.filter(o => o.retryCount < MAX_RETRIES)
+    this.taskQueue = this.taskQueue.filter(t => t.retryCount < MAX_RETRIES)
+    if (this.orderQueue.length !== prevOrderCount || this.taskQueue.length !== prevTaskCount) {
+      console.log('[OfflineQueue] Tareas fallidas descartadas.')
+      this.saveQueues()
+    }
   }
 
   private startAutoSync() {

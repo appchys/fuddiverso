@@ -227,15 +227,19 @@ export const OrderCard = memo(function OrderCard({
                             <i className="bi bi-trash3 text-2xl"></i>
                         </div>
 
-                        <h4 className="text-xl font-bold text-gray-900 mb-2">¿Descartar pedido?</h4>
+                        <h4 className="text-xl font-bold text-gray-900 mb-2">
+                            {order.createdByAdmin ? '¿Descartar pedido?' : '¿Cancelar pedido?'}
+                        </h4>
                         <p className="text-sm text-gray-500 mb-6 px-2">
-                            Se marcará como descartado y desaparecerá de la lista activa. Por favor selecciona el motivo.
+                            {order.createdByAdmin
+                                ? 'Se marcará como descartado y desaparecerá de la lista activa. Por favor selecciona el motivo.'
+                                : 'Se marcará como cancelado y se actualizará el estado del pedido. Por favor selecciona el motivo.'}
                         </p>
 
                         {/* Reason Selector */}
                         <div className="w-full mb-6">
                             <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-2 text-left ml-1">
-                                Motivo del descarte
+                                {order.createdByAdmin ? 'Motivo del descarte' : 'Motivo de la cancelación'}
                             </label>
                             <select
                                 value={discardReason}
@@ -459,7 +463,7 @@ export const OrderCard = memo(function OrderCard({
 
                                                 <button
                                                     onClick={() => {
-                                                        if (canDeleteOrders !== false) {
+                                                        if (order.createdByAdmin) {
                                                             onDelete(order.id)
                                                         } else {
                                                             setConfirmDiscardOpen(true)
@@ -468,8 +472,8 @@ export const OrderCard = memo(function OrderCard({
                                                     }}
                                                     className="w-full text-left px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2.5 font-medium"
                                                 >
-                                                    <i className="bi bi-trash text-red-500 text-base"></i>
-                                                    Eliminar
+                                                    <i className={`bi ${order.createdByAdmin ? 'bi-trash text-red-500' : 'bi-x-circle text-red-500'} text-base`}></i>
+                                                    {order.createdByAdmin ? 'Eliminar' : 'Cancelar'}
                                                 </button>
 
                                                 <div className="my-1 border-t border-gray-100"></div>

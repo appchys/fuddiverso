@@ -168,6 +168,91 @@ const normalizeScheduleDay = (d: string): string => {
   return map[raw] || d
 }
 
+export type ProductOptionGroupDraft = {
+  id: string
+  name: string
+  minSelect: number | ''
+  maxSelect: number | ''
+  options: ProductOption[]
+}
+
+function serializeProductState(
+  fData: {
+    name: string
+    description: string
+    price: string
+    category: string
+    isAvailable: boolean
+    autoHideByStock: boolean
+    commissionType: CommissionType
+    isCombo: boolean
+    minComboItems: number
+    countComboUnits: boolean
+    imagePosition: string
+    imageScale: number
+  },
+  opts: ProductOptionGroupDraft[],
+  vars: ProductVariant[],
+  varVis: Record<string, boolean>,
+  varIngs: Record<string, Ingredient[]>,
+  ings: Ingredient[],
+  schedEnabled: boolean,
+  scheds: Array<{ id: string; days: string[]; startTime: string; endTime: string }>,
+  hasVars: boolean
+): string {
+  return JSON.stringify({
+    name: (fData.name || '').trim(),
+    description: (fData.description || '').trim(),
+    price: (fData.price || '').trim(),
+    category: (fData.category || '').trim(),
+    isAvailable: fData.isAvailable !== false,
+    autoHideByStock: !!fData.autoHideByStock,
+    commissionType: fData.commissionType || '',
+    isCombo: !!fData.isCombo,
+    minComboItems: Number(fData.minComboItems) || 1,
+    countComboUnits: !!fData.countComboUnits,
+    imagePosition: fData.imagePosition || '50% 50%',
+    imageScale: Number(fData.imageScale) || 1,
+    hasVariants: !!hasVars,
+    variants: (vars || []).map(v => ({
+      id: v.id,
+      name: (v.name || '').trim(),
+      price: Number(v.price) || 0,
+      isAvailable: varVis[v.id] !== false,
+      autoHideByStock: !!v.autoHideByStock,
+      ingredients: (varIngs[v.id] || []).map(i => ({
+        name: (i.name || '').trim(),
+        quantity: Number(i.quantity) || 0,
+        unitCost: Number(i.unitCost) || 0
+      }))
+    })),
+    ingredients: (ings || []).map(i => ({
+      name: (i.name || '').trim(),
+      quantity: Number(i.quantity) || 0,
+      unitCost: Number(i.unitCost) || 0
+    })),
+    scheduleEnabled: !!schedEnabled,
+    schedules: (scheds || []).map(s => ({
+      days: [...(s.days || [])].sort(),
+      startTime: s.startTime,
+      endTime: s.endTime
+    })),
+    optionGroups: (opts || [])
+      .filter(g => (g.name || '').trim().length > 0 || (g.options && g.options.length > 0))
+      .map(g => ({
+        id: g.id,
+        name: (g.name || '').trim(),
+        minSelect: g.minSelect === '' ? 0 : Number(g.minSelect) || 0,
+        maxSelect: g.maxSelect === '' ? 1 : Number(g.maxSelect) || 1,
+        options: (g.options || []).map(o => ({
+          name: (o.name || '').trim(),
+          price: Number(o.price) || 0,
+          isAvailable: o.isAvailable !== false
+        }))
+      }))
+  })
+}
+
 interface ProductListProps {
   business: Business | null
   products: Product[]
@@ -379,20 +464,15 @@ export default function ProductList({
     }
   }, [business?.id])
 
-  // Estados para opciones/modificadores
-  const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([])
+  // Estados para opciones/modificadores (Toppings)
+  const [optionGroups, setOptionGroups] = useState<ProductOptionGroupDraft[]>([])
   const [editingGroupIndex, setEditingGroupIndex] = useState<number | null>(null)
-  const [currentGroup, setCurrentGroup] = useState<Omit<ProductOptionGroup, 'id'>>({
-    name: '',
-    minSelect: 0,
-    maxSelect: 1,
-    options: []
-  })
   const [newOptionName, setNewOptionName] = useState('')
   const [newOptionPrice, setNewOptionPrice] = useState('')
   const [editingOptionIndex, setEditingOptionIndex] = useState<number | null>(null)
   const [editingOptionName, setEditingOptionName] = useState('')
   const [editingOptionPrice, setEditingOptionPrice] = useState('')
+  const [initialProductSnapshot, setInitialProductSnapshot] = useState<string>('')
 
   // Estados para disponibilidad por horarios
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
@@ -408,6 +488,53 @@ export default function ProductList({
     startTime: '09:00',
     endTime: '17:00'
   })
+
+  // Detección de cambios pendientes de guardar en el modal de producto
+  const hasChanges = React.useMemo(() => {
+    if (uploading) return false
+
+    // Si estamos creando un nuevo producto:
+    if (!editingProduct) {
+      return (formData.name || '').trim().length > 0
+    }
+
+    // Si no tenemos snapshot inicial aún:
+    if (!initialProductSnapshot) return false
+
+    // Si el usuario seleccionó una imagen nueva:
+    if (formData.image !== null) return true
+
+    // Si el usuario seleccionó imágenes nuevas para variantes:
+    if (Object.keys(variantImageFiles).length > 0) return true
+
+    const currentSnapshot = serializeProductState(
+      formData,
+      optionGroups,
+      variants,
+      variantVisibility,
+      variantIngredients,
+      ingredients,
+      scheduleEnabled,
+      schedules,
+      hasVariants
+    )
+
+    return currentSnapshot !== initialProductSnapshot
+  }, [
+    uploading,
+    editingProduct,
+    initialProductSnapshot,
+    formData,
+    optionGroups,
+    variants,
+    variantVisibility,
+    variantIngredients,
+    variantImageFiles,
+    ingredients,
+    scheduleEnabled,
+    schedules,
+    hasVariants
+  ])
 
   // Estados para importación JSON de menú
   const [showJsonImport, setShowJsonImport] = useState(false)
@@ -598,6 +725,7 @@ export default function ProductList({
     setVariantImageFiles({})
     setOptionGroups([])
     setEditingGroupIndex(null)
+    setInitialProductSnapshot('')
     setHasVariants(false)
     // Resetear horarios
     setScheduleEnabled(false)
@@ -733,11 +861,47 @@ export default function ProductList({
     setShowVariantForm(false)
     setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
     setVariantImageFiles({})
-    setOptionGroups(product.optionGroups || [])
+    const initialGroups: ProductOptionGroupDraft[] = (product.optionGroups || []).map(g => ({
+      id: g.id,
+      name: g.name,
+      minSelect: typeof g.minSelect === 'number' ? g.minSelect : (parseInt(g.minSelect) || 0),
+      maxSelect: typeof g.maxSelect === 'number' ? g.maxSelect : (parseInt(g.maxSelect) || 1),
+      options: g.options || []
+    }))
+    setOptionGroups(initialGroups)
     setEditingGroupIndex(null)
-    setHasVariants(!!(product.variants && product.variants.length > 0) || !!product.isCombo)
+    const initialHasVars = !!(product.variants && product.variants.length > 0) || !!product.isCombo
+    setHasVariants(initialHasVars)
     setIsDraggingImage(false)
     setIsDraggingVariantImage(false)
+
+    // Snapshot inicial para detección de cambios pendientes
+    const initialProductSnapshotVal = serializeProductState(
+      {
+        name: product.name,
+        description: product.description,
+        price: (product.basePrice ?? product.price).toString(),
+        category: categoryToSet,
+        isAvailable: product.isAvailable,
+        autoHideByStock: product.autoHideByStock ?? false,
+        commissionType: commType as CommissionType,
+        isCombo: product.isCombo || false,
+        minComboItems: product.minComboItems || 1,
+        countComboUnits: product.countComboUnits || false,
+        imagePosition: product.imagePosition || '50% 50%',
+        imageScale: product.imageScale || 1
+      },
+      initialGroups,
+      product.variants?.map(v => ({ ...v, price: v.basePrice ?? v.price })) || [],
+      visibility,
+      variantIngs as any,
+      (product.ingredients || []) as any,
+      product.scheduleAvailability?.enabled === true,
+      product.scheduleAvailability?.schedules || [],
+      initialHasVars
+    )
+    setInitialProductSnapshot(initialProductSnapshotVal)
+
     setShowProductForm(true)
   }
 
@@ -778,7 +942,7 @@ export default function ProductList({
     setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
     setOptionGroups([])
     setEditingGroupIndex(null)
-    setCurrentGroup({ name: '', minSelect: 0, maxSelect: 1, options: [] })
+    setInitialProductSnapshot('')
     setNewOptionName('')
     setNewOptionPrice('')
     setEditingOptionIndex(null)
@@ -789,12 +953,17 @@ export default function ProductList({
   }
 
   const handleAddOptionGroup = () => {
-    setEditingGroupIndex(-1)
-    setCurrentGroup({
+    const newGroup: ProductOptionGroupDraft = {
+      id: `group_${Date.now()}`,
       name: '',
       minSelect: 0,
       maxSelect: 1,
       options: []
+    }
+    setOptionGroups(prev => {
+      const updated = [...prev, newGroup]
+      setEditingGroupIndex(updated.length - 1)
+      return updated
     })
     setNewOptionName('')
     setNewOptionPrice('')
@@ -804,14 +973,7 @@ export default function ProductList({
   }
 
   const handleEditOptionGroup = (index: number) => {
-    const group = optionGroups[index]
     setEditingGroupIndex(index)
-    setCurrentGroup({
-      name: group.name,
-      minSelect: group.minSelect,
-      maxSelect: group.maxSelect,
-      options: [...group.options]
-    })
     setNewOptionName('')
     setNewOptionPrice('')
     setEditingOptionIndex(null)
@@ -821,9 +983,37 @@ export default function ProductList({
 
   const handleRemoveOptionGroup = (index: number) => {
     setOptionGroups(prev => prev.filter((_, i) => i !== index))
+    if (editingGroupIndex === index) {
+      setEditingGroupIndex(null)
+    } else if (editingGroupIndex !== null && editingGroupIndex > index) {
+      setEditingGroupIndex(editingGroupIndex - 1)
+    }
+  }
+
+  const handleUpdateGroupName = (index: number, name: string) => {
+    setOptionGroups(prev => prev.map((g, i) => i === index ? { ...g, name } : g))
+  }
+
+  const handleUpdateGroupMin = (index: number, val: string) => {
+    if (val === '') {
+      setOptionGroups(prev => prev.map((g, i) => i === index ? { ...g, minSelect: '' } : g))
+    } else {
+      const num = parseInt(val, 10)
+      setOptionGroups(prev => prev.map((g, i) => i === index ? { ...g, minSelect: isNaN(num) ? '' : Math.max(0, num) } : g))
+    }
+  }
+
+  const handleUpdateGroupMax = (index: number, val: string) => {
+    if (val === '') {
+      setOptionGroups(prev => prev.map((g, i) => i === index ? { ...g, maxSelect: '' } : g))
+    } else {
+      const num = parseInt(val, 10)
+      setOptionGroups(prev => prev.map((g, i) => i === index ? { ...g, maxSelect: isNaN(num) ? '' : Math.max(0, num) } : g))
+    }
   }
 
   const handleAddOptionToGroup = () => {
+    if (editingGroupIndex === null || !optionGroups[editingGroupIndex]) return
     if (!newOptionName.trim()) {
       alert('El nombre del modificador/opción es requerido')
       return
@@ -833,18 +1023,25 @@ export default function ProductList({
       alert('El precio no puede ser negativo')
       return
     }
-    setCurrentGroup(prev => ({
-      ...prev,
-      options: [...prev.options, { name: newOptionName.trim(), price, isAvailable: true }]
+    setOptionGroups(prev => prev.map((g, i) => {
+      if (i !== editingGroupIndex) return g
+      return {
+        ...g,
+        options: [...g.options, { name: newOptionName.trim(), price, isAvailable: true }]
+      }
     }))
     setNewOptionName('')
     setNewOptionPrice('')
   }
 
   const handleRemoveOptionFromGroup = (oIdx: number) => {
-    setCurrentGroup(prev => ({
-      ...prev,
-      options: prev.options.filter((_, i) => i !== oIdx)
+    if (editingGroupIndex === null || !optionGroups[editingGroupIndex]) return
+    setOptionGroups(prev => prev.map((g, i) => {
+      if (i !== editingGroupIndex) return g
+      return {
+        ...g,
+        options: g.options.filter((_, idx) => idx !== oIdx)
+      }
     }))
     if (editingOptionIndex === oIdx) {
       setEditingOptionIndex(null)
@@ -860,6 +1057,7 @@ export default function ProductList({
   }
 
   const handleSaveEditingOption = (oIdx: number) => {
+    if (editingGroupIndex === null || !optionGroups[editingGroupIndex]) return
     if (!editingOptionName.trim()) {
       alert('El nombre del modificador/opción es requerido')
       return
@@ -869,63 +1067,43 @@ export default function ProductList({
       alert('El precio no puede ser negativo')
       return
     }
-    setCurrentGroup(prev => {
-      const updatedOptions = [...prev.options]
-      updatedOptions[oIdx] = {
-        ...updatedOptions[oIdx],
+    setOptionGroups(prev => prev.map((g, i) => {
+      if (i !== editingGroupIndex) return g
+      const updatedOpts = [...g.options]
+      updatedOpts[oIdx] = {
+        ...updatedOpts[oIdx],
         name: editingOptionName.trim(),
         price
       }
       return {
-        ...prev,
-        options: updatedOptions
+        ...g,
+        options: updatedOpts
       }
-    })
+    }))
     setEditingOptionIndex(null)
   }
 
   const handleToggleOptionAvailability = (oIdx: number) => {
-    setCurrentGroup(prev => {
-      const updatedOptions = [...prev.options]
-      const currentOpt = updatedOptions[oIdx]
-      // Si isAvailable es undefined o true → se pone en false; si es false → se pone en true
-      updatedOptions[oIdx] = {
+    if (editingGroupIndex === null || !optionGroups[editingGroupIndex]) return
+    setOptionGroups(prev => prev.map((g, i) => {
+      if (i !== editingGroupIndex) return g
+      const updatedOpts = [...g.options]
+      const currentOpt = updatedOpts[oIdx]
+      updatedOpts[oIdx] = {
         ...currentOpt,
         isAvailable: currentOpt.isAvailable === false ? true : false
       }
       return {
-        ...prev,
-        options: updatedOptions
+        ...g,
+        options: updatedOpts
       }
-    })
+    }))
   }
 
-  const handleSaveOptionGroup = () => {
-    if (!currentGroup.name.trim()) {
-      alert('El nombre del grupo es requerido')
-      return
-    }
-    if (currentGroup.options.length === 0) {
-      alert('Agrega al menos una opción al grupo')
-      return
-    }
-    if (currentGroup.minSelect > currentGroup.maxSelect) {
-      alert('La selección mínima no puede ser mayor que la máxima')
-      return
-    }
-
-    const savedGroup: ProductOptionGroup = {
-      id: editingGroupIndex === -1 ? Date.now().toString() : optionGroups[editingGroupIndex!].id,
-      name: currentGroup.name.trim(),
-      minSelect: currentGroup.minSelect,
-      maxSelect: currentGroup.maxSelect,
-      options: currentGroup.options
-    }
-
-    if (editingGroupIndex === -1) {
-      setOptionGroups(prev => [...prev, savedGroup])
-    } else {
-      setOptionGroups(prev => prev.map((g, i) => i === editingGroupIndex ? savedGroup : g))
+  const handleCloseGroupEdit = (index: number) => {
+    const group = optionGroups[index]
+    if (group && !group.name.trim() && group.options.length === 0) {
+      setOptionGroups(prev => prev.filter((_, i) => i !== index))
     }
     setEditingGroupIndex(null)
   }
@@ -1473,6 +1651,30 @@ export default function ProductList({
       return
     }
 
+    // Validar grupos de toppings si existen
+    for (const g of optionGroups) {
+      const hasContent = (g.name || '').trim().length > 0 || (g.options && g.options.length > 0)
+      if (hasContent) {
+        if (!g.name.trim()) {
+          alert('Hay un grupo de toppings sin nombre. Por favor escribe un nombre para la categoría o elimínalo.')
+          setActiveTab('options')
+          return
+        }
+        if (!g.options || g.options.length === 0) {
+          alert(`El grupo de toppings "${g.name}" no tiene ninguna opción agregada. Agrega al menos un topping o elimina el grupo.`)
+          setActiveTab('options')
+          return
+        }
+        const minVal = g.minSelect === '' ? 0 : Number(g.minSelect) || 0
+        const maxVal = g.maxSelect === '' ? 1 : Number(g.maxSelect) || 1
+        if (minVal > maxVal) {
+          alert(`En el grupo de toppings "${g.name}", la selección mínima (${minVal}) no puede ser mayor que la máxima (${maxVal}).`)
+          setActiveTab('options')
+          return
+        }
+      }
+    }
+
     setUploading(true)
     try {
       let imageUrl = editingProduct?.image || ''
@@ -1547,6 +1749,16 @@ export default function ProductList({
       const cleanCategory = (formData.category || '').trim();
       const finalCategory = (cleanCategory === '' || cleanCategory.toLowerCase() === 'sin categoría' || cleanCategory.toLowerCase() === 'sin categoria') ? '' : cleanCategory;
 
+      const cleanedOptionGroups: ProductOptionGroup[] = optionGroups
+        .filter(g => g.name.trim().length > 0 && g.options && g.options.length > 0)
+        .map(g => ({
+          id: g.id || `group_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          name: g.name.trim(),
+          minSelect: g.minSelect === '' ? 0 : Math.max(0, Number(g.minSelect) || 0),
+          maxSelect: g.maxSelect === '' ? 1 : Math.max(1, Number(g.maxSelect) || 1),
+          options: g.options
+        }))
+
       const productData = {
         name: formData.name,
         description: formData.description,
@@ -1567,7 +1779,7 @@ export default function ProductList({
         isCombo: formData.isCombo,
         minComboItems: formData.isCombo ? Number(formData.minComboItems) : 1,
         countComboUnits: formData.isCombo ? !!formData.countComboUnits : false,
-        optionGroups: optionGroups.length > 0 ? optionGroups : undefined,
+        optionGroups: cleanedOptionGroups.length > 0 ? cleanedOptionGroups : undefined,
         imagePosition: formData.imagePosition,
         imageScale: formData.imageScale || 1,
         businessId: business.id,
@@ -4294,227 +4506,250 @@ export default function ProductList({
                     </div>
 
                     {/* Formulario de creación/edición de grupo de toppings */}
-                    {editingGroupIndex !== null && (
-                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/80 space-y-4 shadow-inner">
-                        <div className="flex items-center gap-2 pb-2 border-b border-slate-200/50">
-                          <div className="w-1.5 h-3.5 bg-[#aa1918] rounded-full"></div>
-                          <h4 className="font-black text-slate-700 text-[10px] uppercase tracking-wider">
-                            {editingGroupIndex === -1 ? 'Crear Grupo de Toppings' : 'Editar Grupo de Toppings'}
-                          </h4>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre Categoría</label>
-                            <input
-                              type="text"
-                              value={currentGroup.name}
-                              onChange={(e) => setCurrentGroup(prev => ({ ...prev, name: e.target.value }))}
-                              placeholder="Ej: Salsas, Quesos, Adicionales..."
-                              className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mínimo a Elegir</label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={currentGroup.minSelect}
-                              onChange={(e) => setCurrentGroup(prev => ({ ...prev, minSelect: Math.max(0, parseInt(e.target.value) || 0) }))}
-                              className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Máximo a Elegir</label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={currentGroup.maxSelect}
-                              onChange={(e) => setCurrentGroup(prev => ({ ...prev, maxSelect: Math.max(1, parseInt(e.target.value) || 1) }))}
-                              className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Listado y formulario de toppings individuales */}
-                        <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/50">
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Toppings en este grupo</label>
-
-                          {/* Lista vertical de toppings */}
-                          {currentGroup.options.length > 0 ? (
-                            <div className="space-y-2 pr-1 max-h-64 overflow-y-auto custom-scrollbar">
-                              {currentGroup.options.map((opt, oIdx) => {
-                                const isEditing = editingOptionIndex === oIdx
-                                const isAvailable = opt.isAvailable !== false
-
-                                return (
-                                  <div
-                                    key={oIdx}
-                                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all gap-2 ${isEditing
-                                        ? 'border-blue-200 bg-blue-50/20'
-                                        : isAvailable
-                                          ? 'border-slate-100 bg-slate-50 hover:bg-slate-100/70'
-                                          : 'border-slate-100 bg-slate-50/50 opacity-70'
-                                      }`}
-                                  >
-                                    {isEditing ? (
-                                      <div className="flex flex-1 flex-col sm:flex-row gap-2 items-center w-full">
-                                        <input
-                                          type="text"
-                                          value={editingOptionName}
-                                          onChange={(e) => setEditingOptionName(e.target.value)}
-                                          className="w-full sm:flex-1 px-3 py-1.5 border border-slate-200 focus:border-[#aa1918] rounded-lg text-xs font-bold outline-none bg-white"
-                                          placeholder="Nombre del topping"
-                                        />
-                                        <div className="relative w-full sm:w-24">
-                                          <span className="absolute left-2.5 top-1.5 text-slate-400 text-xs font-bold">$</span>
-                                          <input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            value={editingOptionPrice}
-                                            onChange={(e) => setEditingOptionPrice(e.target.value)}
-                                            className="w-full pl-5 pr-2 py-1.5 border border-slate-200 focus:border-[#aa1918] rounded-lg text-xs font-bold outline-none bg-white"
-                                            placeholder="Precio"
-                                          />
-                                        </div>
-                                        <div className="flex gap-1 w-full sm:w-auto justify-end">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleSaveEditingOption(oIdx)}
-                                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase rounded-lg transition-colors"
-                                          >
-                                            Guardar
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => setEditingOptionIndex(null)}
-                                            className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-650 text-[10px] font-black uppercase rounded-lg transition-colors"
-                                          >
-                                            Cancelar
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isAvailable ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
-                                          <div className="font-bold text-xs text-slate-700 truncate">
-                                            {opt.name}
-                                          </div>
-                                          {!isAvailable && (
-                                            <span className="bg-slate-200 text-slate-500 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border border-slate-300/40">
-                                              Oculto
-                                            </span>
-                                          )}
-                                          <span className="text-emerald-600 text-xs font-black">
-                                            {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
-                                          </span>
-                                        </div>
-
-                                        <div className="flex items-center gap-1 flex-shrink-0 self-end sm:self-auto">
-                                          {/* Ocultar / Mostrar */}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleToggleOptionAvailability(oIdx)}
-                                            className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${isAvailable
-                                                ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 border-transparent'
-                                                : 'text-amber-500 bg-amber-50 border-amber-100 hover:bg-amber-100 hover:text-amber-600'
-                                              }`}
-                                            title={isAvailable ? 'Ocultar topping' : 'Mostrar topping'}
-                                          >
-                                            <i className={`bi ${isAvailable ? 'bi-eye' : 'bi-eye-slash'} text-xs`}></i>
-                                          </button>
-
-                                          {/* Editar */}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleStartEditOption(oIdx, opt)}
-                                            className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100 transition-all"
-                                            title="Editar topping"
-                                          >
-                                            <i className="bi bi-pencil text-xs"></i>
-                                          </button>
-
-                                          {/* Eliminar */}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleRemoveOptionFromGroup(oIdx)}
-                                            className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-all"
-                                            title="Eliminar topping"
-                                          >
-                                            <i className="bi bi-trash text-xs"></i>
-                                          </button>
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                )
-                              })}
+                    {editingGroupIndex !== null && optionGroups[editingGroupIndex] && (() => {
+                      const currentEditingGroup = optionGroups[editingGroupIndex]
+                      return (
+                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/80 space-y-4 shadow-inner">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-200/50">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-3.5 bg-[#aa1918] rounded-full"></div>
+                              <h4 className="font-black text-slate-700 text-[10px] uppercase tracking-wider">
+                                {currentEditingGroup.name.trim() ? `Editar: ${currentEditingGroup.name}` : 'Nuevo Grupo de Toppings'}
+                              </h4>
                             </div>
-                          ) : (
-                            <p className="text-xs text-slate-400 italic font-medium ml-1">Aún no hay toppings en este grupo.</p>
-                          )}
-
-                          {/* Fila para agregar topping rápidamente */}
-                          <div className="flex flex-col sm:flex-row gap-2 items-center pt-2">
-                            <input
-                              type="text"
-                              placeholder="Nombre: Queso Cheddar, Salsa BBQ..."
-                              value={newOptionName}
-                              onChange={(e) => setNewOptionName(e.target.value)}
-                              className="w-full sm:flex-1 px-4 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
-                            />
-
-                            <div className="relative w-full sm:w-28">
-                              <span className="absolute left-3 top-2.5 text-slate-400 text-xs font-bold">$</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                placeholder="Precio"
-                                value={newOptionPrice}
-                                onChange={(e) => setNewOptionPrice(e.target.value)}
-                                className="w-full pl-6 pr-3 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
-                              />
-                            </div>
-
                             <button
                               type="button"
-                              onClick={handleAddOptionToGroup}
-                              className="w-full sm:w-auto px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-sm"
+                              onClick={() => handleCloseGroupEdit(editingGroupIndex)}
+                              className="text-slate-400 hover:text-slate-600 text-xs font-bold flex items-center gap-1 transition-colors"
+                              title="Minimizar edición de este grupo"
                             >
-                              <i className="bi bi-plus-lg"></i>
-                              Añadir
+                              <i className="bi bi-chevron-up text-xs"></i>
+                              <span>Minimizar</span>
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre Categoría</label>
+                              <input
+                                type="text"
+                                value={currentEditingGroup.name}
+                                onChange={(e) => handleUpdateGroupName(editingGroupIndex, e.target.value)}
+                                placeholder="Ej: Salsas, Quesos, Adicionales..."
+                                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mínimo a Elegir</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={currentEditingGroup.minSelect === '' ? '' : currentEditingGroup.minSelect}
+                                onChange={(e) => handleUpdateGroupMin(editingGroupIndex, e.target.value)}
+                                placeholder="0"
+                                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Máximo a Elegir</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={currentEditingGroup.maxSelect === '' ? '' : currentEditingGroup.maxSelect}
+                                onChange={(e) => handleUpdateGroupMax(editingGroupIndex, e.target.value)}
+                                placeholder="1"
+                                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Listado y formulario de toppings individuales */}
+                          <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/50">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Toppings en este grupo</label>
+
+                            {/* Lista vertical de toppings */}
+                            {currentEditingGroup.options.length > 0 ? (
+                              <div className="space-y-2 pr-1 max-h-64 overflow-y-auto custom-scrollbar">
+                                {currentEditingGroup.options.map((opt, oIdx) => {
+                                  const isEditing = editingOptionIndex === oIdx
+                                  const isAvailable = opt.isAvailable !== false
+
+                                  return (
+                                    <div
+                                      key={oIdx}
+                                      className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all gap-2 ${isEditing
+                                          ? 'border-blue-200 bg-blue-50/20'
+                                          : isAvailable
+                                            ? 'border-slate-100 bg-slate-50 hover:bg-slate-100/70'
+                                            : 'border-slate-100 bg-slate-50/50 opacity-70'
+                                        }`}
+                                    >
+                                      {isEditing ? (
+                                        <div className="flex flex-1 flex-col sm:flex-row gap-2 items-center w-full">
+                                          <input
+                                            type="text"
+                                            value={editingOptionName}
+                                            onChange={(e) => setEditingOptionName(e.target.value)}
+                                            className="w-full sm:flex-1 px-3 py-1.5 border border-slate-200 focus:border-[#aa1918] rounded-lg text-xs font-bold outline-none bg-white"
+                                            placeholder="Nombre del topping"
+                                          />
+                                          <div className="relative w-full sm:w-24">
+                                            <span className="absolute left-2.5 top-1.5 text-slate-400 text-xs font-bold">$</span>
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0"
+                                              value={editingOptionPrice}
+                                              onChange={(e) => setEditingOptionPrice(e.target.value)}
+                                              className="w-full pl-5 pr-2 py-1.5 border border-slate-200 focus:border-[#aa1918] rounded-lg text-xs font-bold outline-none bg-white"
+                                              placeholder="Precio"
+                                            />
+                                          </div>
+                                          <div className="flex gap-1 w-full sm:w-auto justify-end">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleSaveEditingOption(oIdx)}
+                                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase rounded-lg transition-colors"
+                                            >
+                                              Guardar
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingOptionIndex(null)}
+                                              className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-650 text-[10px] font-black uppercase rounded-lg transition-colors"
+                                            >
+                                              Cancelar
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isAvailable ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
+                                            <div className="font-bold text-xs text-slate-700 truncate">
+                                              {opt.name}
+                                            </div>
+                                            {!isAvailable && (
+                                              <span className="bg-slate-200 text-slate-500 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border border-slate-300/40">
+                                                Oculto
+                                              </span>
+                                            )}
+                                            <span className="text-emerald-600 text-xs font-black">
+                                              {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
+                                            </span>
+                                          </div>
+
+                                          <div className="flex items-center gap-1 flex-shrink-0 self-end sm:self-auto">
+                                            {/* Ocultar / Mostrar */}
+                                            <button
+                                              type="button"
+                                              onClick={() => handleToggleOptionAvailability(oIdx)}
+                                              className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${isAvailable
+                                                  ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 border-transparent'
+                                                  : 'text-amber-500 bg-amber-50 border-amber-100 hover:bg-amber-100 hover:text-amber-600'
+                                                }`}
+                                              title={isAvailable ? 'Ocultar topping' : 'Mostrar topping'}
+                                            >
+                                              <i className={`bi ${isAvailable ? 'bi-eye' : 'bi-eye-slash'} text-xs`}></i>
+                                            </button>
+
+                                            {/* Editar */}
+                                            <button
+                                              type="button"
+                                              onClick={() => handleStartEditOption(oIdx, opt)}
+                                              className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100 transition-all"
+                                              title="Editar topping"
+                                            >
+                                              <i className="bi bi-pencil text-xs"></i>
+                                            </button>
+
+                                            {/* Eliminar */}
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveOptionFromGroup(oIdx)}
+                                              className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-all"
+                                              title="Eliminar topping"
+                                            >
+                                              <i className="bi bi-trash text-xs"></i>
+                                            </button>
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-400 italic font-medium ml-1">Aún no hay toppings en este grupo.</p>
+                            )}
+
+                            {/* Fila para agregar topping rápidamente */}
+                            <div className="flex flex-col sm:flex-row gap-2 items-center pt-2">
+                              <input
+                                type="text"
+                                placeholder="Nombre: Queso Cheddar, Salsa BBQ..."
+                                value={newOptionName}
+                                onChange={(e) => setNewOptionName(e.target.value)}
+                                className="w-full sm:flex-1 px-4 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
+                              />
+
+                              <div className="relative w-full sm:w-28">
+                                <span className="absolute left-3 top-2.5 text-slate-400 text-xs font-bold">$</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="Precio"
+                                  value={newOptionPrice}
+                                  onChange={(e) => setNewOptionPrice(e.target.value)}
+                                  className="w-full pl-6 pr-3 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={handleAddOptionToGroup}
+                                className="w-full sm:w-auto px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-sm"
+                              >
+                                <i className="bi bi-plus-lg"></i>
+                                Añadir
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Botones de acción del grupo (sin botón de guardar grupo) */}
+                          <div className="flex gap-2 pt-2 justify-between items-center border-t border-slate-200/50">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOptionGroup(editingGroupIndex)}
+                              className="px-3 py-2 text-red-600 hover:bg-red-50 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5"
+                            >
+                              <i className="bi bi-trash"></i>
+                              Eliminar Grupo
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCloseGroupEdit(editingGroupIndex)}
+                              className="px-4 py-2 border border-slate-300 text-slate-700 bg-white hover:bg-slate-100 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shadow-sm"
+                            >
+                              <i className="bi bi-check2 text-sm"></i>
+                              Listo / Minimizar
                             </button>
                           </div>
                         </div>
-
-                        {/* Botones de acción del grupo */}
-                        <div className="flex gap-2 pt-2 justify-end border-t border-slate-200/50">
-                          <button
-                            type="button"
-                            onClick={() => setEditingGroupIndex(null)}
-                            className="px-4 py-2 border border-slate-300 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-100 transition-colors"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleSaveOptionGroup}
-                            className="px-4 py-2 bg-[#aa1918] hover:bg-[#8f1514] text-white text-xs font-black uppercase tracking-wider rounded-xl transition-colors shadow-sm shadow-red-100"
-                          >
-                            Guardar Grupo
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                      )
+                    })()}
 
                     {/* Lista de grupos de toppings agregados */}
                     <div className="space-y-3">
                       {optionGroups.length > 0 ? (
                         optionGroups.map((group, idx) => (
-                          <div key={group.id} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-start justify-between shadow-sm hover:shadow-md transition-all duration-300">
+                          <div
+                            key={group.id}
+                            className={`p-5 rounded-2xl border flex items-start justify-between shadow-sm hover:shadow-md transition-all duration-300 ${
+                              idx === editingGroupIndex ? 'bg-red-50/20 border-[#aa1918]/40 ring-2 ring-red-100' : 'bg-white border-slate-100'
+                            }`}
+                          >
                             <div className="space-y-2.5 min-w-0 pr-4">
                               <div className="flex flex-wrap items-center gap-2">
                                 <h4 className="font-bold text-slate-800 text-xs">{group.name}</h4>
@@ -4601,8 +4836,13 @@ export default function ProductList({
 
                 <button
                   type="submit"
-                  disabled={uploading}
-                  className="flex-1 px-4 py-3 bg-[#aa1918] text-white rounded-xl hover:bg-[#8f1514] active:scale-95 transition-all font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 shadow-md"
+                  disabled={uploading || !hasChanges || !formData.name.trim()}
+                  title={!hasChanges && editingProduct ? 'No hay cambios pendientes por guardar' : undefined}
+                  className={`flex-1 px-4 py-3 rounded-xl transition-all font-bold text-sm flex items-center justify-center gap-2 shadow-md ${
+                    uploading || !hasChanges || !formData.name.trim()
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                      : 'bg-[#aa1918] text-white hover:bg-[#8f1514] active:scale-95 shadow-red-100 cursor-pointer'
+                  }`}
                 >
                   {uploading ? (
                     <>

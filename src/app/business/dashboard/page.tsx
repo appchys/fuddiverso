@@ -141,7 +141,7 @@ export default function TodayOrdersPage() {
             setToast(null)
         }, 2500)
     }
-    const { queueStatus, retryFailed } = useOfflineQueue()
+    const { queueStatus, retryFailed, clearFailed } = useOfflineQueue()
     const {
         online,
         pendingWrites,
@@ -152,7 +152,8 @@ export default function TodayOrdersPage() {
     } = useConnectionStatus()
     const [showSyncedNotice, setShowSyncedNotice] = useState(false)
 
-    const totalPendingChanges = pendingWrites + pendingTasks + (queueStatus?.pending || 0) + (queueStatus?.failed || 0)
+    const queuePendingCount = (queueStatus?.pending || 0) + (queueStatus?.failed || 0)
+    const totalPendingChanges = pendingWrites + Math.max(queuePendingCount, pendingTasks)
     const isCurrentlySyncing = isSyncingOrders || connectivitySyncing || ((queueStatus?.syncing || 0) > 0)
 
     useEffect(() => {
@@ -1929,8 +1930,16 @@ export default function TodayOrdersPage() {
     }, [businesses, business, availableDeliveries])
 
     const handleDeleteOrder = useCallback(async (orderId: string) => {
-        if (business?.id !== MUNCHYS_BUSINESS_ID) {
-            alert('Solo Munchys puede borrar órdenes.')
+        // Buscar la orden en el estado local del dashboard
+        const targetOrder = orders.find(o => o.id === orderId) ||
+            historicalOrders.find(o => o.id === orderId) ||
+            allUpcomingOrders.find(o => o.id === orderId)
+
+        const isCreatedByAdmin = targetOrder?.createdByAdmin === true
+
+        // Cualquier tienda puede borrar pedidos si fueron creados por el administrador
+        if (!isCreatedByAdmin && business?.id !== MUNCHYS_BUSINESS_ID) {
+            alert('Las órdenes generadas por clientes no se pueden eliminar directamente, deben ser canceladas.')
             return
         }
 
@@ -1943,7 +1952,7 @@ export default function TodayOrdersPage() {
             console.error("Error deleting order", error)
             alert("No se pudo eliminar el pedido")
         }
-    }, [business?.id])
+    }, [orders, historicalOrders, allUpcomingOrders, business?.id, removeOrderEverywhere])
 
     const handleRefreshDashboardData = useCallback(async () => {
         if (isCurrentlySyncing || !businessId) return
@@ -1955,9 +1964,15 @@ export default function TodayOrdersPage() {
             if (isOnlineNow) {
                 try {
                     const queue = getOfflineQueue()
-                    await queue.processQueue()
-                    if (retryFailed) {
-                        retryFailed()
+                    if (queueStatus?.failed && queueStatus.failed > 0) {
+                        await queue.retryFailed()
+                        // Si tras el reintento persisten tareas con error irrecuperable, limpiarlas
+                        const updated = queue.getQueueStatus()
+                        if (updated.failed > 0) {
+                            queue.clearFailed()
+                        }
+                    } else {
+                        await queue.processQueue()
                     }
                 } catch (e) {
                     console.warn('[Refresh] Error procesando cola offline:', e)
@@ -1967,7 +1982,7 @@ export default function TodayOrdersPage() {
             // 2. Re-ejecutar listeners en tiempo real
             setOrdersRefreshTrigger(prev => prev + 1)
 
-            // 3. Consultar órdenes de hoy directamente del servidor para garantizar datos al instante
+            // 3. Consultar órdenes de hoy con timeout para evitar cuelgues si la red o caché están ocupadas
             const now = new Date()
             const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
             const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
@@ -1988,16 +2003,26 @@ export default function TodayOrdersPage() {
                 where('businessId', '==', businessId)
             )
 
+            const fetchWithTimeout = <T,>(p: Promise<T>, timeoutMs = 6000): Promise<T | null> => {
+                let timer: NodeJS.Timeout | undefined
+                const timeoutPromise = new Promise<null>(resolve => {
+                    timer = setTimeout(() => resolve(null), timeoutMs)
+                })
+                return Promise.race([p, timeoutPromise]).finally(() => {
+                    if (timer) clearTimeout(timer)
+                })
+            }
+
             const [snapToday, snapActive, snapJobs] = await Promise.all([
-                getDocs(qCreatedToday).catch((err) => {
+                fetchWithTimeout(getDocs(qCreatedToday)).catch((err) => {
                     console.error('[Refresh] Error obteniendo pedidos de hoy:', err)
                     return null
                 }),
-                getDocs(qActive).catch((err) => {
+                fetchWithTimeout(getDocs(qActive)).catch((err) => {
                     console.error('[Refresh] Error obteniendo pedidos activos:', err)
                     return null
                 }),
-                getDocs(jobsQuery).catch((err) => {
+                fetchWithTimeout(getDocs(jobsQuery)).catch((err) => {
                     console.error('[Refresh] Error obteniendo cola de impresión:', err)
                     return null
                 })

@@ -47,6 +47,11 @@ export function useOfflineQueue() {
         queue.clearQueue()
     }, [])
 
+    const clearFailed = useCallback(() => {
+        const queue = getOfflineQueue()
+        queue.clearFailed()
+    }, [])
+
     const removeOrder = useCallback((id: string) => {
         const queue = getOfflineQueue()
         queue.removeFromQueue(id)
@@ -58,6 +63,7 @@ export function useOfflineQueue() {
         pendingOrders,
         addOrder,
         retryFailed,
+        clearFailed,
         clearQueue,
         removeOrder
     }
