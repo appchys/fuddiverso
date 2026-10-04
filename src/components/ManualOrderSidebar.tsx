@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
 import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
+import { getOfflineQueue } from '@/lib/offline-queue'
 import { searchClients } from '@/lib/client-search'
 import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
 import { formatComboVariantSelection } from '@/lib/combo-utils'
@@ -3233,35 +3234,31 @@ export default function ManualOrderSidebar({
               timing: orderData.timing
             }, { businessId: effectiveBusinessId, orderId, customerName: orderData.customer?.name, customerPhone: orderData.customer?.phone, level: 'info' })
 
-            // Descontar saldo/créditos de billetera si se usaron
+            // Descontar saldo/créditos de billetera si se usaron (persistente en cola)
             const creditToDeduct = (orderData as any).creditUsed || 0
             if (creditToDeduct > 0) {
-              try {
-                const identifiers = [
-                  capturedCustomerId,
-                  capturedCustomerPhone,
-                  capturedEditingClientId,
-                  capturedEditingClientCelular
-                ].filter(Boolean) as string[]
-                if (identifiers.length > 0) {
-                  await useUserCreditsFlexible(identifiers, effectiveBusinessId || '', creditToDeduct, orderId)
-                }
-              } catch (creditErr) {
-                console.error('Error deducting credits in manual order:', creditErr)
+              const identifiers = [
+                capturedCustomerId,
+                capturedCustomerPhone,
+                capturedEditingClientId,
+                capturedEditingClientCelular
+              ].filter(Boolean) as string[]
+              if (identifiers.length > 0) {
+                getOfflineQueue().enqueueTask('deductCredits', {
+                  identifiers,
+                  businessId: effectiveBusinessId || '',
+                  creditToDeduct,
+                  orderId
+                }, `credit_${orderId}`)
               }
             }
 
-            // Si viene de un checkout, marcarlo como completado
+            // Si viene de un checkout, marcarlo como completado (persistente en cola)
             if (isFromCheckout && capturedEditOrderCheckoutSessionId) {
-              try {
-                const { doc, updateDoc } = await import('firebase/firestore')
-                const { db } = await import('@/lib/firebase')
-                await updateDoc(doc(db, 'checkoutProgress', capturedEditOrderCheckoutSessionId), {
-                  currentStep: 5,
-                  completedAt: new Date(),
-                  convertedToOrderId: orderId
-                });
-              } catch (e) { console.error('Error updating checkout session:', e) }
+              getOfflineQueue().enqueueTask('completeCheckout', {
+                checkoutSessionId: capturedEditOrderCheckoutSessionId,
+                orderId
+              }, `checkout_${capturedEditOrderCheckoutSessionId}`)
             }
 
             console.log('[ManualOrder] Orden creada con éxito en segundo plano, id:', orderId);

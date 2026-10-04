@@ -321,6 +321,12 @@ export const OrderCard = memo(function OrderCard({
                                         Pendiente anterior
                                     </span>
                                 )}
+                                {(isOptimistic || (order as any)._hasPendingWrites) && (
+                                    <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold leading-none bg-blue-50 text-blue-700 border border-blue-200" title="Guardado en este dispositivo, pendiente de confirmar por el servidor">
+                                        <i className="bi bi-cloud-arrow-up text-xs animate-pulse"></i>
+                                        Pendiente de subir
+                                    </span>
+                                )}
                             </div>
                         </div>
                     </div>

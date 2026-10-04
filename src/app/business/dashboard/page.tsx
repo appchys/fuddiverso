@@ -33,6 +33,7 @@ import {
 import { isStoreOpen, calculateManualStatusExpiry } from '@/lib/store-utils'
 import { resolveItemIngredients } from '@/lib/stock-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
+import { OfflineBanner } from '@/components/business/OfflineBanner'
 import NotificationsBell from '@/components/NotificationsBell'
 import DailyCheckInBanner from '@/components/DailyCheckInBanner'
 import FavoriteIngredientsStockBar from '@/components/FavoriteIngredientsStockBar'
@@ -1250,10 +1251,10 @@ export default function TodayOrdersPage() {
             where('createdAt', '>=', Timestamp.fromDate(startOfDay)),
             where('createdAt', '<', Timestamp.fromDate(endOfDay))
         )
-        const unsubCreated = onSnapshot(qCreatedToday, (snapshot) => {
+        const unsubCreated = onSnapshot(qCreatedToday, { includeMetadataChanges: true }, (snapshot) => {
             handleDocChanges(snapshot)
             snapshot.docs.forEach(doc => {
-                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+                ordersMap.set(doc.id, { id: doc.id, ...doc.data(), _hasPendingWrites: doc.metadata.hasPendingWrites } as any)
             })
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
@@ -1279,10 +1280,10 @@ export default function TodayOrdersPage() {
             where('businessId', '==', businessId),
             where('status', 'in', ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'])
         )
-        const unsubActive = onSnapshot(qActive, (snapshot) => {
+        const unsubActive = onSnapshot(qActive, { includeMetadataChanges: true }, (snapshot) => {
             handleDocChanges(snapshot)
             snapshot.docs.forEach(doc => {
-                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+                ordersMap.set(doc.id, { id: doc.id, ...doc.data(), _hasPendingWrites: doc.metadata.hasPendingWrites } as any)
             })
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
@@ -1789,7 +1790,8 @@ export default function TodayOrdersPage() {
 
             if (Object.keys(assignmentUpdate).length > 0) {
                 const orderRef = doc(db, 'orders', orderId);
-                await updateDoc(orderRef, assignmentUpdate);
+                const { commitWrite } = await import('@/lib/offlineWrite')
+                await commitWrite(updateDoc(orderRef, assignmentUpdate), { label: `statusAssignment:${orderId}` });
 
                 // Aplicar actualización de repartidor en caso de que se haya auto-asignado
                 patchOrderEverywhere(orderId, order => ({
@@ -1807,9 +1809,11 @@ export default function TodayOrdersPage() {
             }
         } catch (error) {
             console.error("Error updating status:", error)
-            // Revertir estado optimista en caso de error
-            updateOrderEverywhere(previousOrder)
-            alert("Error al actualizar estado")
+            // Solo alertar y revertir si no fue por desconexión
+            if (typeof navigator !== 'undefined' && navigator.onLine) {
+                updateOrderEverywhere(previousOrder)
+                alert("Error al actualizar estado")
+            }
         }
     }
 
@@ -1847,11 +1851,6 @@ export default function TodayOrdersPage() {
             }
 
             const orderRef = doc(db, 'orders', orderId)
-            await updateDoc(orderRef, {
-                'delivery.assignedDelivery': deliveryId || null,
-                'delivery.assignedDeliveryData': deliveryPayload,
-                'delivery.acceptanceStatus': 'pending'
-            })
             const applyDeliveryUpdate = (order: Order) => order.id === orderId
                 ? {
                     ...order,
@@ -1867,9 +1866,15 @@ export default function TodayOrdersPage() {
             setHistoricalOrders(prev => prev.map(applyDeliveryUpdate))
             setAllUpcomingOrders(prev => prev.map(applyDeliveryUpdate))
             setSelectedOrderForStatusModal(prev => prev?.id === orderId ? applyDeliveryUpdate(prev) : prev)
+
+            const { commitWrite } = await import('@/lib/offlineWrite')
+            await commitWrite(updateDoc(orderRef, {
+                'delivery.assignedDelivery': deliveryId || null,
+                'delivery.assignedDeliveryData': deliveryPayload,
+                'delivery.acceptanceStatus': 'pending'
+            }), { label: `handleDeliveryAssignment:${orderId}` })
         } catch (error) {
             console.error("Error assigning delivery:", error)
-            alert("Error al asignar repartidor")
         }
     }, [availableDeliveries, patchOrderEverywhere])
 
@@ -2380,6 +2385,7 @@ export default function TodayOrdersPage() {
                 />
 
                 <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
+                    <OfflineBanner />
                     {/* Header */}
                     <header className="bg-white shadow-sm border-b sticky top-0 z-30 w-full">
                         <div className="px-4 sm:px-6">

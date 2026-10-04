@@ -9,12 +9,15 @@ import {
 } from "firebase/firestore";
 import {
   getAuth,
+  initializeAuth,
   GoogleAuthProvider,
-  signInWithRedirect,
-  setPersistence,
-  browserLocalPersistence
+  browserLocalPersistence,
+  indexedDBLocalPersistence,
+  browserPopupRedirectResolver,
+  type Auth
 } from "firebase/auth";
 import { getStorage } from "firebase/storage";
+import { clearAuthSessionBackup } from "./authSessionGuard";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -39,13 +42,33 @@ const db = initializeFirestore(app, {
 });
 
 // Initialize Firebase Authentication
-const auth = getAuth(app);
+// En el navegador definimos la persistencia al crear la instancia (en lugar de
+// llamar setPersistence de forma asíncrona), evitando que la sesión migre entre
+// IndexedDB y localStorage en cada carga. localStorage va primero porque es el
+// formato que authSessionGuard respalda/restaura.
+function createAuth(): Auth {
+  if (typeof window === 'undefined') return getAuth(app);
+  try {
+    return initializeAuth(app, {
+      persistence: [browserLocalPersistence, indexedDBLocalPersistence],
+      popupRedirectResolver: browserPopupRedirectResolver
+    });
+  } catch {
+    // Ya inicializado (p.ej. HMR en desarrollo)
+    return getAuth(app);
+  }
+}
 
-// Ensure auth persists across reloads (browser only)
+const auth = createAuth();
+
+// Cualquier cierre de sesión explícito (signOut(auth) o auth.signOut()) debe
+// eliminar el respaldo de sesión para que no se restaure automáticamente.
 if (typeof window !== 'undefined') {
-  setPersistence(auth, browserLocalPersistence).catch(() => {
-    // Non-fatal: fall back to default persistence if this fails
-  });
+  const originalSignOut = auth.signOut.bind(auth);
+  auth.signOut = async () => {
+    clearAuthSessionBackup();
+    return originalSignOut();
+  };
 }
 
 // Initialize Firebase Storage

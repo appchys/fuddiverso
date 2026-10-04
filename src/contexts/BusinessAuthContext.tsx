@@ -3,7 +3,12 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { User } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { onAuthStateChanged } from 'firebase/auth'
+import { onAuthStateChanged, onIdTokenChanged } from 'firebase/auth'
+import {
+  backupAuthSession,
+  markAuthSessionHealthy,
+  tryRestoreAuthSession
+} from '@/lib/authSessionGuard'
 
 interface BusinessUser {
   uid: string
@@ -44,6 +49,10 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
     // Escuchar cambios en el estado de autenticación de Firebase
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Sesión válida: respaldarla por si Firebase la descarta en una recarga con red inestable
+        backupAuthSession(firebaseUser)
+        markAuthSessionHealthy()
+
         // Tenemos usuario en Firebase
         let currentBusinessId = savedBusinessId
         let currentOwnerId = savedOwnerId
@@ -134,6 +143,13 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
           console.warn('[Auth] Firebase user logged in but no business found');
         }
       } else {
+        // Firebase no tiene usuario. Si existe un respaldo (no hubo signOut explícito),
+        // probablemente la sesión se descartó por un fallo de red transitorio al recargar:
+        // intentamos restaurarla una vez en lugar de mandar al usuario al login.
+        if (tryRestoreAuthSession(auth)) {
+          return // La página se recargará; mantener authLoading en true
+        }
+
         // Si el usuario no está autenticado en Firebase, limpiar todo
         setUser(null)
         setBusinessIdState(null)
@@ -146,7 +162,15 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    return () => unsubscribe()
+    // Mantener el respaldo al día cada vez que Firebase refresca el token
+    const unsubscribeToken = onIdTokenChanged(auth, (firebaseUser) => {
+      if (firebaseUser) backupAuthSession(firebaseUser)
+    })
+
+    return () => {
+      unsubscribe()
+      unsubscribeToken()
+    }
   }, [])
 
   const login = async (userData: BusinessUser, businessIdParam: string, ownerIdParam: string) => {

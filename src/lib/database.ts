@@ -27,6 +27,8 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { db, storage, googleProvider, auth } from './firebase'
 export { storage, serverTimestamp, Timestamp }
 
+import { commitWrite, getDocSmart, getDocsSmart } from './offlineWrite'
+import { getOfflineQueue } from './offline-queue'
 import { normalizeEcuadorianPhone } from './validation'
 import {
   signInWithRedirect,
@@ -703,7 +705,7 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
     }
 
     console.log('📤 Final update data for Firebase:', updateData)
-    await updateDoc(docRef, updateData)
+    await commitWrite(updateDoc(docRef, updateData), { label: `updateBusiness:${businessId}` })
     invalidateBusinessCache(businessId)
     console.log('✅ Firebase updateDoc completed successfully')
   } catch (error) {
@@ -1642,7 +1644,7 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
 
     const shortId = generateShortOrderCode(6)
     const docRef = doc(db, 'orders', shortId)
-    await setDoc(docRef, standardizedOrder)
+    await commitWrite(setDoc(docRef, standardizedOrder), { label: `createOrder:${shortId}` })
 
     // Registrar log persistente en debug_logs
     logDebug('order_creation', `Orden creada en Firestore: ${shortId}`, {
@@ -1668,37 +1670,30 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       const customerName = standardizedOrder.customer?.name || customerPhone
       const customerEmail = standardizedOrder.customer?.email
       if (customerPhone) {
-        searchClientByPhone(customerPhone).then(async (existingClient) => {
-          if (!existingClient) {
-            await createClient({
-              celular: customerPhone,
-              nombres: customerName,
-              email: customerEmail || undefined,
-              fecha_de_registro: formatDateDDMMYYYY()
-            })
-          }
-        }).catch(err => {
-          console.warn('⚠️ [createOrder] Error asegurando registro de cliente en Firestore:', err)
-        })
+        getOfflineQueue().enqueueTask('ensureClient', {
+          phone: customerPhone,
+          name: customerName,
+          email: customerEmail
+        }, `client_${customerPhone}`)
       }
     } catch (clientErr) {
       console.warn('⚠️ Excepción silenciada al asegurar registro de cliente:', clientErr)
     }
 
-    // 3. REGISTRO AUTOMÁTICO DE CONSUMO (Punto 4 del pedido)
+    // 3. REGISTRO AUTOMÁTICO DE CONSUMO (descontar stock de forma diferida/persistente)
     try {
       const orderDateStr = standardizedOrder.timing?.scheduledDate
         ? toSafeDate(standardizedOrder.timing.scheduledDate).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0]
 
-      await registerOrderConsumption(
-        standardizedOrder.businessId,
-        standardizedOrder.items,
-        orderDateStr,
-        docRef.id
-      )
+      getOfflineQueue().enqueueTask('registerConsumption', {
+        businessId: standardizedOrder.businessId,
+        items: standardizedOrder.items,
+        orderDate: orderDateStr,
+        orderId: docRef.id
+      }, `consumption_${docRef.id}`)
     } catch (consumeError) {
-      console.error('Error al descontar stock automáticamente:', consumeError)
+      console.error('Error al encolar consumo de stock:', consumeError)
     }
 
     return docRef.id
@@ -1978,39 +1973,42 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
     if (status === 'delivered') {
       updatePayload.deliveredAt = serverTimestamp()
 
-      // Acreditar referido si existe
-      try {
-        const orderDoc = await getDoc(docRef)
+      // Acreditar referido si existe (usando getDocSmart o tareas diferidas)
+      getDocSmart(docRef).then(orderDoc => {
         if (orderDoc.exists()) {
           const orderData = orderDoc.data()
           if (orderData.referralCode) {
-            await creditReferral(orderId, orderData.referralCode)
+            getOfflineQueue().enqueueTask('creditReferral', {
+              orderId,
+              referralCode: orderData.referralCode
+            }, `referral_${orderId}`)
           }
         }
-      } catch (refError) {
+      }).catch(refError => {
         console.error('Error crediting referral on delivery:', refError)
-        // No lanzar error para no bloquear la actualización del estado
-      }
+      })
     }
 
-    await updateDoc(docRef, updatePayload)
+    await commitWrite(updateDoc(docRef, updatePayload), { label: `updateOrderStatus:${orderId}:${status}` })
 
-    // Notificar al cliente del cambio de estado (en segundo plano, sin bloquear)
-    try {
-      const orderSnap = await getDoc(docRef)
+    // Notificar al cliente del cambio de estado (en segundo plano y persistente)
+    getDocSmart(docRef).then(orderSnap => {
       if (orderSnap.exists()) {
         const orderData = orderSnap.data()
         const customerPhone = orderData.customer?.phone || orderData.customerPhone
         const businessId = orderData.businessId
         if (customerPhone) {
-          // Fire and forget - no bloquear la respuesta
-          upsertOrderTrackingNotification(orderId, status, customerPhone, businessId)
-            .catch(err => console.error('[updateOrderStatus] tracking notification error:', err))
+          getOfflineQueue().enqueueTask('trackingNotification', {
+            orderId,
+            status,
+            customerPhone,
+            businessId
+          }, `tracking_${orderId}_${status}`)
         }
       }
-    } catch (notifError) {
+    }).catch(notifError => {
       console.error('[updateOrderStatus] Error sending tracking notification:', notifError)
-    }
+    })
   } catch (error) {
     console.error('Error updating order status:', error)
     throw error
@@ -2020,7 +2018,7 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
 export async function getOrder(orderId: string): Promise<Order | null> {
   try {
     const docRef = doc(db, 'orders', orderId)
-    const docSnap = await getDoc(docRef)
+    const docSnap = await getDocSmart(docRef)
 
     if (docSnap.exists()) {
       return {
@@ -2040,10 +2038,10 @@ export async function updateOrder(orderId: string, orderData: Partial<Omit<Order
   try {
     const docRef = doc(db, 'orders', orderId)
     const cleanData = cleanObject(orderData)
-    await updateDoc(docRef, {
+    await commitWrite(updateDoc(docRef, {
       ...cleanData,
       updatedAt: serverTimestamp()
-    })
+    }), { label: `updateOrder:${orderId}` })
   } catch (error) {
     console.error('Error updating order:', error)
     throw error
@@ -2057,7 +2055,7 @@ export async function deleteOrder(orderId: string, skipStock: boolean = false) {
       try {
         const movementsRef = collection(db, 'ingredientStockMovements')
         const q = query(movementsRef, where('orderId', '==', orderId))
-        const snapshot = await getDocs(q)
+        const snapshot = await getDocsSmart(q)
 
         if (!snapshot.empty) {
           const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref))
@@ -2069,7 +2067,7 @@ export async function deleteOrder(orderId: string, skipStock: boolean = false) {
     }
 
     const docRef = doc(db, 'orders', orderId)
-    await deleteDoc(docRef)
+    await commitWrite(deleteDoc(docRef), { label: `deleteOrder:${orderId}` })
   } catch (error) {
     console.error('❌ Error al eliminar orden:', error);
     throw error;
@@ -2080,7 +2078,7 @@ export async function deleteOrder(orderId: string, skipStock: boolean = false) {
 export async function getDelivery(deliveryId: string): Promise<Delivery | null> {
   try {
     const docRef = doc(db, 'deliveries', deliveryId)
-    const docSnap = await getDoc(docRef)
+    const docSnap = await getDocSmart(docRef)
 
     if (docSnap.exists()) {
       const deliveryData = docSnap.data()
@@ -2139,12 +2137,12 @@ export async function assignDeliveryToOrder(
     }
 
     const orderRef = doc(db, 'orders', orderId)
-    await updateDoc(orderRef, {
+    await commitWrite(updateDoc(orderRef, {
       'delivery.assignedDelivery': deliveryId || null,
       'delivery.assignedDeliveryData': assignedData,
       'delivery.acceptanceStatus': acceptanceStatus,
       updatedAt: serverTimestamp()
-    })
+    }), { label: `assignDelivery:${orderId}` })
 
     return assignedData
   } catch (error) {
