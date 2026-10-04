@@ -112,15 +112,33 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
           // Si aún no tenemos datos, intentar recuperar de la DB
           if (!currentBusinessId || !currentOwnerId) {
             try {
-              const { getBusinessByOwner } = await import('@/lib/database');
-              const biz = await getBusinessByOwner(firebaseUser.uid);
-              if (biz) {
-                currentBusinessId = biz.id;
-                currentOwnerId = biz.ownerId || firebaseUser.uid;
-                // Guardar para evitar repetir la búsqueda
-                localStorage.setItem('businessId', currentBusinessId);
-                localStorage.setItem('ownerId', currentOwnerId);
-                localStorage.setItem('currentBusinessId', currentBusinessId);
+              const { getCachedUserBusinessAccess, getUserBusinessAccess } = await import('@/lib/database');
+              // 1. Intentar primero con la caché instantánea de business access
+              const cached = getCachedUserBusinessAccess(firebaseUser.uid);
+              if (cached && cached.hasAccess) {
+                const firstBiz = cached.ownedBusinesses[0] || cached.adminBusinesses[0];
+                if (firstBiz) {
+                  currentBusinessId = firstBiz.id;
+                  currentOwnerId = firebaseUser.uid;
+                  localStorage.setItem('businessId', currentBusinessId);
+                  localStorage.setItem('ownerId', currentOwnerId);
+                  localStorage.setItem('currentBusinessId', currentBusinessId);
+                }
+              }
+
+              // 2. Si no hay en caché, consultar acceso de usuario (propietario o administrador)
+              if (!currentBusinessId) {
+                const access = await getUserBusinessAccess(firebaseUser.email || '', firebaseUser.uid);
+                if (access.hasAccess) {
+                  const firstBiz = access.ownedBusinesses[0] || access.adminBusinesses[0];
+                  if (firstBiz) {
+                    currentBusinessId = firstBiz.id;
+                    currentOwnerId = firebaseUser.uid;
+                    localStorage.setItem('businessId', currentBusinessId);
+                    localStorage.setItem('ownerId', currentOwnerId);
+                    localStorage.setItem('currentBusinessId', currentBusinessId);
+                  }
+                }
               }
             } catch (err) {
               console.error('[Auth] Error during session recovery:', err);

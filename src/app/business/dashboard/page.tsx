@@ -17,6 +17,7 @@ import {
     updateOrderStatus,
     updateBusiness,
     getUserBusinessAccess,
+    getCachedUserBusinessAccess,
     getTodayVisitsDocRef,
     getOrdersByBusinessPaginated,
     uploadImage,
@@ -1503,13 +1504,29 @@ export default function TodayOrdersPage() {
         }
     }, [ordersSubTab, businessId])
 
+    // Pre-cargar tiendas administradas desde cache local inmediatamente (0 ms)
+    useEffect(() => {
+        if (!user?.uid) return;
+        const cached = getCachedUserBusinessAccess(user.uid);
+        if (cached && cached.hasAccess) {
+            const all = [...cached.ownedBusinesses, ...cached.adminBusinesses];
+            const unique = all.filter((b: Business, i: number, self: Business[]) =>
+                i === self.findIndex((x: Business) => x.id === b.id) && !b.isHidden
+            );
+            if (unique.length > 0) {
+                setBusinesses(unique);
+                setBusinessesLoaded(true);
+            }
+        }
+    }, [user?.uid]);
+
     // Load all user businesses on demand when opening dropdown
     const loadUserBusinesses = useCallback(async (force = false) => {
         if (!user || !isAuthenticated) return;
         if (businessesLoaded && !force) return;
         setLoadingBusinesses(true);
         try {
-            const businessAccess = await getUserBusinessAccess(user.email || '', user.uid);
+            const businessAccess = await getUserBusinessAccess(user.email || '', user.uid, { bypassCache: force });
             if (businessAccess.hasAccess) {
                 const all = [...businessAccess.ownedBusinesses, ...businessAccess.adminBusinesses];
                 const unique = all.filter((b: Business, i: number, self: Business[]) =>

@@ -3241,10 +3241,13 @@ export async function getDailyVisitsForBusiness(
 // Función para verificar si un usuario es administrador de alguna tienda
 export async function getBusinessesByAdministrator(userEmail: string): Promise<Business[]> {
   try {
-    // Intentar query optimizada primero (usando adminEmails array)
+    const cleanEmail = (userEmail || '').trim().toLowerCase();
+    if (!cleanEmail) return [];
+
+    // 1. Query optimizada con email normalizado en minusculas
     const optimizedQuery = query(
       collection(db, 'businesses'),
-      where('adminEmails', 'array-contains', userEmail)
+      where('adminEmails', 'array-contains', cleanEmail)
     );
 
     const querySnapshot = await getDocs(optimizedQuery);
@@ -3261,6 +3264,29 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
         } as Business);
       });
       return businesses;
+    }
+
+    // 2. Si no encontro y el email original tenia mayusculas, probar con el original
+    const rawEmail = (userEmail || '').trim();
+    if (rawEmail !== cleanEmail) {
+      const rawQuery = query(
+        collection(db, 'businesses'),
+        where('adminEmails', 'array-contains', rawEmail)
+      );
+      const rawSnapshot = await getDocs(rawQuery);
+      if (!rawSnapshot.empty) {
+        const businesses: Business[] = [];
+        rawSnapshot.forEach((doc) => {
+          const businessData = doc.data();
+          businesses.push({
+            id: doc.id,
+            ...businessData,
+            createdAt: toSafeDate(businessData.createdAt),
+            updatedAt: toSafeDate(businessData.updatedAt)
+          } as Business);
+        });
+        return businesses;
+      }
     }
 
     return [];
@@ -3534,74 +3560,150 @@ export async function unlinkBusinessBranch(branchId: string, parentBusinessId: s
   }
 }
 
-// Función para verificar si un usuario tiene acceso a alguna tienda (como propietario o administrador)
-// e incluir automáticamente todas las sucursales vinculadas a los negocios a los que tiene acceso
-export async function getUserBusinessAccess(userEmail: string, userId: string): Promise<{
+export interface UserBusinessAccessResult {
   ownedBusinesses: Business[];
   adminBusinesses: Business[];
   hasAccess: boolean;
-}> {
-  try {
-    // Verificar tiendas como propietario y administrador en paralelo
-    const [ownedBusinesses, adminBusinesses] = await Promise.all([
-      getBusinessesByOwner(userId),
-      getBusinessesByAdministrator(userEmail)
-    ]);
+}
 
-    // Buscar sucursales adicionales vinculadas a los negocios que ya posee o administra
-    const allKnownBusinesses = [...ownedBusinesses, ...adminBusinesses];
-    const knownIds = new Set(allKnownBusinesses.map(b => b.id));
-    const parentIdsToQuery = new Set<string>();
+const userAccessCache = new Map<string, { data: UserBusinessAccessResult; timestamp: number }>();
+const userAccessInFlight = new Map<string, Promise<UserBusinessAccessResult>>();
+const USER_ACCESS_TTL_MS = 3 * 60 * 1000; // 3 minutos en memoria
 
-    for (const b of allKnownBusinesses) {
-      parentIdsToQuery.add(b.id);
-      if (b.parentBusinessId) {
-        parentIdsToQuery.add(b.parentBusinessId);
-      }
+export function getCachedUserBusinessAccess(userId: string): UserBusinessAccessResult | null {
+  if (typeof window === 'undefined' || !userId) return null;
+  // 1. Memoria rapida
+  for (const [key, value] of userAccessCache.entries()) {
+    if (key.startsWith(userId)) {
+      return value.data;
     }
-
-    const extraBranches: Business[] = [];
-    if (parentIdsToQuery.size > 0) {
-      await Promise.all(
-        Array.from(parentIdsToQuery).map(async (pId) => {
-          try {
-            const qBranches = query(
-              collection(db, 'businesses'),
-              where('parentBusinessId', '==', pId)
-            );
-            const bSnap = await getDocs(qBranches);
-            bSnap.forEach(docSnap => {
-              if (!knownIds.has(docSnap.id)) {
-                knownIds.add(docSnap.id);
-                const bData = docSnap.data();
-                extraBranches.push({
-                  id: docSnap.id,
-                  ...bData,
-                  createdAt: toSafeDate(bData.createdAt),
-                  updatedAt: toSafeDate(bData.updatedAt)
-                } as Business);
-              }
-            });
-          } catch (err) {
-            console.warn('Could not fetch child branches for parent', pId, err);
-          }
-        })
-      );
-    }
-
-    // Agregar las sucursales adicionales a adminBusinesses para que estén disponibles
-    const finalAdminBusinesses = [...adminBusinesses, ...extraBranches];
-    const hasAccess = ownedBusinesses.length > 0 || finalAdminBusinesses.length > 0;
-
-    return {
-      ownedBusinesses,
-      adminBusinesses: finalAdminBusinesses,
-      hasAccess
-    };
-  } catch (error) {
-    console.error('❌ Error checking user business access:', error);
-    throw error;
   }
+  // 2. LocalStorage
+  try {
+    const raw = localStorage.getItem(`fuddi_business_access_${userId}`);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+// Función para verificar si un usuario tiene acceso a alguna tienda (como propietario o administrador)
+// e incluir automáticamente todas las sucursales vinculadas a los negocios a los que tiene acceso
+export async function getUserBusinessAccess(
+  userEmail: string,
+  userId: string,
+  options?: { bypassCache?: boolean }
+): Promise<UserBusinessAccessResult> {
+  const normalizedEmail = (userEmail || '').trim().toLowerCase();
+  const cacheKey = `${userId}_${normalizedEmail}`;
+
+  // 1. Si no se solicita bypassCache, verificar caché en memoria
+  if (!options?.bypassCache) {
+    const cached = userAccessCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < USER_ACCESS_TTL_MS)) {
+      return cached.data;
+    }
+  }
+
+  // 2. Deduplicación de promesas en vuelo (evita consultas duplicadas simultaneas)
+  const inFlight = userAccessInFlight.get(cacheKey);
+  if (inFlight && !options?.bypassCache) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      // Verificar tiendas como propietario y administrador en paralelo
+      const [ownedBusinesses, adminBusinesses] = await Promise.all([
+        getBusinessesByOwner(userId),
+        getBusinessesByAdministrator(normalizedEmail)
+      ]);
+
+      // Buscar sucursales adicionales vinculadas a los negocios que ya posee o administra
+      const allKnownBusinesses = [...ownedBusinesses, ...adminBusinesses];
+      const knownIds = new Set(allKnownBusinesses.map(b => b.id));
+      const parentIdsToQuery = new Set<string>();
+
+      for (const b of allKnownBusinesses) {
+        parentIdsToQuery.add(b.id);
+        if (b.parentBusinessId) {
+          parentIdsToQuery.add(b.parentBusinessId);
+        }
+      }
+
+      const extraBranches: Business[] = [];
+      const parentIdsList = Array.from(parentIdsToQuery).filter(Boolean);
+
+      if (parentIdsList.length > 0) {
+        // En Firestore agrupamos hasta 30 IDs por query con 'in' en lugar de N queries HTTP individuales
+        const chunks: string[][] = [];
+        for (let i = 0; i < parentIdsList.length; i += 30) {
+          chunks.push(parentIdsList.slice(i, i + 30));
+        }
+
+        await Promise.all(
+          chunks.map(async (chunk) => {
+            try {
+              const qBranches = query(
+                collection(db, 'businesses'),
+                where('parentBusinessId', 'in', chunk)
+              );
+              const bSnap = await getDocs(qBranches);
+              bSnap.forEach(docSnap => {
+                if (!knownIds.has(docSnap.id)) {
+                  knownIds.add(docSnap.id);
+                  const bData = docSnap.data();
+                  extraBranches.push({
+                    id: docSnap.id,
+                    ...bData,
+                    createdAt: toSafeDate(bData.createdAt),
+                    updatedAt: toSafeDate(bData.updatedAt)
+                  } as Business);
+                }
+              });
+            } catch (err) {
+              console.warn('Could not fetch child branches chunk', chunk, err);
+            }
+          })
+        );
+      }
+
+      // Agregar las sucursales adicionales a adminBusinesses para que estén disponibles
+      const finalAdminBusinesses = [...adminBusinesses, ...extraBranches];
+      const hasAccess = ownedBusinesses.length > 0 || finalAdminBusinesses.length > 0;
+
+      const result: UserBusinessAccessResult = {
+        ownedBusinesses,
+        adminBusinesses: finalAdminBusinesses,
+        hasAccess
+      };
+
+      // Guardar en memoria
+      userAccessCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+      // Guardar en localStorage para disponibilidad instantanea
+      if (typeof window !== 'undefined' && userId) {
+        try {
+          localStorage.setItem(`fuddi_business_access_${userId}`, JSON.stringify(result));
+        } catch {
+          // Ignorar quota
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error('❌ Error checking user business access:', error);
+      throw error;
+    } finally {
+      userAccessInFlight.delete(cacheKey);
+    }
+  })();
+
+  userAccessInFlight.set(cacheKey, promise);
+  return promise;
 }
 
 let cachedGlobalZones: CoverageZone[] | null = null
