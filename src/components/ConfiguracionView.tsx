@@ -18,7 +18,7 @@ export default function ConfiguracionView({
     business,
     onBusinessFieldChange,
     onDirectUpdate,
-    printMode = 'standard',
+    printMode = 'bluetooth',
     onTogglePrintMode,
     initialConfigSubTab = 'notifications'
 }: ConfiguracionViewProps) {

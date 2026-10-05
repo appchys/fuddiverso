@@ -32,7 +32,7 @@ interface PrinterModalProps {
     printerStatus: { connected: boolean; deviceName: string | null }
     connectingPrinter: boolean
     printerError: string
-    printMode: 'standard' | 'bluetooth'
+    printMode?: 'standard' | 'bluetooth'
     onConnect: () => Promise<void>
     onDisconnect: () => void
     onTogglePrintMode: () => void
@@ -47,7 +47,7 @@ export function PrinterModal({
     printerStatus,
     connectingPrinter,
     printerError,
-    printMode,
+    printMode = 'bluetooth',
     onConnect,
     onDisconnect,
     onTogglePrintMode,

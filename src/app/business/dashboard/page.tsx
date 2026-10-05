@@ -126,7 +126,7 @@ export default function TodayOrdersPage() {
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
-    const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('standard')
+    const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('bluetooth')
     const [showPrinterPopover, setShowPrinterPopover] = useState(false)
     const [printerStatus, setPrinterStatus] = useState({ connected: false, deviceName: null as string | null })
     const [connectingPrinter, setConnectingPrinter] = useState(false)
@@ -275,6 +275,8 @@ export default function TodayOrdersPage() {
         const savedPrintMode = localStorage.getItem('fuddi_print_mode')
         if (savedPrintMode === 'bluetooth' || savedPrintMode === 'standard') {
             setPrintMode(savedPrintMode)
+        } else {
+            setPrintMode('bluetooth')
         }
     }, [])
 

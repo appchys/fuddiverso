@@ -11,7 +11,7 @@ interface NotificationSettingsProps {
 export default function NotificationSettings({
     business,
     onBusinessFieldChange,
-    printMode = 'standard',
+    printMode = 'bluetooth',
     onTogglePrintMode
 }: NotificationSettingsProps) {
 

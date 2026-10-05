@@ -207,8 +207,8 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
     if (!order) return
     setIsPrinting(true)
     try {
-      const savedPrintMode = typeof window !== 'undefined' ? localStorage.getItem('fuddi_print_mode') : 'standard'
-      const printMode = savedPrintMode === 'bluetooth' ? 'bluetooth' : 'standard'
+      const savedPrintMode = typeof window !== 'undefined' ? localStorage.getItem('fuddi_print_mode') : 'bluetooth'
+      const printMode = savedPrintMode === 'standard' ? 'standard' : 'bluetooth'
 
       if (printMode === 'bluetooth') {
         const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')

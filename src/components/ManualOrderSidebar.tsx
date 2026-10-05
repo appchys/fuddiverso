@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
 import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, createProduct, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
 import { getOfflineQueue } from '@/lib/offline-queue'
 import { searchClients } from '@/lib/client-search'
 import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
@@ -366,10 +366,25 @@ export default function ManualOrderSidebar({
 
   // Estados para modal de producto personalizado
   const [showCustomProductModal, setShowCustomProductModal] = useState(false)
+  const [isSavingCustomProduct, setIsSavingCustomProduct] = useState(false)
   const [customProductData, setCustomProductData] = useState({
     name: '',
-    price: ''
+    price: '',
+    saveToCatalog: false
   })
+
+  // Estados para búsqueda de productos
+  const [productSearchQuery, setProductSearchQuery] = useState('')
+
+  const handleOpenCustomProduct = useCallback((initialName?: string) => {
+    const name = (typeof initialName === 'string' ? initialName : productSearchQuery).trim()
+    setCustomProductData({
+      name,
+      price: '',
+      saveToCatalog: false
+    })
+    setShowCustomProductModal(true)
+  }, [productSearchQuery])
 
   // Estados para Toast
   const [toastMessage, setToastMessage] = useState('')
@@ -840,31 +855,48 @@ export default function ManualOrderSidebar({
     return uniqueCategories(products.map(product => product.category));
   }
 
-  // Filtrar productos por categoría (memoizado para renderizado ultra rápido)
+  // Filtrar productos por categoría y término de búsqueda (memoizado para renderizado ultra rápido)
   const filteredProductsList = useMemo(() => {
+    let baseList = products
     if (selectedCategory === 'hidden') {
-      return products.filter(p => !p.isAvailable)
+      baseList = products.filter(p => !p.isAvailable)
+    } else {
+      const categoriesOrder = getBusinessCategories()
+      const getCategoryIndex = (category?: string | null) => {
+        if (!category) return Number.MAX_SAFE_INTEGER
+        const idx = categoriesOrder.findIndex(c => c?.trim().toLowerCase() === category?.trim().toLowerCase())
+        return idx === -1 ? Number.MAX_SAFE_INTEGER : idx
+      }
+
+      const categoryFiltered = selectedCategory === 'all'
+        ? products
+        : products.filter(product => product.category?.trim().toLowerCase() === selectedCategory?.trim().toLowerCase())
+
+      baseList = [...categoryFiltered]
+        .filter(p => p.isAvailable)
+        .sort((a, b) => {
+          const aIdx = getCategoryIndex(a.category as string | null)
+          const bIdx = getCategoryIndex(b.category as string | null)
+          return aIdx - bIdx
+        })
     }
 
-    const categoriesOrder = getBusinessCategories()
-    const getCategoryIndex = (category?: string | null) => {
-      if (!category) return Number.MAX_SAFE_INTEGER
-      const idx = categoriesOrder.findIndex(c => c?.trim().toLowerCase() === category?.trim().toLowerCase())
-      return idx === -1 ? Number.MAX_SAFE_INTEGER : idx
+    if (!productSearchQuery.trim()) {
+      return baseList
     }
 
-    const baseProducts = selectedCategory === 'all'
-      ? products
-      : products.filter(product => product.category?.trim().toLowerCase() === selectedCategory?.trim().toLowerCase())
+    const clean = (str: string) =>
+      (str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()
 
-    return [...baseProducts]
-      .filter(p => p.isAvailable)
-      .sort((a, b) => {
-        const aIdx = getCategoryIndex(a.category as string | null)
-        const bIdx = getCategoryIndex(b.category as string | null)
-        return aIdx - bIdx
-      })
-  }, [products, selectedCategory, effectiveBusiness])
+    const q = clean(productSearchQuery)
+
+    return baseList.filter(p => {
+      const matchName = clean(p.name).includes(q)
+      const matchDesc = clean(p.description).includes(q)
+      const matchVariant = p.variants?.some(v => clean(v.name).includes(q))
+      return matchName || matchDesc || matchVariant
+    })
+  }, [products, selectedCategory, effectiveBusiness, productSearchQuery])
 
   // Manejar selección de delivery
   const handleDeliverySelect = () => {
@@ -2710,7 +2742,7 @@ export default function ManualOrderSidebar({
   }
 
   // Agregar producto personalizado a la orden
-  const addCustomProductToOrder = () => {
+  const addCustomProductToOrder = async () => {
     if (!customProductData.name.trim() || !customProductData.price.trim()) {
       alert('Por favor completa todos los campos del producto personalizado')
       return
@@ -2722,31 +2754,68 @@ export default function ManualOrderSidebar({
       return
     }
 
-    const customItem: OrderItem = {
-      name: customProductData.name.trim(),
-      price: storePrice,
-      productId: `custom_${Date.now()}`, // ID temporal único
-      quantity: 1,
-      variant: '',
-      variantName: '',
-      productName: customProductData.name.trim(),
-      basePrice: storePrice,
-      commission: 0,
-      commissionType: 'no_commission',
-      storeReceives: storePrice
+    setIsSavingCustomProduct(true)
+    let createdCatalogProductId: string | undefined = undefined
+
+    try {
+      if (customProductData.saveToCatalog) {
+        const targetBusinessId = effectiveBusinessId || business?.id
+        const targetUsername = effectiveBusiness?.username || business?.username
+        if (targetBusinessId) {
+          const productData = {
+            name: customProductData.name.trim(),
+            description: '',
+            price: customProductPricing?.publicPrice ?? storePrice,
+            basePrice: customProductPricing?.storePrice ?? storePrice,
+            commission: customProductPricing?.commission ?? 0,
+            commissionType: customProductPricing?.commissionType ?? 'no_commission',
+            category: '',
+            isAvailable: true,
+            businessId: targetBusinessId,
+            businessName: effectiveBusiness?.name || business?.name || '',
+            updatedAt: new Date()
+          }
+          createdCatalogProductId = await createProduct(productData as any, targetUsername)
+        }
+      }
+
+      const customItem: OrderItem = {
+        name: customProductData.name.trim(),
+        price: customProductPricing?.publicPrice ?? storePrice,
+        productId: createdCatalogProductId || `custom_${Date.now()}`,
+        quantity: 1,
+        variant: '',
+        variantName: '',
+        productName: customProductData.name.trim(),
+        basePrice: customProductPricing?.storePrice ?? storePrice,
+        commission: customProductPricing?.commission ?? 0,
+        commissionType: customProductPricing?.commissionType ?? 'no_commission',
+        storeReceives: customProductPricing?.storePrice ?? storePrice,
+        originalBusinessId: effectiveBusinessId || business?.id,
+        originalBusinessName: effectiveBusiness?.name || business?.name || ''
+      }
+
+      setManualOrderData(prev => ({
+        ...prev,
+        selectedProducts: [...prev.selectedProducts, customItem]
+      }))
+
+      calculateTotal([...manualOrderData.selectedProducts, customItem])
+
+      const savedName = customProductData.name.trim()
+      const wasSavedToCatalog = customProductData.saveToCatalog
+
+      // Limpiar y cerrar el modal
+      setCustomProductData({ name: '', price: '', saveToCatalog: false })
+      setProductSearchQuery('')
+      setShowCustomProductModal(false)
+      displayToast(`✅ ${savedName} agregado${wasSavedToCatalog ? ' y guardado en catálogo' : ''}`)
+    } catch (err) {
+      console.error('Error al agregar/guardar producto personalizado:', err)
+      alert('Ocurrió un error al procesar el producto personalizado')
+    } finally {
+      setIsSavingCustomProduct(false)
     }
-
-    setManualOrderData(prev => ({
-      ...prev,
-      selectedProducts: [...prev.selectedProducts, customItem]
-    }))
-
-    calculateTotal([...manualOrderData.selectedProducts, customItem])
-
-    // Limpiar y cerrar el modal
-    setCustomProductData({ name: '', price: '' })
-    setShowCustomProductModal(false)
-    displayToast(`✅ ${customProductData.name.trim()} agregado`)
   }
 
   // Actualizar cantidad de producto
@@ -3723,8 +3792,30 @@ export default function ManualOrderSidebar({
 
           {/* Productos - selección */}
           <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-black">Productos</h3>
+            <div className="flex items-center justify-between gap-1.5 mb-3 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-gray-900 shrink-0">Productos</h3>
+                <div className="relative flex-1 min-w-[110px] max-w-[210px] sm:max-w-xs">
+                  <i className="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+                  <input
+                    type="text"
+                    value={productSearchQuery}
+                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    placeholder="Buscar producto..."
+                    className="w-full pl-7 pr-6 py-1 text-xs border border-gray-300 rounded-full bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder:text-gray-400"
+                  />
+                  {productSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setProductSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                      title="Limpiar búsqueda"
+                    >
+                      <i className="bi bi-x-circle-fill"></i>
+                    </button>
+                  )}
+                </div>
+              </div>
               {setActiveTab && setProfileSubTab && (
                 <button
                   onClick={() => {
@@ -3733,11 +3824,11 @@ export default function ManualOrderSidebar({
                     setProfileSubTab?.('products')
                     onClose() // Cerrar el sidebar manual
                   }}
-                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center space-x-1 transition-colors"
+                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center space-x-1 transition-colors shrink-0"
                   title="Editar productos"
                 >
                   <i className="bi bi-pencil-square"></i>
-                  <span>Editar productos</span>
+                  <span className="hidden sm:inline">Editar productos</span>
                 </button>
               )}
             </div>
@@ -3787,48 +3878,75 @@ export default function ManualOrderSidebar({
                 Cargando productos...
               </div>
             ) : (
-            <div className="grid grid-cols-4 gap-1 max-h-50 overflow-y-auto">
-              {filteredProductsList.map((product) => (
-                <div
-                  key={product.id}
-                  className={`p-1.5 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col justify-between ${
-                    !product.isAvailable ? 'opacity-50 grayscale' : ''
-                  }`}
-                  onClick={() => handleSelectProduct(product)}
-                >
-                  {/* Imagen del producto cargada de forma diferida */}
-                  <div className="w-full h-14 mb-1 bg-gray-100 rounded-md overflow-hidden flex-shrink-0">
-                    <DeferredProductImage src={product.image} alt={product.name} />
+            <div className="space-y-2">
+
+              {filteredProductsList.length === 0 && productSearchQuery.trim() ? (
+                <div className="p-4 border-2 border-dashed border-blue-200 bg-blue-50/70 rounded-xl text-center">
+                  <div className="w-10 h-10 mx-auto mb-2 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                    <i className="bi bi-search text-base"></i>
                   </div>
+                  <p className="text-xs text-gray-700 mb-1">
+                    No existe ningún producto llamado &quot;<span className="font-bold text-gray-900">{productSearchQuery.trim()}</span>&quot;
+                  </p>
+                  <p className="text-[11px] text-gray-500 mb-3">
+                    Puedes crearlo como producto personalizado para esta orden con este nombre.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCustomProduct(productSearchQuery)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+                  >
+                    <i className="bi bi-plus-circle"></i>
+                    Crear &quot;{productSearchQuery.trim()}&quot;
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-1 max-h-50 overflow-y-auto">
+                  {filteredProductsList.map((product) => (
+                    <div
+                      key={product.id}
+                      className={`p-1.5 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col justify-between ${
+                        !product.isAvailable ? 'opacity-50 grayscale' : ''
+                      }`}
+                      onClick={() => handleSelectProduct(product)}
+                    >
+                      {/* Imagen del producto cargada de forma diferida */}
+                      <div className="w-full h-14 mb-1 bg-gray-100 rounded-md overflow-hidden flex-shrink-0">
+                        <DeferredProductImage src={product.image} alt={product.name} />
+                      </div>
 
-                  {/* Nombre del producto prioritario y precio */}
-                  <div className="flex-1 flex flex-col justify-center text-center">
-                    <p className="text-xs font-bold text-gray-900 tracking-tight leading-tight mb-1 line-clamp-2">{product.name}</p>
-                    {product.variants && product.variants.length > 0 ? (
-                      <i className="bi bi-chevron-down text-xs text-blue-600"></i>
-                    ) : (
-                      <p className="text-xs font-semibold text-gray-600">${getManualOrderStorePrice(product)}</p>
-                    )}
+                      {/* Nombre del producto prioritario y precio */}
+                      <div className="flex-1 flex flex-col justify-center text-center">
+                        <p className="text-xs font-bold text-gray-900 tracking-tight leading-tight mb-1 line-clamp-2">{product.name}</p>
+                        {product.variants && product.variants.length > 0 ? (
+                          <i className="bi bi-chevron-down text-xs text-blue-600"></i>
+                        ) : (
+                          <p className="text-xs font-semibold text-gray-600">${getManualOrderStorePrice(product)}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Tarjeta de producto personalizado */}
+                  <div
+                    key="custom-product"
+                    className="p-1.5 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 cursor-pointer transition-colors flex flex-col items-center justify-between"
+                    onClick={() => handleOpenCustomProduct(productSearchQuery)}
+                  >
+                    {/* Ícono en lugar de imagen */}
+                    <div className="w-full h-14 mb-1 bg-blue-50 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
+                      <i className="bi bi-plus-circle text-blue-500 text-base"></i>
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-center text-center">
+                      <p className="text-xs font-bold leading-tight text-blue-600">Personalizar</p>
+                      <p className="text-xs text-blue-400">
+                        {productSearchQuery.trim() ? 'Crear' : 'Producto'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              ))}
-
-              {/* Tarjeta de producto personalizado */}
-              <div
-                key="custom-product"
-                className="p-1.5 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 cursor-pointer transition-colors flex flex-col items-center justify-between"
-                onClick={() => setShowCustomProductModal(true)}
-              >
-                {/* Ícono en lugar de imagen */}
-                <div className="w-full h-14 mb-1 bg-blue-50 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
-                  <i className="bi bi-plus-circle text-blue-500 text-base"></i>
-                </div>
-
-                <div className="flex-1 flex flex-col justify-center text-center">
-                  <p className="text-xs font-bold leading-tight text-blue-600">Personalizar</p>
-                  <p className="text-xs text-blue-400">Producto</p>
-                </div>
-              </div>
+              )}
             </div>
             )}
           </div>
@@ -5694,7 +5812,7 @@ export default function ManualOrderSidebar({
               <button
                 onClick={() => {
                   setShowCustomProductModal(false)
-                  setCustomProductData({ name: '', price: '' })
+                  setCustomProductData({ name: '', price: '', saveToCatalog: false })
                 }}
                 className="text-gray-500 hover:text-gray-700"
               >
@@ -5731,7 +5849,7 @@ export default function ManualOrderSidebar({
                 />
               </div>
 
-              {customProductPricing && (
+              {customProductPricing && customProductPricing.commission > 0 && (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
                   <div className="flex justify-between">
                     <span>Valor de tienda</span>
@@ -5748,11 +5866,34 @@ export default function ManualOrderSidebar({
                 </div>
               )}
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-800">
-                  <i className="bi bi-info-circle me-2"></i>
-                  Este producto personalizado solo se agregará a esta orden específica y no se guardará en el catálogo.
-                </p>
+              <div className={`border rounded-xl p-3.5 transition-colors ${
+                customProductData.saveToCatalog
+                  ? 'bg-emerald-50/80 border-emerald-200'
+                  : 'bg-blue-50/80 border-blue-200'
+              }`}>
+                <label className="flex items-start gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={customProductData.saveToCatalog}
+                    onChange={(e) => setCustomProductData(prev => ({ ...prev, saveToCatalog: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <span className={`text-sm font-semibold block ${
+                      customProductData.saveToCatalog ? 'text-emerald-900' : 'text-gray-800'
+                    }`}>
+                      Guardar también en el catálogo
+                    </span>
+                    <p className={`text-xs leading-relaxed ${
+                      customProductData.saveToCatalog ? 'text-emerald-700' : 'text-blue-800'
+                    }`}>
+                      <i className={`bi ${customProductData.saveToCatalog ? 'bi-check-circle-fill text-emerald-600' : 'bi-info-circle'} me-1.5`}></i>
+                      {customProductData.saveToCatalog
+                        ? 'Este producto se guardará en el catálogo de la tienda para futuras órdenes.'
+                        : 'Este producto personalizado solo se agregará a esta orden específica y no se guardará en el catálogo.'}
+                    </p>
+                  </div>
+                </label>
               </div>
             </div>
 
@@ -5760,18 +5901,26 @@ export default function ManualOrderSidebar({
               <button
                 onClick={() => {
                   setShowCustomProductModal(false)
-                  setCustomProductData({ name: '', price: '' })
+                  setCustomProductData({ name: '', price: '', saveToCatalog: false })
                 }}
-                className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors"
+                disabled={isSavingCustomProduct}
+                className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 disabled:opacity-50 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={addCustomProductToOrder}
-                disabled={!customProductData.name.trim() || !customProductData.price.trim()}
-                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                disabled={!customProductData.name.trim() || !customProductData.price.trim() || isSavingCustomProduct}
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
-                Agregar a la orden
+                {isSavingCustomProduct ? (
+                  <>
+                    <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full inline-block"></span>
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <span>Agregar a la orden</span>
+                )}
               </button>
             </div>
           </div>

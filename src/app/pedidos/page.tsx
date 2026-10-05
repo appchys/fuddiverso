@@ -242,7 +242,7 @@ export default function AdminPedidosPage() {
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
-    const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('standard')
+    const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('bluetooth')
     const { queueStatus, retryFailed } = useOfflineQueue()
     const timeDropdownRef = useRef<HTMLDivElement>(null)
 

@@ -13,7 +13,7 @@ interface PrintSettingsProps {
 export default function PrintSettings({
     business,
     onBusinessFieldChange,
-    printMode = 'standard',
+    printMode = 'bluetooth',
     onTogglePrintMode
 }: PrintSettingsProps) {
 
