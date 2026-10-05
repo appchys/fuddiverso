@@ -2730,6 +2730,8 @@ export async function searchClientByPhone(phone: string, bypassCache = false): P
         variants.add('+593' + clean.substring(1))
         variants.add('593' + clean.substring(1))
         variants.add(clean.substring(1))
+        // Variante con espacios: 099 123 4567
+        variants.add(`${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(6)}`)
       } else if (clean.startsWith('9') && clean.length === 9) {
         variants.add('0' + clean)
         variants.add('+593' + clean)
@@ -2750,7 +2752,20 @@ export async function searchClientByPhone(phone: string, bypassCache = false): P
       limit(1)
     );
 
-    const querySnapshot = await getDocs(q);
+    // Timeout de 8s para evitar que conexiones lentas en móviles congelen indefinidamente
+    const fetchDocsWithTimeout = async () => {
+      let timer: any;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Timeout de conexión al buscar cliente')), 8000);
+      });
+      try {
+        return await Promise.race([getDocs(q), timeoutPromise]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    const querySnapshot = await fetchDocsWithTimeout();
 
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];

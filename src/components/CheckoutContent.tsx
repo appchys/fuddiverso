@@ -418,6 +418,8 @@ export function CheckoutContent({
 
   const [customerData, setCustomerData] = useState<CustomerData>({ name: '', phone: '' })
   const [phoneConfirmation, setPhoneConfirmation] = useState('')
+  const searchRequestIdRef = useRef(0)
+  const phoneDebounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const [clientLocations, setClientLocations] = useState<ClientLocation[]>([])
 
@@ -1258,15 +1260,15 @@ export function CheckoutContent({
     }
   }
 
-  // Función para buscar cliente por teléfono
-  async function handlePhoneSearch(phone: string) {
+  // Función para buscar cliente por teléfono con protección contra condiciones de carrera y fallos
+  async function handlePhoneSearch(phone: string, bypassCache = false) {
     if (!phone.trim()) {
       setClientFound(null);
       setShowNameField(false);
       setClientLocations([]);
       setSelectedLocation(null);
       setPhoneError('');
-      setPhoneConfirmation(''); // Limpiar confirmación
+      setPhoneConfirmation('');
       return;
     }
 
@@ -1279,17 +1281,25 @@ export function CheckoutContent({
       setClientLocations([]);
       setSelectedLocation(null);
       setPhoneError('');
-      setPhoneConfirmation(''); // Limpiar confirmación
+      setPhoneConfirmation('');
       return;
     }
 
+    const currentSearchId = ++searchRequestIdRef.current;
     setClientSearching(true);
     setPhoneError('');
+
     try {
       // Buscar con el número normalizado
-      const client = await searchClientByPhone(normalizedPhone);
+      const client = await searchClientByPhone(normalizedPhone, bypassCache);
+
+      // Si otra búsqueda se inició mientras esta respondía, descartar
+      if (currentSearchId !== searchRequestIdRef.current) {
+        return;
+      }
+
       if (client) {
-        // Cliente encontrado - auto login
+        // Cliente encontrado - auto login seguro
         setClientFound(client);
         setCustomerData(prev => ({
           ...prev,
@@ -1297,24 +1307,33 @@ export function CheckoutContent({
           phone: normalizedPhone
         }));
         setShowNameField(false);
+        setPhoneError('');
 
-        // Auto-login del cliente
-        login(client as any);
+        // Auto-login protegido del cliente (si falla el storage local, no rompe la sesión en memoria)
+        try {
+          login(client as any);
+        } catch (loginErr) {
+          console.warn('Advertencia no crítica al guardar sesión local:', loginErr);
+        }
 
-        // Registrar login desde Checkout
+        // Registrar login desde Checkout en segundo plano (no bloqueante)
         if (client.id) {
-          await updateClient(client.id, {
+          updateClient(client.id, {
             lastLoginAt: serverTimestamp(),
             loginSource: 'checkout'
+          }).catch(err => {
+            console.warn('Advertencia no crítica al registrar login en checkout:', err);
           });
         }
 
         setClientLocations([]);
         setSelectedLocation(null);
       } else {
-        // Cliente no encontrado - pedir nombre
+        // Cliente no encontrado - permitir escribir nombre para registrarse
         setClientFound(null);
         setShowNameField(true);
+        setPhoneConfirmation(normalizedPhone);
+        setPhoneError('');
         setCustomerData(prev => ({
           ...prev,
           name: '',
@@ -1325,15 +1344,48 @@ export function CheckoutContent({
       }
     } catch (error) {
       console.error('Error searching client:', error);
-      setPhoneError('Error al buscar el cliente. Intenta nuevamente.');
+      if (currentSearchId !== searchRequestIdRef.current) {
+        return;
+      }
+      // Resiliencia: si la búsqueda en base de datos falló por red o timeout,
+      // NO bloquear la compra del cliente: permitirle ingresar su nombre
       setClientFound(null);
-      setShowNameField(false);
-      setClientLocations([]);
-      setSelectedLocation(null);
+      setShowNameField(true);
+      setPhoneConfirmation(normalizedPhone);
+      setPhoneError('No pudimos comprobar tus datos debido a la conexión. Puedes ingresar tu nombre para continuar, o reintentar la búsqueda.');
+      setCustomerData(prev => ({
+        ...prev,
+        phone: normalizedPhone
+      }));
     } finally {
-      setClientSearching(false);
+      if (currentSearchId === searchRequestIdRef.current) {
+        setClientSearching(false);
+      }
     }
   }
+
+  // Manejador con debounce para el input de teléfono
+  const handlePhoneInputChange = (rawPhone: string) => {
+    setCustomerData(prev => ({ ...prev, phone: rawPhone }));
+
+    if (phoneDebounceTimerRef.current) {
+      clearTimeout(phoneDebounceTimerRef.current);
+    }
+
+    const normalized = normalizeEcuadorianPhone(rawPhone);
+
+    // Si ya tiene los 10 dígitos ecuatorianos válidos, iniciar búsqueda con leve debounce
+    if (validateEcuadorianPhone(normalized)) {
+      phoneDebounceTimerRef.current = setTimeout(() => {
+        handlePhoneSearch(normalized);
+      }, 150);
+    } else {
+      // Si el número aún no está completo, limpiar estados transitorios
+      if (clientFound) setClientFound(null);
+      if (showNameField) setShowNameField(false);
+      if (phoneError) setPhoneError('');
+    }
+  };
 
   // Función para crear nuevo cliente
   async function handleCreateClient() {
@@ -2487,34 +2539,37 @@ export function CheckoutContent({
                     <label className="block text-sm font-medium text-gray-700 mb-2">Número de Celular</label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                          <i className="bi bi-phone"></i>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 flex items-center justify-center">
+                          {clientSearching ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-900 border-t-transparent" />
+                          ) : (
+                            <i className="bi bi-phone"></i>
+                          )}
                         </span>
                         <input
                           type="tel"
                           inputMode="numeric"
                           pattern="[0-9]*"
                           value={customerData.phone}
-                          onChange={(e) => {
-                            const phone = e.target.value;
-                            setCustomerData({ ...customerData, phone });
-                            handlePhoneSearch(phone);
-                          }}
+                          onChange={(e) => handlePhoneInputChange(e.target.value)}
                           onBlur={(e) => {
                             const phone = e.target.value;
                             const normalizedPhone = normalizeEcuadorianPhone(phone);
                             if (validateEcuadorianPhone(normalizedPhone)) {
-                              setCustomerData({ ...customerData, phone: normalizedPhone });
+                              setCustomerData(prev => ({ ...prev, phone: normalizedPhone }));
+                              if (!clientFound && !clientSearching) {
+                                handlePhoneSearch(normalizedPhone);
+                              }
                             }
                           }}
                           className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all ${errors.phone || phoneError ? 'ring-2 ring-red-100 border-red-300' : ''}`}
                           placeholder="0999999999"
-                          maxLength={10}
-                          disabled={clientSearching}
+                          maxLength={16}
                         />
                       </div>
                       {clientFound && (
                         <button
+                          type="button"
                           onClick={() => {
                             setClientFound(null)
                             setCustomerData({ name: '', phone: '' })
@@ -2530,13 +2585,40 @@ export function CheckoutContent({
                         </button>
                       )}
                     </div>
-                    {(errors.phone || phoneError) && <p className="text-red-500 text-xs mt-2 ml-1">{errors.phone || phoneError}</p>}
+                    {(errors.phone || phoneError) && (
+                      <div className="mt-2 ml-1 space-y-1.5">
+                        <p className="text-red-500 text-xs font-medium">{errors.phone || phoneError}</p>
+                        {phoneError && (
+                          <div className="flex items-center gap-2 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => handlePhoneSearch(customerData.phone, true)}
+                              className="text-xs font-bold text-gray-900 underline hover:text-black transition-colors"
+                            >
+                              Reintentar búsqueda
+                            </button>
+                            <span className="text-gray-300 text-xs">•</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPhoneError('');
+                                setShowNameField(true);
+                                setPhoneConfirmation(normalizeEcuadorianPhone(customerData.phone));
+                              }}
+                              className="text-xs font-medium text-gray-600 hover:text-gray-900 underline transition-colors"
+                            >
+                              Escribir nombre manualmente
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                    {/* Searching indicator */}
+                    {/* Indicador de búsqueda sutil */}
                     {clientSearching && (
-                      <div className="mt-3 flex items-center gap-2 text-blue-600 animate-fadeIn">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                        <p className="text-sm">Buscando cliente...</p>
+                      <div className="mt-2.5 flex items-center gap-2 text-gray-600 animate-fadeIn ml-1">
+                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-gray-900 border-t-transparent"></div>
+                        <p className="text-xs font-medium">Buscando datos del cliente...</p>
                       </div>
                     )}
 

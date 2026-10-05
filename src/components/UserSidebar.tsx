@@ -1714,9 +1714,10 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             }
         } catch (error) {
             console.error('Error searching client:', error);
-            setPhoneError('Error al buscar el cliente');
+            setPhoneError('No pudimos comprobar tus datos por la conexión. Puedes ingresar tu nombre para registrarte.');
             setClientFound(null);
-            setShowNameField(false);
+            setShowNameField(true);
+            setPhoneConfirmation(normalizedPhone);
         } finally {
             setClientSearching(false);
         }
