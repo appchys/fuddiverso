@@ -51,7 +51,7 @@ export default function StockConfigModal({ businessId, ingredient, onClose, onSa
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl z-[10050] flex items-center justify-center p-4 animate-in fade-in duration-300">
       <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden border border-white/20">
         <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/30">
           <div>
