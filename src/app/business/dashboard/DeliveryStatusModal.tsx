@@ -1,7 +1,24 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Order, Delivery } from '@/types'
+import { Order, Delivery, Business } from '@/types'
+import { buildDeliveryWhatsAppMessage } from '@/components/WhatsAppUtils'
+
+export interface DeliveryStatusModalProps {
+    isOpen: boolean
+    onClose: () => void
+    order: Order | null
+    deliveryAgent?: Delivery
+    availableDeliveries: Delivery[]
+    canChangeDelivery: boolean
+    onDeliveryAssign: (id: string, deliveryId: string) => void | Promise<void>
+    onWhatsApp: () => void
+    business?: Business | null
+    deliveryServiceType?: 'self' | 'fuddi'
+    defaultDeliveryId?: string
+    onUpdateDefaultDelivery?: (deliveryId: string | undefined) => void | Promise<void>
+    onAutoAssignFuddi?: (order: Order) => void | Promise<void>
+}
 
 export function DeliveryStatusModal({
     isOpen,
@@ -12,195 +29,267 @@ export function DeliveryStatusModal({
     canChangeDelivery,
     onDeliveryAssign,
     onWhatsApp,
+    business,
     deliveryServiceType,
     defaultDeliveryId,
+    onUpdateDefaultDelivery,
     onAutoAssignFuddi
-}: {
-    isOpen: boolean,
-    onClose: () => void,
-    order: Order | null,
-    deliveryAgent?: Delivery,
-    availableDeliveries: Delivery[],
-    canChangeDelivery: boolean,
-    onDeliveryAssign: (id: string, deliveryId: string) => void | Promise<void>,
-    onWhatsApp: () => void,
-    deliveryServiceType?: 'self' | 'fuddi',
-    defaultDeliveryId?: string,
-    onAutoAssignFuddi?: (order: Order) => void | Promise<void>
-}) {
+}: DeliveryStatusModalProps) {
     const [isSearchingFuddi, setIsSearchingFuddi] = useState(false)
-    const [showSelfSelect, setShowSelfSelect] = useState(false)
+    const [isAssigning, setIsAssigning] = useState(false)
+    const [isEditingDefault, setIsEditingDefault] = useState(false)
+    const [isSavingDefault, setIsSavingDefault] = useState(false)
+    const [isCopied, setIsCopied] = useState(false)
 
     if (!isOpen || !order) return null
 
     const status = order.delivery?.acceptanceStatus
     const isUnassigned = !order.delivery?.assignedDelivery
     const isFuddiConfigured = (deliveryServiceType ?? 'fuddi') === 'fuddi'
-    const agentCardClass = isUnassigned
-        ? 'bg-gray-50 border-gray-200'
-        : status === 'accepted'
-            ? 'bg-green-50 border-green-200'
-            : 'bg-yellow-50 border-yellow-200'
+
+    const defaultDelivery = availableDeliveries.find(d => d.id === defaultDeliveryId)
+    const isAssignedToDefault = Boolean(
+        defaultDelivery && order.delivery?.assignedDelivery === defaultDelivery.id
+    )
+
+    const handleAssignDefault = async () => {
+        if (!order || !defaultDelivery) return
+        setIsAssigning(true)
+        try {
+            await onDeliveryAssign(order.id, defaultDelivery.id)
+            onClose()
+        } finally {
+            setIsAssigning(false)
+        }
+    }
+
+    const handleDefaultChange = async (newId: string) => {
+        if (!onUpdateDefaultDelivery) return
+        setIsSavingDefault(true)
+        try {
+            await onUpdateDefaultDelivery(newId || undefined)
+            setIsEditingDefault(false)
+        } finally {
+            setIsSavingDefault(false)
+        }
+    }
+
+    const handleCopyMessage = async () => {
+        if (!order) return
+        try {
+            const text = buildDeliveryWhatsAppMessage(order, business || null)
+            await navigator.clipboard.writeText(text)
+            setIsCopied(true)
+            setTimeout(() => setIsCopied(false), 2000)
+        } catch (e) {
+            console.error('Error al copiar mensaje al portapapeles:', e)
+        }
+    }
 
     return (
         <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs"
             onMouseDown={onClose}
         >
             <div
-                className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200"
+                className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-xl border border-gray-100 animate-in fade-in zoom-in duration-150"
                 onMouseDown={(e) => e.stopPropagation()}
             >
-                <div className="p-6">
-                    <div className="flex justify-between items-start mb-6">
-                        <h3 className="text-xl font-bold text-gray-900">Estado del Delivery</h3>
-                        <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg text-gray-400">
-                            <i className="bi bi-x-lg"></i>
+                <div className="p-5">
+                    {/* Header Minimalista */}
+                    <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-100">
+                        <div className="flex items-center gap-2">
+                            <i className="bi bi-bicycle text-gray-700 text-base"></i>
+                            <h3 className="text-sm font-black text-gray-900 tracking-tight">
+                                Asignar Delivery
+                            </h3>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-1 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+                            title="Cerrar"
+                        >
+                            <i className="bi bi-x-lg text-xs"></i>
                         </button>
                     </div>
 
-                    <div className="space-y-6">
-                        {isUnassigned && isFuddiConfigured ? (
-                            <div className="space-y-4">
-                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                    Selecciona el método de delivery
-                                </p>
-
-                                {/* Opción Autogestión */}
-                                <div className={`p-4 rounded-xl border-2 transition-all ${showSelfSelect ? 'border-orange-500 bg-orange-50/50' : 'border-gray-200 hover:border-orange-300 bg-white'}`}>
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (defaultDeliveryId && availableDeliveries.some(d => d.id === defaultDeliveryId)) {
-                                                await onDeliveryAssign(order.id, defaultDeliveryId)
-                                                onClose()
-                                            } else {
-                                                setShowSelfSelect(prev => !prev)
-                                            }
-                                        }}
-                                        className="w-full text-left flex items-start gap-3"
-                                    >
-                                        <div className="w-10 h-10 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center shrink-0">
-                                            <i className="bi bi-person-badge text-xl"></i>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                                <span className="font-bold text-gray-900 text-sm">Autogestión</span>
-                                                <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded bg-orange-100 text-orange-700">Tienda</span>
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                                {defaultDeliveryId && availableDeliveries.some(d => d.id === defaultDeliveryId)
-                                                    ? 'Asignar repartidor predeterminado de la tienda'
-                                                    : 'Seleccionar repartidor propio de la tienda'}
-                                            </p>
-                                        </div>
-                                    </button>
-
-                                    {(showSelfSelect || !defaultDeliveryId || !availableDeliveries.some(d => d.id === defaultDeliveryId)) && canChangeDelivery && (
-                                        <div className="mt-3 pt-3 border-t border-gray-200">
-                                            <label className="block text-xs font-semibold text-gray-600 mb-1">Seleccionar repartidor propio:</label>
+                    <div className="space-y-3.5">
+                        {/* 1. Botón / Barra de Delivery Predeterminado */}
+                        <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <i className="bi bi-star-fill text-amber-500 text-sm shrink-0"></i>
+                                    {isEditingDefault ? (
+                                        <div className="flex-1 flex items-center gap-1.5">
                                             <select
-                                                value={order.delivery?.assignedDelivery || ''}
-                                                onChange={async (e) => {
-                                                    if (e.target.value) {
-                                                        await onDeliveryAssign(order.id, e.target.value)
-                                                        onClose()
-                                                    }
-                                                }}
-                                                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                                                autoFocus
+                                                value={defaultDeliveryId || ''}
+                                                disabled={isSavingDefault}
+                                                onChange={(e) => handleDefaultChange(e.target.value)}
+                                                className="w-full bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-gray-800 outline-none focus:ring-1 focus:ring-amber-400"
                                             >
-                                                <option value="">Elegir repartidor...</option>
-                                                {availableDeliveries.map(delivery => (
-                                                    <option key={delivery.id} value={delivery.id}>{delivery.nombres}</option>
+                                                <option value="">-- Sin predeterminado --</option>
+                                                {availableDeliveries.map(d => (
+                                                    <option key={d.id} value={d.id}>{d.nombres}</option>
                                                 ))}
                                             </select>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Opción Delivery Fuddi */}
-                                <div className="p-4 rounded-xl border-2 border-gray-200 hover:border-blue-300 bg-white transition-all">
-                                    <button
-                                        type="button"
-                                        disabled={isSearchingFuddi}
-                                        onClick={async () => {
-                                            setIsSearchingFuddi(true)
-                                            try {
-                                                if (onAutoAssignFuddi) {
-                                                    await onAutoAssignFuddi(order)
-                                                }
-                                            } finally {
-                                                setIsSearchingFuddi(false)
-                                                onClose()
-                                            }
-                                        }}
-                                        className="w-full text-left flex items-start gap-3"
-                                    >
-                                        <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                                            {isSearchingFuddi ? (
-                                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                                            {isSavingDefault ? (
+                                                <span className="animate-spin h-3 w-3 rounded-full border-2 border-amber-600 border-t-transparent shrink-0"></span>
                                             ) : (
-                                                <i className="bi bi-scooter text-xl"></i>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsEditingDefault(false)}
+                                                    className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                                                    title="Cancelar"
+                                                >
+                                                    <i className="bi bi-x text-sm"></i>
+                                                </button>
                                             )}
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                                <span className="font-bold text-gray-900 text-sm">Delivery Fuddi</span>
-                                                <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded bg-blue-100 text-blue-700">Red Fuddi</span>
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                                Buscar repartidor de la red Fuddi automáticamente por zona de cobertura
+                                    ) : (
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wide leading-none">
+                                                Predeterminado
+                                            </p>
+                                            <p className="text-xs font-black text-gray-900 truncate mt-0.5">
+                                                {defaultDelivery ? defaultDelivery.nombres : 'No configurado'}
                                             </p>
                                         </div>
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            /* Normal info when assigned or store has deliveryServiceType === 'self' */
-                            <div className={`flex items-center gap-4 p-4 rounded-xl border ${agentCardClass}`}>
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${!order.delivery?.assignedDelivery ? 'bg-gray-100 text-gray-500' : status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                    <i className="bi bi-person-fill text-2xl"></i>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <p className="text-xs text-gray-500 font-medium">Repartidor Asignado</p>
-                                    {canChangeDelivery ? (
-                                        <select
-                                            value={order.delivery?.assignedDelivery || ''}
-                                            onChange={(e) => onDeliveryAssign(order.id, e.target.value)}
-                                            className="mt-1 w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-red-100 focus:border-red-300"
-                                        >
-                                            <option value="">Asignar repartidor...</option>
-                                            {availableDeliveries.map(delivery => (
-                                                <option key={delivery.id} value={delivery.id}>{delivery.nombres}</option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <p className="text-lg font-bold text-gray-900 truncate">{deliveryAgent?.nombres || order.delivery?.assignedDeliveryData?.nombres || 'No identificado'}</p>
                                     )}
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <span className={`h-2 w-2 rounded-full ${!order.delivery?.assignedDelivery ? 'bg-gray-400' :
-                                            status === 'accepted' ? 'bg-green-500' :
-                                                status === 'rejected' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'
-                                            }`} />
-                                        <span className="text-sm font-bold text-gray-900">
-                                            {!order.delivery?.assignedDelivery ? 'Sin asignar' :
-                                                status === 'accepted' ? 'Confirmado' :
-                                                    status === 'rejected' ? 'Rechazado' : 'Esperando confirmacion'}
-                                        </span>
-                                    </div>
                                 </div>
+
+                                {/* Acciones del predeterminado */}
+                                {!isEditingDefault && (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {defaultDelivery && (
+                                            isAssignedToDefault ? (
+                                                <span
+                                                    className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-[11px] font-bold"
+                                                    title="Ya asignado a esta orden"
+                                                >
+                                                    <i className="bi bi-check-circle-fill text-xs text-emerald-600"></i>
+                                                    <span>Asignado</span>
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    disabled={isAssigning}
+                                                    onClick={handleAssignDefault}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-lg text-xs font-bold transition-all shadow-2xs"
+                                                    title={`Asignar a ${defaultDelivery.nombres}`}
+                                                >
+                                                    {isAssigning ? (
+                                                        <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />
+                                                    ) : (
+                                                        <i className="bi bi-lightning-charge-fill text-xs"></i>
+                                                    )}
+                                                    <span>Asignar</span>
+                                                </button>
+                                            )
+                                        )}
+
+                                        {canChangeDelivery && onUpdateDefaultDelivery && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsEditingDefault(true)}
+                                                className="p-1.5 text-amber-700 hover:text-amber-900 hover:bg-amber-100 rounded-lg transition-colors"
+                                                title="Ajustar repartidor predeterminado"
+                                            >
+                                                <i className="bi bi-gear text-xs"></i>
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                             </div>
+                        </div>
+
+                        {/* 2. Selector de Repartidor de la Orden */}
+                        <div>
+                            <div className="flex items-center justify-between mb-1.5 px-0.5">
+                                <label className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+                                    <i className="bi bi-person text-gray-400"></i>
+                                    <span>Repartidor de la orden</span>
+                                </label>
+                                {!isUnassigned && (
+                                    <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
+                                        status === 'accepted' ? 'text-green-600' :
+                                        status === 'rejected' ? 'text-red-500' : 'text-amber-600'
+                                    }`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${
+                                            status === 'accepted' ? 'bg-green-500' :
+                                            status === 'rejected' ? 'bg-red-500' : 'bg-amber-500 animate-pulse'
+                                        }`} />
+                                        {status === 'accepted' ? 'Confirmado' : status === 'rejected' ? 'Rechazado' : 'Pendiente'}
+                                    </span>
+                                )}
+                            </div>
+
+                            <select
+                                value={order.delivery?.assignedDelivery || ''}
+                                onChange={async (e) => {
+                                    await onDeliveryAssign(order.id, e.target.value)
+                                }}
+                                disabled={!canChangeDelivery}
+                                className="w-full bg-gray-50 hover:bg-gray-100/80 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-900 outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition-all disabled:opacity-60"
+                            >
+                                <option value="">-- Sin asignar --</option>
+                                {availableDeliveries.map(d => (
+                                    <option key={d.id} value={d.id}>
+                                        {d.nombres} {d.id === defaultDeliveryId ? '★ (Predeterminado)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 3. Opción Red Fuddi (si está configurado y sin asignar) */}
+                        {isFuddiConfigured && isUnassigned && (
+                            <button
+                                type="button"
+                                disabled={isSearchingFuddi}
+                                onClick={async () => {
+                                    setIsSearchingFuddi(true)
+                                    try {
+                                        if (onAutoAssignFuddi) await onAutoAssignFuddi(order)
+                                    } finally {
+                                        setIsSearchingFuddi(false)
+                                        onClose()
+                                    }
+                                }}
+                                className="w-full flex items-center justify-center gap-2 py-2 px-3 border border-blue-200 bg-blue-50/50 hover:bg-blue-100/70 active:scale-98 text-blue-700 rounded-xl text-xs font-bold transition-all"
+                            >
+                                {isSearchingFuddi ? (
+                                    <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-blue-600 border-t-transparent" />
+                                ) : (
+                                    <i className="bi bi-scooter text-sm"></i>
+                                )}
+                                <span>Buscar en Red Fuddi</span>
+                            </button>
                         )}
 
-                        {/* WhatsApp Action */}
+                        {/* 4. Notificar por WhatsApp + Copiar mensaje (si está asignado) */}
                         {order.delivery?.assignedDelivery && (
-                            <button
-                                onClick={onWhatsApp}
-                                className="w-full flex items-center justify-center gap-2 py-3.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
-                            >
-                                <i className="bi bi-whatsapp text-xl"></i>
-                                Notificar por WhatsApp
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={onWhatsApp}
+                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-600 hover:bg-green-700 active:scale-98 text-white rounded-xl font-bold text-xs transition-all shadow-xs"
+                                >
+                                    <i className="bi bi-whatsapp text-sm"></i>
+                                    <span>Notificar por WhatsApp</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleCopyMessage}
+                                    className={`p-2.5 rounded-xl border transition-all active:scale-95 shrink-0 flex items-center justify-center ${
+                                        isCopied
+                                            ? 'bg-emerald-50 border-emerald-300 text-emerald-600'
+                                            : 'bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 hover:text-gray-900'
+                                    }`}
+                                    title={isCopied ? '¡Mensaje copiado!' : 'Copiar mensaje para el delivery'}
+                                >
+                                    <i className={`bi ${isCopied ? 'bi-clipboard-check text-emerald-600' : 'bi-clipboard'} text-sm`}></i>
+                                </button>
+                            </div>
                         )}
                     </div>
                 </div>

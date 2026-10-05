@@ -1758,69 +1758,7 @@ export default function TodayOrdersPage() {
         }))
 
         try {
-            let assignmentUpdate: any = {};
-
-            const isScheduled = previousOrder.timing?.type === 'scheduled';
-            const isDelivery = previousOrder.delivery?.type === 'delivery';
-            const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
-
-            // Auto-assign delivery logic
-            if (isDelivery && hasNoDeliveryAssigned) {
-                if (previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
-                    if (assignedId) {
-                        assignmentUpdate['delivery.assignedDelivery'] = assignedId;
-                        const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);
-                        if (dData) {
-                            assignmentUpdate['delivery.assignedDeliveryData'] = {
-                                id: dData.id,
-                                nombres: dData.nombres,
-                                celular: dData.celular || '',
-                                fotoUrl: dData.fotoUrl || '',
-                                email: dData.email || ''
-                            };
-                        }
-                    }
-                }
-                else if (previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
-                    if (assignedId) {
-                        assignmentUpdate['delivery.assignedDelivery'] = assignedId;
-                        const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);
-                        if (dData) {
-                            assignmentUpdate['delivery.assignedDeliveryData'] = {
-                                id: dData.id,
-                                nombres: dData.nombres,
-                                celular: dData.celular || '',
-                                fotoUrl: dData.fotoUrl || '',
-                                email: dData.email || ''
-                            };
-                        }
-                    }
-                }
-            }
-
             await updateOrderStatus(orderId, newStatus, reason, 'app')
-
-            if (Object.keys(assignmentUpdate).length > 0) {
-                const orderRef = doc(db, 'orders', orderId);
-                const { commitWrite } = await import('@/lib/offlineWrite')
-                await commitWrite(updateDoc(orderRef, assignmentUpdate), { label: `statusAssignment:${orderId}` });
-
-                // Aplicar actualización de repartidor en caso de que se haya auto-asignado
-                patchOrderEverywhere(orderId, order => ({
-                    ...order,
-                    delivery: {
-                        ...order.delivery,
-                        ...(assignmentUpdate['delivery.assignedDelivery']
-                            ? { 
-                                assignedDelivery: assignmentUpdate['delivery.assignedDelivery'],
-                                assignedDeliveryData: assignmentUpdate['delivery.assignedDeliveryData'] || order.delivery?.assignedDeliveryData
-                              }
-                            : {})
-                    }
-                }))
-            }
         } catch (error) {
             console.error("Error updating status:", error)
             // Solo alertar y revertir si no fue por desconexión
@@ -1907,6 +1845,18 @@ export default function TodayOrdersPage() {
             alert('Ocurrió un error al buscar repartidor de Delivery Fuddi.')
         }
     }
+
+    const handleUpdateDefaultDelivery = useCallback(async (deliveryId: string | undefined) => {
+        if (!business?.id) return
+        try {
+            const cleanId = deliveryId || ''
+            await updateBusiness(business.id, { defaultDeliveryId: cleanId })
+            setBusiness(prev => prev ? { ...prev, defaultDeliveryId: cleanId } : null)
+        } catch (error) {
+            console.error("Error al actualizar delivery predeterminado:", error)
+            alert("No se pudo actualizar el repartidor predeterminado.")
+        }
+    }, [business?.id])
 
     const handlePaymentClick = useCallback((order: Order) => {
         setSelectedOrderForPayment(order)
@@ -3383,6 +3333,8 @@ export default function TodayOrdersPage() {
                                 onDeliveryAssign={handleDeliveryAssignment}
                                 deliveryServiceType={business?.deliveryServiceType ?? 'fuddi'}
                                 defaultDeliveryId={business?.defaultDeliveryId}
+                                business={business}
+                                onUpdateDefaultDelivery={handleUpdateDefaultDelivery}
                                 onAutoAssignFuddi={handleAutoAssignFuddi}
                                 onWhatsApp={() => {
                                     if (selectedOrderForStatusModal) {

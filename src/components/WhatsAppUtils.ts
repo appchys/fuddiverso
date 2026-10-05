@@ -249,43 +249,10 @@ export const getSavedTemplate = async (key: string): Promise<string> => {
     return getSavedTemplateSync(key)
 }
 
-export const sendWhatsAppToDelivery = async (
+export const buildDeliveryWhatsAppMessage = (
     order: Order,
-    availableDeliveries: any[],
-    business: Business | null,
-    onStatusUpdate?: (orderId: string, newStatus: Order['status']) => Promise<void>,
-    updateLocalOrder?: (updatedOrder: Order) => void
-) => {
-    let nextStatus: Order['status'] | null = null
-    if (order.status !== 'ready' && onStatusUpdate && updateLocalOrder) {
-        nextStatus = getNextStatus(order.status)
-    }
-
-    let phone = ''
-
-    if (order.delivery.type === 'delivery') {
-        const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
-        if (!assignedDeliveryId) {
-            alert('Este pedido no tiene un delivery asignado')
-            return
-        }
-
-        const delivery = availableDeliveries.find(d => d.id === assignedDeliveryId)
-        if (!delivery) {
-            alert('No se encontró la información del delivery')
-            return
-        }
-
-        phone = delivery.celular
-    } else {
-        if (!business?.phone) {
-            alert('No se encontró el número de teléfono de la tienda')
-            return
-        }
-
-        phone = business.phone
-    }
-
+    business: Business | null
+): string => {
     const customerName = order.customer?.name || 'Cliente sin nombre'
     const customerPhone = order.customer?.phone || 'Sin teléfono'
     const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
@@ -326,7 +293,7 @@ export const sendWhatsAppToDelivery = async (
 
     // Obtención síncrona instantánea desde memoria para preservar el gesto de usuario (User Activation)
     const template = getSavedTemplateSync(templateKey)
-    const message = renderWhatsAppTemplate(template, {
+    return renderWhatsAppTemplate(template, {
         businessName: business?.name || 'Tienda',
         businessPhoneLine: business?.phone ? `+593${business.phone.replace(/\D/g, '').startsWith('0') ? business.phone.replace(/\D/g, '').slice(1) : business.phone.replace(/\D/g, '')}` : '',
         customerName,
@@ -343,7 +310,46 @@ export const sendWhatsAppToDelivery = async (
         paymentDetailsBlock,
         total: effectiveTotal.toFixed(2)
     })
+}
 
+export const sendWhatsAppToDelivery = async (
+    order: Order,
+    availableDeliveries: any[],
+    business: Business | null,
+    onStatusUpdate?: (orderId: string, newStatus: Order['status']) => Promise<void>,
+    updateLocalOrder?: (updatedOrder: Order) => void
+) => {
+    let nextStatus: Order['status'] | null = null
+    if (order.status !== 'ready' && onStatusUpdate && updateLocalOrder) {
+        nextStatus = getNextStatus(order.status)
+    }
+
+    let phone = ''
+
+    if (order.delivery.type === 'delivery') {
+        const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
+        if (!assignedDeliveryId) {
+            alert('Este pedido no tiene un delivery asignado')
+            return
+        }
+
+        const delivery = availableDeliveries.find(d => d.id === assignedDeliveryId)
+        if (!delivery) {
+            alert('No se encontró la información del delivery')
+            return
+        }
+
+        phone = delivery.celular
+    } else {
+        if (!business?.phone) {
+            alert('No se encontró el número de teléfono de la tienda')
+            return
+        }
+
+        phone = business.phone
+    }
+
+    const message = buildDeliveryWhatsAppMessage(order, business)
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(phone)}&text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
 
