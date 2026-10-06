@@ -775,8 +775,6 @@ const CALLBACK_TO_TEMPLATE: Record<string, CallbackMapping> = {
         dbIcon: '✅',
         dbActions: [
             'status → "confirmed"',
-            'autoAssignDelivery() → delivery.assignedDelivery',
-            'delivery.assignedAt → timestamp',
             'confirmedBy → nombre del operador',
         ],
     },

@@ -1017,6 +1017,7 @@ async function handleStoreWebhook(req, res) {
             const messageId = callbackQuery.message.message_id;
 
             const [actionType, param1, param2] = data.split('|');
+            const token = param1;
 
             if (actionType === 'checkin_open' || actionType === 'checkin_close') {
                 console.log(`☀️ [Store Webhook] Procesando check-in callback: ${actionType} para negocio ${param1}`);
@@ -1028,6 +1029,18 @@ async function handleStoreWebhook(req, res) {
             if (actionType.startsWith('biz_') || actionType === 'store_preparing') {
                 const action = actionType; // biz_confirm, biz_discard, store_preparing
                 const result = await processOrderAction(token, action);
+
+                // Responder de inmediato al callback para quitar el spinner en Telegram
+                const answerUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/answerCallbackQuery`;
+                let answerText = "Acción procesada";
+                if (action === 'biz_confirm') answerText = "✅ Pedido Aceptado";
+                else if (action === 'biz_discard') answerText = "❌ Pedido Rechazado";
+                else if (action === 'store_preparing') answerText = "👨‍🍳 En preparación";
+
+                await axios.post(answerUrl, {
+                    callback_query_id: callbackQuery.id,
+                    text: result.error ? `❌ ${result.error}` : answerText
+                }).catch(err => console.warn('⚠️ Error enviando answerCallbackQuery:', err.message));
 
                 if (result.error) {
                     await sendStoreTelegramMessage(chatId, `❌ Error: ${result.error}`);
@@ -1067,8 +1080,6 @@ async function handleStoreWebhook(req, res) {
                                 finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
                                 if (deliveryName) {
                                     finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
-                                } else if (orderData.delivery?.type === 'delivery') {
-                                    finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
                                 }
                             } else if (action === 'store_preparing') {
                                 finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
@@ -1078,33 +1089,78 @@ async function handleStoreWebhook(req, res) {
 
                             syncText = telegramText + finalStatusText;
                         }
-                        const businessMessages = orderData.telegramBusinessMessages || [];
+
+                        // Reconstruir botones para el nuevo estado
+                        const appUrl = await getAppUrl();
+                        const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+                        const preparingToken = Buffer.from(`${orderId}|store_preparing`).toString('base64');
+                        let nextReplyMarkup = null;
+
+                        if (action === 'biz_confirm') {
+                            nextReplyMarkup = {
+                                inline_keyboard: [
+                                    [
+                                        { text: "👨‍🍳 Preparando", callback_data: `store_preparing|${preparingToken}` }
+                                    ],
+                                    [
+                                        { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                                    ]
+                                ]
+                            };
+                        } else if (action === 'store_preparing') {
+                            nextReplyMarkup = {
+                                inline_keyboard: [
+                                    [
+                                        { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                                    ]
+                                ]
+                            };
+                        } else if (action === 'biz_discard') {
+                            nextReplyMarkup = { inline_keyboard: [] };
+                        }
+
+                        // Mensajes a editar: los guardados en ordenData + el mensaje actual donde se hizo click
+                        const businessMessages = Array.isArray(orderData.telegramBusinessMessages) ? [...orderData.telegramBusinessMessages] : [];
+                        if (chatId && messageId && !businessMessages.some(m => String(m.chatId) === String(chatId) && Number(m.messageId) === Number(messageId))) {
+                            businessMessages.push({ chatId, messageId });
+                        }
                         console.log(`📝 [Store Webhook] Mensajes a editar: ${businessMessages.length}`);
 
                         // Actualizar TODOS los mensajes enviados a los administradores
                         const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
                         const updatePromises = businessMessages.map(msg => {
                             console.log(`📤 [Store Webhook] Editando: chat=${msg.chatId}, messageId=${msg.messageId}`);
-                            return axios.post(editUrl, {
+                            const payload = {
                                 chat_id: msg.chatId,
                                 message_id: msg.messageId,
                                 text: syncText,
                                 parse_mode: 'HTML',
                                 link_preview_options: { is_disabled: true }
-                            }).then(response => {
+                            };
+                            if (nextReplyMarkup) {
+                                payload.reply_markup = nextReplyMarkup;
+                            }
+                            return axios.post(editUrl, payload).then(response => {
                                 console.log(`✅ [Store Webhook] Mensaje editado en chat ${msg.chatId}: ok=${response.data.ok}`);
                                 return response;
                             }).catch(async err => {
                                 const errorDesc = err.response?.data?.description || '';
+                                if (errorDesc.includes("message is not modified")) {
+                                    return;
+                                }
                                 if (err.response?.status === 400 && errorDesc.includes("can't parse entities")) {
                                     console.warn(`⚠️ [Store Webhook] HTML malformado detectado. Reintentando sin parse_mode...`);
                                     try {
-                                        return await axios.post(editUrl, {
+                                        const fallbackPayload = {
                                             chat_id: msg.chatId,
                                             message_id: msg.messageId,
                                             text: syncText.replace(/<[^>]+>/g, ''),
                                             link_preview_options: { is_disabled: true }
-                                        });
+                                        };
+                                        if (nextReplyMarkup) {
+                                            fallbackPayload.reply_markup = nextReplyMarkup;
+                                        }
+                                        return await axios.post(editUrl, fallbackPayload);
                                     } catch (retryErr) {
                                         console.error(`❌ [Store Webhook] Fallback falló en ${msg.chatId}:`, retryErr.message);
                                     }
@@ -1125,18 +1181,6 @@ async function handleStoreWebhook(req, res) {
                         console.error('❌ Error updating business message:', err);
                     }
                 }
-
-                // Responder al callback
-                const answerUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/answerCallbackQuery`;
-                let answerText = "Acción procesada";
-                if (action === 'biz_confirm') answerText = "Pedido Aceptado";
-                else if (action === 'biz_discard') answerText = "Pedido Rechazado";
-                else if (action === 'store_preparing') answerText = "Pedido en preparación";
-
-                await axios.post(answerUrl, {
-                    callback_query_id: callbackQuery.id,
-                    text: answerText
-                });
             } else if (actionType.startsWith('order_')) {
                 // Si llega una acción de delivery al Store Webhook, la procesamos
                 // (útil por si se comparte el bot o los webhooks están cruzados)
@@ -1259,6 +1303,14 @@ async function handleStoreWebhook(req, res) {
         res.status(200).send('OK');
     } catch (error) {
         console.error('❌ Error en handleStoreWebhook:', error);
+        if (req.body?.callback_query?.id && STORE_BOT_TOKEN) {
+            try {
+                await axios.post(`https://api.telegram.org/bot${STORE_BOT_TOKEN}/answerCallbackQuery`, {
+                    callback_query_id: req.body.callback_query.id,
+                    text: '⚠️ Error procesando acción'
+                });
+            } catch (_) {}
+        }
         res.status(200).send('OK');
     }
 }
@@ -1327,8 +1379,6 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
                     } else {
                         finalStatusText += ` <i>.. Esperando confirmación</i>`;
                     }
-                } else if (orderData.delivery?.type === 'delivery') {
-                    finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
                 }
             } else {
                 finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
@@ -1626,8 +1676,6 @@ async function handleDeliveryWebhook(req, res) {
                                     finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
                                     if (deliveryName) {
                                         finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
-                                    } else if (orderData.delivery?.type === 'delivery') {
-                                        finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
                                     }
                                 } else if (action === 'store_preparing') {
                                     finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
