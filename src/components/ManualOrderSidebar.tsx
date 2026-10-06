@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
 import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, createProduct, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, createProduct, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
 import { getOfflineQueue } from '@/lib/offline-queue'
 import { searchClients } from '@/lib/client-search'
 import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
@@ -626,7 +626,6 @@ export default function ManualOrderSidebar({
       try {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
-        // Delivery será asignado automáticamente basado en la ubicación y zona de cobertura
       } catch (error) {
         console.error('Error loading deliveries:', error)
       }
@@ -907,55 +906,6 @@ export default function ManualOrderSidebar({
     }
   }
 
-  // Buscar delivery asignado a la zona de una ubicación
-  const findDeliveryForLocation = async (location: ClientLocation) => {
-    // 1. PRIORIDAD: Si la tienda tiene un delivery predeterminado, asignarlo siempre
-    if (effectiveBusiness?.defaultDeliveryId) {
-      const defaultDelivery = availableDeliveries.find(d => d.id === effectiveBusiness.defaultDeliveryId)
-      if (defaultDelivery) {
-        console.log('[ManualOrder] Asignando delivery predeterminado del negocio:', defaultDelivery.nombres)
-        setManualOrderData(prev => ({ ...prev, selectedDelivery: defaultDelivery }))
-        return // Prioridad máxima
-      } else {
-        console.warn('[ManualOrder] Delivery predeterminado configurado pero no encontrado en disponibles:', effectiveBusiness.defaultDeliveryId)
-      }
-    }
-
-    // Si no tiene coordenadas válidas, mantener delivery actual
-    if (!location.latlong || location.latlong.startsWith('pluscode:')) {
-      console.log('[ManualOrder] Location sin coordenadas válidas, manteniendo delivery predeterminado')
-      return
-    }
-
-    try {
-      // Parsear coordenadas
-      const [lat, lng] = location.latlong.split(',').map(Number)
-      if (isNaN(lat) || isNaN(lng)) {
-        console.log('[ManualOrder] Coordenadas inválidas:', location.latlong)
-        return
-      }
-
-      // Usar la nueva función con Round Robin
-      const deliveryId = await getDeliveryForLocation({ lat, lng }, effectiveBusinessId)
-
-      if (deliveryId) {
-        const delivery = availableDeliveries.find(d => d.id === deliveryId)
-        if (delivery) {
-          console.log('[ManualOrder] Auto-asignando delivery (Round Robin):', {
-            deliveryId,
-            deliveryName: delivery.nombres
-          })
-          setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }))
-        } else {
-          console.log('[ManualOrder] Delivery ID encontrado pero no está en lista de disponibles:', deliveryId)
-        }
-      } else {
-        console.log('[ManualOrder] Ubicación no está en ninguna zona con delivery asignado')
-      }
-    } catch (error) {
-      console.error('[ManualOrder] Error buscando delivery por zona:', error)
-    }
-  }
 
   // Obtener fecha y hora inicial para programación
   const getInitialScheduledDateTime = () => {
@@ -1800,19 +1750,6 @@ export default function ManualOrderSidebar({
           referencia: extractedReferences.join(' | ') || prev.referencia
         }))
 
-        // Si se extrajo ubicación, también disparamos la asignación de delivery
-        if (resolvedLatLong && !resolvedLatLong.startsWith('pluscode:')) {
-          const tempLocObj = {
-            id: 'temp',
-            id_cliente: '',
-            latlong: resolvedLatLong,
-            referencia: extractedReferences.join(' | '),
-            sector: sector || 'Sin especificar',
-            tarifa: tarifa
-          }
-          findDeliveryForLocation(tempLocObj)
-        }
-
         displayToast('¡Información pegada!')
       } else {
         if (!isSilent) displayToast('Formato no reconocido')
@@ -2084,18 +2021,6 @@ export default function ManualOrderSidebar({
           };
         });
 
-        // Buscar el repartidor para la nueva ubicación real
-        const finalLoc = {
-          id: newLocationId,
-          id_cliente: realClientId,
-          latlong: latlongValue,
-          referencia: referral,
-          tarifa: tariff,
-          sector: sector,
-          photo: photoUrl || tempPhoto
-        };
-        findDeliveryForLocation(finalLoc as any);
-
         displayToast('Ubicación guardada');
       } catch (error) {
         console.error('Error creando ubicación en segundo plano:', error);
@@ -2271,7 +2196,7 @@ export default function ManualOrderSidebar({
           };
         });
 
-        // Buscar el repartidor y recalcular tarifas para la ubicación actualizada
+        // Recalcular tarifas para la ubicación actualizada
         const updatedLocation = locations.find(loc => loc.id === locIdToUpdate)
         if (updatedLocation && manualOrderData.selectedLocation?.id === locIdToUpdate) {
           if (updatedLocation.latlong) {
@@ -2288,7 +2213,6 @@ export default function ManualOrderSidebar({
               });
             }
           }
-          findDeliveryForLocation(updatedLocation);
         }
 
         displayToast('Ubicación actualizada');
@@ -5197,14 +5121,12 @@ export default function ManualOrderSidebar({
                             setShowLocationModal(false)
                             calculateTotal(manualOrderData.selectedProducts)
 
-                            void findDeliveryForLocation(initialSelected)
-
-                            // 2. Si no tiene coordenadas válidas o es pluscode, asignar repartidor directamente
+                            // 2. Si no tiene coordenadas válidas o es pluscode, no calcular tarifa por mapa
                             if (!location.latlong || location.latlong.startsWith('pluscode:')) {
                               return
                             }
 
-                            // 3. Si hay coordenadas, verificar tarifa y repartidor en segundo plano (sin bloquear la UI)
+                            // 3. Si hay coordenadas, verificar tarifa en segundo plano (sin bloquear la UI)
                             const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
                             if (isNaN(lat) || isNaN(lng)) {
                               return
