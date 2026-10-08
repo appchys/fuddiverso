@@ -72,26 +72,43 @@ export default function ProductPageByUsername() {
 
           // Verificar stock de producto y sus variantes/combos
           try {
-            const summary = await getIngredientStockSummary(businessData.id)
-            const stockMap = new Map<string, any>()
-            summary.forEach(item => {
-              if (item.ingredientName) stockMap.set(item.ingredientName.toLowerCase().trim(), item)
-            })
+            const hasStockPersisted = productData.isStockAvailable !== undefined
+            const needsStockCalculation = productData.autoHideByStock && !hasStockPersisted
 
-            const isEffectivelyAvailable = isProductEffectivelyAvailable(productData, stockMap)
-            const evaluation = evaluateProductStock(productData, stockMap)
+            if (needsStockCalculation) {
+              const summary = await getIngredientStockSummary(businessData.id)
+              const stockMap = new Map<string, any>()
+              summary.forEach(item => {
+                if (item.ingredientName) stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+              })
 
-            if (productData.variants && productData.variants.length > 0) {
+              const isEffectivelyAvailable = isProductEffectivelyAvailable(productData, stockMap)
+              const evaluation = evaluateProductStock(productData, stockMap)
+
+              if (productData.variants && productData.variants.length > 0) {
+                productData = {
+                  ...productData,
+                  isAvailable: isEffectivelyAvailable,
+                  variants: productData.variants.filter(v => {
+                    const isAvail = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
+                    return isAvail && v.isAvailable !== false
+                  })
+                }
+              } else if (!isEffectivelyAvailable) {
+                productData = { ...productData, isAvailable: false }
+              }
+            } else if (productData.autoHideByStock && productData.isStockAvailable === false) {
+              productData = { ...productData, isAvailable: false }
+            } else if (productData.variants && productData.variants.length > 0) {
+              // Filtrar variantes usando el dato persistido si no hubo cálculo dinámico
               productData = {
                 ...productData,
-                isAvailable: isEffectivelyAvailable,
                 variants: productData.variants.filter(v => {
-                  const isAvail = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
-                  return isAvail && v.isAvailable !== false
+                  if (v.isAvailable === false) return false
+                  if (v.autoHideByStock && v.isStockAvailable === false) return false
+                  return true
                 })
               }
-            } else if (!isEffectivelyAvailable) {
-              productData = { ...productData, isAvailable: false }
             }
           } catch (e) {
             console.error('Error evaluando stock de producto individual:', e)
@@ -110,7 +127,7 @@ export default function ProductPageByUsername() {
           }
 
           const otherProducts = allProducts
-            .filter(p => p.id !== productId && p.isAvailable)
+            .filter(p => p.id !== productId && p.isAvailable && (!p.autoHideByStock || p.isStockAvailable !== false))
             .sort((a, b) => getCategoryIndex(a.category) - getCategoryIndex(b.category))
             .slice(0, 10)
 
@@ -151,27 +168,41 @@ export default function ProductPageByUsername() {
 
   useEffect(() => {
     if (business?.id) {
+      // Iniciar siempre en blanco al cargar la página
+      try {
+        const savedCarts = localStorage.getItem('carts')
+        if (savedCarts) {
+          const allCarts = JSON.parse(savedCarts)
+          if (allCarts[business.id]) {
+            delete allCarts[business.id]
+            localStorage.setItem('carts', JSON.stringify(allCarts))
+            window.dispatchEvent(new Event('storage'))
+            window.dispatchEvent(new Event('cart-updated'))
+          }
+        }
+      } catch (e) {
+        console.error('Error clearing cart on mount:', e)
+      }
+      setCart([])
+
       const loadCart = () => {
         const savedCarts = localStorage.getItem('carts')
         if (savedCarts) {
           const allCarts = JSON.parse(savedCarts)
           const businessCart = allCarts[business.id] || []
           setCart(businessCart)
+        } else {
+          setCart([])
         }
       }
-
-      loadCart()
 
       const handleStorageChange = () => loadCart()
       window.addEventListener('storage', handleStorageChange)
       window.addEventListener('cart-updated', handleStorageChange)
 
-      const interval = setInterval(loadCart, 1000)
-
       return () => {
         window.removeEventListener('storage', handleStorageChange)
         window.removeEventListener('cart-updated', handleStorageChange)
-        clearInterval(interval)
       }
     }
   }, [business?.id])

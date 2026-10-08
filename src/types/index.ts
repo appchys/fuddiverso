@@ -217,6 +217,7 @@ export interface ProductVariant {
   commissionType?: CommissionType // Tipo de gestión de comisión
   isAvailable: boolean
   autoHideByStock?: boolean // Si es true, la variante se oculta automáticamente si sus ingredientes de stock limitado alcanzan o bajan del stock mínimo
+  isStockAvailable?: boolean // Estado persistido en Firebase: disponibilidad calculada según stock de ingredientes
   image?: string
   ingredients?: Ingredient[]
 }
@@ -268,6 +269,7 @@ export interface Product {
   businessImage?: string
   ingredients?: Ingredient[]
   autoHideByStock?: boolean // Si es true, el producto se oculta automáticamente si sus ingredientes de stock limitado alcanzan o bajan del stock mínimo
+  isStockAvailable?: boolean // Estado persistido en Firebase: disponibilidad calculada según stock de ingredientes
   scheduleAvailability?: ProductScheduleAvailability // Disponibilidad por horarios/días
   isCombo?: boolean // Si el producto es un combo que requiere seleccionar múltiples variantes
   minComboItems?: number // Cantidad mínima de variantes a seleccionar para el combo

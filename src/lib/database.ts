@@ -57,7 +57,7 @@ import {
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
 import { logDebug } from './debug-log'
-import { resolveItemIngredients, extractBaseVariantName } from './stock-utils'
+import { resolveItemIngredients, extractBaseVariantName, evaluateProductStock } from './stock-utils'
 import { optimizeImage } from './image-utils'
 
 const NEW_BUSINESS_DEFAULT_COMMISSION_RATE = 10
@@ -1042,6 +1042,9 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
 
     if (productData.businessId) {
       invalidateProductsCache(productData.businessId)
+      if (productData.autoHideByStock || (productData.variants && productData.variants.some(v => v.autoHideByStock))) {
+        void syncProductsStockAvailability(productData.businessId).catch(console.error)
+      }
     } else {
       invalidateProductsCache()
     }
@@ -1338,6 +1341,9 @@ export async function updateProduct(productId: string, data: Partial<Product>) {
 
     if (data.businessId) {
       invalidateProductsCache(data.businessId)
+      if (data.autoHideByStock !== undefined || data.ingredients !== undefined || data.variants !== undefined) {
+        void syncProductsStockAvailability(data.businessId).catch(console.error)
+      }
     } else {
       // Buscar en el caché el businessId al que pertenecía este producto
       productsByBusinessCache.forEach((item, bId) => {
@@ -5049,6 +5055,11 @@ export async function saveIngredientStockConfig(
     }
 
     await Promise.all([updateDocPromise, movementPromise].filter(Boolean))
+
+    // Sincronizar en segundo plano la disponibilidad de stock de los productos del negocio
+    void syncProductsStockAvailability(businessId).catch(err => {
+      console.warn('Error en syncProductsStockAvailability tras saveIngredientStockConfig:', err)
+    })
   } catch (error) {
     console.error('Error saving ingredient stock config:', error)
     throw error
@@ -7721,6 +7732,11 @@ export async function recordStockMovement(
       })
     }
 
+    // Sincronizar en segundo plano la disponibilidad de stock de los productos del negocio
+    void syncProductsStockAvailability(movement.businessId).catch(err => {
+      console.warn('Error en syncProductsStockAvailability tras movimiento:', err)
+    })
+
     return docRef.id
   } catch (error) {
     console.error('Error recording stock movement:', error)
@@ -7908,6 +7924,93 @@ export async function getIngredientStockSummary(
   } catch (error) {
     console.error('[getIngredientStockSummary] Error:', error)
     return []
+  }
+}
+
+/**
+ * Sincroniza y guarda en Firestore el estado de disponibilidad por stock (isStockAvailable)
+ * para los productos y variantes del negocio que tienen control automático (autoHideByStock).
+ * Esto permite que la tienda del cliente cargue los productos disponibles instantáneamente
+ * sin tener que calcular el stock de ingredientes en cada visita.
+ */
+export async function syncProductsStockAvailability(
+  businessId: string,
+  customStockSummary?: IngredientStockSummary[],
+  customProducts?: Product[]
+): Promise<void> {
+  if (!businessId) return
+
+  try {
+    const [products, stockSummaryData] = await Promise.all([
+      customProducts ? Promise.resolve(customProducts) : getProductsByBusiness(businessId, true),
+      customStockSummary ? Promise.resolve(customStockSummary) : getIngredientStockSummary(businessId)
+    ])
+
+    if (!products || products.length === 0) return
+
+    const stockMap = new Map<string, IngredientStockSummary>()
+    if (stockSummaryData && stockSummaryData.length > 0) {
+      stockSummaryData.forEach(item => {
+        if (item.ingredientName) {
+          stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+        }
+      })
+    }
+
+    const updates: Promise<void>[] = []
+
+    for (const product of products) {
+      const hasAutoHideProduct = Boolean(product.autoHideByStock)
+      const hasVariantsWithAutoHide = Boolean(
+        product.variants && product.variants.some(v => v.autoHideByStock || hasAutoHideProduct)
+      )
+
+      if (!hasAutoHideProduct && !hasVariantsWithAutoHide) {
+        continue
+      }
+
+      const evaluation = evaluateProductStock(product, stockMap)
+      const isStockAvailable = evaluation.isAvailableByStock
+
+      let variantsChanged = false
+      let updatedVariants: ProductVariant[] | undefined = undefined
+
+      if (product.variants && product.variants.length > 0) {
+        updatedVariants = product.variants.map(v => {
+          const isAvailByStock = evaluation.availableVariants.some(
+            av => av.id === v.id || av.name === v.name
+          )
+          if (v.isStockAvailable !== isAvailByStock) {
+            variantsChanged = true
+          }
+          return {
+            ...v,
+            isStockAvailable: isAvailByStock
+          }
+        })
+      }
+
+      const productStockChanged = product.isStockAvailable !== isStockAvailable
+
+      if (productStockChanged || variantsChanged) {
+        const docRef = doc(db, 'products', product.id)
+        const updatePayload: any = {
+          isStockAvailable,
+          updatedAt: serverTimestamp()
+        }
+        if (updatedVariants) {
+          updatePayload.variants = updatedVariants
+        }
+        updates.push(updateDoc(docRef, updatePayload))
+      }
+    }
+
+    if (updates.length > 0) {
+      await Promise.all(updates)
+      invalidateProductsCache(businessId)
+    }
+  } catch (error) {
+    console.error('Error sincronizando disponibilidad de stock en Firebase:', error)
   }
 }
 

@@ -202,12 +202,18 @@ export function evaluateProductStock(
  */
 export function isProductEffectivelyAvailable(
   product: Product,
-  stockMap: Map<string, IngredientStockSummary>
+  stockMap?: Map<string, IngredientStockSummary>
 ): boolean {
   if (product.isAvailable === false) return false
   if (product.autoHideByStock) {
-    const evaluation = evaluateProductStock(product, stockMap)
-    return evaluation.isAvailableByStock
+    if (stockMap && stockMap.size > 0) {
+      const evaluation = evaluateProductStock(product, stockMap)
+      return evaluation.isAvailableByStock
+    }
+    // Si ya existe el dato persistido en Firebase, usarlo directamente sin recalcular
+    if (product.isStockAvailable !== undefined) {
+      return product.isStockAvailable
+    }
   }
   return true
 }

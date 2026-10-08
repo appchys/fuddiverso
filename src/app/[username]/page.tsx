@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating, syncProductsStockAvailability } from '@/lib/database'
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
@@ -633,58 +633,99 @@ function RestaurantContent() {
       const storePackagingFee = getPackagingFee(targetBiz)
       const hasShared = Boolean(targetBiz.sharedProductIds && targetBiz.sharedProductIds.length > 0)
 
-      // 1. CARGA INMEDIATA: Obtener y mostrar los productos propios del negocio al instante
+      // 1. CARGA DE PRODUCTOS: Obtener productos propios del negocio
       const productsData = await getProductsByBusiness(targetBiz.id)
-      const initialAvailable = productsData
-        .filter(product => product.isAvailable !== false)
-        .map(product => ({
-          ...product,
-          packagingFee: storePackagingFee
-        }))
 
-      setProducts(initialAvailable)
-      setLoading(false) // ¡Los productos aparecen inmediatamente sin retraso!
+      // Verificar si hay productos que requieren control por stock pero aún no tienen isStockAvailable persistido en Firebase
+      const needsInitialStockSync = productsData.some(
+        p => (p.autoHideByStock || (p.variants && p.variants.some(v => v.autoHideByStock))) && p.isStockAvailable === undefined
+      )
 
-      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO: Cargar stock de ingredientes de la tienda
-      Promise.all([
-        hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
-        getIngredientStockSummary(targetBiz.id).catch(e => {
-          console.error('Error cargando stock de ingredientes en segundo plano:', e)
-          return [] as IngredientStockSummary[]
-        })
-      ]).then(async ([sharedProducts, stockSummaryData]) => {
-        let enrichedProducts = [...initialAvailable]
+      let stockMap: Map<string, IngredientStockSummary> | null = null
+      let stockSummaryData: IngredientStockSummary[] = []
 
-        // Si hay control de stock de ingredientes, re-evaluar disponibilidad
-        if (stockSummaryData && stockSummaryData.length > 0) {
-          const stockMap = new Map<string, IngredientStockSummary>()
+      // Si hay productos con autoHideByStock sin dato persistido, obtenemos el stock previo para no mostrar productos agotados
+      if (needsInitialStockSync) {
+        try {
+          stockSummaryData = await getIngredientStockSummary(targetBiz.id)
+          stockMap = new Map<string, IngredientStockSummary>()
           stockSummaryData.forEach(item => {
             if (item.ingredientName) {
-              stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+              stockMap!.set(item.ingredientName.toLowerCase().trim(), item)
             }
           })
+          // Sincronizar en Firebase para que las próximas visitas tengan el dato listo
+          void syncProductsStockAvailability(targetBiz.id, stockSummaryData, productsData)
+        } catch (e) {
+          console.error('Error sincronizando stock inicial no persistido:', e)
+        }
+      }
 
-          enrichedProducts = productsData
-            .filter(product => isProductEffectivelyAvailable(product, stockMap))
-            .map(product => {
+      // Filtrar y preparar productos con disponibilidad inmediata y variantes por stock
+      const initialAvailable = productsData
+        .filter(product => {
+          if (product.isAvailable === false) return false
+          // Si tenemos stockMap (por sincronización pendiente), evaluar con el stockMap
+          if (stockMap && product.autoHideByStock) {
+            return isProductEffectivelyAvailable(product, stockMap)
+          }
+          // Si el dato ya está persistido en Firebase (caso óptimo), usarlo directamente
+          if (product.autoHideByStock && product.isStockAvailable === false) {
+            return false
+          }
+          return true
+        })
+        .map(product => {
+          let availableVariants = product.variants
+          if (product.variants && product.variants.length > 0) {
+            if (stockMap) {
               const evaluation = evaluateProductStock(product, stockMap)
-              if (product.variants && product.variants.length > 0) {
-                const availableVariantsList = product.variants.filter(v => {
-                  const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
-                  return isAvailByStock && v.isAvailable !== false
-                })
+              availableVariants = product.variants.filter(v => {
+                const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
+                return isAvailByStock && v.isAvailable !== false
+              })
+            } else {
+              availableVariants = product.variants.filter(v => {
+                if (v.isAvailable === false) return false
+                if (v.autoHideByStock && v.isStockAvailable === false) return false
+                return true
+              })
+            }
+          }
 
-                return {
-                  ...product,
-                  packagingFee: storePackagingFee,
-                  variants: availableVariantsList
-                }
-              }
-              return {
-                ...product,
-                packagingFee: storePackagingFee
-              }
+          return {
+            ...product,
+            packagingFee: storePackagingFee,
+            variants: availableVariants
+          }
+        })
+        .filter(product => {
+          // Si el producto tiene variantes y autoHideByStock pero todas quedaron agotadas, no mostrarlo
+          const originalProd = productsData.find(p => p.id === product.id)
+          if (product.autoHideByStock && originalProd?.variants && originalProd.variants.length > 0) {
+            return (product.variants && product.variants.length > 0)
+          }
+          return true
+        })
+
+      setProducts(initialAvailable)
+      setLoading(false) // ¡Los productos aparecen inmediatamente con el stock ya filtrado y sin parpadeos!
+
+      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO: Productos compartidos y sincronización de fondo
+      Promise.all([
+        hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
+        !needsInitialStockSync
+          ? getIngredientStockSummary(targetBiz.id).catch(e => {
+              console.error('Error cargando stock de ingredientes en segundo plano:', e)
+              return [] as IngredientStockSummary[]
             })
+          : Promise.resolve(stockSummaryData)
+      ]).then(async ([sharedProducts, bgStockSummary]) => {
+        let enrichedProducts: any[] = [...initialAvailable]
+
+        // Si no se hizo sync inicial, sincronizar en Firebase en segundo plano si hay ingredientes
+        if (!needsInitialStockSync && bgStockSummary && bgStockSummary.length > 0) {
+          void syncProductsStockAvailability(targetBiz.id, bgStockSummary, productsData)
         }
 
         // Si hay productos compartidos, procesarlos y agregarlos
@@ -695,6 +736,7 @@ function RestaurantContent() {
             const availableShared = sharedProducts
               .filter(p => {
                 if (p.isAvailable === false) return false
+                if (p.autoHideByStock && p.isStockAvailable === false) return false
                 const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
                 if (!ownerBiz || ownerBiz.isActive === false) return false
                 return isStoreOpen(ownerBiz)
@@ -706,6 +748,7 @@ function RestaurantContent() {
                   category: 'Compartidos',
                   isShared: true,
                   packagingFee: storePackagingFee,
+                  variants: p.variants,
                   originalBusinessId: p.businessId,
                   originalBusinessName: ownerBiz?.name || 'Otra tienda',
                   originalBusinessImage: ownerBiz?.image || null
@@ -920,23 +963,44 @@ function RestaurantContent() {
   }, [])
 
 
-  // Cargar carrito específico de esta tienda desde localStorage
+  // Cargar carrito específico de esta tienda desde localStorage (iniciando siempre en blanco al cargar la tienda)
   useEffect(() => {
     if (business?.id) {
+      // Al iniciar/cargar la tienda, siempre empezar con el carrito en blanco
+      try {
+        const savedCarts = localStorage.getItem('carts')
+        if (savedCarts) {
+          const allCarts = JSON.parse(savedCarts)
+          if (allCarts[business.id]) {
+            delete allCarts[business.id]
+            localStorage.setItem('carts', JSON.stringify(allCarts))
+            window.dispatchEvent(new Event('storage'))
+            window.dispatchEvent(new Event('cart-updated'))
+          }
+        }
+      } catch (e) {
+        console.error('Error clearing previous cart on store load:', e)
+      }
+      setCart([])
+      setPremioAgregado(false)
+
       const loadCartFromStorage = () => {
         const savedCarts = localStorage.getItem('carts')
-        let businessCart = []
+        let businessCart: any[] = []
         if (savedCarts) {
           const allCarts = JSON.parse(savedCarts)
           businessCart = allCarts[business.id] || []
         }
 
+        // Verificar si hay productos normales en el carrito
+        const tieneProductosReales = businessCart.some((item: any) => !item.esPremio)
+
         // Verificar si el premio ya está en el carrito
         const premioIndex = businessCart.findIndex((item: any) => item.id === 'premio-especial-auto')
         const tienePremio = premioIndex !== -1
 
-        // Auto-agregar o actualizar premio según configuración dinámica
-        if (business.rewardSettings?.enabled) {
+        // Auto-agregar o actualizar premio según configuración dinámica SOLO si hay productos reales en el carrito
+        if (business.rewardSettings?.enabled && tieneProductosReales) {
           const currentRewardName = `🎁 ${business.rewardSettings.name}`
           const currentRewardDesc = business.rewardSettings.description || '¡Felicidades! Has reclamado tu premio especial gratis'
           const currentIngredients = business.rewardSettings.ingredients || []
@@ -981,7 +1045,7 @@ function RestaurantContent() {
             setPremioAgregado(true)
           }
         } else if (tienePremio) {
-          // Si el premio estaba habilitado pero ahora está deshabilitado, quitarlo del carrito
+          // Si no hay productos reales o el premio fue deshabilitado, quitarlo del carrito
           businessCart = businessCart.filter((item: any) => item.id !== 'premio-especial-auto')
           updateCartInStorage(business.id, businessCart)
           setPremioAgregado(false)
@@ -992,17 +1056,13 @@ function RestaurantContent() {
         setCart(businessCart)
       }
 
-      loadCartFromStorage()
-      
       // Listen for storage changes and custom cart updates to sync state
       window.addEventListener('storage', loadCartFromStorage)
       window.addEventListener('cart-updated', loadCartFromStorage)
-      window.addEventListener('pageshow', loadCartFromStorage)
       
       return () => {
         window.removeEventListener('storage', loadCartFromStorage)
         window.removeEventListener('cart-updated', loadCartFromStorage)
-        window.removeEventListener('pageshow', loadCartFromStorage)
       }
     }
   }, [business?.id, business?.username, business?.rewardSettings])
@@ -1257,6 +1317,7 @@ function RestaurantContent() {
 
   const clearCart = () => {
     setCart([])
+    setPremioAgregado(false)
     if (business?.id) {
       updateCartInStorage(business.id, [])
     }
