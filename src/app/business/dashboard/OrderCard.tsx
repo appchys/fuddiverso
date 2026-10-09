@@ -27,6 +27,7 @@ interface OrderCardProps {
     onEdit: (order: Order) => void
     onDelete: (orderId: string) => void
     onCustomerClick: (order: Order) => void
+    onPreparationTimeChange?: (id: string, minutes: number) => void
     sectionKey?: string
     businessPhone?: string
     canChangeDelivery?: boolean
@@ -48,6 +49,7 @@ export const OrderCard = memo(function OrderCard({
     onEdit,
     onDelete,
     onCustomerClick,
+    onPreparationTimeChange,
     sectionKey,
     businessPhone,
     canChangeDelivery,
@@ -71,9 +73,24 @@ export const OrderCard = memo(function OrderCard({
 
         return date
     }
+    const defaultPrepTime = deliveryTimeMinutes ?? 30
+    const [localPrepTime, setLocalPrepTime] = useState<number>(order.preparationTime ?? defaultPrepTime)
+
+    useEffect(() => {
+        setLocalPrepTime(order.preparationTime ?? defaultPrepTime)
+    }, [order.preparationTime, defaultPrepTime])
+
+    const handleStepPrepTime = (delta: number, e: React.MouseEvent) => {
+        e.stopPropagation()
+        const nextTime = Math.max(5, (localPrepTime ?? defaultPrepTime) + delta)
+        if (nextTime === localPrepTime) return
+        setLocalPrepTime(nextTime)
+        onPreparationTimeChange?.(order.id, nextTime)
+    }
+
     const isWithinDeliveryTimeWindow = () => {
         if (!['confirmed', 'preparing'].includes(order.status)) return false
-        const windowMinutes = deliveryTimeMinutes ?? 30
+        const windowMinutes = order.preparationTime ?? deliveryTimeMinutes ?? 30
         const diffMinutes = (getOrderTargetDate().getTime() - Date.now()) / 60000
         return diffMinutes <= windowMinutes
     }
@@ -599,8 +616,36 @@ export const OrderCard = memo(function OrderCard({
                     </div>
                 )}
 
-                {(isDelivery || isPickup) && (
-                    <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                <div className="mt-2 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                    {/* Indicador de tiempo de preparación con + y - */}
+                    <div 
+                        className="flex h-[20px] min-h-[20px] max-h-[20px] items-center gap-1 rounded-[3px] border border-gray-200 bg-white px-1.5 text-[11px] font-semibold text-gray-700 shadow-sm select-none"
+                        title="Tiempo de preparación: el pedido estará listo en estos minutos"
+                    >
+                        <i className="bi bi-clock text-gray-400 text-[10px] shrink-0"></i>
+                        <button
+                            type="button"
+                            onClick={(e) => handleStepPrepTime(-5, e)}
+                            disabled={localPrepTime <= 5}
+                            className="flex h-3.5 w-3.5 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 active:scale-90 font-bold transition-all disabled:opacity-25 disabled:pointer-events-none"
+                            title="Restar 5 minutos"
+                        >
+                            −
+                        </button>
+                        <span className="font-mono font-bold text-gray-900 text-[11px] min-w-[24px] text-center">
+                            {localPrepTime}m
+                        </span>
+                        <button
+                            type="button"
+                            onClick={(e) => handleStepPrepTime(5, e)}
+                            className="flex h-3.5 w-3.5 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 active:scale-90 font-bold transition-all"
+                            title="Sumar 5 minutos"
+                        >
+                            +
+                        </button>
+                    </div>
+
+                    {(isDelivery || isPickup) && (
                         <button
                             type="button"
                             onClick={() => {
@@ -613,8 +658,8 @@ export const OrderCard = memo(function OrderCard({
                         >
                             {fulfillmentLabel}
                         </button>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
 
             {/* Card Body */}

@@ -207,6 +207,100 @@ function getFormattedScheduledTime(orderData) {
 }
 
 /**
+ * Helper para calcular dinámicamente el tiempo de recogida para el delivery
+ */
+function getDynamicPickupTimeInfo(orderData, businessData = null) {
+    const prepMinutes = Number(
+        orderData.preparationTime ??
+        businessData?.deliveryTime ??
+        businessData?.defaultDeliveryTime ??
+        30
+    );
+
+    let targetDate = null;
+
+    if (orderData.timing?.type === 'scheduled') {
+        const time = orderData.timing.scheduledTime || '';
+        const sd = orderData.timing.scheduledDate;
+        let dateObj = null;
+
+        if (sd) {
+            if (sd.toDate && typeof sd.toDate === 'function') dateObj = sd.toDate();
+            else if (sd.seconds !== undefined) dateObj = new Date(sd.seconds * 1000);
+            else if (sd._seconds !== undefined) dateObj = new Date(sd._seconds * 1000);
+            else if (sd instanceof Date) dateObj = sd;
+            else dateObj = new Date(sd);
+        }
+
+        if (dateObj && !isNaN(dateObj.getTime()) && time && time.includes(':')) {
+            const [hours, minutes] = time.split(':').map(Number);
+            targetDate = new Date(dateObj);
+            targetDate.setHours(hours, minutes, 0, 0);
+            // Para delivery programado, la comida debe estar lista para recoger ~22 min antes de la hora de entrega
+            targetDate = new Date(targetDate.getTime() - 22 * 60 * 1000);
+        }
+    }
+
+    if (!targetDate) {
+        // Inmediato
+        let baseDate = null;
+        if (orderData.createdAt) {
+            const cd = orderData.createdAt;
+            if (cd.toDate && typeof cd.toDate === 'function') baseDate = cd.toDate();
+            else if (cd.seconds !== undefined) baseDate = new Date(cd.seconds * 1000);
+            else if (cd._seconds !== undefined) baseDate = new Date(cd._seconds * 1000);
+            else if (cd instanceof Date) baseDate = cd;
+            else baseDate = new Date(cd);
+        }
+        if (!baseDate || isNaN(baseDate.getTime())) {
+            baseDate = new Date();
+        }
+
+        targetDate = new Date(baseDate.getTime() + prepMinutes * 60 * 1000);
+
+        // Si se actualizó después de la creación y targetDate inicial ya expiró
+        let updatedDate = null;
+        if (orderData.updatedAt) {
+            const ud = orderData.updatedAt;
+            if (ud.toDate && typeof ud.toDate === 'function') updatedDate = ud.toDate();
+            else if (ud.seconds !== undefined) updatedDate = new Date(ud.seconds * 1000);
+            else if (ud._seconds !== undefined) updatedDate = new Date(ud._seconds * 1000);
+            else if (ud instanceof Date) updatedDate = ud;
+            else updatedDate = new Date(ud);
+        }
+
+        const nowMs = Date.now();
+        if (targetDate.getTime() < nowMs && updatedDate && !isNaN(updatedDate.getTime()) && (updatedDate.getTime() + prepMinutes * 60 * 1000 > nowMs)) {
+            targetDate = new Date(updatedDate.getTime() + prepMinutes * 60 * 1000);
+        }
+    }
+
+    const now = new Date();
+    const diffMs = targetDate.getTime() - now.getTime();
+    const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
+
+    // Formatear hora de Ecuador (HH:MM)
+    const timeZone = 'America/Guayaquil';
+    const timeFormatter = new Intl.DateTimeFormat('es-EC', {
+        timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+    const timeStr = timeFormatter.format(targetDate);
+
+    const pickupTimeWhatsApp = `Recoger en *${diffMinutes} minuto${diffMinutes === 1 ? '' : 's'}* (${timeStr})`;
+    const pickupTimeTelegram = `Recoger en <b>${diffMinutes} minuto${diffMinutes === 1 ? '' : 's'}</b> (${timeStr})`;
+
+    return {
+        diffMinutes,
+        timeStr,
+        pickupTimeWhatsApp,
+        pickupTimeTelegram
+    };
+}
+
+/**
  * Obtener el nombre real de la tienda (negocio) desde orderData o Firestore
  */
 async function resolveBusinessName(orderData, defaultName = 'Tienda') {
@@ -351,6 +445,8 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         return sum + (itemStore * (item.quantity || 1));
     }, 0) || Math.max(0, subtotal - commissionAmount);
 
+    const pickupTimeInfo = getDynamicPickupTimeInfo(orderData);
+
     return {
         businessName: businessName || 'Negocio',
         customerName,
@@ -370,6 +466,11 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         deliveryTypeRaw: deliveryTypeRaw,
         scheduledTime: scheduledTimeStr,
         scheduledDateTime: scheduledDateTimeStr,
+        pickupTimeLine: pickupTimeInfo.pickupTimeTelegram,
+        pickupTime: pickupTimeInfo.pickupTimeTelegram,
+        pickupTimeFormatted: pickupTimeInfo.pickupTimeTelegram,
+        pickupMinutes: pickupTimeInfo.diffMinutes,
+        pickupTimeStr: pickupTimeInfo.timeStr,
         items: itemsText.trim(),
         // URLs (para templates que quieran envolver manualmente)
         mapsLink: mapsLink,
@@ -447,6 +548,10 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
             }
         }
         
+        if (template && (templateKey === 'delivery_assigned' || templateKey === 'delivery_accepted') && !template.includes('pickupTimeLine')) {
+            template = template.replace(/(\{\{scheduledDateTime\}\})/g, '$1\n{{pickupTimeLine}}');
+        }
+
         if (template) {
             const variables = buildTemplateVariables(orderData, businessName);
             const rendered = renderTemplate(template, variables);
@@ -582,7 +687,14 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
     }
 
     const timingIcon = timingType === 'Inmediato' ? '⚡' : '⏰';
-    text += `Hora estimada: ${timingIcon} ${scheduledTimeStr}\n\n`;
+    text += `Hora estimada: ${timingIcon} ${scheduledTimeStr}\n`;
+    if (orderData.delivery?.type === 'delivery') {
+        const pickupInfo = getDynamicPickupTimeInfo(orderData, businessData);
+        if (pickupInfo?.pickupTimeTelegram) {
+            text += `${pickupInfo.pickupTimeTelegram}\n`;
+        }
+    }
+    text += `\n`;
 
     text += `<b>Datos del cliente</b>\n`;
     text += `👤 Nombres: ${customerName}\n`;

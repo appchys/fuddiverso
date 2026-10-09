@@ -221,7 +221,7 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
 
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <i className="bi bi-truck me-2"></i>Tiempo de Entrega
+                  <i className="bi bi-clock-history me-2"></i>Tiempo de Preparación
                 </label>
                 <p className="text-gray-900 text-sm sm:text-base">{displayedDeliveryTime} minutos</p>
               </div>
@@ -364,7 +364,7 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
 
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <i className="bi bi-clock-history me-2"></i>Tiempo de Entrega (minutos)
+                  <i className="bi bi-clock-history me-2"></i>Tiempo de Preparación (minutos)
                 </label>
                 <input
                   type="number"

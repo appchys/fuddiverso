@@ -99,6 +99,70 @@ const formatScheduledDate = (timing: Order['timing']): string => {
     return `⏰ Programado para:\n${date.getDate()} de ${months[date.getMonth()]} a las ${time}`
 }
 
+const toSafeDate = (val: any): Date => {
+    if (!val) return new Date()
+    if (typeof val.toDate === 'function') return val.toDate()
+    if (val.seconds !== undefined) return new Date(val.seconds * 1000)
+    if (val._seconds !== undefined) return new Date(val._seconds * 1000)
+    if (val instanceof Date) return val
+    const parsed = new Date(val)
+    return isNaN(parsed.getTime()) ? new Date() : parsed
+}
+
+export const getDynamicPickupTimeInfo = (order: Order, business: Business | null) => {
+    const prepMinutes = Number(
+        order.preparationTime ??
+        business?.deliveryTime ??
+        business?.defaultDeliveryTime ??
+        30
+    )
+
+    let targetDate: Date
+
+    if (order.timing?.type === 'scheduled') {
+        const time = order.timing.scheduledTime || ''
+        const dateObj = order.timing.scheduledDate ? toSafeDate(order.timing.scheduledDate) : null
+
+        if (dateObj && !isNaN(dateObj.getTime()) && time && time.includes(':')) {
+            const [hours, minutes] = time.split(':').map(Number)
+            targetDate = new Date(dateObj)
+            targetDate.setHours(hours, minutes, 0, 0)
+            // Para delivery programado, la comida debe estar lista para recoger ~22 min antes de la hora de entrega
+            targetDate = new Date(targetDate.getTime() - 22 * 60 * 1000)
+        } else {
+            const now = new Date()
+            targetDate = new Date(now.getTime() + prepMinutes * 60 * 1000)
+        }
+    } else {
+        // Inmediato
+        const baseDate = order.createdAt ? toSafeDate(order.createdAt) : new Date()
+        targetDate = new Date(baseDate.getTime() + prepMinutes * 60 * 1000)
+
+        const nowMs = Date.now()
+        // Si el tiempo objetivo inicial ya pasó y se actualizó posteriormente (ej: se añadió tiempo manualmente)
+        if (targetDate.getTime() < nowMs && order.updatedAt) {
+            const updatedDate = toSafeDate(order.updatedAt)
+            if (updatedDate.getTime() + prepMinutes * 60 * 1000 > nowMs) {
+                targetDate = new Date(updatedDate.getTime() + prepMinutes * 60 * 1000)
+            }
+        }
+    }
+
+    const now = new Date()
+    const diffMs = targetDate.getTime() - now.getTime()
+    const diffMinutes = Math.max(0, Math.round(diffMs / 60000))
+
+    const hours = String(targetDate.getHours()).padStart(2, '0')
+    const minutes = String(targetDate.getMinutes()).padStart(2, '0')
+    const timeStr = `${hours}:${minutes}`
+
+    return {
+        diffMinutes,
+        timeStr,
+        targetDate
+    }
+}
+
 const buildProductsList = (order: Order, includeStorePrice = false) => {
     const groupedProducts = new Map<string, { hasRealVariant: boolean; lines: string[] }>()
 
@@ -283,8 +347,13 @@ export const buildDeliveryWhatsAppMessage = (
         paymentDetailsBlock = '🏦 Transferencia'
     }
 
+    const pickupTimeInfo = getDynamicPickupTimeInfo(order, business)
+    const pickupTimeLine = pickupTimeInfo
+        ? `Recoger en *${pickupTimeInfo.diffMinutes} minuto${pickupTimeInfo.diffMinutes === 1 ? '' : 's'}* (${pickupTimeInfo.timeStr})`
+        : ''
+
     const deliverySection = order.delivery.type === 'delivery'
-        ? `*Detalles de la entrega*\n${orderType}\nReferencias: ${references}\n${locationLink ? `Ubicación: ${locationLink}\n` : ''}`
+        ? `*Detalles de la entrega*\n${orderType}\n${pickupTimeLine ? `${pickupTimeLine}\n` : ''}Referencias: ${references}\n${locationLink ? `Ubicación: ${locationLink}\n` : ''}`
         : ''
 
     const templateKey = order.delivery.type === 'delivery'
@@ -300,6 +369,7 @@ export const buildDeliveryWhatsAppMessage = (
         customerPhone: `+593${customerPhone.replace(/\D/g, '').startsWith('0') ? customerPhone.replace(/\D/g, '').slice(1) : customerPhone.replace(/\D/g, '')}`,
         deliverySection,
         pickupLine: '🏪 Retiro en tienda',
+        pickupTimeLine,
         orderType,
         references,
         locationLine,

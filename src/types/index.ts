@@ -60,8 +60,8 @@ export interface Business {
   businessType?: 'food_store' | 'distributor' // Tipo de negocio
   isOpen?: boolean // Estado actual de apertura
   isActive: boolean
-  deliveryTime?: number // Tiempo de entrega estimado en minutos
-  defaultDeliveryTime?: number // Tiempo base configurado en el perfil de la tienda
+  deliveryTime?: number // Tiempo de preparación estimado en minutos
+  defaultDeliveryTime?: number // Tiempo base de preparación configurado en el perfil de la tienda
   defaultDeliveryId?: string // ID del delivery predeterminado asignado a la tienda
   deliveryServiceType?: 'self' | 'fuddi' // Tipo de servicio de delivery: autogestión (self) o Fuddi busca repartidor (fuddi)
   createdAt: Date
@@ -407,6 +407,7 @@ export interface Order {
   createdAt: Date
   updatedAt: Date
   deliveredAt?: Date | Timestamp // Fecha y hora cuando se marcó como entregado
+  preparationTime?: number // Tiempo de preparación estimado en minutos para este pedido
   createdByAdmin?: boolean
   referralCode?: string // Código de referido si la orden vino de un link de recomendación
   notas?: string // Notas adicionales del pedido

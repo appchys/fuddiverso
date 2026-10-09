@@ -167,6 +167,9 @@ const AVAILABLE_FIELDS = [
     { key: 'deliveryCost', label: 'Costo Envío', example: '$3.50' },
     { key: 'paymentMethod', label: 'Método de Pago', example: '💵 Efectivo' },
     { key: 'deliveryAddress', label: 'Dirección Entrega', example: 'Av. Principal y 2da' },
+    { key: 'scheduledTime', label: 'Hora Programada (Solo Hora)', example: '3:00 PM' },
+    { key: 'scheduledDateTime', label: 'Hora Programada (con día)', example: 'Hoy a las 3:00 PM' },
+    { key: 'pickupTimeLine', label: 'Tiempo de Recogida (Dinámico)', example: 'Recoger en <b>15 minutos</b> (14:55)' },
     { key: 'items', label: 'Lista de Productos', example: '(2) Pizza Grande\n(1) Coca Cola' },
     { key: 'mapsLink', label: 'Link Google Maps', example: 'https://maps.google.com/...' },
     { key: 'deliveryName', label: 'Nombre Repartidor', example: 'Carlos' },
@@ -185,7 +188,7 @@ const EMOJI_GROUPS = [
 const DEFAULT_TEMPLATES: Record<string, string> = {
     store_new_order: `🛵 <b>{{businessName}}!</b>\nHora estimada: {{scheduledDateTime}}\n\n<b>Datos del cliente</b>\n👤 Nombres: {{customerName}}\n📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>\n\n<b>Datos de entrega</b>\n🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>\n{{deliveryAddress}}\n\n<b>Detalles del pedido</b>\n{{items}}\n\n<b>Detalles del pago</b>\nPedido: {{subtotal}}\nEnvío: {{deliveryCost}}\n\n{{paymentMethod}}\n💰 Valor a cobrar: {{total}}`,
     store_reminder: `⏰ <b>¡Recordatorio de Pedido!</b>\nEl pedido de <b>{{customerName}}</b> está programado para dentro de 30 minutos.\n\n<b>Hora:</b> {{scheduledDateTime}}\n<b>Productos:</b>\n{{items}}\n\n<b>Entrega:</b> {{deliveryAddress}}`,
-    delivery_assigned: `🛵 <b>[{{businessName}}]</b> tiene un pedido para ti!\nHora estimada: {{scheduledDateTime}}\n\n<b>Datos del cliente</b>\n👤 Nombres: {{customerName}}\n📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>\n\n<b>Datos de entrega</b>\n🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>\n{{deliveryAddress}}\n\n<b>Detalles del pedido</b>\n{{items}}\n\n<b>Detalles del pago</b>\nPedido: {{subtotal}}\nEnvío: {{deliveryCost}}\n\n{{paymentMethod}}\n💰 Valor a cobrar: {{total}}`,
+    delivery_assigned: `🛵 <b>[{{businessName}}]</b> tiene un pedido para ti!\nHora estimada: {{scheduledDateTime}}\n{{pickupTimeLine}}\n\n<b>Datos del cliente</b>\n👤 Nombres: {{customerName}}\n📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>\n\n<b>Datos de entrega</b>\n🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>\n{{deliveryAddress}}\n\n<b>Detalles del pedido</b>\n{{items}}\n\n<b>Detalles del pago</b>\nPedido: {{subtotal}}\nEnvío: {{deliveryCost}}\n\n{{paymentMethod}}\n💰 Valor a cobrar: {{total}}`,
     customer_confirmed: `✅ <b>¡Pedido Confirmado!</b>\n\nEl negocio <b>{{businessName}}</b> ha aceptado tu pedido y comenzará a prepararlo pronto.`
 }
 

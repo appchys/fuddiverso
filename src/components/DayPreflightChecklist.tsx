@@ -196,7 +196,7 @@ export default function DayPreflightChecklist({
                             <i className="bi bi-clock-history"></i>
                         </div>
                         <div>
-                            <h3 className="font-black text-gray-900 text-xs uppercase tracking-widest">Tiempo de Entrega</h3>
+                            <h3 className="font-black text-gray-900 text-xs uppercase tracking-widest">Tiempo de Preparación</h3>
                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Estimación manual</p>
                         </div>
                     </div>

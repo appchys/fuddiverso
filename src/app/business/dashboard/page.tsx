@@ -15,6 +15,7 @@ import {
     getDelivery,
     getDeliveriesByStatus,
     updateOrderStatus,
+    updateOrder,
     updateBusiness,
     getUserBusinessAccess,
     getCachedUserBusinessAccess,
@@ -1737,6 +1738,20 @@ export default function TodayOrdersPage() {
         }
     }
 
+    const handleUpdatePreparationTime = async (orderId: string, minutes: number) => {
+        patchOrderEverywhere(orderId, order => ({
+            ...order,
+            preparationTime: minutes,
+            updatedAt: new Date(),
+        }))
+
+        try {
+            await updateOrder(orderId, { preparationTime: minutes })
+        } catch (error) {
+            console.error('Error al actualizar tiempo de preparación:', error)
+        }
+    }
+
     const handleNewOrder = () => {
         // Notification bell callback
     }
@@ -2449,8 +2464,8 @@ export default function TodayOrdersPage() {
                                                         ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 ring-1 ring-amber-300'
                                                         : 'text-gray-600 bg-gray-100 hover:bg-gray-200 hover:text-gray-900'
                                                 }`}
-                                                title={`Tiempo de entrega: ${currentDeliveryTime} min ${isDeliveryTimeExtended ? '(Tiempo extendido)' : ''} - Clic para ajustar`}
-                                                aria-label="Ajustar tiempo de entrega"
+                                                title={`Tiempo de preparación: ${currentDeliveryTime} min ${isDeliveryTimeExtended ? '(Tiempo extendido)' : ''} - Clic para ajustar`}
+                                                aria-label="Ajustar tiempo de preparación"
                                             >
                                                 <span>{currentDeliveryTime}m</span>
                                             </button>
@@ -2458,7 +2473,7 @@ export default function TodayOrdersPage() {
                                             {showTimeDropdown && (
                                                 <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
                                                     <div className="px-3.5 py-2 border-b border-gray-100 mb-1">
-                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Tiempo de entrega</p>
+                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Tiempo de preparación</p>
                                                         <p className="text-xs font-bold text-gray-800">Actual: {currentDeliveryTime} min</p>
                                                     </div>
                                                     {[5, 10, 30].map((mins) => (
@@ -3093,6 +3108,7 @@ export default function TodayOrdersPage() {
                                                                 handleEditOrder={handleEditOrder}
                                                                 handleDeleteOrder={handleDeleteOrder}
                                                                 handleCustomerClick={handleCustomerClick}
+                                                                handlePreparationTimeChange={handleUpdatePreparationTime}
                                                                 business={business}
                                                                 canChangeDelivery={canChangeDelivery}
                                                                 canDeleteOrders={canDeleteOrders}
@@ -3117,6 +3133,7 @@ export default function TodayOrdersPage() {
                                                                 handleEditOrder={handleEditOrder}
                                                                 handleDeleteOrder={handleDeleteOrder}
                                                                 handleCustomerClick={handleCustomerClick}
+                                                                handlePreparationTimeChange={handleUpdatePreparationTime}
                                                                 business={business}
                                                                 canChangeDelivery={canChangeDelivery}
                                                                 canDeleteOrders={canDeleteOrders}
@@ -3245,6 +3262,7 @@ export default function TodayOrdersPage() {
                                                         handleEditOrder={handleEditOrder}
                                                         handleDeleteOrder={handleDeleteOrder}
                                                         handleCustomerClick={handleCustomerClick}
+                                                        handlePreparationTimeChange={handleUpdatePreparationTime}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
                                                         canDeleteOrders={canDeleteOrders}
@@ -3285,6 +3303,7 @@ export default function TodayOrdersPage() {
                                                                     onEdit={handleEditOrder}
                                                                     onDelete={handleDeleteOrder}
                                                                     onCustomerClick={handleCustomerClick}
+                                                                    onPreparationTimeChange={handleUpdatePreparationTime}
                                                                     businessPhone={business?.phone}
                                                                     canChangeDelivery={canChangeDelivery}
                                                                     canDeleteOrders={canDeleteOrders}

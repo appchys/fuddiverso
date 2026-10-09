@@ -644,7 +644,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                 <i className="bi bi-clock-history text-base sm:text-lg"></i>
                                             </div>
                                             <div className="min-w-0">
-                                                <h4 className="text-xs sm:text-sm font-black text-gray-900 uppercase tracking-tight truncate">Tiempo de Entrega</h4>
+                                                <h4 className="text-xs sm:text-sm font-black text-gray-900 uppercase tracking-tight truncate">Tiempo de Preparación</h4>
                                                 <p className="text-[10px] text-gray-500 font-medium truncate">Estimado en minutos</p>
                                             </div>
                                         </div>

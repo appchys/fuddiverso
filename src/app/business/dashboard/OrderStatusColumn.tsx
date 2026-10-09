@@ -19,6 +19,7 @@ interface OrderStatusColumnProps {
     handleEditOrder: (order: Order) => void
     handleDeleteOrder: (id: string) => void
     handleCustomerClick: (order: Order) => void
+    handlePreparationTimeChange?: (id: string, minutes: number) => void
     business: Business | null
     canChangeDelivery: boolean
     canDeleteOrders: boolean
@@ -40,6 +41,7 @@ export function OrderStatusColumn({
     handleEditOrder,
     handleDeleteOrder,
     handleCustomerClick,
+    handlePreparationTimeChange,
     business,
     canChangeDelivery,
     canDeleteOrders,
@@ -88,6 +90,7 @@ export function OrderStatusColumn({
                                 onEdit={handleEditOrder}
                                 onDelete={handleDeleteOrder}
                                 onCustomerClick={handleCustomerClick}
+                                onPreparationTimeChange={handlePreparationTimeChange}
                                 sectionKey={sectionKey}
                                 businessPhone={business?.phone}
                                 canChangeDelivery={canChangeDelivery}

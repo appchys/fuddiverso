@@ -764,6 +764,42 @@ export function CheckoutContent({
     }
   }
 
+  // Función para calcular los minutos estimados al escoger Inmediato:
+  // - Retiro en tienda: Tiempo de preparación de la tienda
+  // - Delivery: Tiempo de preparación de la tienda + 22 minutos fijos
+  const getImmediateEstimatedMinutes = (typeOfDelivery: 'delivery' | 'pickup' | '' = deliveryData.type) => {
+    const prepMinutes = business?.deliveryTime ?? business?.defaultDeliveryTime ?? 30
+    if (typeOfDelivery === 'pickup') {
+      return prepMinutes
+    }
+    return prepMinutes + 22
+  }
+
+  // Mantener sincronizado el tiempo programado para pedidos inmediatos según el tipo de entrega
+  useEffect(() => {
+    if (timingData.type === 'immediate') {
+      const estimatedMinutes = getImmediateEstimatedMinutes(deliveryData.type)
+      const now = new Date()
+      const deliveryTime = new Date(now.getTime() + estimatedMinutes * 60 * 1000)
+      const year = deliveryTime.getFullYear()
+      const month = String(deliveryTime.getMonth() + 1).padStart(2, '0')
+      const day = String(deliveryTime.getDate()).padStart(2, '0')
+      const hours = String(deliveryTime.getHours()).padStart(2, '0')
+      const minutes = String(deliveryTime.getMinutes()).padStart(2, '0')
+      const newDate = `${year}-${month}-${day}`
+      const newTime = `${hours}:${minutes}`
+      setTimingData(prev => {
+        if (prev.type !== 'immediate') return prev
+        if (prev.scheduledDate === newDate && prev.scheduledTime === newTime) return prev
+        return {
+          type: 'immediate',
+          scheduledDate: newDate,
+          scheduledTime: newTime
+        }
+      })
+    }
+  }, [deliveryData.type, timingData.type, business?.deliveryTime, business?.defaultDeliveryTime])
+
   // Función para calcular el costo de envío
   const getDeliveryCost = () => {
     if (!deliveryData.type) {
@@ -2111,9 +2147,12 @@ export function CheckoutContent({
       let scheduledDate: Timestamp;
 
       if (timingData.type === 'immediate') {
-        // Para inmediato: programar pedido para dentro de 30 minutos
+        // Para inmediato:
+        // Retiro en tienda: Tiempo de preparación
+        // Delivery: Tiempo de preparación + 22 minutos
+        const estimatedMinutes = getImmediateEstimatedMinutes(deliveryData.type);
         const now = new Date();
-        const deliveryTime = new Date(now.getTime() + 30 * 60 * 1000);
+        const deliveryTime = new Date(now.getTime() + estimatedMinutes * 60 * 1000);
 
         // Asegurarse de que la hora esté en formato de 24h con ceros a la izquierda
         const hours = String(deliveryTime.getHours()).padStart(2, '0');
@@ -2263,6 +2302,7 @@ export function CheckoutContent({
           freeDeliveryAmount: deliveryCost // costo asumido por el restaurante
         }),
         status: 'pending' as const,
+        preparationTime: (business?.deliveryTime ?? business?.defaultDeliveryTime ?? 30),
         createdByAdmin: false,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -2716,8 +2756,9 @@ export function CheckoutContent({
                     type="button"
                     suppressHydrationWarning
                     onClick={() => {
+                      const estimatedMinutes = getImmediateEstimatedMinutes(deliveryData.type)
                       const now = new Date()
-                      const deliveryTime = new Date(now.getTime() + 30 * 60 * 1000)
+                      const deliveryTime = new Date(now.getTime() + estimatedMinutes * 60 * 1000)
                       const year = deliveryTime.getFullYear()
                       const month = String(deliveryTime.getMonth() + 1).padStart(2, '0')
                       const day = String(deliveryTime.getDate()).padStart(2, '0')
@@ -2751,7 +2792,7 @@ export function CheckoutContent({
                         ? (getStoreOpeningLabel(business) || 'Tienda cerrada')
                         : !canOrderNow
                           ? 'Productos no disponibles hoy'
-                          : 'Aprox 30 minutos'}
+                          : `Aprox ${getImmediateEstimatedMinutes(deliveryData.type)} minutos`}
                     </span>
                     {timingData.type === 'immediate' && (
                       <div className="absolute top-2 right-2 text-white text-xs">

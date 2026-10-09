@@ -388,6 +388,7 @@ const AVAILABLE_FIELDS: FieldDef[] = [
     },
     { key: 'scheduledTime', label: 'Hora Programada (Solo Hora)', example: '3:00 PM' },
     { key: 'scheduledDateTime', label: 'Hora Programada (con día)', example: 'Hoy a las 3:00 PM' },
+    { key: 'pickupTimeLine', label: 'Tiempo de Recogida (Dinámico)', example: 'Recoger en <b>15 minutos</b> (14:55)' },
     { key: 'items', label: 'Lista de Productos', example: '(2) Pizza Grande\n(1) Coca Cola' },
     { key: 'mapsLink', label: 'Link Google Maps', example: 'https://maps.google.com/...' },
     { key: 'deliveryName', label: 'Nombre Repartidor', example: 'Carlos' },
@@ -494,6 +495,7 @@ El repartidor <b>{{deliveryName}}</b> ha aceptado el pedido de <b>{{customerName
     // ── Delivery ──
     delivery_assigned: `🛵 <b>[{{businessName}}]</b> tiene un pedido para ti!
 Hora estimada: {{scheduledDateTime}}
+{{pickupTimeLine}}
 
 <b>Datos del cliente</b>
 👤 Nombres: {{customerName}}
@@ -515,6 +517,7 @@ Envío: {{deliveryCost}}
 
     delivery_accepted: `🛵 <b>{{businessName}}!</b>
 Hora estimada: {{scheduledDateTime}}
+{{pickupTimeLine}}
 
 <b>Datos del cliente</b>
 👤 Nombres: {{customerName}}
