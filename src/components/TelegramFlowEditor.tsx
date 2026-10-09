@@ -185,7 +185,7 @@ const EMOJI_GROUPS = [
 const DEFAULT_TEMPLATES: Record<string, string> = {
     store_new_order: `🛵 <b>{{businessName}}!</b>\nHora estimada: {{scheduledDateTime}}\n\n<b>Datos del cliente</b>\n👤 Nombres: {{customerName}}\n📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>\n\n<b>Datos de entrega</b>\n🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>\n{{deliveryAddress}}\n\n<b>Detalles del pedido</b>\n{{items}}\n\n<b>Detalles del pago</b>\nPedido: {{subtotal}}\nEnvío: {{deliveryCost}}\n\n{{paymentMethod}}\n💰 Valor a cobrar: {{total}}`,
     store_reminder: `⏰ <b>¡Recordatorio de Pedido!</b>\nEl pedido de <b>{{customerName}}</b> está programado para dentro de 30 minutos.\n\n<b>Hora:</b> {{scheduledDateTime}}\n<b>Productos:</b>\n{{items}}\n\n<b>Entrega:</b> {{deliveryAddress}}`,
-    delivery_assigned: `🛵 <b>[{{businessName}}]</b> tiene un pedido para ti!\n\n<b>Datos de entrega</b>\n🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>\n{{deliveryAddress}}\n\n<b>Detalles del pedido</b>\n{{items}}\n\nEnvío: {{deliveryCost}}\n\n<b>Datos del cliente</b>\n👤 {{customerName}}`,
+    delivery_assigned: `🛵 <b>[{{businessName}}]</b> tiene un pedido para ti!\nHora estimada: {{scheduledDateTime}}\n\n<b>Datos del cliente</b>\n👤 Nombres: {{customerName}}\n📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>\n\n<b>Datos de entrega</b>\n🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>\n{{deliveryAddress}}\n\n<b>Detalles del pedido</b>\n{{items}}\n\n<b>Detalles del pago</b>\nPedido: {{subtotal}}\nEnvío: {{deliveryCost}}\n\n{{paymentMethod}}\n💰 Valor a cobrar: {{total}}`,
     customer_confirmed: `✅ <b>¡Pedido Confirmado!</b>\n\nEl negocio <b>{{businessName}}</b> ha aceptado tu pedido y comenzará a prepararlo pronto.`
 }
 

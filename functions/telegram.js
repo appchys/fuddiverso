@@ -427,8 +427,25 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
     // ─── Try template from Firestore ───
     try {
         const templateData = await getTemplatesFromFirestore();
-        const template = templateData.templates[templateKey];
+        let template = templateData.templates[templateKey];
         const buttons = templateData.buttons[templateKey];
+
+        if (templateKey === 'delivery_assigned') {
+            // Si la plantilla en Firestore no tiene whatsapp, o detalles de pago o hora (es la versión antigua corta),
+            // usar la plantilla completa de delivery_accepted (adaptando el encabezado si aplica) o el fallback
+            const hasPhone = template && (template.includes('whatsapp') || template.includes('customerPhone') || template.includes('Whatsapp'));
+            const hasPayment = template && (template.includes('pago') || template.includes('Pago') || template.includes('subtotal'));
+            const hasTime = template && (template.includes('scheduled') || template.includes('Hora'));
+            if (!template || !hasPhone || !hasPayment || !hasTime) {
+                if (templateData.templates['delivery_accepted']) {
+                    template = templateData.templates['delivery_accepted']
+                        .replace('{{businessName}}!', '[{{businessName}}] tiene un pedido para ti!')
+                        .replace('<b>{{businessName}}!</b>', '<b>[{{businessName}}]</b> tiene un pedido para ti!');
+                } else {
+                    template = null;
+                }
+            }
+        }
         
         if (template) {
             const variables = buildTemplateVariables(orderData, businessName);
@@ -558,75 +575,57 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
 
     if (!isAccepted) {
         // FORMATO PARA PEDIDO ASIGNADO
-        text += `🛵 <b>[${businessName}]</b> tiene un pedido para ti!\n\n`;
-
-        text += `<b>Datos de entrega</b>\n`;
-        if (mapsLink && mapsLink.trim().length > 0) {
-            text += `🗺️ <a href="${mapsLink}">Ver en Google Maps</a>\n`;
-        }
-        if (locationImageLink && locationImageLink.trim().length > 0) {
-            text += `📸 <a href="${locationImageLink}">Ver foto de ubicación</a>\n`;
-        }
-        text += `${deliveryInfo}\n`;
-
-        if (itemsText) {
-            text += itemsText;
-        }
-
-        text += `\nEnvío: $${deliveryCost.toFixed(0)}\n\n`;
-
-        text += `<b>Datos del cliente</b>\n`;
-        text += `👤 ${customerName}`;
+        text += `🛵 <b>[${businessName}]</b> tiene un pedido para ti!\n`;
     } else {
         // FORMATO PARA PEDIDO ACEPTADO
         text += `🛵 <b>${businessName}!</b>\n`;
+    }
 
-        const timingIcon = timingType === 'Inmediato' ? '⚡' : '⏰';
-        text += `Hora estimada: ${timingIcon} ${scheduledTimeStr}\n\n`;
+    const timingIcon = timingType === 'Inmediato' ? '⚡' : '⏰';
+    text += `Hora estimada: ${timingIcon} ${scheduledTimeStr}\n\n`;
 
-        text += `<b>Datos del cliente</b>\n`;
-        text += `👤 Nombres: ${customerName}\n`;
-        if (phone && phone.trim().length > 0) {
-            const waMessage = encodeURIComponent(`Hola, soy delivery de ${businessName}.`);
-            const formattedPhone = phone.replace(/^0/, '').trim();
-            if (formattedPhone.length > 0) {
-                const waLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
-                text += `📱 Whatsapp: <a href="${waLink}">${phone}</a>\n`;
-            } else {
-                text += `📱 Whatsapp: ${phone}\n`;
-            }
+    text += `<b>Datos del cliente</b>\n`;
+    text += `👤 Nombres: ${customerName}\n`;
+    if (phone && phone.trim().length > 0) {
+        const waMessage = encodeURIComponent(`Hola, soy delivery de ${businessName}.`);
+        const formattedPhone = phone.replace(/^0/, '').trim();
+        if (formattedPhone.length > 0) {
+            const waLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
+            text += `📱 Whatsapp: <a href="${waLink}">${phone}</a>\n`;
         } else {
-            text += `📱 Whatsapp: No registrado\n`;
+            text += `📱 Whatsapp: ${phone}\n`;
         }
+    } else {
+        text += `📱 Whatsapp: No registrado\n`;
+    }
 
-        text += `\n<b>Datos de entrega</b>\n`;
-        if (mapsLink && mapsLink.trim().length > 0) {
-            text += `🗺️ <a href="${mapsLink}">Ver en Google Maps</a>\n`;
-        }
-        if (locationImageLink && locationImageLink.trim().length > 0) {
-            text += `📸 <a href="${locationImageLink}">Ver foto de ubicación</a>\n`;
-        }
-        text += `${deliveryInfo}\n`;
+    text += `\n<b>Datos de entrega</b>\n`;
+    if (mapsLink && mapsLink.trim().length > 0) {
+        text += `🗺️ <a href="${mapsLink}">Ver en Google Maps</a>\n`;
+    }
+    if (locationImageLink && locationImageLink.trim().length > 0) {
+        text += `📸 <a href="${locationImageLink}">Ver foto de ubicación</a>\n`;
+    }
+    text += `${deliveryInfo}\n`;
 
-        if (itemsText) {
-            text += itemsText;
-        }
+    if (itemsText) {
+        text += itemsText;
+    }
 
-        text += `\n<b>Detalles del pago</b>\n`;
-        text += `Pedido: $${storeSubtotal.toFixed(2)}\n`;
-        text += `Comisión: $${commissionAmount.toFixed(2)}\n`;
-        text += `Delivery: $${deliveryCost.toFixed(2)}\n\n`;
+    text += `\n<b>Detalles del pago</b>\n`;
+    text += `Pedido: $${storeSubtotal.toFixed(2)}\n`;
+    text += `Comisión: $${commissionAmount.toFixed(2)}\n`;
+    text += `Delivery: $${deliveryCost.toFixed(2)}\n\n`;
 
-        text += `${paymentMethodText}\n`;
+    text += `${paymentMethodText}\n`;
 
-        // Mostrar "Valor a cobrar" solo si hay efectivo involucrado y no es solo transferencia
-        if (paymentMethod === 'cash') {
-            text += `💰 Valor a cobrar: $${total.toFixed(2)}\n`;
-        } else if (paymentMethod === 'mixed') {
-            const cashAmount = orderData.payment?.cashAmount || 0;
-            if (cashAmount > 0) {
-                text += `💰 Valor a cobrar: $${cashAmount.toFixed(2)}\n`;
-            }
+    // Mostrar "Valor a cobrar" solo si hay efectivo involucrado y no es solo transferencia
+    if (paymentMethod === 'cash') {
+        text += `💰 Valor a cobrar: $${total.toFixed(2)}\n`;
+    } else if (paymentMethod === 'mixed') {
+        const cashAmount = orderData.payment?.cashAmount || 0;
+        if (cashAmount > 0) {
+            text += `💰 Valor a cobrar: $${cashAmount.toFixed(2)}\n`;
         }
     }
 
@@ -762,6 +761,53 @@ async function sendStoreTelegramMessage(chatId, text, replyMarkup = null, linkPr
         return null;
     }
     return sendTelegramMessageGeneric(STORE_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
+}
+
+/**
+ * Eliminar un mensaje de Telegram genérico
+ */
+async function deleteTelegramMessageGeneric(token, chatId, messageId) {
+    if (!token) {
+        console.error('❌ [Telegram-Delete] Token no proporcionado');
+        return false;
+    }
+    if (!chatId || !messageId) {
+        console.warn('⚠️ [Telegram-Delete] chatId o messageId no especificado:', { chatId, messageId });
+        return false;
+    }
+    const numericChatId = typeof chatId === 'string' ? parseInt(chatId, 10) : chatId;
+    const numericMessageId = typeof messageId === 'string' ? parseInt(messageId, 10) : messageId;
+
+    try {
+        const url = `https://api.telegram.org/bot${token}/deleteMessage`;
+        const response = await axios.post(url, {
+            chat_id: numericChatId,
+            message_id: numericMessageId
+        }, { timeout: 10000 });
+
+        if (response.data && response.data.ok) {
+            console.log(`🗑️ [Telegram-Delete] Mensaje ${numericMessageId} en chat ${numericChatId} eliminado exitosamente.`);
+            return true;
+        } else {
+            console.warn(`⚠️ [Telegram-Delete] Telegram retornó respuesta no exitosa:`, response.data);
+            return false;
+        }
+    } catch (error) {
+        const errDesc = error.response?.data?.description || error.message;
+        console.warn(`⚠️ [Telegram-Delete] No se pudo eliminar mensaje ${numericMessageId} en chat ${numericChatId}: ${errDesc}`);
+        return false;
+    }
+}
+
+/**
+ * Eliminar mensaje enviado por el bot de Tienda
+ */
+async function deleteStoreTelegramMessage(chatId, messageId) {
+    if (!STORE_BOT_TOKEN) {
+        console.error('❌ [Telegram] STORE_BOT_TOKEN no configurado. No se puede eliminar mensaje.');
+        return false;
+    }
+    return deleteTelegramMessageGeneric(STORE_BOT_TOKEN, chatId, messageId);
 }
 
 /**
@@ -1343,6 +1389,12 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
                        `Total de pedido: $${total.toFixed(2)}\n` +
                        `${paymentMethodText}\n\n` +
                        `✅ <b>${statusLabel}</b>`;
+
+            if (orderData.status === 'delivered') {
+                deleteBusinessReminderTelegramMessages(orderData, orderId).catch(err => {
+                    console.error(`❌ [updateBusinessTelegramMessage] Error borrando recordatorios para orden ${orderId}:`, err);
+                });
+            }
         } else {
             const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
@@ -2146,7 +2198,7 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
 
     console.log(`📢 [Telegram] Enviando notificación de orden a delivery ${deliveryData.id}`);
 
-    const { text: telegramText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
+    const { text: telegramText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'delivery_assigned');
 
     // Botones de acción
     const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
@@ -2555,10 +2607,13 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     // Guardar los IDs de los mensajes en el pedido para actualización sincronizada
     if (sentMessages.length > 0) {
         try {
+            const isReminder = templateKey === 'store_reminder';
+            const fieldToUpdate = isReminder ? 'telegramBusinessReminderMessages' : 'telegramBusinessMessages';
+
             await admin.firestore().collection('orders').doc(orderId).update({
-                telegramBusinessMessages: sentMessages
+                [fieldToUpdate]: sentMessages
             });
-            console.log(`📝 Mensajes de negocio vinculados al pedido ${orderId}. Total: ${sentMessages.length}`);
+            console.log(`📝 Mensajes de negocio (${fieldToUpdate}) vinculados al pedido ${orderId}. Total: ${sentMessages.length}`);
             console.log(`📝 Detalles de mensajes guardados: ${JSON.stringify(sentMessages)}`);
         } catch (err) {
             console.error(`❌ Error guardando mensajes de negocio en Firestore:`, err);
@@ -2573,6 +2628,53 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
  */
 async function sendBusinessReminderNotification(businessData, orderData, orderId) {
     return sendBusinessTelegramNotification(businessData, orderData, orderId, 'store_reminder');
+}
+
+/**
+ * Eliminar el mensaje de recordatorio de Telegram de la tienda cuando la orden ha sido entregada
+ */
+async function deleteBusinessReminderTelegramMessages(orderData, orderId) {
+    try {
+        console.log(`🗑️ [deleteBusinessReminderTelegramMessages] Verificando mensajes de recordatorio para orden ${orderId}`);
+
+        let reminderMessages = orderData?.telegramBusinessReminderMessages;
+        if ((!reminderMessages || !Array.isArray(reminderMessages) || reminderMessages.length === 0) && orderId) {
+            const freshDoc = await admin.firestore().collection('orders').doc(orderId).get();
+            if (freshDoc.exists) {
+                const freshData = freshDoc.data();
+                reminderMessages = freshData.telegramBusinessReminderMessages || freshData.telegramReminderMessages;
+            }
+        }
+
+        if (!Array.isArray(reminderMessages) || reminderMessages.length === 0) {
+            console.log(`ℹ️ [deleteBusinessReminderTelegramMessages] No hay recordatorios de tienda para borrar en orden ${orderId}`);
+            return;
+        }
+
+        console.log(`🗑️ [deleteBusinessReminderTelegramMessages] Borrando ${reminderMessages.length} mensaje(s) de recordatorio para orden ${orderId}`);
+
+        const results = await Promise.allSettled(
+            reminderMessages.map(msg => {
+                if (msg && msg.chatId && msg.messageId) {
+                    return deleteStoreTelegramMessage(msg.chatId, msg.messageId);
+                }
+                return Promise.resolve(false);
+            })
+        );
+
+        console.log(`📊 [deleteBusinessReminderTelegramMessages] Resultados eliminación:`, results.map(r => r.status));
+
+        // Limpiar el campo en Firestore para no reintentar y registrar la eliminación
+        await admin.firestore().collection('orders').doc(orderId).update({
+            telegramBusinessReminderMessages: admin.firestore.FieldValue.delete(),
+            telegramReminderMessages: admin.firestore.FieldValue.delete(),
+            reminderMessageDeleted: true,
+            reminderMessageDeletedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`✅ [deleteBusinessReminderTelegramMessages] Mensajes de recordatorio eliminados y orden actualizada en Firestore para orden ${orderId}`);
+    } catch (err) {
+        console.error(`❌ [deleteBusinessReminderTelegramMessages] Error borrando recordatorios para orden ${orderId}:`, err);
+    }
 }
 
 /**
@@ -3280,6 +3382,8 @@ module.exports = {
     sendDeliveryTelegramNotification,
     sendBusinessTelegramNotification,
     sendBusinessReminderNotification,
+    deleteBusinessReminderTelegramMessages, // Exportado - Borrar recordatorio al entregar pedido
+    deleteStoreTelegramMessage, // Exportado - Eliminar mensaje de bot de tienda
     updateBusinessTelegramMessage,
     sendCustomerTelegramNotification,
     sendAdminNewOrderNotification,  // Exportado - Nueva función para admin con URLs

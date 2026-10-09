@@ -493,6 +493,11 @@ El repartidor <b>{{deliveryName}}</b> ha aceptado el pedido de <b>{{customerName
 
     // ── Delivery ──
     delivery_assigned: `🛵 <b>[{{businessName}}]</b> tiene un pedido para ti!
+Hora estimada: {{scheduledDateTime}}
+
+<b>Datos del cliente</b>
+👤 Nombres: {{customerName}}
+📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
 
 <b>Datos de entrega</b>
 🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>
@@ -501,10 +506,12 @@ El repartidor <b>{{deliveryName}}</b> ha aceptado el pedido de <b>{{customerName
 <b>Detalles del pedido</b>
 {{items}}
 
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
 Envío: {{deliveryCost}}
 
-<b>Datos del cliente</b>
-👤 {{customerName}}`,
+{{paymentMethod}}
+💰 Valor a cobrar: {{total}}`,
 
     delivery_accepted: `🛵 <b>{{businessName}}!</b>
 Hora estimada: {{scheduledDateTime}}

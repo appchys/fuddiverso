@@ -527,6 +527,17 @@ export function getCachedBusinessByUsername(username: string): Business | null {
           return parsed.business
         }
       }
+      const homeBiz = sessionStorage.getItem('home_businesses_v2')
+      if (homeBiz) {
+        const list = JSON.parse(homeBiz)
+        if (Array.isArray(list)) {
+          const found = list.find((b: any) => b.username?.toLowerCase() === lower)
+          if (found) {
+            cacheBusiness(found)
+            return found
+          }
+        }
+      }
     } catch { /* ignore */ }
   }
   if (cachedBusinesses) {
@@ -1702,6 +1713,34 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       console.error('Error al encolar consumo de stock:', consumeError)
     }
 
+    // 4. REGISTRO AUTOMÁTICO DE VENTAS (salesCount acumulado por producto para ordenamiento instantáneo)
+    try {
+      if (Array.isArray(standardizedOrder.items)) {
+        const salesDeltas = new Map<string, number>()
+        standardizedOrder.items.forEach((item: any) => {
+          const rawId = item.productId || item.product?.id || item.id || ''
+          const prodId = (typeof rawId === 'string' && rawId.includes('-combo-'))
+            ? rawId.split('-combo-')[0]
+            : rawId
+          if (prodId && prodId !== 'premio-especial-auto') {
+            const qty = item.quantity || 1
+            salesDeltas.set(prodId, (salesDeltas.get(prodId) || 0) + qty)
+          }
+        })
+
+        for (const [prodId, qty] of salesDeltas.entries()) {
+          const prodRef = doc(db, 'products', prodId)
+          updateDoc(prodRef, {
+            salesCount: firestoreIncrement(qty)
+          }).catch(err => {
+            console.warn(`[createOrder] Error actualizando salesCount para ${prodId}:`, err)
+          })
+        }
+      }
+    } catch (salesError) {
+      console.warn('⚠️ Excepción silenciada al actualizar salesCount:', salesError)
+    }
+
     return docRef.id
   } catch (error) {
     console.error('Error creating order:', error)
@@ -1971,8 +2010,37 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
       updatePayload.confirmationSource = 'app'
     }
 
-    if (status === 'cancelled' && reason) {
-      updatePayload.rejectionReason = reason
+    if (status === 'cancelled') {
+      if (reason) {
+        updatePayload.rejectionReason = reason
+      }
+      // Revertir salesCount de los productos de la orden cancelada
+      getDocSmart(docRef).then(orderSnap => {
+        if (orderSnap.exists()) {
+          const orderData = orderSnap.data()
+          if (orderData.status !== 'cancelled' && Array.isArray(orderData.items)) {
+            const deltas = new Map<string, number>()
+            orderData.items.forEach((item: any) => {
+              const rawId = item.productId || item.product?.id || item.id || ''
+              const prodId = (typeof rawId === 'string' && rawId.includes('-combo-'))
+                ? rawId.split('-combo-')[0]
+                : rawId
+              if (prodId && prodId !== 'premio-especial-auto') {
+                const qty = item.quantity || 1
+                deltas.set(prodId, (deltas.get(prodId) || 0) + qty)
+              }
+            })
+            for (const [prodId, qty] of deltas.entries()) {
+              const prodRef = doc(db, 'products', prodId)
+              updateDoc(prodRef, {
+                salesCount: firestoreIncrement(-qty)
+              }).catch(() => {})
+            }
+          }
+        }
+      }).catch(err => {
+        console.warn('[updateOrderStatus] Error revirtiendo salesCount:', err)
+      })
     }
 
     // Además, mantener un alias plano deliveredAt para consultas/UX cuando aplica

@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getBusinessesByIds, getProductsByBusiness, getGlobalProducts, getRecentOrders, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals, getGlobalProductReviews, GlobalProductReviewItem } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getBusinessesByIds, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals, getGlobalProductReviews, GlobalProductReviewItem } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -45,14 +45,28 @@ const ProgressiveImage: React.FC<{
   style
 }) => {
   const [isLoaded, setIsLoaded] = useState(false)
+  const [hasError, setHasError] = useState(false)
   const imgRef = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
+    setIsLoaded(false)
+    setHasError(false)
     // Si la imagen ya está en caché del navegador
     if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
       setIsLoaded(true)
     }
   }, [src])
+
+  if (hasError) {
+    return (
+      <div
+        className={`flex items-center justify-center bg-gray-100 text-gray-300 ${fill ? 'absolute inset-0 w-full h-full' : ''} ${className}`}
+        style={style}
+      >
+        <i className="bi bi-card-image text-2xl opacity-40"></i>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -75,7 +89,10 @@ const ProgressiveImage: React.FC<{
         } ${className}`}
         style={style}
         onLoad={() => setIsLoaded(true)}
-        onError={() => setIsLoaded(true)}
+        onError={() => {
+          setHasError(true)
+          setIsLoaded(true)
+        }}
       />
     </>
   )
@@ -774,14 +791,26 @@ function HomePageContent() {
         return dateB - dateA
       })
       setNewestProducts(sortedByNew)
-      setBestSellersProducts(sortedByNew) // Fallback inicial rápido
+
+      // 2. Los más vendidos — ordenados instantáneamente por salesCount acumulado (0ms de latencia, 0 lecturas extra)
+      const sortedBySales = [...selected].sort((a, b) => {
+        const salesA = a.salesCount || 0
+        const salesB = b.salesCount || 0
+        if (salesB !== salesA) {
+          return salesB - salesA
+        }
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        return dateB - dateA
+      })
+      setBestSellersProducts(sortedBySales)
       setLoadingProducts(false)
 
       // Guardar en sessionStorage para renderizado instantáneo en visitas siguientes
       if (typeof window !== 'undefined' && category === 'all') {
         try {
           sessionStorage.setItem('home_newest_products_v2', JSON.stringify(sortedByNew.slice(0, 20)))
-          sessionStorage.setItem('home_bestsellers_products_v2', JSON.stringify(sortedByNew.slice(0, 20)))
+          sessionStorage.setItem('home_bestsellers_products_v2', JSON.stringify(sortedBySales.slice(0, 20)))
         } catch {}
       }
 
@@ -827,36 +856,6 @@ function HomePageContent() {
           return Array.from(currentSet).sort()
         })
       }
-
-      // 2. Los más vendidos — diferir consulta de órdenes recientes en segundo plano
-      getRecentOrders(50).then(recentOrders => {
-        const salesMap = new Map<string, number>()
-        recentOrders.forEach(order => {
-          if (order.status === 'cancelled') return
-          order.items?.forEach((item: any) => {
-            const productId = item.productId || item.product?.id
-            if (productId) {
-              const qty = item.quantity || 1
-              salesMap.set(productId, (salesMap.get(productId) || 0) + qty)
-            }
-          })
-        })
-
-        const sortedBySales = [...selected].sort((a, b) => {
-          const salesA = salesMap.get(a.id) || 0
-          const salesB = salesMap.get(b.id) || 0
-          if (salesB !== salesA) {
-            return salesB - salesA
-          }
-          return a.id.localeCompare(b.id)
-        })
-        setBestSellersProducts(sortedBySales)
-        if (typeof window !== 'undefined' && category === 'all') {
-          try {
-            sessionStorage.setItem('home_bestsellers_products_v2', JSON.stringify(sortedBySales.slice(0, 20)))
-          } catch {}
-        }
-      }).catch(e => console.error('Error loading recent orders for best sellers:', e))
 
     } catch (error) {
       console.error('Error loading home products:', error)
@@ -1649,6 +1648,14 @@ function HomePageContent() {
                                         src={review.productImage || review.businessLogo}
                                         alt={review.productName || review.businessName || 'Producto'}
                                         className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          const target = e.currentTarget
+                                          if (review.businessLogo && target.src !== review.businessLogo) {
+                                            target.src = review.businessLogo
+                                          } else {
+                                            target.style.display = 'none'
+                                          }
+                                        }}
                                       />
                                     </div>
                                   ) : (
@@ -1685,6 +1692,14 @@ function HomePageContent() {
                                     src={review.productImage || review.businessLogo}
                                     alt={review.productName || review.businessName || 'Producto'}
                                     className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      const target = e.currentTarget
+                                      if (review.businessLogo && target.src !== review.businessLogo) {
+                                        target.src = review.businessLogo
+                                      } else {
+                                        target.style.display = 'none'
+                                      }
+                                    }}
                                   />
                                 </div>
                               ) : (

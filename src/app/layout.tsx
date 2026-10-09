@@ -1,10 +1,25 @@
 import type { Metadata, Viewport } from 'next'
+import { Plus_Jakarta_Sans, Poetsen_One } from 'next/font/google'
 import './globals.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 import { AuthProvider } from '@/contexts/AuthContext'
 import LayoutWrapper from '@/components/LayoutWrapper'
 import { Analytics } from "@vercel/analytics/next"
 import { SpeedInsights } from "@vercel/speed-insights/next"
+
+const plusJakartaSans = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-plus-jakarta-sans',
+  display: 'swap',
+})
+
+const poetsenOne = Poetsen_One({
+  subsets: ['latin'],
+  weight: ['400'],
+  variable: '--font-poetsen-one',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Fuddi',
@@ -36,15 +51,13 @@ export default function RootLayout({
   modal: React.ReactNode
 }) {
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning className={`${plusJakartaSans.variable} ${poetsenOne.variable}`}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poetsen+One&display=swap" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400..900;1,400..900&display=swap" />
       </head>
-      <body className="bg-gray-50 min-h-screen">
+      <body className={`${plusJakartaSans.className} bg-gray-50 min-h-screen`}>
         <AuthProvider>
           <LayoutWrapper>
             {children}

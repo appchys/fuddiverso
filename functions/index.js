@@ -49,6 +49,16 @@ async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
     }
   }
 
+  // Si la orden fue entregada, borrar el mensaje de recordatorio enviado a la tienda
+  if (afterData.status === 'delivered') {
+    try {
+      await telegramServices.deleteBusinessReminderTelegramMessages(afterData, orderId);
+      console.log(`✅ [Telegram] Recordatorio de tienda eliminado tras entrega de orden ${orderId}`);
+    } catch (err) {
+      console.error(`❌ [Telegram] Error eliminando recordatorio de tienda para orden ${orderId}:`, err);
+    }
+  }
+
   // Actualizar mensaje del Administrador si existe la referencia
   if (afterData.telegramAdminMessage) {
     try {
@@ -229,7 +239,15 @@ async function notifyDeliveryCommon(orderData, orderId, deliveryId, businessId) 
     }
 
     // Enviar Telegram
-    await telegramServices.sendDeliveryTelegramNotification(deliveryData, orderData, orderId, businessName);
+    const enrichedOrderData = {
+      ...orderData,
+      customer: {
+        ...orderData.customer,
+        name: customerName,
+        phone: customerPhone !== 'No registrado' ? customerPhone : (orderData.customer?.phone || '')
+      }
+    };
+    await telegramServices.sendDeliveryTelegramNotification(deliveryData, enrichedOrderData, orderId, businessName);
 
   } catch (error) {
     console.error(`❌ Error en notificaciones de delivery para orden ${orderId}:`, error);
@@ -1209,122 +1227,282 @@ exports.processScheduledBroadcasts = onSchedule("every 5 minutes", async (event)
 });
 
 /**
- * Cloud Function: Resumen diario de Check-in a las 7:00 PM (19:00 UTC-5)
- * Envía un Telegram al Admin clasificando las tiendas en:
- * - Hicieron check-in
- * - NO hicieron check-in
- * - Check-in automático activado
+ * Cloud Function: Enviar resumen de cobros al repartidor por Telegram
+ * Se ejecuta cada 5 minutos y evalúa si para cada tienda ya transcurrieron
+ * 15 minutos desde su hora de cierre del día de hoy.
  */
-exports.sendDailyCheckInSummaryReport = onSchedule({
-  schedule: "0 19 * * *",
+exports.sendDailyDeliveryClosureReports = onSchedule({
+  schedule: "*/5 * * * *",
   timeZone: "America/Guayaquil",
   retryCount: 0
 }, async (event) => {
-  console.log('📋 [CRON 7:00 PM] Generando resumen diario de Check-in para Admin...');
+  console.log('⏰ [Delivery Cierre] Verificando cierres de tiendas para notificar a repartidores...');
   try {
-    const nowUtc = new Date();
-    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
-    
-    const year = nowEcuador.getUTCFullYear();
-    const month = String(nowEcuador.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(nowEcuador.getUTCDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
+    const now = new Date();
+    // Obtener fecha actual en formato YYYY-MM-DD en Ecuador (America/Guayaquil, UTC-5)
+    const todayDateStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Guayaquil',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(now);
 
-    const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-    const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    // Obtener hora y minuto actual en Ecuador
+    const ecHour = parseInt(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Guayaquil',
+      hour: 'numeric',
+      hour12: false
+    }).format(now), 10);
 
-    const dayName = days[nowEcuador.getUTCDay()];
-    const dayNum = nowEcuador.getUTCDate();
-    const monthName = months[nowEcuador.getUTCMonth()];
-    const formattedDate = `hoy ${dayName} ${dayNum} de ${monthName}`;
+    const ecMinute = parseInt(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Guayaquil',
+      minute: 'numeric'
+    }).format(now), 10);
 
-    const snapshot = await admin.firestore().collection('businesses').get();
+    const currentMinutes = ecHour * 60 + ecMinute;
 
-    const checkedIn = [];
-    const notCheckedIn = [];
-    const automaticCheckIn = [];
+    const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const ecDayIndex = new Date(now.toLocaleString('en-US', { timeZone: 'America/Guayaquil' })).getDay();
+    const currentDayEn = dayNamesEn[ecDayIndex];
+    const currentDayEs = dayNamesEs[ecDayIndex];
 
-    snapshot.docs.forEach(doc => {
-      const biz = doc.data();
-      if (biz.isActive === false) return;
+    const businessesSnap = await admin.firestore().collection('businesses').get();
 
-      const name = biz.name || doc.id;
-      const requiresManual = biz.requireDailyCheckIn === true;
+    for (const bizDoc of businessesSnap.docs) {
+      const business = bizDoc.data();
+      const businessId = bizDoc.id;
 
-      if (!requiresManual) {
-        automaticCheckIn.push(name);
-      } else {
-        const state = biz.dailyCheckInState;
-        if (state?.date === dateStr && state?.status === 'open') {
-          checkedIn.push(name);
-        } else if (state?.date === dateStr && state?.status === 'closed') {
-          notCheckedIn.push({ name, reason: 'Confirmó Cerrada' });
-        } else {
-          notCheckedIn.push({ name, reason: 'Sin respuesta' });
+      if (business.isActive === false) continue;
+      if (!business.schedule) continue;
+
+      // Buscar horario de hoy
+      const scheduleKeys = Object.keys(business.schedule);
+      const todayKey = scheduleKeys.find(k => {
+        const lower = k.toLowerCase().trim();
+        const clean = lower.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return lower === currentDayEn || lower === currentDayEs || clean === currentDayEs.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      });
+
+      const todaySchedule = todayKey ? business.schedule[todayKey] : null;
+      if (!todaySchedule || !todaySchedule.isOpen || !todaySchedule.close) continue;
+
+      // Extraer hora de cierre (ej. "22:00", "23:30")
+      const cleanTime = todaySchedule.close.trim().split(' ')[0];
+      const parts = cleanTime.split(':');
+      if (parts.length < 2) continue;
+      const closeH = parseInt(parts[0], 10);
+      const closeM = parseInt(parts[1], 10);
+      if (isNaN(closeH) || isNaN(closeM)) continue;
+
+      const closeMinutes = closeH * 60 + closeM;
+      const targetMinutes = closeMinutes + 15;
+
+      // Evaluar si estamos dentro de la ventana de 15 a 45 minutos tras la hora de cierre
+      if (currentMinutes < targetMinutes || currentMinutes > targetMinutes + 45) {
+        continue;
+      }
+
+      // Evitar envíos duplicados en el mismo día
+      const closureDocRef = admin.firestore().collection('dailyDeliveryClosures').doc(`${businessId}_${todayDateStr}`);
+      const closureDoc = await closureDocRef.get();
+      if (closureDoc.exists) {
+        continue;
+      }
+
+      const businessName = business.name || 'Tienda';
+      console.log(`🛵 [Delivery Cierre] Procesando cierre para "${businessName}" (${businessId}). Horario cierre: ${todaySchedule.close}`);
+
+      // Consultar pedidos de tipo delivery de esta tienda
+      const ordersSnap = await admin.firestore().collection('orders')
+        .where('businessId', '==', businessId)
+        .where('delivery.type', '==', 'delivery')
+        .get();
+
+      const todayOrders = [];
+      ordersSnap.docs.forEach(doc => {
+        const o = { id: doc.id, ...doc.data() };
+        if (o.status === 'cancelled' || o.status === 'borrador') return;
+        if (!o.delivery?.assignedDelivery) return;
+
+        // Comprobar si corresponde a la fecha de hoy
+        let orderDate;
+        if (o.timing?.scheduledDate) {
+          const sDate = o.timing.scheduledDate;
+          if (typeof sDate === 'string') {
+            const m = sDate.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (m) {
+              if (m[1] === todayDateStr) {
+                todayOrders.push(o);
+                return;
+              }
+            }
+            orderDate = new Date(sDate);
+          } else if (sDate.seconds) {
+            orderDate = new Date(sDate.seconds * 1000);
+          } else if (sDate instanceof Date) {
+            orderDate = sDate;
+          }
+        } else if (o.createdAt) {
+          if (o.createdAt.seconds) {
+            orderDate = new Date(o.createdAt.seconds * 1000);
+          } else if (o.createdAt instanceof Date) {
+            orderDate = o.createdAt;
+          } else if (typeof o.createdAt === 'string') {
+            orderDate = new Date(o.createdAt);
+          }
+        }
+
+        if (orderDate && !isNaN(orderDate.getTime())) {
+          const ecDate = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Guayaquil',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }).format(orderDate);
+          if (ecDate === todayDateStr) {
+            todayOrders.push(o);
+          }
+        }
+      });
+
+      // Agrupar pedidos por repartidor asignado
+      const ordersByDriver = {};
+      todayOrders.forEach(o => {
+        const driverId = o.delivery.assignedDelivery;
+        if (!ordersByDriver[driverId]) {
+          ordersByDriver[driverId] = [];
+        }
+        ordersByDriver[driverId].push(o);
+      });
+
+      let sentCount = 0;
+
+      // Helper para formatear valores numéricos
+      const formatMoney = (val) => {
+        const absVal = Math.abs(val || 0);
+        if (Number.isInteger(absVal) || absVal % 1 === 0) {
+          return absVal.toString();
+        }
+        return absVal.toFixed(2);
+      };
+
+      const getEffectiveOrderTotal = (o) => {
+        if (!o) return 0;
+        const subtotal = o.subtotal ?? 0;
+        const deliveryFee = o.delivery?.deliveryCost ?? 0;
+        const creditUsed = o.creditUsed ?? 0;
+        const grossTotal = subtotal + deliveryFee;
+        if (creditUsed > 0 && Math.abs((o.total ?? 0) - grossTotal) < 0.02) {
+          return Math.max(0, (o.total ?? 0) - creditUsed);
+        }
+        return o.total ?? 0;
+      };
+
+      for (const [driverId, driverOrders] of Object.entries(ordersByDriver)) {
+        try {
+          const driverDoc = await admin.firestore().collection('deliveries').doc(driverId).get();
+          const driverData = driverDoc.exists ? driverDoc.data() : {};
+          const driverName = driverData.nombres || driverData.name || `Repartidor (${driverId.substring(0, 6)})`;
+          const telegramChatId = driverData.telegramChatId;
+
+          let cashCollected = 0;
+          let feeEarned = 0;
+          const count = driverOrders.length;
+
+          driverOrders.forEach(o => {
+            const method = o.payment?.method || 'cash';
+            const total = getEffectiveOrderTotal(o);
+            const deliveryCost = o.delivery?.deliveryCost || 0;
+            feeEarned += deliveryCost;
+
+            if (method === 'cash') {
+              cashCollected += total;
+            } else if (method === 'mixed') {
+              cashCollected += (o.payment?.cashAmount || 0);
+            }
+          });
+
+          const difference = cashCollected - feeEarned;
+          const entregasLabel = count === 1 ? '1 entrega' : `${count} entregas`;
+          const diffLabel = cashCollected >= feeEarned ? '<b>Diferencia a entregar:</b>' : '<b>Diferencia a recibir:</b>';
+
+          let message = `🛵 <b>Cierre de Caja - ${businessName}</b>\n` +
+            `Repartidor: <b>${driverName}</b>\n\n` +
+            `Valor cobrado en efectivo: $${formatMoney(cashCollected)}\n` +
+            `Delivery (${entregasLabel}): $${formatMoney(feeEarned)}\n\n` +
+            `${diffLabel} $${formatMoney(difference)}\n`;
+
+          const cashOrders = driverOrders.filter(o => {
+            const method = o.payment?.method || 'cash';
+            if (method === 'cash') return true;
+            if (method === 'mixed' && (o.payment?.cashAmount || 0) > 0) return true;
+            return false;
+          });
+
+          if (cashOrders.length > 0) {
+            message += `\n<b>Efectivo</b>\n`;
+            cashOrders.forEach(o => {
+              const amount = o.payment?.method === 'mixed' ? (o.payment?.cashAmount || 0) : (o.total || 0);
+              const customerName = o.customer?.name || 'Cliente';
+              message += `° ${customerName} $${formatMoney(amount)}\n`;
+            });
+          }
+
+          const transferOrders = driverOrders.filter(o => {
+            const method = o.payment?.method;
+            if (method === 'transfer') return true;
+            if (method === 'mixed' && (o.payment?.transferAmount || 0) > 0) return true;
+            return false;
+          });
+
+          if (transferOrders.length > 0) {
+            message += `\n<b>Transferencias</b>\n`;
+            transferOrders.forEach(o => {
+              const amount = o.payment?.method === 'mixed' ? (o.payment?.transferAmount || 0) : (o.total || 0);
+              const customerName = o.customer?.name || 'Cliente';
+              message += `° ${customerName} $${formatMoney(amount)}\n`;
+            });
+          }
+
+          // 1. Enviar al repartidor por Telegram si tiene cuenta vinculada
+          if (telegramChatId) {
+            try {
+              await telegramServices.sendDeliveryTelegramMessage(telegramChatId, message.trim());
+              console.log(`✅ [Delivery Cierre] Mensaje de cierre enviado a repartidor ${driverName} (chatId: ${telegramChatId})`);
+              sentCount++;
+            } catch (driverSendErr) {
+              console.error(`❌ [Delivery Cierre] Error enviando al bot de delivery para ${driverName}:`, driverSendErr);
+            }
+          } else {
+            console.warn(`⚠️ [Delivery Cierre] Repartidor ${driverName} (${driverId}) no tiene telegramChatId vinculado.`);
+          }
+
+          // 2. Enviar también al bot de Administrador por cada delivery
+          try {
+            await telegramServices.sendAdminTelegramMessage(message.trim());
+            console.log(`✅ [Delivery Cierre] Copia de cierre de repartidor ${driverName} enviada al Admin Bot.`);
+          } catch (adminSendErr) {
+            console.error(`❌ [Delivery Cierre] Error enviando reporte de ${driverName} al bot de Administrador:`, adminSendErr);
+          }
+        } catch (driverErr) {
+          console.error(`❌ [Delivery Cierre] Error procesando reporte para repartidor ${driverId}:`, driverErr);
         }
       }
-    });
 
-    let text = `📋 *Resumen de Check-in Diario - ${formattedDate}*\n\n`;
-
-    text += `🟢 *Hicieron Check-in (${checkedIn.length})*:\n`;
-    if (checkedIn.length > 0) {
-      checkedIn.forEach(name => {
-        text += `• ${name}\n`;
+      // Guardar registro para evitar reprocesar hoy
+      await closureDocRef.set({
+        businessId: businessId,
+        businessName: businessName,
+        date: todayDateStr,
+        ordersCount: todayOrders.length,
+        driversNotified: sentCount,
+        processedAt: admin.firestore.FieldValue.serverTimestamp()
       });
-    } else {
-      text += `_(Ninguno)_\n`;
+      console.log(`✅ [Delivery Cierre] Tienda "${businessName}" procesada exitosamente. Repartidores notificados: ${sentCount}`);
     }
-    text += `\n`;
-
-    text += `🔴 *NO hicieron Check-in (${notCheckedIn.length})*:\n`;
-    if (notCheckedIn.length > 0) {
-      notCheckedIn.forEach(item => {
-        text += `• ${item.name} _(${item.reason})_\n`;
-      });
-    } else {
-      text += `_(Ninguno)_\n`;
-    }
-    text += `\n`;
-
-    text += `⚡ *Check-in Automático Activado (${automaticCheckIn.length})*:\n`;
-    if (automaticCheckIn.length > 0) {
-      automaticCheckIn.forEach(name => {
-        text += `• ${name}\n`;
-      });
-    } else {
-      text += `_(Ninguno)_\n`;
-    }
-
-    let adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID;
-    if (!adminChatId) {
-      const docSnap = await admin.firestore().collection('settings').doc('admin_telegram').get();
-      if (docSnap.exists) {
-        adminChatId = docSnap.data().chatId;
-      }
-    }
-
-    if (!adminChatId) {
-      console.warn('⚠️ [CRON 7:00 PM] No se encontró Chat ID de Admin para enviar el resumen.');
-      return;
-    }
-
-    const token = process.env.ADMIN_BOT_TOKEN || process.env.STORE_BOT_TOKEN;
-    if (!token) {
-      console.warn('⚠️ [CRON 7:00 PM] No hay token de Telegram para enviar mensaje.');
-      return;
-    }
-
-    const axios = require('axios');
-    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-      chat_id: adminChatId,
-      text: text,
-      parse_mode: 'Markdown'
-    });
-
-    console.log(`✅ [CRON 7:00 PM] Resumen de Check-in enviado exitosamente a Admin (${adminChatId})`);
   } catch (error) {
-    console.error('❌ [CRON 7:00 PM] Error enviando resumen diario de Check-in:', error);
+    console.error('❌ [Delivery Cierre] Error general en sendDailyDeliveryClosureReports:', error);
   }
 });
 

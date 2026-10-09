@@ -304,8 +304,9 @@ function StoreCatalogProductsSkeleton() {
   )
 }
 
-function StoreProfileSkeleton({ username }: { username?: string }) {
-  const displayName = username ? formatBusinessName(username.replace(/-/g, ' ')) : null
+function StoreProfileSkeleton({ username, initialBusiness }: { username?: string; initialBusiness?: Business | null }) {
+  // Solo mostrar el nombre real si proviene de la base de datos (por prop o por caché local)
+  const realName = initialBusiness?.name || (username ? getCachedBusinessByUsername(username)?.name : null)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -321,8 +322,8 @@ function StoreProfileSkeleton({ username }: { username?: string }) {
           </div>
         </div>
 
-        {/* Contenido debajo de la portada */}
-        <div className="max-w-3xl mx-auto px-4 pt-10 sm:pt-12 pb-3 sm:pb-4 text-center relative">
+        {/* Contenido debajo de la portada - pt-16 en móvil y sm:pt-20 en desktop para separación limpia con el logo */}
+        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-3 sm:pb-4 text-center relative">
           {/* Botones de acción reales visibles (Favorito y Compartir) */}
           <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
             <button
@@ -350,11 +351,11 @@ function StoreProfileSkeleton({ username }: { username?: string }) {
 
           <div className="flex flex-col items-center">
             <div className="w-full">
-              {/* Nombre de la tienda legible o skeleton */}
-              {displayName ? (
+              {/* Nombre de la tienda: nombre real de la base de datos o skeleton animado */}
+              {realName ? (
                 <div className="inline-flex items-center justify-center gap-2 mb-2">
                   <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
-                    {displayName}
+                    {realName}
                   </h1>
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80 animate-pulse shrink-0" title="Cargando información..." />
                 </div>
@@ -1528,7 +1529,7 @@ function RestaurantContent() {
 
   // Si aún no se ha montado o no se ha obtenido la tienda desde Firestore, mostrar skeleton enriquecido con nombre y botones
   if (!hasMounted || !business) {
-    return <StoreProfileSkeleton username={username} />
+    return <StoreProfileSkeleton username={username} initialBusiness={business} />
   }
 
   return (
@@ -1591,8 +1592,8 @@ function RestaurantContent() {
           </div>
         </div>
 
-        {/* Contenido debajo de la portada - Diseño Premium */}
-        <div className="max-w-3xl mx-auto px-4 pt-10 sm:pt-12 pb-3 sm:pb-4 text-center relative">
+        {/* Contenido debajo de la portada - Diseño Premium con separación adecuada del logo */}
+        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-3 sm:pb-4 text-center relative">
           {/* Botones de acción (Favorito y Compartir) sutiles debajo de la portada alineados a la derecha */}
           <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
             {/* Botón Favorito */}

@@ -6,7 +6,7 @@ import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, createProduct, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient, getUserCreditsFlexible, useUserCreditsFlexible, getBranchesForBusiness } from '@/lib/database'
 import { getOfflineQueue } from '@/lib/offline-queue'
 import { searchClients } from '@/lib/client-search'
-import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
+import { getProductPublicPrice, getPriceMetadata, getManualOrderStorePrice } from '@/lib/price-utils'
 import { formatComboVariantSelection } from '@/lib/combo-utils'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
@@ -420,9 +420,6 @@ export default function ManualOrderSidebar({
     return business
   }, [business, businesses, effectiveBusinessId])
 
-  const businessDefaultCommissionType = effectiveBusiness?.defaultCommissionType
-  const businessCommissionRate = effectiveBusiness?.commissionRate
-
   // Cargar sucursales vinculadas
   const [availableBranches, setAvailableBranches] = useState<Business[]>([])
 
@@ -472,19 +469,6 @@ export default function ManualOrderSidebar({
       onBusinessChange?.(nextStore.id)
     }
   }
-
-  const customProductPricing = useMemo(() => {
-    const storePrice = parseFloat(customProductData.price)
-    if (Number.isNaN(storePrice) || storePrice <= 0) {
-      return null
-    }
-
-    const { defaultCommissionType, commissionRate } = getBusinessCommissionSettings({
-      defaultCommissionType: businessDefaultCommissionType,
-      commissionRate: businessCommissionRate
-    })
-    return calculateCommissionPricing(storePrice, defaultCommissionType, commissionRate)
-  }, [customProductData.price, businessDefaultCommissionType, businessCommissionRate])
 
   const isMasterAdmin = effectiveBusiness?.email === 'munchys.ec@gmail.com';
   const canChangeDelivery = true;
@@ -2256,18 +2240,23 @@ export default function ManualOrderSidebar({
       }
     }
 
-    const copiedProducts = ord.items.map((it: any) => ({
-      name: it.name || '',
-      price: it.price || 0,
-      productId: it.productId || '',
-      quantity: it.quantity || 1,
-      variant: it.variant || '',
-      variantName: it.variant || '',
-      basePrice: it.basePrice,
-      commission: it.commission,
-      commissionType: it.commissionType,
-      storeReceives: it.storeReceives
-    }));
+    const copiedProducts = ord.items.map((it: any) => {
+      const storeItemPrice = (typeof it.basePrice === 'number' && !isNaN(it.basePrice))
+        ? it.basePrice
+        : (typeof it.price === 'number' ? it.price : 0)
+      return {
+        name: it.name || '',
+        price: storeItemPrice,
+        productId: it.productId || '',
+        quantity: it.quantity || 1,
+        variant: it.variant || '',
+        variantName: it.variantName || it.variant || '',
+        basePrice: storeItemPrice,
+        commission: 0,
+        commissionType: 'no_commission',
+        storeReceives: storeItemPrice
+      }
+    });
 
     setManualOrderData(prev => ({
       ...prev,
@@ -2689,10 +2678,10 @@ export default function ManualOrderSidebar({
           const productData = {
             name: customProductData.name.trim(),
             description: '',
-            price: customProductPricing?.publicPrice ?? storePrice,
-            basePrice: customProductPricing?.storePrice ?? storePrice,
-            commission: customProductPricing?.commission ?? 0,
-            commissionType: customProductPricing?.commissionType ?? 'no_commission',
+            price: storePrice,
+            basePrice: storePrice,
+            commission: 0,
+            commissionType: 'no_commission',
             category: '',
             isAvailable: true,
             businessId: targetBusinessId,
@@ -2705,16 +2694,16 @@ export default function ManualOrderSidebar({
 
       const customItem: OrderItem = {
         name: customProductData.name.trim(),
-        price: customProductPricing?.publicPrice ?? storePrice,
+        price: storePrice,
         productId: createdCatalogProductId || `custom_${Date.now()}`,
         quantity: 1,
         variant: '',
         variantName: '',
         productName: customProductData.name.trim(),
-        basePrice: customProductPricing?.storePrice ?? storePrice,
-        commission: customProductPricing?.commission ?? 0,
-        commissionType: customProductPricing?.commissionType ?? 'no_commission',
-        storeReceives: customProductPricing?.storePrice ?? storePrice,
+        basePrice: storePrice,
+        commission: 0,
+        commissionType: 'no_commission',
+        storeReceives: storePrice,
         originalBusinessId: effectiveBusinessId || business?.id,
         originalBusinessName: effectiveBusiness?.name || business?.name || ''
       }
@@ -5770,23 +5759,6 @@ export default function ManualOrderSidebar({
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-
-              {customProductPricing && customProductPricing.commission > 0 && (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
-                  <div className="flex justify-between">
-                    <span>Valor de tienda</span>
-                    <span className="font-medium">${customProductPricing.storePrice.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Comision Fuddi</span>
-                    <span className="font-medium">${customProductPricing.commission.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-gray-200 pt-1 font-semibold text-gray-900">
-                    <span>Precio en orden</span>
-                    <span>${customProductPricing.publicPrice.toFixed(2)}</span>
-                  </div>
-                </div>
-              )}
 
               <div className={`border rounded-xl p-3.5 transition-colors ${
                 customProductData.saveToCatalog

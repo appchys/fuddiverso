@@ -835,10 +835,11 @@ export default function CierreSidebarView({
 
         const difference = cashCollected - feeEarned
         const entregasLabel = count === 1 ? '1 entrega' : `${count} entregas`
+        const diffLabel = cashCollected >= feeEarned ? '*Diferencia a entregar:*' : '*Diferencia a recibir:*'
 
         let message = `Valor cobrado en efectivo: $${formatMoney(cashCollected)}\n` +
             `Delivery (${entregasLabel}): $${formatMoney(feeEarned)}\n\n` +
-            `*Diferencia a entregar/recibir:* $${formatMoney(difference)}\n`
+            `${diffLabel} $${formatMoney(difference)}\n`
 
         const cashOrders = activeOrdersList.filter((o: Order) => {
             const method = o.payment?.method || 'cash'

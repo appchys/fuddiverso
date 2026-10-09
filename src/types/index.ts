@@ -278,6 +278,7 @@ export interface Product {
   createdAt: Date
   updatedAt: Date
   quickAddons?: string[]
+  salesCount?: number // Contador de unidades vendidas acumuladas para ordenar productos más vendidos instantáneamente
   isShared?: boolean
   originalBusinessId?: string
   originalBusinessName?: string
@@ -428,6 +429,9 @@ export interface Order {
   deliverySettlementStatus?: 'pending' | 'settled' // Estado de liquidación para delivery
   deliverySettlementId?: string // ID del corte de delivery
   telegramBusinessMessages?: { chatId: string, messageId: number }[] // Rastreo de mensajes enviados a la tienda
+  telegramBusinessReminderMessages?: { chatId: string, messageId: number }[] // Rastreo de mensajes de recordatorio enviados a la tienda
+  reminderMessageDeleted?: boolean
+  reminderMessageDeletedAt?: Date | Timestamp
   confirmationSource?: 'email' | 'app' | 'telegram_bot' | 'telegram_miniapp' // Origen desde donde el restaurante confirmó la orden
   isPrinted?: boolean // Indica si la orden ya fue enviada a imprimir
   printedAt?: Date | Timestamp // Fecha y hora de impresión
