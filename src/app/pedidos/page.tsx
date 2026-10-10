@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product, CoverageZone } from '@/types'
@@ -884,42 +884,63 @@ export default function AdminPedidosPage() {
     }, [selectedBusinessId])
 
     // 8. Load History paginated function
-    const loadHistory = async () => {
-        if (!selectedBusinessId || historyLoading || (historyLoaded && !hasMoreHistory)) return
+    const isFetchingHistoryRef = useRef(false)
+    const lastHistoryDocRef = useRef<any>(null)
+    const hasMoreHistoryRef = useRef(true)
+
+    const loadHistory = useCallback(async () => {
+        if (!selectedBusinessId || isFetchingHistoryRef.current || !hasMoreHistoryRef.current) return
+        isFetchingHistoryRef.current = true
         setHistoryLoading(true)
         try {
-            const { orders: data, lastDoc } = await getOrdersByBusinessPaginated(selectedBusinessId, 20, lastHistoryDoc)
-            setHistoricalOrders(prev => {
-                const existingIds = new Set(prev.map(o => o.id))
-                const newOrders = data.filter(o => !existingIds.has(o.id))
-                return [...prev, ...newOrders]
-            })
+            const { orders: data, lastDoc } = await getOrdersByBusinessPaginated(
+                selectedBusinessId,
+                20,
+                lastHistoryDocRef.current
+            )
+            lastHistoryDocRef.current = lastDoc
             setLastHistoryDoc(lastDoc)
-            if (data.length < 20) {
+
+            if (!data || data.length === 0 || !lastDoc) {
+                hasMoreHistoryRef.current = false
                 setHasMoreHistory(false)
+            } else {
+                setHistoricalOrders(prev => {
+                    const existingIds = new Set(prev.map(o => o.id))
+                    const newOrders = data.filter(o => !existingIds.has(o.id))
+                    return [...prev, ...newOrders]
+                })
+                if (data.length < 20) {
+                    hasMoreHistoryRef.current = false
+                    setHasMoreHistory(false)
+                }
             }
             setHistoryLoaded(true)
         } catch (error) {
             console.error("Error loading history", error)
         } finally {
+            isFetchingHistoryRef.current = false
             setHistoryLoading(false)
         }
-    }
+    }, [selectedBusinessId])
 
     // Reset history when business changes
     useEffect(() => {
         setHistoricalOrders([])
         setAllUpcomingOrders([])
         setLastHistoryDoc(null)
+        lastHistoryDocRef.current = null
         setHasMoreHistory(true)
+        hasMoreHistoryRef.current = true
         setHistoryLoaded(false)
+        isFetchingHistoryRef.current = false
     }, [selectedBusinessId])
 
     useEffect(() => {
-        if (ordersSubTab === 'history' || (!loading && orders.length === 0)) {
+        if (ordersSubTab === 'history' && !historyLoaded && !historyLoading) {
             loadHistory()
         }
-    }, [ordersSubTab, selectedBusinessId, loading, orders.length])
+    }, [ordersSubTab, selectedBusinessId, historyLoaded, historyLoading, loadHistory])
 
     // 9. Load visits count
     const [visitsCount, setVisitsCount] = useState(0)
