@@ -907,9 +907,10 @@ function DeliveryDashboardContent() {
                           name: order.businessSnapshot?.name || matchedBusiness?.name || 'Tienda',
                           image: order.businessSnapshot?.logo || matchedBusiness?.image || '',
                           phone: order.businessSnapshot?.phone || matchedBusiness?.phone || '',
-                          latlong: order.businessSnapshot?.latlong || matchedBusiness?.pickupSettings?.latlong || '',
-                          references: order.businessSnapshot?.address || matchedBusiness?.pickupSettings?.references || matchedBusiness?.address || '',
-                          pickupSettings: matchedBusiness?.pickupSettings
+                          latlong: order.businessSnapshot?.pickupSettings?.latlong || order.businessSnapshot?.latlong || matchedBusiness?.pickupSettings?.latlong || '',
+                          references: order.businessSnapshot?.pickupSettings?.references || order.businessSnapshot?.references || (order.businessSnapshot as any)?.address || matchedBusiness?.pickupSettings?.references || matchedBusiness?.references || '',
+                          storePhotoUrl: order.businessSnapshot?.pickupSettings?.storePhotoUrl || order.businessSnapshot?.storePhotoUrl || matchedBusiness?.pickupSettings?.storePhotoUrl || '',
+                          pickupSettings: order.businessSnapshot?.pickupSettings || matchedBusiness?.pickupSettings
                         }
 
                         return (

@@ -361,10 +361,18 @@ export interface BusinessSnapshot {
   id: string
   name: string
   phone?: string
-  address?: string
   logo?: string
   username?: string
   latlong?: string
+  references?: string
+  storePhotoUrl?: string
+  pickupSettings?: {
+    enabled?: boolean
+    references?: string
+    latlong?: string
+    storePhotoUrl?: string
+    restrictToPrevious?: boolean
+  }
 }
 
 export interface OrderRatingSnapshot {

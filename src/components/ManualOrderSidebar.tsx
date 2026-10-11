@@ -2922,10 +2922,20 @@ export default function ManualOrderSidebar({
         id: effectiveBusiness.id,
         name: effectiveBusiness.name,
         phone: effectiveBusiness.phone,
-        address: effectiveBusiness.address || effectiveBusiness.references || '',
         logo: effectiveBusiness.image || '',
         username: effectiveBusiness.username || '',
-        latlong: effectiveBusiness.mapLocation ? `${effectiveBusiness.mapLocation.lat},${effectiveBusiness.mapLocation.lng}` : ''
+        latlong: effectiveBusiness.pickupSettings?.latlong || (effectiveBusiness.mapLocation ? `${effectiveBusiness.mapLocation.lat},${effectiveBusiness.mapLocation.lng}` : ''),
+        references: effectiveBusiness.pickupSettings?.references || effectiveBusiness.references || '',
+        storePhotoUrl: effectiveBusiness.pickupSettings?.storePhotoUrl || effectiveBusiness.locationImage || '',
+        ...(effectiveBusiness.pickupSettings ? {
+          pickupSettings: {
+            enabled: !!effectiveBusiness.pickupSettings.enabled,
+            latlong: effectiveBusiness.pickupSettings.latlong || '',
+            references: effectiveBusiness.pickupSettings.references || '',
+            restrictToPrevious: !!effectiveBusiness.pickupSettings.restrictToPrevious,
+            storePhotoUrl: effectiveBusiness.pickupSettings.storePhotoUrl || ''
+          }
+        } : {})
       } : null;
 
       let orderData: any = {

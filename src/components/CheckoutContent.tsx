@@ -2237,10 +2237,20 @@ export function CheckoutContent({
           id: business.id,
           name: business.name || '',
           phone: business.phone || '',
-          address: business.address || business.references || '',
           logo: business.image || '',
           username: business.username || '',
-          latlong: business.mapLocation ? `${business.mapLocation.lat},${business.mapLocation.lng}` : ''
+          latlong: business.pickupSettings?.latlong || (business.mapLocation ? `${business.mapLocation.lat},${business.mapLocation.lng}` : ''),
+          references: business.pickupSettings?.references || business.references || '',
+          storePhotoUrl: business.pickupSettings?.storePhotoUrl || business.locationImage || '',
+          ...(business.pickupSettings ? {
+            pickupSettings: {
+              enabled: !!business.pickupSettings.enabled,
+              latlong: business.pickupSettings.latlong || '',
+              references: business.pickupSettings.references || '',
+              restrictToPrevious: !!business.pickupSettings.restrictToPrevious,
+              storePhotoUrl: business.pickupSettings.storePhotoUrl || ''
+            }
+          } : {})
         } : null,
         customer: {
           name: customerData.name,
