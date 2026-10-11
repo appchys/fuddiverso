@@ -499,7 +499,54 @@ function RestaurantContent() {
   const [showBranchModal, setShowBranchModal] = useState(false)
   const [showStatusPopover, setShowStatusPopover] = useState(false)
   const statusPopoverRef = useRef<HTMLDivElement>(null)
+  const statusBubbleRef = useRef<HTMLDivElement | null>(null)
+  const statusArrowRef = useRef<HTMLDivElement | null>(null)
+  const [popoverShift, setPopoverShift] = useState<{ shiftX: number; arrowLeft: number | null }>({
+    shiftX: 0,
+    arrowLeft: null,
+  })
   const hasInitializedStatusPopoverRef = useRef(false)
+
+  // Ajustar posición del globo de estado para acomodarse a la pantalla y moverse a la izquierda si es necesario
+  const adjustPopoverPosition = useCallback(() => {
+    const anchor = statusPopoverRef.current
+    const bubble = statusBubbleRef.current
+    if (!anchor || !bubble) return
+
+    const anchorRect = anchor.getBoundingClientRect()
+    const bubbleRect = bubble.getBoundingClientRect()
+    const vw = window.innerWidth || document.documentElement.clientWidth
+    const margin = 12 // Margen mínimo con los bordes de la pantalla
+
+    const bubbleWidth = bubbleRect.width
+    const anchorCenterX = anchorRect.left + anchorRect.width / 2
+
+    const theoreticalLeft = anchorCenterX - bubbleWidth / 2
+    const theoreticalRight = anchorCenterX + bubbleWidth / 2
+
+    let shiftX = 0
+    if (theoreticalRight > vw - margin) {
+      shiftX = -(theoreticalRight - (vw - margin))
+    } else if (theoreticalLeft < margin) {
+      shiftX = margin - theoreticalLeft
+    }
+
+    // Evitar que sobrepase el margen izquierdo si la pantalla es muy pequeña
+    if (theoreticalLeft + shiftX < margin) {
+      shiftX = margin - theoreticalLeft
+    }
+
+    const rawArrowLeft = bubbleWidth / 2 - shiftX
+    const arrowLeft = Math.max(14, Math.min(bubbleWidth - 14, rawArrowLeft))
+
+    // Aplicar directamente al DOM para evitar parpadeos visuales
+    bubble.style.left = `calc(50% + ${shiftX}px)`
+    if (statusArrowRef.current) {
+      statusArrowRef.current.style.left = `${arrowLeft}px`
+    }
+
+    setPopoverShift({ shiftX, arrowLeft })
+  }, [])
 
   // Cachear resultado de isStoreOpen para evitar recalcularlo 5+ veces por render
   const storeIsOpen = useMemo(() => business ? isStoreOpen(business) : false, [business])
@@ -565,6 +612,18 @@ function RestaurantContent() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Recalcular posición del globo al abrirse o al redimensionar la pantalla
+  useEffect(() => {
+    if (!showStatusPopover) return
+    adjustPopoverPosition()
+    window.addEventListener('resize', adjustPopoverPosition)
+    window.addEventListener('scroll', adjustPopoverPosition, { passive: true })
+    return () => {
+      window.removeEventListener('resize', adjustPopoverPosition)
+      window.removeEventListener('scroll', adjustPopoverPosition)
+    }
+  }, [showStatusPopover, adjustPopoverPosition])
 
   // Cargar estado de favorito
   useEffect(() => {
@@ -1533,7 +1592,7 @@ function RestaurantContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 overflow-x-clip">
 
       {/* Structured Data for SEO */}
       <BusinessStructuredData business={business} />
@@ -1661,8 +1720,17 @@ function RestaurantContent() {
                   {/* Popover flotante de estado y horario con tonalidad dinámica (verde/rojiza) y piquito */}
                   {showStatusPopover && (
                     <div
+                      ref={(node) => {
+                        statusBubbleRef.current = node
+                        if (node) adjustPopoverPosition()
+                      }}
                       onMouseLeave={() => setShowStatusPopover(false)}
-                      className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 z-40 w-max min-w-[170px] max-w-[240px] backdrop-blur-xs rounded-xl px-3 py-2 shadow-md text-left animate-in fade-in zoom-in-95 duration-150 border ${
+                      style={
+                        popoverShift.shiftX !== 0
+                          ? { left: `calc(50% + ${popoverShift.shiftX}px)` }
+                          : undefined
+                      }
+                      className={`absolute top-full mt-2 left-1/2 -translate-x-1/2 z-40 w-max min-w-[170px] max-w-[min(260px,calc(100vw-24px))] backdrop-blur-xs rounded-xl px-3 py-2 shadow-md text-left animate-in fade-in zoom-in-95 duration-150 border transition-[left] ${
                         storeIsOpen
                           ? 'bg-emerald-50/95 border-emerald-200 text-emerald-800'
                           : 'bg-rose-50/95 border-rose-200 text-rose-700'
@@ -1670,7 +1738,15 @@ function RestaurantContent() {
                     >
                       {/* Piquito apuntando al punto indicador */}
                       <div
-                        className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border-t border-l ${
+                        ref={(node) => {
+                          statusArrowRef.current = node
+                        }}
+                        style={
+                          popoverShift.arrowLeft !== null
+                            ? { left: `${popoverShift.arrowLeft}px` }
+                            : undefined
+                        }
+                        className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border-t border-l transition-[left] ${
                           storeIsOpen
                             ? 'bg-emerald-50 border-emerald-200'
                             : 'bg-rose-50 border-rose-200'
