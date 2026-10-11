@@ -468,7 +468,7 @@ export function CheckoutContent({
           return
         }
 
-        const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id)
+        const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id, business)
 
         // Si la tienda usa servicio Fuddi y no está fuera de cobertura, verificar si hay repartidores activos asignados
         if (business?.deliveryServiceType === 'fuddi' && !details.isOutOfCoverage) {
@@ -809,7 +809,8 @@ export function CheckoutContent({
       return 0 // Retiro en tienda
     }
     if (deliveryData.type === 'delivery' && selectedLocation) {
-      return parseFloat(selectedLocation.tarifa)
+      const parsed = parseFloat(selectedLocation.tarifa || '0')
+      return isNaN(parsed) ? 0 : Math.max(0, parsed)
     }
     return 0 // Delivery sin ubicación seleccionada
   }
@@ -828,7 +829,7 @@ export function CheckoutContent({
       try {
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) { setSelectedZoneId(null); return }
-        const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id)
+        const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id, business)
         setSelectedZoneId(details.zoneId || null)
       } catch (e) {
         setSelectedZoneId(null)
@@ -1055,7 +1056,7 @@ export function CheckoutContent({
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
       if (!business?.id) return { fee: 0, zoneName: 'Sin cobertura', isOutOfCoverage: true, distance: undefined }
-      const details = await getDeliveryDetailsForLocation({ lat, lng }, business.id);
+      const details = await getDeliveryDetailsForLocation({ lat, lng }, business.id, business);
       const { fee, distance, zoneName, isOutOfCoverage, zoneId } = details;
       if (distance !== undefined) {
         setCalculatedDistance(distance);
@@ -1519,28 +1520,40 @@ export function CheckoutContent({
       console.warn('Error persisting selected location in checkout:', e)
     }
 
-    // Si hay coordenadas, calcular la tarifa automáticamente para asegurar que sea fresca
+    // Inmediatamente seleccionar y cerrar modal para una respuesta táctil instantánea sin demoras
+    setSelectedLocation(location)
+    setDeliveryData(prev => ({
+      ...prev,
+      type: 'delivery',
+      address: location.referencia,
+      references: `${location.sector || 'Sin especificar'} - ${location.latlong}`,
+      tarifa: prev.type === 'pickup' ? '0' : (location.tarifa || '0')
+    }))
+    closeLocationModal()
+
+    // Si hay coordenadas, calcular la tarifa automáticamente en segundo plano para asegurar que sea fresca
     if (location.latlong) {
       setCalculatingTariff(true)
       try {
-        const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
-        if (!isNaN(lat) && !isNaN(lng)) {
-          const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
-          const feeStr = (typeof fee === 'number' ? fee : 0).toString()
-          const sectorName = zoneName || location.sector || 'Sin especificar'
+        const [lat, lng] = [latCheck, lngCheck]
+        const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+        const feeStr = (typeof fee === 'number' ? fee : 0).toString()
+        const sectorName = zoneName || location.sector || 'Sin especificar'
 
-          const updatedLocation = { ...location, tarifa: feeStr, sector: sectorName }
-          setSelectedLocation(updatedLocation)
+        const updatedLocation = { ...location, tarifa: feeStr, sector: sectorName }
+        setSelectedLocation(updatedLocation)
 
-          setDeliveryData(prev => ({
-            ...prev,
-            address: location.referencia,
-            references: `${sectorName} - ${location.latlong}`,
-            tarifa: prev.type === 'pickup' ? '0' : feeStr
-          }))
+        setDeliveryData(prev => ({
+          ...prev,
+          address: location.referencia,
+          references: `${sectorName} - ${location.latlong}`,
+          tarifa: prev.type === 'pickup' ? '0' : feeStr
+        }))
 
-          closeLocationModal()
-          return
+        try {
+          localStorage.setItem('userSelectedLocation', JSON.stringify(updatedLocation))
+        } catch (e) {
+          console.warn('Error persisting updated location in checkout:', e)
         }
       } catch (error) {
         console.error('Error calculating automatic delivery fee:', error)
@@ -1548,16 +1561,6 @@ export function CheckoutContent({
         setCalculatingTariff(false)
       }
     }
-
-    // Fallback: si no hay coordenadas o falló el cálculo, usar lo que haya en location.tarifa
-    setSelectedLocation(location)
-    setDeliveryData(prev => ({
-      ...prev,
-      address: location.referencia,
-      references: `${location.sector || 'Sin especificar'} - ${location.latlong}`,
-      tarifa: prev.type === 'pickup' ? '0' : (location.tarifa || '0')
-    }))
-    closeLocationModal()
   }
 
   // Effect para cargar datos QR
@@ -3074,9 +3077,22 @@ export function CheckoutContent({
                         <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-center justify-between gap-3 relative group">
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-gray-900">{selectedLocation.referencia}</p>
-                            <p className="text-xs text-gray-500 mt-1 truncate">
-                              Tarifa: {formatPrice(Number(selectedLocation.tarifa || '0'))}
-                            </p>
+                            <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                              <span>Tarifa:</span>
+                              {calculatingTariff ? (
+                                <span className="inline-flex items-center gap-1 text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 animate-pulse text-[11px]">
+                                  <svg className="animate-spin h-3 w-3 text-amber-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  <span>Calculando...</span>
+                                </span>
+                              ) : (
+                                <span className="font-bold text-gray-800">
+                                  {formatPrice(Number(selectedLocation.tarifa || '0'))}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="flex flex-col items-center gap-2 flex-shrink-0">
                             <div className="w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
@@ -3274,23 +3290,37 @@ export function CheckoutContent({
                     <div className="flex justify-between items-center text-sm">
                       <div className="flex flex-col">
                         <span className="text-gray-500">Costo de envío</span>
-                        {deliveryData.type === 'delivery' && calculatedDistance != null && (
-                          <span className="text-[10px] text-gray-400">
-                            Distancia: {calculatedDistance.toFixed(1)} km
-                          </span>
+                        {deliveryData.type === 'delivery' && (
+                          calculatingTariff ? (
+                            <span className="text-[10px] text-amber-600 animate-pulse font-medium">
+                              Calculando costo por distancia/zona...
+                            </span>
+                          ) : calculatedDistance != null ? (
+                            <span className="text-[10px] text-gray-400">
+                              Distancia: {calculatedDistance.toFixed(1)} km
+                            </span>
+                          ) : null
                         )}
-                        {isFreeDeliveryActive && (
+                        {isFreeDeliveryActive && !calculatingTariff && (
                           <span className="text-[10px] text-green-600 font-bold">
                             🎉 Delivery gratis del restaurante
                           </span>
                         )}
-                        {!isFreeDeliveryActive && missingAmountForFreeDelivery > 0 && (
+                        {!isFreeDeliveryActive && missingAmountForFreeDelivery > 0 && !calculatingTariff && (
                           <span className="text-[10px] text-amber-600 font-medium">
                             Te faltan {formatPrice(missingAmountForFreeDelivery)} para delivery gratis
                           </span>
                         )}
                       </div>
-                      {isFreeDeliveryActive ? (
+                      {calculatingTariff && deliveryData.type === 'delivery' ? (
+                        <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-200 animate-pulse">
+                          <svg className="animate-spin h-3.5 w-3.5 text-amber-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Calculando...</span>
+                        </div>
+                      ) : isFreeDeliveryActive ? (
                         <div className="flex items-center gap-2">
                           <span className="text-sm text-gray-400 line-through">
                             {formatPrice(deliveryCost)}
@@ -3308,9 +3338,15 @@ export function CheckoutContent({
                       <span className="text-base font-black text-gray-900 uppercase tracking-tight">
                         {paymentData.useCredits && creditToApply > 0 ? 'Total del pedido' : 'Total a pagar'}
                       </span>
-                      <span className={`text-xl font-black ${paymentData.useCredits && creditToApply > 0 ? 'text-gray-400 line-through text-base font-medium' : 'text-red-600'}`}>
-                        {formatPrice(totalBeforeCredits)}
-                      </span>
+                      {calculatingTariff && deliveryData.type === 'delivery' ? (
+                        <span className="text-sm font-semibold text-amber-600 flex items-center gap-1 animate-pulse">
+                          <span>Calculando total...</span>
+                        </span>
+                      ) : (
+                        <span className={`text-xl font-black ${paymentData.useCredits && creditToApply > 0 ? 'text-gray-400 line-through text-base font-medium' : 'text-red-600'}`}>
+                          {formatPrice(totalBeforeCredits)}
+                        </span>
+                      )}
                     </div>
 
                     {/* Opción de Pago con Créditos (Debajo de Total a pagar) */}
@@ -3765,13 +3801,13 @@ export function CheckoutContent({
               <button
                 type="button"
                 onClick={handleCompleteStepsClick}
-                disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)}
-                className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)
+                disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage) || calculatingTariff}
+                className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage) || calculatingTariff
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-green-500 hover:bg-green-600'
                   }`}
               >
-                {loading ? 'Procesando...' : (readyToConfirm ? 'Confirmar pedido' : 'Completa los pasos')}
+                {loading ? 'Procesando...' : (calculatingTariff ? 'Calculando tarifa...' : (readyToConfirm ? 'Confirmar pedido' : 'Completa los pasos'))}
               </button>
               {deliveryData.type === 'delivery' && selectedLocationOutsideCoverage && (
                 <p className="text-sm text-yellow-800 mt-2">No es posible confirmar el pedido porque la ubicación seleccionada está fuera de la zona de cobertura.</p>

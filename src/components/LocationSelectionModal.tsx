@@ -60,6 +60,7 @@ export default function LocationSelectionModal({
     const [isResolvingDeliveryFee, setIsResolvingDeliveryFee] = useState(false)
     const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
     const [isInsideCoverage, setIsInsideCoverage] = useState<boolean>(false)
+    const [selectingLocationId, setSelectingLocationId] = useState<string | null>(null)
 
     useEffect(() => {
         if (typeof window !== 'undefined' && window.innerWidth >= 768) {
@@ -91,9 +92,11 @@ export default function LocationSelectionModal({
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden'
+            setSelectingLocationId(null)
         } else {
             document.body.style.overflow = ''
             setEditingLocation(null)
+            setSelectingLocationId(null)
             resetLocationForm()
         }
         return () => {
@@ -529,21 +532,26 @@ export default function LocationSelectionModal({
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {sortedLocations.map((location) => (
+                                    {sortedLocations.map((location) => {
+                                        const isSelected = selectedLocationId === location.id || selectingLocationId === location.id;
+                                        return (
                                         <div
                                             key={location.id}
-                                            onClick={() => onSelect(location)}
-                                            className={`group relative p-4 rounded-2xl border transition-all duration-200 cursor-pointer flex gap-4 ${selectedLocationId === location.id
+                                            onClick={() => {
+                                                setSelectingLocationId(location.id)
+                                                onSelect(location)
+                                            }}
+                                            className={`group relative p-4 rounded-2xl border transition-all duration-200 cursor-pointer flex gap-4 ${isSelected
                                                 ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900 shadow-sm'
                                                 : 'border-gray-100 bg-white hover:border-gray-300 hover:shadow-md'
                                                 }`}
                                         >
                                             <div className="flex-shrink-0 pt-1">
-                                                <div className={`w-6 h-6 rounded-full border flex items-center justify-center ${selectedLocationId === location.id
+                                                <div className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${isSelected
                                                     ? 'border-gray-900 bg-gray-900 text-white'
                                                     : 'border-gray-300 bg-white group-hover:border-gray-400'
                                                     }`}>
-                                                    {selectedLocationId === location.id && <div className="w-2 h-2 bg-white rounded-full" />}
+                                                    {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
                                                 </div>
                                             </div>
 
@@ -616,7 +624,8 @@ export default function LocationSelectionModal({
                                                 )}
                                             </div>
                                         </div>
-                                    ))}
+                                        )
+                                    })}
                                 </div>
                             )}
                         </div>
