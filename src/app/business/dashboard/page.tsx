@@ -173,6 +173,7 @@ export default function TodayOrdersPage() {
     const processingPrintJobsRef = useRef(new Set<string>())
     const printBridgeIdRef = useRef<string | null>(null)
     const ordersMapRef = useRef<Map<string, Order>>(new Map())
+    const recentStatusUpdatesRef = useRef<Map<string, { status: Order['status'], timestamp: number }>>(new Map())
     const [printJobs, setPrintJobs] = useState<PrintJob[]>([])
 
     useEffect(() => {
@@ -378,6 +379,7 @@ export default function TodayOrdersPage() {
     const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null)
 
     const updateOrderEverywhere = (updatedOrder: Order) => {
+        recentStatusUpdatesRef.current.set(updatedOrder.id, { status: updatedOrder.status, timestamp: Date.now() })
         const replaceOrder = (order: Order) => order.id === updatedOrder.id ? updatedOrder : order
         setOrders(prev => prev.map(replaceOrder))
         setHistoricalOrders(prev => prev.map(replaceOrder))
@@ -385,22 +387,27 @@ export default function TodayOrdersPage() {
         setSelectedOrderForPayment(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
         setSelectedOrderForStatusModal(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
         setSelectedOrderForEdit(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
-        if (ordersMapRef.current.has(updatedOrder.id)) {
-            ordersMapRef.current.set(updatedOrder.id, updatedOrder)
-        }
+        ordersMapRef.current.set(updatedOrder.id, updatedOrder)
     }
 
     const patchOrderEverywhere = (orderId: string, patch: (order: Order) => Order) => {
-        const patchMatchingOrder = (order: Order) => order.id === orderId ? patch(order) : order
+        const patchMatchingOrder = (order: Order) => {
+            if (order.id !== orderId) return order
+            const patched = patch(order)
+            recentStatusUpdatesRef.current.set(orderId, { status: patched.status, timestamp: Date.now() })
+            return patched
+        }
         setOrders(prev => prev.map(patchMatchingOrder))
         setHistoricalOrders(prev => prev.map(patchMatchingOrder))
         setAllUpcomingOrders(prev => prev.map(patchMatchingOrder))
         setSelectedOrderForPayment(prev => prev?.id === orderId ? patch(prev) : prev)
         setSelectedOrderForStatusModal(prev => prev?.id === orderId ? patch(prev) : prev)
         setSelectedOrderForEdit(prev => prev?.id === orderId ? patch(prev) : prev)
-        const cached = ordersMapRef.current.get(orderId)
+        const cached = ordersMapRef.current.get(orderId) || orders.find(o => o.id === orderId)
         if (cached) {
-            ordersMapRef.current.set(orderId, patch(cached))
+            const patchedCached = patch(cached)
+            recentStatusUpdatesRef.current.set(orderId, { status: patchedCached.status, timestamp: Date.now() })
+            ordersMapRef.current.set(orderId, patchedCached)
         }
     }
 
@@ -1186,6 +1193,14 @@ export default function TodayOrdersPage() {
                     return true
                 }
             }
+            if (order.status === 'cancelled') {
+                const cancelledDate = (order.statusHistory as any)?.cancelledAt
+                    ? toSafeDate((order.statusHistory as any).cancelledAt)
+                    : (order.updatedAt ? toSafeDate(order.updatedAt) : null)
+                if (cancelledDate && cancelledDate >= startOfDay && cancelledDate < endOfDay) {
+                    return true
+                }
+            }
             const orderDate = getOrderReferenceDate(order)
             return orderDate >= startOfDay && orderDate < endOfDay
         }
@@ -1279,6 +1294,22 @@ export default function TodayOrdersPage() {
             }
         }
 
+        const applyDocToOrdersMap = (docId: string, docData: any, hasPendingWrites: boolean = false) => {
+            const recent = recentStatusUpdatesRef.current.get(docId)
+            let orderToSave = { id: docId, ...docData, _hasPendingWrites: hasPendingWrites } as Order
+            if (recent && Date.now() - recent.timestamp < 15000) {
+                if (orderToSave.status !== recent.status) {
+                    orderToSave = {
+                        ...orderToSave,
+                        status: recent.status
+                    }
+                } else {
+                    recentStatusUpdatesRef.current.delete(docId)
+                }
+            }
+            ordersMap.set(docId, orderToSave)
+        }
+
         // Listener 1: Orders created today
         const qCreatedToday = query(
             collection(db, 'orders'),
@@ -1289,16 +1320,15 @@ export default function TodayOrdersPage() {
         const unsubCreated = onSnapshot(qCreatedToday, { includeMetadataChanges: true }, (snapshot) => {
             handleDocChanges(snapshot)
             snapshot.docs.forEach(doc => {
-                ordersMap.set(doc.id, { id: doc.id, ...doc.data(), _hasPendingWrites: doc.metadata.hasPendingWrites } as any)
+                applyDocToOrdersMap(doc.id, doc.data(), doc.metadata.hasPendingWrites)
             })
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
-                    const orderData = change.doc.data() as Order
-                    if (shouldShowInTodayOrders(orderData)) {
-                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
-                    } else {
-                        ordersMap.delete(change.doc.id)
+                    const existing = ordersMap.get(change.doc.id)
+                    if (existing && shouldShowInTodayOrders(existing)) {
+                        return
                     }
+                    ordersMap.delete(change.doc.id)
                 }
             })
             createdQueryLoaded = true
@@ -1318,10 +1348,18 @@ export default function TodayOrdersPage() {
         const unsubActive = onSnapshot(qActive, { includeMetadataChanges: true }, (snapshot) => {
             handleDocChanges(snapshot)
             snapshot.docs.forEach(doc => {
-                ordersMap.set(doc.id, { id: doc.id, ...doc.data(), _hasPendingWrites: doc.metadata.hasPendingWrites } as any)
+                applyDocToOrdersMap(doc.id, doc.data(), doc.metadata.hasPendingWrites)
             })
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
+                    const existing = ordersMap.get(change.doc.id)
+                    const recent = recentStatusUpdatesRef.current.get(change.doc.id)
+                    // Si ya está en memoria o fue marcado recientemente como 'delivered' o 'cancelled',
+                    // NO sobreescribir con datos obsoletos de la consulta de activas ni borrar si sigue perteneciendo a hoy
+                    if (existing && (['delivered', 'cancelled'].includes(existing.status) || (recent && ['delivered', 'cancelled'].includes(recent.status)))) {
+                        return
+                    }
+
                     const orderData = change.doc.data() as Order
                     if (shouldShowInTodayOrders(orderData)) {
                         ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
@@ -1349,16 +1387,15 @@ export default function TodayOrdersPage() {
         const unsubScheduled = onSnapshot(qScheduledToday, (snapshot) => {
             handleDocChanges(snapshot)
             snapshot.docs.forEach(doc => {
-                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+                applyDocToOrdersMap(doc.id, doc.data(), (doc as any).metadata?.hasPendingWrites ?? false)
             })
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
-                    const orderData = change.doc.data() as Order
-                    if (shouldShowInTodayOrders(orderData)) {
-                        ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)
-                    } else {
-                        ordersMap.delete(change.doc.id)
+                    const existing = ordersMap.get(change.doc.id)
+                    if (existing && shouldShowInTodayOrders(existing)) {
+                        return
                     }
+                    ordersMap.delete(change.doc.id)
                 }
             })
             scheduledQueryLoaded = true
@@ -1378,10 +1415,16 @@ export default function TodayOrdersPage() {
         const unsubMultiStore = onSnapshot(qMultiStore, (snapshot) => {
             handleDocChanges(snapshot)
             snapshot.docs.forEach(doc => {
-                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+                applyDocToOrdersMap(doc.id, doc.data(), (doc as any).metadata?.hasPendingWrites ?? false)
             })
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
+                    const existing = ordersMap.get(change.doc.id)
+                    const recent = recentStatusUpdatesRef.current.get(change.doc.id)
+                    if (existing && (['delivered', 'cancelled'].includes(existing.status) || (recent && ['delivered', 'cancelled'].includes(recent.status)))) {
+                        return
+                    }
+
                     const orderData = change.doc.data() as Order
                     if (shouldShowInTodayOrders(orderData)) {
                         ordersMap.set(change.doc.id, { ...orderData, id: change.doc.id } as Order)

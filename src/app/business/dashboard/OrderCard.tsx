@@ -7,7 +7,6 @@ import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import {
     toSafeDate,
     getOrderDisplayTime,
-    isPreviousActiveOrder,
     getStatusText,
     getActionIcon,
     getActionText,
@@ -218,16 +217,6 @@ export const OrderCard = memo(function OrderCard({
 
     return (
         <div className={`bg-white rounded-xl shadow-sm border transition-all ${isOptimistic ? 'border-dashed border-amber-300 opacity-75' : 'border-gray-100'} ${statusMenuOpen ? 'relative z-30' : ''} ${urgent && !isOptimistic ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
-            {/* Indicador de guardado en base de datos */}
-            {isOptimistic && (
-                <div className="flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-50 border-b border-dashed border-amber-200 rounded-t-xl">
-                    <svg className="animate-spin h-3.5 w-3.5 text-amber-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span className="text-xs font-semibold text-amber-700">Guardando…</span>
-                </div>
-            )}
             {/* Confirmation Modal for Discard */}
             {confirmDiscardOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
@@ -337,22 +326,12 @@ export const OrderCard = memo(function OrderCard({
                                 <span className="font-mono text-sm sm:font-medium text-gray-600">
                                     {getOrderDisplayTime(order)}
                                 </span>
-                                {isPreviousActiveOrder(order) && (
-                                    <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold leading-none bg-amber-100 text-amber-800 border border-amber-200">
-                                        Pendiente anterior
-                                    </span>
-                                )}
-                                {(isOptimistic || (order as any)._hasPendingWrites) && (
-                                    <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold leading-none bg-blue-50 text-blue-700 border border-blue-200" title="Guardado en este dispositivo, pendiente de confirmar por el servidor">
-                                        <i className="bi bi-cloud-arrow-up text-xs animate-pulse"></i>
-                                        Pendiente de subir
-                                    </span>
-                                )}
                             </div>
                         </div>
                     </div>
 
-                    <div className={`flex gap-1 ${isOptimistic ? 'pointer-events-none opacity-40' : ''}`} onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <div className={`flex items-center gap-1 ${isOptimistic ? 'pointer-events-none opacity-40' : ''}`}>
                         {/* Advance Status */}
                         {primaryActionStatus && (
                             <button
@@ -421,18 +400,20 @@ export const OrderCard = memo(function OrderCard({
                         )}
 
                         {/* Print Button */}
-                        <button
-                            type="button"
-                            onClick={handlePrintClick}
-                            className={`p-1.5 text-lg rounded-lg transition-all ${
-                                isPrinted
-                                    ? 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
-                                    : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200/60'
-                            }`}
-                            title={isPrinted ? '¿Desea volver a imprimir esta orden?' : 'Imprimir ticket'}
-                        >
-                            <i className="bi bi-printer"></i>
-                        </button>
+                        {order.status !== 'pending' && order.status !== 'cancelled' && order.status !== 'borrador' && (
+                            <button
+                                type="button"
+                                onClick={handlePrintClick}
+                                className={`p-1.5 text-lg rounded-lg transition-all ${
+                                    isPrinted
+                                        ? 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+                                        : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200/60'
+                                }`}
+                                title={isPrinted ? '¿Desea volver a imprimir esta orden?' : 'Imprimir ticket'}
+                            >
+                                <i className="bi bi-printer"></i>
+                            </button>
+                        )}
 
                         {/* Status Select Menu */}
                         {showInlineStatusTag ? (
@@ -599,6 +580,20 @@ export const OrderCard = memo(function OrderCard({
                                         )}
                                     </div>
                                 )}
+                            </div>
+                        )}
+                        </div>
+
+                        {/* Spinner de carga cuando la orden se está guardando o actualizando */}
+                        {(isOptimistic || (order as any)._hasPendingWrites) && (
+                            <div 
+                                className="flex items-center justify-center p-1 text-blue-600 animate-spin shrink-0" 
+                                title="Guardando o actualizando pedido…"
+                            >
+                                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3.5"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
                             </div>
                         )}
                     </div>

@@ -414,11 +414,6 @@ export function OrderCard({
                                 <span className="font-mono text-sm sm:font-medium text-gray-600">
                                     {getOrderDisplayTime(order)}
                                 </span>
-                                {isPreviousActiveOrder(order) && (
-                                    <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold leading-none bg-amber-100 text-amber-800 border border-amber-200">
-                                        Pendiente anterior
-                                    </span>
-                                )}
                             </div>
                         </div>
                     </div>
@@ -468,13 +463,15 @@ export function OrderCard({
                         )}
 
                         {/* Print Button */}
-                        <button
-                            onClick={() => onPrint()}
-                            className="p-1.5 text-lg text-gray-500 rounded-lg transition-all hover:bg-gray-200/60 hover:text-gray-800"
-                            title="Imprimir ticket"
-                        >
-                            <i className="bi bi-printer"></i>
-                        </button>
+                        {order.status !== 'pending' && order.status !== 'cancelled' && order.status !== 'borrador' && (
+                            <button
+                                onClick={() => onPrint()}
+                                className="p-1.5 text-lg text-gray-500 rounded-lg transition-all hover:bg-gray-200/60 hover:text-gray-800"
+                                title="Imprimir ticket"
+                            >
+                                <i className="bi bi-printer"></i>
+                            </button>
+                        )}
 
                         {/* Status Select Menu */}
                         {showInlineStatusTag ? (
