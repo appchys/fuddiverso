@@ -696,9 +696,9 @@ export function CheckoutContent({
     }
     
     if (stepId === 'step-3') {
-      const step2Complete = timingData.type && (
-        (timingData.type === 'immediate' && canOrderNow) ||
-        (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime && cartAvailability.available)
+      const step2Complete = Boolean(
+        timingData.type === 'immediate' ||
+        (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime)
       )
       if (!step2Complete) {
         return // No hacer nada si el paso 2 no está completo
@@ -1162,11 +1162,29 @@ export function CheckoutContent({
     }
   }
 
+  // Desplegar automáticamente el paso 3 (Entrega) al elegir un horario válido
+  useEffect(() => {
+    if (!timingData.type) return
+    const isTimingComplete =
+      timingData.type === 'immediate' ||
+      (timingData.type === 'scheduled' && Boolean(timingData.scheduledDate && timingData.scheduledTime))
+
+    if (isTimingComplete) {
+      setCollapsedSections(prev => {
+        if (!prev['step-3']) return prev
+        return {
+          ...prev,
+          'step-3': false
+        }
+      })
+      setCurrentStep(prev => Math.max(prev, 3))
+    }
+  }, [timingData.type, timingData.scheduledDate, timingData.scheduledTime])
+
   // Effect para avance automático de pasos y expansión de secciones basado en datos completados
   useEffect(() => {
     const maxStep = getMaxVisibleStep();
     if (maxStep > currentStep) {
-      const prevStep = currentStep;
       setCurrentStep(maxStep);
       
       // Expandir automáticamente el nuevo paso sin colapsar el anterior
@@ -1185,7 +1203,7 @@ export function CheckoutContent({
         return updated;
       });
     }
-  }, [customerData, deliveryData, paymentData, timingData, user, showNameField, selectedLocation, cartAvailability]);
+  }, [customerData, deliveryData, paymentData, timingData, user, showNameField, selectedLocation, cartAvailability, currentStep, clientFound]);
 
   // Effect separado: colapsar paso 4 cuando la ubicación pierde cobertura
   useEffect(() => {
@@ -1919,7 +1937,7 @@ export function CheckoutContent({
     if (customerData.phone.trim()) {
       const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
       if (validateEcuadorianPhone(normalizedPhone)) {
-        if (user) {
+        if (user || clientFound || !showNameField || customerData.name.trim().length > 0) {
           maxStep = 2;
         }
       }
@@ -1930,9 +1948,7 @@ export function CheckoutContent({
       if (timingData.type === 'immediate') {
         maxStep = 3;
       } else if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
-        if (isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available) {
-          maxStep = 3;
-        }
+        maxStep = 3;
       }
     }
 
@@ -1965,7 +1981,7 @@ export function CheckoutContent({
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
     if (!validateEcuadorianPhone(normalizedPhone)) return false;
     if (showNameField && !customerData.name.trim()) return false;
-    if (!user) return false;
+    if (!user && !clientFound && showNameField && !customerData.name.trim()) return false;
     return true;
   })();
 
@@ -2869,6 +2885,11 @@ export function CheckoutContent({
                         scheduledDate: `${year}-${month}-${day}`,
                         scheduledTime: `${hours}:${minutes}`
                       })
+                      setCollapsedSections(prev => ({
+                        ...prev,
+                        'step-3': false
+                      }))
+                      setCurrentStep(prev => Math.max(prev, 3))
                     }}
                     disabled={!isStoreOpen(business) || !canOrderNow}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!isStoreOpen(business) || !canOrderNow
@@ -2908,13 +2929,27 @@ export function CheckoutContent({
                       // Si no tiene datos, calcular el próximo slot disponible
                       if (timingData.scheduledDate && timingData.scheduledTime) {
                         setTimingData({ ...timingData, type: 'scheduled' })
+                        setCollapsedSections(prev => ({
+                          ...prev,
+                          'step-3': false
+                        }))
+                        setCurrentStep(prev => Math.max(prev, 3))
                       } else {
                         const nextSlot = getNextAvailableSlotForCart(cartItems, business)
+                        const slotDate = nextSlot?.date || ''
+                        const slotTime = nextSlot?.time || ''
                         setTimingData({
                           type: 'scheduled',
-                          scheduledDate: nextSlot?.date || '',
-                          scheduledTime: nextSlot?.time || ''
+                          scheduledDate: slotDate,
+                          scheduledTime: slotTime
                         })
+                        if (slotDate && slotTime) {
+                          setCollapsedSections(prev => ({
+                            ...prev,
+                            'step-3': false
+                          }))
+                          setCurrentStep(prev => Math.max(prev, 3))
+                        }
                       }
                     }}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${timingData.type === 'scheduled'
@@ -2942,7 +2977,14 @@ export function CheckoutContent({
                         type="date"
                         min={getMinScheduledDate()}
                         value={timingData.scheduledDate}
-                        onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
+                        onChange={(e) => {
+                          const newDate = e.target.value
+                          setTimingData(prev => ({ ...prev, scheduledDate: newDate }))
+                          if (newDate && timingData.scheduledTime) {
+                            setCollapsedSections(prev => ({ ...prev, 'step-3': false }))
+                            setCurrentStep(prev => Math.max(prev, 3))
+                          }
+                        }}
                         className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
                           ? 'border-red-300'
                           : 'border-gray-200'
@@ -2954,7 +2996,14 @@ export function CheckoutContent({
                       <input
                         type="time"
                         value={timingData.scheduledTime}
-                        onChange={(e) => setTimingData({ ...timingData, scheduledTime: e.target.value })}
+                        onChange={(e) => {
+                          const newTime = e.target.value
+                          setTimingData(prev => ({ ...prev, scheduledTime: newTime }))
+                          if (timingData.scheduledDate && newTime) {
+                            setCollapsedSections(prev => ({ ...prev, 'step-3': false }))
+                            setCurrentStep(prev => Math.max(prev, 3))
+                          }
+                        }}
                         className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
                           ? 'border-red-300'
                           : 'border-gray-200'

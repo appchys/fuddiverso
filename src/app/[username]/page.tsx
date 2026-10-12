@@ -533,7 +533,10 @@ function RestaurantContent() {
       statusArrowRef.current.style.left = `${arrowLeft}px`
     }
 
-    setPopoverShift({ shiftX, arrowLeft })
+    setPopoverShift(prev => {
+      if (prev.shiftX === shiftX && prev.arrowLeft === arrowLeft) return prev
+      return { shiftX, arrowLeft }
+    })
   }, [])
 
   // Cachear resultado de isStoreOpen para evitar recalcularlo 5+ veces por render
@@ -604,10 +607,13 @@ function RestaurantContent() {
   // Recalcular posición del globo al abrirse o al redimensionar la pantalla
   useEffect(() => {
     if (!showStatusPopover) return
-    adjustPopoverPosition()
+    const frameId = requestAnimationFrame(() => {
+      adjustPopoverPosition()
+    })
     window.addEventListener('resize', adjustPopoverPosition)
     window.addEventListener('scroll', adjustPopoverPosition, { passive: true })
     return () => {
+      cancelAnimationFrame(frameId)
       window.removeEventListener('resize', adjustPopoverPosition)
       window.removeEventListener('scroll', adjustPopoverPosition)
     }
@@ -1708,10 +1714,7 @@ function RestaurantContent() {
                   {/* Popover flotante de estado y horario con tonalidad dinámica (verde/rojiza) y piquito */}
                   {showStatusPopover && (
                     <div
-                      ref={(node) => {
-                        statusBubbleRef.current = node
-                        if (node) adjustPopoverPosition()
-                      }}
+                      ref={statusBubbleRef}
                       onMouseLeave={() => setShowStatusPopover(false)}
                       style={
                         popoverShift.shiftX !== 0
@@ -1726,9 +1729,7 @@ function RestaurantContent() {
                     >
                       {/* Piquito apuntando al punto indicador */}
                       <div
-                        ref={(node) => {
-                          statusArrowRef.current = node
-                        }}
+                        ref={statusArrowRef}
                         style={
                           popoverShift.arrowLeft !== null
                             ? { left: `${popoverShift.arrowLeft}px` }
