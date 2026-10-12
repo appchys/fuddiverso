@@ -50,12 +50,47 @@ async function processOrderAction(token, action) {
             }
 
 
-            // Si es por negocio y es tipo delivery, obtener nombre solo si ya fue previamente asignado
+            // Si es por negocio y es tipo delivery, verificar asignación según la configuración de la tienda
             if (action === 'biz_confirm' && order.delivery?.type === 'delivery') {
                 if (order.delivery?.assignedDelivery) {
                     const deliveryDoc = await admin.firestore().collection('deliveries').doc(order.delivery.assignedDelivery).get();
                     if (deliveryDoc.exists) {
                         result.assignedDeliveryName = deliveryDoc.data().nombres;
+                    }
+                } else if (order.businessId) {
+                    try {
+                        const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
+                        if (businessDoc.exists) {
+                            const businessData = businessDoc.data();
+                            const isAutoAssignMode = businessData.deliveryAssignmentMode !== 'manual';
+
+                            if (isAutoAssignMode) {
+                                let targetDeliveryId = businessData.defaultDeliveryId;
+                                const zoneId = order.delivery?.zoneId;
+                                if (zoneId && businessData.deliveryZoneSettings?.zones?.[zoneId]?.defaultDeliveryId) {
+                                    targetDeliveryId = businessData.deliveryZoneSettings.zones[zoneId].defaultDeliveryId;
+                                }
+
+                                if (targetDeliveryId) {
+                                    const deliveryDoc = await admin.firestore().collection('deliveries').doc(targetDeliveryId).get();
+                                    if (deliveryDoc.exists) {
+                                        const dData = deliveryDoc.data();
+                                        updateData['delivery.assignedDelivery'] = targetDeliveryId;
+                                        updateData['delivery.assignedDeliveryData'] = {
+                                            id: targetDeliveryId,
+                                            nombres: dData.nombres || '',
+                                            celular: dData.celular || '',
+                                            fotoUrl: dData.fotoUrl || '',
+                                            email: dData.email || ''
+                                        };
+                                        updateData['delivery.acceptanceStatus'] = 'pending';
+                                        result.assignedDeliveryName = dData.nombres;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (bizErr) {
+                        console.error('Error al verificar asignación automática en biz_confirm:', bizErr);
                     }
                 }
             }

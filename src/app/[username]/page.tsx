@@ -304,10 +304,7 @@ function StoreCatalogProductsSkeleton() {
   )
 }
 
-function StoreProfileSkeleton({ username, initialBusiness }: { username?: string; initialBusiness?: Business | null }) {
-  // Solo mostrar el nombre real si proviene de la base de datos (por prop o por caché local)
-  const realName = initialBusiness?.name || (username ? getCachedBusinessByUsername(username)?.name : null)
-
+function StoreProfileSkeleton(_props?: { username?: string; initialBusiness?: Business | null }) {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section Skeleton */}
@@ -351,17 +348,8 @@ function StoreProfileSkeleton({ username, initialBusiness }: { username?: string
 
           <div className="flex flex-col items-center">
             <div className="w-full">
-              {/* Nombre de la tienda: nombre real de la base de datos o skeleton animado */}
-              {realName ? (
-                <div className="inline-flex items-center justify-center gap-2 mb-2">
-                  <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
-                    {realName}
-                  </h1>
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80 animate-pulse shrink-0" title="Cargando información..." />
-                </div>
-              ) : (
-                <div className="h-8 sm:h-9 bg-gray-200 rounded-2xl w-48 sm:w-64 mx-auto mb-3 animate-pulse" />
-              )}
+              {/* Nombre de la tienda skeleton animado */}
+              <div className="h-8 sm:h-9 bg-gray-200 rounded-2xl w-48 sm:w-64 mx-auto mb-3 animate-pulse" />
 
               {/* Descripción de la tienda skeleton */}
               <div className="space-y-2 max-w-md mx-auto mb-3">

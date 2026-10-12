@@ -1252,6 +1252,20 @@ async function handleStoreWebhook(req, res) {
                         const appUrl = await getAppUrl();
                         const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
                         const preparingToken = Buffer.from(`${orderId}|store_preparing`).toString('base64');
+
+                        let businessDataForWa = null;
+                        if (orderData.businessId) {
+                            try {
+                                const bDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+                                if (bDoc.exists) businessDataForWa = bDoc.data();
+                            } catch (bErr) {
+                                console.warn('⚠️ Error obteniendo datos de negocio para botón WhatsApp:', bErr.message);
+                            }
+                        }
+                        const whatsappText = await buildWhatsAppClipboardTextForOrder(orderData, businessDataForWa);
+                        const waUrl = whatsappText ? `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText)}` : '';
+                        const waRow = waUrl ? [{ text: "📲 Enviar por WhatsApp", url: waUrl }] : [];
+
                         let nextReplyMarkup = null;
 
                         if (action === 'biz_confirm') {
@@ -1260,16 +1274,18 @@ async function handleStoreWebhook(req, res) {
                                     [
                                         { text: "👨‍🍳 Preparando", callback_data: `store_preparing|${preparingToken}` }
                                     ],
+                                    ...(waRow.length > 0 ? [waRow] : []),
                                     [
-                                        { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                                        { text: "Más detalles", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
                                     ]
                                 ]
                             };
                         } else if (action === 'store_preparing') {
                             nextReplyMarkup = {
                                 inline_keyboard: [
+                                    ...(waRow.length > 0 ? [waRow] : []),
                                     [
-                                        { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                                        { text: "Más detalles", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
                                     ]
                                 ]
                             };
@@ -1558,13 +1574,28 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
         const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
         console.log(`🔗 [updateBusinessTelegramMessage] URL de edición: ${editUrl.substring(0, 50)}...`);
 
-        // Botonera actualizada: remueve botones de acción (Aceptar/Descartar) y deja botón de Mini App
+        // Botonera actualizada: remueve botones de acción (Aceptar/Descartar) y deja botón de WhatsApp, Copiar y Mini App
         const appUrl = await getAppUrl();
         const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+
+        let businessDataForWa = null;
+        if (orderData.businessId) {
+            try {
+                const bDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+                if (bDoc.exists) businessDataForWa = bDoc.data();
+            } catch (bErr) {
+                console.warn('⚠️ Error obteniendo datos de negocio para botón WhatsApp en update:', bErr.message);
+            }
+        }
+        const whatsappText = await buildWhatsAppClipboardTextForOrder(orderData, businessDataForWa);
+        const waUrl = whatsappText ? `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText)}` : '';
+        const waRow = (!isCancelled && waUrl) ? [{ text: "📲 Enviar por WhatsApp", url: waUrl }] : [];
+
         const replyMarkup = {
             inline_keyboard: [
+                ...(waRow.length > 0 ? [waRow] : []),
                 [
-                    { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                    { text: "Más detalles", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
                 ]
             ]
         };
@@ -2326,7 +2357,7 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
                 { text: "❌ Descartar", callback_data: `order_discard|${discardToken}` }
             ],
             [
-                { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma/delivery?orderId=${orderId}` } }
+                { text: "Más detalles", web_app: { url: `${cleanAppUrl}/tma/delivery?orderId=${orderId}` } }
             ]
         ]
     };
@@ -2643,9 +2674,11 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
 
     const businessName = businessData.name || await resolveBusinessName(orderData, 'Tienda');
     const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey);
-    const linkPreviewOptions = { is_disabled: true };
+    const whatsappText = await buildWhatsAppClipboardTextForOrder(orderData, businessData);
+    const waUrl = whatsappText ? `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText)}` : '';
+    const waRow = waUrl ? [{ text: "📲 Enviar por WhatsApp", url: waUrl }] : [];
 
-        // Botones de acción para la tienda
+    // Botones de acción para la tienda
     const confirmToken = Buffer.from(`${orderId}|biz_confirm`).toString('base64');
     const discardToken = Buffer.from(`${orderId}|biz_discard`).toString('base64');
     const preparingToken = Buffer.from(`${orderId}|store_preparing`).toString('base64');
@@ -2653,19 +2686,20 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     // Configuración de botones según el template
     let replyMarkup = null;
     if (templateKey === 'store_reminder') {
-        // Recordatorio: solo botón de preparando
+        // Recordatorio: botón de preparando, whatsapp y mini app
         replyMarkup = {
             inline_keyboard: [
                 [
                     { text: "👨‍🍳 Preparando", callback_data: `store_preparing|${preparingToken}` }
                 ],
+                ...(waRow.length > 0 ? [waRow] : []),
                 [
-                    { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                    { text: "Más detalles", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
                 ]
             ]
         };
     } else {
-        // Otros templates: botones de aceptar/descartar
+        // Notificación inicial de nuevo pedido: solo botones de aceptar/descartar y mini app
         replyMarkup = {
             inline_keyboard: [
                 [
@@ -2673,7 +2707,7 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
                     { text: "❌ Descartar", callback_data: `biz_discard|${discardToken}` }
                 ],
                 [
-                    { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                    { text: "Más detalles", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
                 ]
             ]
         };
@@ -3123,6 +3157,144 @@ function buildWhatsAppProductsList(order, includeStorePrice = false) {
         }
         return `${productName}\n${group.lines.join('\n')}`;
     }).join('\n\n');
+}
+
+/**
+ * Generar el mensaje formateado de WhatsApp para copiar en el portapapeles
+ * (Exactamente el mismo formato de WhatsApp del modal de selección de delivery en el Dashboard)
+ */
+async function buildWhatsAppClipboardTextForOrder(orderData, businessData) {
+    try {
+        const customerName = orderData.customer?.name || 'Cliente sin nombre';
+        const rawCustomerPhone = orderData.customer?.phone || '';
+        const customerPhone = rawCustomerPhone
+            ? `+593${rawCustomerPhone.replace(/\D/g, '').replace(/^0/, '')}`
+            : 'Sin teléfono';
+
+        const references = orderData.delivery?.references || orderData.delivery?.reference || 'Sin referencia';
+
+        // Location Link
+        let locationLink = '';
+        if (orderData.delivery?.type === 'delivery') {
+            if (orderData.delivery?.latlong) {
+                const cleanCoords = orderData.delivery.latlong.replace(/\s+/g, '');
+                if (cleanCoords.startsWith('pluscode:')) {
+                    const plusCode = cleanCoords.replace('pluscode:', '');
+                    locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`;
+                } else if (cleanCoords.includes(',')) {
+                    locationLink = `https://www.google.com/maps/place/${cleanCoords}`;
+                } else {
+                    locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`;
+                }
+            } else if (orderData.delivery?.mapLocation) {
+                locationLink = `https://www.google.com/maps/place/${orderData.delivery.mapLocation.lat},${orderData.delivery.mapLocation.lng}`;
+            }
+        }
+        const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : '';
+
+        // Products List
+        const productsListStandard = buildWhatsAppProductsList(orderData, false);
+
+        // Totales y cálculos
+        const deliveryCost = orderData.delivery?.type === 'delivery' ? (orderData.delivery?.deliveryCost ?? 1) : 0;
+        const creditUsed = orderData.creditUsed || 0;
+        const subtotalVal = orderData.subtotal || Math.max(0, (orderData.total || 0) - deliveryCost);
+        const grossTotalVal = subtotalVal + deliveryCost;
+        const effectiveTotal = Math.max(
+            0,
+            creditUsed > 0 && Math.abs((orderData.total || 0) - grossTotalVal) < 0.02
+                ? (orderData.total || 0) - creditUsed
+                : (orderData.total || 0)
+        );
+
+        // Timing
+        let orderType = '⚡ Inmediato';
+        if (orderData.timing?.type === 'scheduled') {
+            const scheduledTime = orderData.timing.scheduledTime || '';
+            const scheduledDate = orderData.timing.scheduledDate;
+            if (scheduledDate) {
+                let date;
+                if (typeof scheduledDate.toDate === 'function') {
+                    date = scheduledDate.toDate();
+                } else if (scheduledDate.seconds !== undefined) {
+                    date = new Date(scheduledDate.seconds * 1000);
+                } else {
+                    date = new Date(scheduledDate);
+                }
+                if (!isNaN(date.getTime())) {
+                    const now = new Date();
+                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const tomorrow = new Date(today);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                    if (checkDate.getTime() === today.getTime()) {
+                        orderType = `⏰ Programado para hoy a las ${scheduledTime}`;
+                    } else if (checkDate.getTime() === tomorrow.getTime()) {
+                        orderType = `⏰ Programado para mañana a las ${scheduledTime}`;
+                    } else {
+                        const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                        orderType = `⏰ Programado para:\n${date.getDate()} de ${months[date.getMonth()]} a las ${scheduledTime}`;
+                    }
+                } else {
+                    orderType = `⏰ Programado para las ${scheduledTime}`;
+                }
+            } else {
+                orderType = `⏰ Programado para las ${scheduledTime}`;
+            }
+        }
+
+        // Formas de pago
+        const paymentMethodKey = orderData.payment?.method || '';
+        let paymentDetailsBlock = '';
+        if (paymentMethodKey === 'mixed') {
+            const cashAmount = orderData.payment?.cashAmount || 0;
+            const transferAmount = orderData.payment?.transferAmount || 0;
+            paymentDetailsBlock = `🏦 Transferencia: $${transferAmount.toFixed(2)}\n💵 *Cobrar:* $${cashAmount.toFixed(2)}`;
+        } else if (paymentMethodKey === 'cash') {
+            paymentDetailsBlock = `💵 *Cobrar:* $${effectiveTotal.toFixed(2)}`;
+        } else if (paymentMethodKey === 'transfer') {
+            paymentDetailsBlock = '🏦 Transferencia';
+        }
+
+        const creditsLine = creditUsed > 0 ? `Créditos: -$${creditUsed.toFixed(2)}\n` : '';
+
+        // Tiempo de recogida estimado
+        const pickupInfo = getDynamicPickupTimeInfo(orderData, businessData);
+        const pickupTimeLine = pickupInfo?.pickupTimeWhatsApp || '';
+
+        const deliverySection = orderData.delivery?.type === 'delivery'
+            ? `*Detalles de la entrega*\n${orderType}\n${pickupTimeLine ? `${pickupTimeLine}\n` : ''}Referencias: ${references}\n${locationLink ? `Ubicación: ${locationLink}\n` : ''}`
+            : '';
+
+        const templateKey = orderData.delivery?.type === 'delivery' ? 'delivery_assignment' : 'pickup_store_notification';
+        const template = await getWhatsAppTemplate(templateKey);
+
+        const bizPhoneStr = businessData?.phone
+            ? `+593${businessData.phone.replace(/\D/g, '').replace(/^0/, '')}`
+            : '';
+
+        return renderWhatsAppTemplate(template, {
+            businessName: businessData?.name || orderData.businessName || 'Tienda',
+            businessPhoneLine: bizPhoneStr ? `${bizPhoneStr}` : '',
+            customerName,
+            customerPhone,
+            deliverySection,
+            pickupLine: '🏪 Retiro en tienda',
+            pickupTimeLine,
+            orderType,
+            references,
+            locationLine,
+            productsList: productsListStandard,
+            subtotal: `$${subtotalVal.toFixed(2)}`,
+            deliveryCostLine: (orderData.delivery?.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '') + creditsLine,
+            creditsLine: '',
+            paymentDetailsBlock,
+            total: `$${effectiveTotal.toFixed(2)}`
+        });
+    } catch (err) {
+        console.error('Error generando WhatsApp clipboard text:', err);
+        return '';
+    }
 }
 
 async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {

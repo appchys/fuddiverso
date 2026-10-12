@@ -1763,17 +1763,67 @@ export default function TodayOrdersPage() {
 
         if (!previousOrder) return;
 
-        // Actualización optimista de la UI: reflejar el cambio de estado inmediatamente sin esperar la base de datos
+        // Auto-asignación de delivery si la tienda lo tiene configurado como automático
+        const isScheduled = previousOrder.timing?.type === 'scheduled';
+        const isDelivery = previousOrder.delivery?.type === 'delivery';
+        const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
+        const isAutoAssignMode = business?.deliveryAssignmentMode !== 'manual';
+
+        let assignedDeliveryId: string | undefined = undefined;
+        let deliveryPayload: any = null;
+
+        if (isDelivery && hasNoDeliveryAssigned && isAutoAssignMode) {
+            const isConfirmingImmediate = previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled;
+            const isPreparingScheduled = previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled;
+
+            if (isConfirmingImmediate || isPreparingScheduled) {
+                try {
+                    assignedDeliveryId = await autoAssignDeliveryForOrder(previousOrder, business || undefined);
+                    if (assignedDeliveryId) {
+                        const dData = availableDeliveries.find(d => d.id === assignedDeliveryId) || await getDelivery(assignedDeliveryId);
+                        if (dData) {
+                            deliveryPayload = {
+                                id: dData.id,
+                                nombres: dData.nombres,
+                                celular: dData.celular || '',
+                                fotoUrl: dData.fotoUrl || '',
+                                email: dData.email || ''
+                            };
+                        }
+                    }
+                } catch (assignError) {
+                    console.error("Error auto-assigning delivery on status change:", assignError);
+                }
+            }
+        }
+
+        // Actualización optimista de la UI: reflejar el cambio de estado (y delivery asignado si aplica) inmediatamente
         patchOrderEverywhere(orderId, order => ({
             ...order,
             status: newStatus,
             updatedAt: new Date(),
             ...(newStatus === 'delivered' ? { deliveredAt: new Date() } : {}),
-            ...(reason ? { cancellationReason: reason } : {})
+            ...(reason ? { cancellationReason: reason } : {}),
+            ...(assignedDeliveryId ? {
+                delivery: {
+                    ...order.delivery,
+                    assignedDelivery: assignedDeliveryId,
+                    assignedDeliveryData: deliveryPayload,
+                    acceptanceStatus: 'pending' as const
+                }
+            } : {})
         }))
 
         try {
             await updateOrderStatus(orderId, newStatus, reason, 'app')
+            if (assignedDeliveryId) {
+                const { commitWrite } = await import('@/lib/offlineWrite')
+                await commitWrite(updateDoc(doc(db, 'orders', orderId), {
+                    'delivery.assignedDelivery': assignedDeliveryId,
+                    'delivery.assignedDeliveryData': deliveryPayload,
+                    'delivery.acceptanceStatus': 'pending'
+                }), { label: `autoAssignDelivery:${orderId}` })
+            }
         } catch (error) {
             console.error("Error updating status:", error)
             // Solo alertar y revertir si no fue por desconexión

@@ -1166,8 +1166,9 @@ export default function AdminPedidosPage() {
             const isScheduled = previousOrder.timing?.type === 'scheduled';
             const isDelivery = previousOrder.delivery?.type === 'delivery';
             const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
+            const isAutoAssignMode = business?.deliveryAssignmentMode !== 'manual';
 
-            if (isDelivery && hasNoDeliveryAssigned) {
+            if (isDelivery && hasNoDeliveryAssigned && isAutoAssignMode) {
                 if (previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
                     const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
                     if (assignedId) {

@@ -35,7 +35,7 @@ import {
   getIngredientStockSummary,
   IngredientStockSummary
 } from '@/lib/database'
-import { Business, Product } from '@/types'
+import { Business, Product, BankAccount } from '@/types'
 import LocationMap from '@/components/LocationMap'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
 import { useAuth } from '@/contexts/AuthContext'
@@ -510,6 +510,92 @@ export function CheckoutContent({
       }))
     }
   }, [deliveryData.type, isLocationDeliveryAvailable, paymentData.method])
+
+  // Cuentas de Fuddi por defecto
+  const FUDDI_BANK_ACCOUNTS: BankAccount[] = useMemo(() => [
+    {
+      id: 'pichincha',
+      bankName: 'Banco Pichincha',
+      accountType: 'Ahorros',
+      accountNumber: '2203257517',
+      accountHolder: 'Pedro Sánchez León',
+      idNumber: '0929057636'
+    },
+    {
+      id: 'pacifico',
+      bankName: 'Banco del Pacífico',
+      accountType: 'Ahorros',
+      accountNumber: '1063889358',
+      accountHolder: 'Pedro Sánchez León',
+      idNumber: '0929057636'
+    },
+    {
+      id: 'guayaquil',
+      bankName: 'Banco Guayaquil',
+      accountType: 'Ahorros',
+      accountNumber: '0030697477',
+      accountHolder: 'Pedro Sánchez León',
+      idNumber: '0929057636'
+    },
+    {
+      id: 'produbanco',
+      bankName: 'Banco Produbanco',
+      accountType: 'Ahorros',
+      accountNumber: '20059842774',
+      accountHolder: 'Pedro Sánchez León',
+      idNumber: '0929057636'
+    }
+  ], []);
+
+  // Cuentas bancarias a usar: por defecto para todas las tiendas salen las de Fuddi.
+  // Solo si la tienda configuró explícitamente bankAccountMode === 'custom' salen las suyas propias.
+  const storeBankAccounts: BankAccount[] = useMemo(() => {
+    if (business?.bankAccountMode === 'custom') {
+      if (Array.isArray(business?.bankAccounts) && business.bankAccounts.length > 0) {
+        return business.bankAccounts;
+      }
+      if (business?.bankAccount && business.bankAccount.accountNumber) {
+        return [{
+          id: 'acc_custom_1',
+          bankName: business.bankAccount.bankName || 'Cuenta Bancaria',
+          accountType: business.bankAccount.accountType || 'Ahorros',
+          accountNumber: business.bankAccount.accountNumber || '',
+          accountHolder: business.bankAccount.accountHolder || '',
+          idNumber: (business.bankAccount as any).idNumber || '',
+          notes: ''
+        }];
+      }
+      return [];
+    }
+    // Por defecto: cuentas de Fuddi
+    return FUDDI_BANK_ACCOUNTS;
+  }, [business?.bankAccountMode, business?.bankAccounts, business?.bankAccount, FUDDI_BANK_ACCOUNTS]);
+
+  // Cuenta bancaria actualmente seleccionada
+  const selectedStoreAccount = useMemo(() => {
+    if (storeBankAccounts.length === 0) return null;
+    if (paymentData.selectedBank) {
+      const found = storeBankAccounts.find(a => a.id === paymentData.selectedBank || a.bankName === paymentData.selectedBank);
+      if (found) return found;
+    }
+    return storeBankAccounts[0] || null;
+  }, [storeBankAccounts, paymentData.selectedBank]);
+
+  // Auto-seleccionar cuenta bancaria al elegir transferencia
+  useEffect(() => {
+    if (paymentData.method === 'transfer' && storeBankAccounts.length > 0) {
+      const match = storeBankAccounts.some(a => a.id === paymentData.selectedBank || a.bankName === paymentData.selectedBank);
+      if (!match || !paymentData.selectedBank) {
+        const firstAcc = storeBankAccounts[0];
+        if (firstAcc) {
+          setPaymentData(prev => ({
+            ...prev,
+            selectedBank: firstAcc.id
+          }));
+        }
+      }
+    }
+  }, [paymentData.method, storeBankAccounts, paymentData.selectedBank]);
 
   // Verificar si hay deliveries disponibles ahora (solo para tiendas con delivery Fuddi)
   useEffect(() => {
@@ -1812,8 +1898,8 @@ export function CheckoutContent({
       if (total > 0 && !paymentData.method) {
         newErrors.paymentMethod = 'Selecciona un método de pago'
       } else if (paymentData.method === 'transfer') {
-        if (!paymentData.selectedBank) {
-          newErrors.selectedBank = 'Selecciona un banco para la transferencia'
+        if (!selectedStoreAccount && !paymentData.selectedBank) {
+          newErrors.selectedBank = 'Selecciona una cuenta bancaria para la transferencia'
         }
         if (total > 0 && !paymentData.receiptImageUrl) {
           newErrors.receiptImage = 'Sube el comprobante de transferencia para continuar'
@@ -1907,7 +1993,7 @@ export function CheckoutContent({
   const step4Complete = (() => {
     if (!paymentData.method) return false;
     if (paymentData.method === 'cash') return true;
-    if (paymentData.method === 'transfer') return Boolean(paymentData.selectedBank && paymentData.receiptImageUrl);
+    if (paymentData.method === 'transfer') return Boolean((selectedStoreAccount || paymentData.selectedBank) && paymentData.receiptImageUrl);
     if (paymentData.method === 'mixed') return true;
     return false;
   })();
@@ -1955,7 +2041,7 @@ export function CheckoutContent({
     if (total > 0) {
       if (!paymentData.method) return false;
       if (paymentData.method === 'transfer') {
-        if (!paymentData.selectedBank || !paymentData.receiptImageUrl) return false;
+        if ((!selectedStoreAccount && !paymentData.selectedBank) || !paymentData.receiptImageUrl) return false;
       }
     }
 
@@ -2110,8 +2196,8 @@ export function CheckoutContent({
 
       // VALIDACIÓN CRÍTICA: Si el método de pago es transferencia, debe existir comprobante
       if (paymentData.method === 'transfer') {
-        if (!paymentData.selectedBank) {
-          alert('Por favor selecciona un banco para la transferencia')
+        if (!selectedStoreAccount && !paymentData.selectedBank) {
+          alert('Por favor selecciona una cuenta bancaria para la transferencia')
           setLoading(false)
           setIsProcessingOrder(false)
           return
@@ -2291,18 +2377,19 @@ export function CheckoutContent({
         payment: {
           method: (paymentData.method || 'cash') as 'cash' | 'transfer' | 'mixed',
           paymentStatus: (paymentData.method === 'transfer' ? 'pending' : undefined) as 'pending' | 'validating' | 'paid' | undefined,
-          selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
-          ...(paymentData.method === 'transfer' && (() => {
-            const matchedAccount = (Array.isArray(business?.bankAccounts) && business?.bankAccounts.find((a: any) => a.id === paymentData.selectedBank || a.bankName === paymentData.selectedBank)) || business?.bankAccount
-            return matchedAccount ? {
-              bankAccount: {
-                bankName: matchedAccount.bankName || '',
-                accountType: matchedAccount.accountType || '',
-                accountNumber: matchedAccount.accountNumber || '',
-                accountHolder: matchedAccount.accountHolder || ''
-              }
-            } : {}
-          })()),
+          selectedBank: paymentData.method === 'transfer' 
+            ? (selectedStoreAccount?.bankName || paymentData.selectedBank || '') 
+            : '',
+          ...(paymentData.method === 'transfer' && selectedStoreAccount && {
+            bankAccount: {
+              bankName: selectedStoreAccount.bankName || '',
+              accountType: selectedStoreAccount.accountType || '',
+              accountNumber: selectedStoreAccount.accountNumber || '',
+              accountHolder: selectedStoreAccount.accountHolder || '',
+              idNumber: selectedStoreAccount.idNumber || '',
+              email: selectedStoreAccount.email || ''
+            }
+          }),
           ...(paymentData.receiptImageUrl && {
             receiptImageUrl: paymentData.receiptImageUrl
           })
@@ -3577,15 +3664,27 @@ export function CheckoutContent({
                   </button>
                   {/* Transferencia */}
                   {(() => {
-                    const isTransferDisabled = deliveryData.type === 'delivery' && !isLocationDeliveryAvailable;
+                    const hasStoreAccounts = storeBankAccounts.length > 0;
+                    const isLocationBlocked = deliveryData.type === 'delivery' && !isLocationDeliveryAvailable;
+                    const isTransferDisabled = isLocationBlocked || !hasStoreAccounts;
                     return (
                       <>
                         <button
                           type="button"
                           disabled={isTransferDisabled}
                           onClick={() => {
-                            if (isTransferDisabled) return;
-                            setPaymentData({ ...paymentData, method: 'transfer' });
+                            if (isTransferDisabled) {
+                              if (!hasStoreAccounts) {
+                                alert('Esta tienda aún no tiene cuentas bancarias configuradas para recibir transferencias. Por favor selecciona efectivo.');
+                              }
+                              return;
+                            }
+                            const defaultAcc = storeBankAccounts.find(a => a.isDefault) || storeBankAccounts[0];
+                            setPaymentData({ 
+                              ...paymentData, 
+                              method: 'transfer',
+                              selectedBank: defaultAcc ? defaultAcc.id : ''
+                            });
                           }}
                           className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${
                             isTransferDisabled
@@ -3594,7 +3693,13 @@ export function CheckoutContent({
                                 ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
                                 : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                           }`}
-                          title={isTransferDisabled ? 'No disponible para esta ubicación' : undefined}
+                          title={
+                            isLocationBlocked 
+                              ? 'No disponible para esta ubicación' 
+                              : !hasStoreAccounts 
+                                ? 'Esta tienda no tiene cuentas registradas para transferencia' 
+                                : undefined
+                          }
                         >
                           <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${
                             isTransferDisabled
@@ -3607,9 +3712,11 @@ export function CheckoutContent({
                           </div>
                           <div className="flex flex-col items-center">
                             <span className="font-bold">Transferencia</span>
-                            {isTransferDisabled && (
+                            {isLocationBlocked ? (
                               <span className="text-[10px] text-amber-600 font-medium mt-0.5">No disponible</span>
-                            )}
+                            ) : !hasStoreAccounts ? (
+                              <span className="text-[10px] text-gray-400 font-medium mt-0.5">Sin cuentas</span>
+                            ) : null}
                           </div>
                           {paymentData.method === 'transfer' && !isTransferDisabled && (
                             <div className="absolute top-2 right-2 text-white text-xs">
@@ -3643,144 +3750,212 @@ export function CheckoutContent({
                 )}
 
                 {paymentData.method === 'transfer' && (
-                  <div className="mt-6 bg-gray-50 p-4 rounded-lg animate-fadeIn">
-                    {/* Solo mostrar datos bancarios si NO hay comprobante adjunto */}
-                    {!paymentData.receiptImageUrl && (
-                      <>
-                        <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
-
-                        {/* Selector de banco */}
-                        <div className="mb-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Selecciona el banco:
-                          </label>
-                          <div className="grid grid-cols-2 gap-3">
-                            {[
-                              { id: 'pichincha', label: 'Pichincha', colorClass: 'bg-yellow-100 text-yellow-600', activeClass: 'bg-yellow-400 border-yellow-500 text-gray-900' },
-                              { id: 'pacifico', label: 'Pacifico', colorClass: 'bg-blue-100 text-blue-600', activeClass: 'bg-blue-600 border-blue-700 text-white' },
-                              { id: 'guayaquil', label: 'Guayaquil', colorClass: 'bg-pink-100 text-pink-600', activeClass: 'bg-pink-600 border-pink-700 text-white' },
-                              { id: 'produbanco', label: 'Produbanco', colorClass: 'bg-green-100 text-green-600', activeClass: 'bg-green-600 border-green-700 text-white' },
-                            ].map((bank) => (
-                              <button
-                                key={bank.id}
-                                type="button"
-                                onClick={() => setPaymentData({ ...paymentData, selectedBank: bank.id })}
-                                className={`w-full h-24 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${paymentData.selectedBank === bank.id
-                                  ? `${bank.activeClass} shadow-md`
-                                  : 'border-gray-100 bg-white text-gray-500 hover:border-gray-300'
-                                  }`}
-                              >
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${paymentData.selectedBank === bank.id ? 'bg-white/30 text-inherit' : bank.colorClass}`}>
-                                  <i className="bi bi-bank"></i>
-                                </div>
-                                <span className="text-xs font-bold text-center leading-tight">
-                                  {bank.label}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                          {errors.selectedBank && (
-                            <p className="text-red-500 text-xs mt-1 flex items-center">
-                              <i className="bi bi-exclamation-triangle mr-1"></i>
-                              {errors.selectedBank}
-                            </p>
-                          )}
+                  <div className="mt-6 bg-gray-50 p-4 sm:p-5 rounded-2xl animate-fadeIn border border-gray-100">
+                    {/* Si la tienda no tiene cuentas registradas */}
+                    {storeBankAccounts.length === 0 ? (
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+                        <i className="bi bi-exclamation-triangle-fill text-amber-600 text-lg shrink-0 mt-0.5"></i>
+                        <div>
+                          <p className="font-black text-amber-900 text-sm">Transferencias no configuradas</p>
+                          <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                            Esta tienda aún no ha configurado sus cuentas bancarias para recibir transferencias directas. Por favor selecciona el pago en efectivo para completar tu pedido.
+                          </p>
                         </div>
-
-                        {/* Mostrar datos bancarios según selección */}
-                        {paymentData.selectedBank && (
-                          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm mt-4">
-                            <div className="space-y-5">
-                              {/* Header del Banco */}
-                              <div className="pb-4 border-b border-gray-100">
-                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Banco Destino</p>
-                                <p className="font-bold text-gray-900 text-xl flex items-center gap-2">
-                                  {paymentData.selectedBank === 'pichincha' && 'Banco Pichincha'}
-                                  {paymentData.selectedBank === 'pacifico' && 'Banco del Pacífico'}
-                                  {paymentData.selectedBank === 'guayaquil' && 'Banco Guayaquil'}
-                                  {paymentData.selectedBank === 'produbanco' && 'Banco Produbanco'}
-                                </p>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div>
-                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cuenta de Ahorros</p>
-                                  <div className="flex items-center gap-2">
-                                    <p className="font-mono text-xl font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-block">
-                                      {paymentData.selectedBank === 'pichincha' && '2203257517'}
-                                      {paymentData.selectedBank === 'pacifico' && '1063889358'}
-                                      {paymentData.selectedBank === 'guayaquil' && '0030697477'}
-                                      {paymentData.selectedBank === 'produbanco' && '20059842774'}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cédula / RUC</p>
-                                  <p className="font-medium text-gray-900 text-lg">
-                                    {paymentData.selectedBank === 'produbanco' ? '0929057636' : '0929057636'}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div>
-                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Titular de la Cuenta</p>
-                                <p className="font-medium text-gray-900 text-lg border-b border-gray-100 pb-1 inline-block">
-                                  {paymentData.selectedBank === 'produbanco' ? 'Pedro Sánchez León' : 'Pedro Sánchez León'}
-                                </p>
-                              </div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Solo mostrar datos bancarios si NO hay comprobante adjunto */}
+                        {!paymentData.receiptImageUrl && (
+                          <>
+                            <div className="flex items-center gap-2 mb-4">
+                              <span className="w-6 h-6 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs">
+                                <i className="bi bi-bank"></i>
+                              </span>
+                              <h3 className="font-black text-gray-900 text-sm tracking-tight">
+                                Datos para realizar la transferencia
+                              </h3>
                             </div>
 
-
-
-                            {/* Bloque informativo condicional */}
-                            <div className={`mt-6 p-4 rounded-xl flex gap-3 items-start ${!deliveryData.type
-                              ? 'bg-amber-50 border border-amber-200'
-                              : 'bg-gray-900 text-white shadow-lg'
-                              }`}>
-                              <i className={`text-xl flex-shrink-0 mt-0.5 ${!deliveryData.type
-                                ? 'bi bi-info-circle-fill text-amber-600'
-                                : 'bi bi-cash-stack text-white'
-                                }`}></i>
-                              <div className="flex-1">
-                                {!deliveryData.type ? (
-                                  <>
-                                    <p className="font-medium text-amber-900">Estimado: {formatPrice(subtotal)}</p>
-                                    <p className="text-sm text-amber-700 mt-1">
-                                      Completa el paso 2 para poder subir tu comprobante de transferencia.
-                                    </p>
-                                  </>
-                                ) : (
-                                  <>
-                                    <p className="font-bold text-lg mb-1">Total a transferir: {formatPrice(isFreeDeliveryActive ? Math.max(0, total - deliveryCost) : total)}</p>
-                                    <p className="text-sm text-gray-300 leading-snug">
-                                      Transfiere el monto exacto y sube tu comprobante a continuación para confirmar tu pedido.
-                                    </p>
-                                  </>
+                            {/* Selector de cuenta bancaria de la tienda (si tiene más de 1) */}
+                            {storeBankAccounts.length > 1 && (
+                              <div className="mb-4">
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                                  Selecciona la cuenta bancaria de destino:
+                                </label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                  {storeBankAccounts.map((account) => {
+                                    const isSelected = selectedStoreAccount?.id === account.id || paymentData.selectedBank === account.id;
+                                    return (
+                                      <button
+                                        key={account.id}
+                                        type="button"
+                                        onClick={() => setPaymentData({ ...paymentData, selectedBank: account.id })}
+                                        className={`p-3 rounded-2xl border-2 transition-all flex items-center justify-between text-left gap-2 ${
+                                          isSelected
+                                            ? 'border-gray-900 bg-gray-900 text-white shadow-md'
+                                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm ${
+                                            isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                                          }`}>
+                                            <i className="bi bi-bank"></i>
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="font-black text-xs truncate leading-tight">{account.bankName}</p>
+                                            <p className={`text-[10px] truncate ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>
+                                              {account.accountType} · {account.accountNumber}
+                                            </p>
+                                          </div>
+                                        </div>
+                                        {isSelected && (
+                                          <i className="bi bi-check-circle-fill text-white text-sm shrink-0"></i>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {errors.selectedBank && (
+                                  <p className="text-red-500 text-xs mt-1.5 flex items-center">
+                                    <i className="bi bi-exclamation-triangle mr-1"></i>
+                                    {errors.selectedBank}
+                                  </p>
                                 )}
                               </div>
-                            </div>
-                          </div>
+                            )}
+
+                            {/* Mostrar datos bancarios según la cuenta seleccionada */}
+                            {selectedStoreAccount && (
+                              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-gray-200 shadow-sm mt-3 space-y-4">
+                                {/* Header del Banco */}
+                                <div className="pb-3 border-b border-gray-100 flex items-center justify-between">
+                                  <div>
+                                    <p className="text-[10px] text-gray-400 uppercase font-black tracking-wider mb-0.5">Banco Destino</p>
+                                    <p className="font-black text-gray-900 text-lg sm:text-xl flex items-center gap-2">
+                                      <i className="bi bi-bank2 text-red-600 text-lg"></i>
+                                      {selectedStoreAccount.bankName}
+                                    </p>
+                                  </div>
+                                  <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-wider">
+                                    Cuenta de {selectedStoreAccount.accountType || 'Ahorros'}
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                  {/* Número de Cuenta con botón copiar */}
+                                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-[10px] text-gray-400 uppercase font-black tracking-wider mb-0.5">Número de Cuenta</p>
+                                      <p className="font-mono text-base sm:text-lg font-black text-gray-900 tracking-wide truncate">
+                                        {selectedStoreAccount.accountNumber}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard?.writeText(selectedStoreAccount.accountNumber);
+                                        alert('¡Número de cuenta copiado al portapapeles!');
+                                      }}
+                                      className="px-2.5 py-1.5 bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 active:scale-95"
+                                      title="Copiar número de cuenta"
+                                    >
+                                      <i className="bi bi-clipboard"></i>
+                                      <span>Copiar</span>
+                                    </button>
+                                  </div>
+
+                                  {/* Cédula / RUC del titular con botón copiar */}
+                                  {selectedStoreAccount.idNumber && (
+                                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex items-center justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <p className="text-[10px] text-gray-400 uppercase font-black tracking-wider mb-0.5">Cédula / RUC</p>
+                                        <p className="font-mono text-base font-bold text-gray-900 tracking-wide truncate">
+                                          {selectedStoreAccount.idNumber}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard?.writeText(selectedStoreAccount.idNumber || '');
+                                          alert('¡Cédula/RUC copiado al portapapeles!');
+                                        }}
+                                        className="px-2.5 py-1.5 bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 active:scale-95"
+                                        title="Copiar Cédula o RUC"
+                                      >
+                                        <i className="bi bi-clipboard"></i>
+                                        <span>Copiar</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Titular de la Cuenta */}
+                                <div className="pt-1">
+                                  <p className="text-[10px] text-gray-400 uppercase font-black tracking-wider mb-0.5">Titular de la Cuenta</p>
+                                  <p className="font-bold text-gray-900 text-sm">
+                                    {selectedStoreAccount.accountHolder}
+                                  </p>
+                                </div>
+
+                                {/* Notas o indicaciones de la cuenta si existen */}
+                                {selectedStoreAccount.notes && (
+                                  <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-xl text-blue-900 text-xs">
+                                    <span className="font-bold">Nota de la tienda: </span>
+                                    {selectedStoreAccount.notes}
+                                  </div>
+                                )}
+
+                                {/* Bloque informativo condicional */}
+                                <div className={`mt-4 p-4 rounded-xl flex gap-3 items-start ${!deliveryData.type
+                                  ? 'bg-amber-50 border border-amber-200'
+                                  : 'bg-gray-900 text-white shadow-lg'
+                                }`}>
+                                  <i className={`text-xl flex-shrink-0 mt-0.5 ${!deliveryData.type
+                                    ? 'bi bi-info-circle-fill text-amber-600'
+                                    : 'bi bi-cash-stack text-white'
+                                  }`}></i>
+                                  <div className="flex-1">
+                                    {!deliveryData.type ? (
+                                      <>
+                                        <p className="font-medium text-amber-900">Estimado: {formatPrice(subtotal)}</p>
+                                        <p className="text-sm text-amber-700 mt-1">
+                                          Completa el paso 2 para poder subir tu comprobante de transferencia.
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <p className="font-bold text-lg mb-1">Total a transferir: {formatPrice(isFreeDeliveryActive ? Math.max(0, total - deliveryCost) : total)}</p>
+                                        <p className="text-sm text-gray-300 leading-snug">
+                                          Transfiere el monto exacto a la cuenta de la tienda indicada arriba y sube tu comprobante a continuación para confirmar tu pedido.
+                                        </p>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {/* Componente para subir comprobante - Solo visible si completó paso 2 */}
+                        {selectedStoreAccount && clientFound && deliveryData.type && (
+                          <TransferReceiptUploader
+                            onReceiptUpload={handleReceiptUpload}
+                            uploadedImageUrl={paymentData.receiptImageUrl || null}
+                            isUploading={uploadingReceipt}
+                            clientId={clientFound.id}
+                          />
+                        )}
+
+                        {/* Error del comprobante */}
+                        {errors.receiptImage && (
+                          <p className="text-red-500 text-xs mt-2 flex items-center">
+                            <i className="bi bi-exclamation-triangle mr-1"></i>
+                            {errors.receiptImage}
+                          </p>
                         )}
                       </>
-                    )}
-
-
-                    {/* Componente para subir comprobante - Solo visible si completó paso 2 */}
-                    {paymentData.selectedBank && clientFound && deliveryData.type && (
-                      <TransferReceiptUploader
-                        onReceiptUpload={handleReceiptUpload}
-                        uploadedImageUrl={paymentData.receiptImageUrl || null}
-                        isUploading={uploadingReceipt}
-                        clientId={clientFound.id}
-                      />
-                    )}
-
-                    {/* Error del comprobante */}
-                    {errors.receiptImage && (
-                      <p className="text-red-500 text-xs mt-2 flex items-center">
-                        <i className="bi bi-exclamation-triangle mr-1"></i>
-                        {errors.receiptImage}
-                      </p>
                     )}
                   </div>
                 )}

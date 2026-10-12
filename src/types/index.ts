@@ -9,6 +9,9 @@ export interface BankAccount {
   accountType: string
   accountNumber: string
   accountHolder: string
+  idNumber?: string // Cédula o RUC
+  email?: string // Correo electrónico asociado a la cuenta
+  notes?: string // Indicaciones adicionales para la transferencia
   isDefault?: boolean
 }
 
@@ -37,8 +40,11 @@ export interface Business {
     accountType: string
     accountNumber: string
     accountHolder: string
+    idNumber?: string
+    email?: string
   }
   bankAccounts?: BankAccount[]
+  bankAccountMode?: 'fuddi' | 'custom' // Modo de cuentas para transferencia: 'fuddi' (por defecto) o 'custom' (propias de la tienda)
   schedule: {
     [key: string]: {
       open: string
@@ -64,6 +70,7 @@ export interface Business {
   defaultDeliveryTime?: number // Tiempo base de preparación configurado en el perfil de la tienda
   defaultDeliveryId?: string // ID del delivery predeterminado asignado a la tienda
   deliveryServiceType?: 'self' | 'fuddi' // Tipo de servicio de delivery: autogestión (self) o Fuddi busca repartidor (fuddi)
+  deliveryAssignmentMode?: 'auto' | 'manual' // Modo de asignación de delivery al confirmar pedido: automático o manual
   createdAt: Date
   updatedAt: Date
   lastLoginAt?: any
@@ -395,6 +402,7 @@ export interface PaymentInfo {
     accountNumber: string
     accountHolder: string
     idNumber?: string
+    email?: string
   }
 }
 

@@ -97,24 +97,27 @@ async function processOrderStatusUpdate(action: string, orderId: string, token: 
       const businessRef = doc(db, 'businesses', order.businessId);
       const businessDoc = await getDoc(businessRef);
       const business = businessDoc.data();
+      const isAutoAssignMode = business?.deliveryAssignmentMode !== 'manual';
       
-      const assignedId = await autoAssignDeliveryForOrder(order, business?.defaultDeliveryId);
-      if (assignedId) {
-        assignmentUpdate['delivery.assignedDelivery'] = assignedId;
-        try {
-          const deliverySnap = await getDoc(doc(db, 'deliveries', assignedId));
-          if (deliverySnap.exists()) {
-            const d = deliverySnap.data();
-            assignmentUpdate['delivery.assignedDeliveryData'] = {
-              id: assignedId,
-              nombres: d.nombres || '',
-              celular: d.celular || '',
-              fotoUrl: d.fotoUrl || '',
-              email: d.email || ''
-            };
+      if (isAutoAssignMode) {
+        const assignedId = await autoAssignDeliveryForOrder(order, business?.defaultDeliveryId);
+        if (assignedId) {
+          assignmentUpdate['delivery.assignedDelivery'] = assignedId;
+          try {
+            const deliverySnap = await getDoc(doc(db, 'deliveries', assignedId));
+            if (deliverySnap.exists()) {
+              const d = deliverySnap.data();
+              assignmentUpdate['delivery.assignedDeliveryData'] = {
+                id: assignedId,
+                nombres: d.nombres || '',
+                celular: d.celular || '',
+                fotoUrl: d.fotoUrl || '',
+                email: d.email || ''
+              };
+            }
+          } catch (delivErr) {
+            console.error('Error obteniendo datos del delivery asignado:', delivErr);
           }
-        } catch (delivErr) {
-          console.error('Error obteniendo datos del delivery asignado:', delivErr);
         }
       }
     } catch (error) {
