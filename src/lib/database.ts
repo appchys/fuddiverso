@@ -2758,6 +2758,35 @@ export async function getClientLocations(clientId: string, createdBy?: 'client' 
   }
 }
 
+// Obtener todas las ubicaciones registradas (para búsquedas administrativas y análisis)
+export async function getAllClientLocations(): Promise<ClientLocation[]> {
+  try {
+    const q = query(collection(db, 'ubicaciones'));
+    const querySnapshot = await getDocs(q);
+    const locations: ClientLocation[] = [];
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      locations.push({
+        id: doc.id,
+        id_cliente: data.id_cliente || '',
+        referencia: data.referencia || '',
+        sector: data.sector || '',
+        tarifa: data.tarifa || '',
+        latlong: data.latlong || '',
+        photo: data.photo || '',
+        isFavorite: data.isFavorite,
+        createdBy: data.createdBy || undefined
+      });
+    });
+
+    return locations;
+  } catch (error) {
+    console.error('Error getting all client locations:', error);
+    return [];
+  }
+}
+
 // Caché en memoria para clientes por teléfono
 const phoneClientCache = new Map<string, { client: FirestoreClient | null; timestamp: number }>()
 export const invalidatePhoneClientCache = (phone?: string) => {

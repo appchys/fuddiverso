@@ -110,6 +110,7 @@ function AdminLayoutContent({
     { href: '/admin/confirmations', label: 'Origen Confirmaciones', icon: 'bi-check-all' },
     { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
+    { href: '/admin/clients', label: 'Clientes por Referencia', icon: 'bi-geo-alt-fill' },
     { href: '/admin/stores', label: 'Configuración Tiendas', icon: 'bi-shop' },
     { href: '/admin/coverage-groups', label: 'Grupos de Cobertura', icon: 'bi-tags-fill' },
     { href: '/admin/coverage-zones', label: 'Zonas de Cobertura', icon: 'bi-geo-alt-fill' },

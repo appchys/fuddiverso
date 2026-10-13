@@ -2762,7 +2762,8 @@ export default function ManualOrderSidebar({
 
   // Guardar costo de envío editado manualmente
   const handleSaveDeliveryCost = () => {
-    const val = parseFloat(tempDeliveryCost)
+    const normalized = tempDeliveryCost.replace(/,/g, '.')
+    const val = parseFloat(normalized)
     if (isNaN(val) || val < 0) {
       alert('Por favor ingrese un valor de envío válido (mayor o igual a 0)')
       return
@@ -2813,9 +2814,10 @@ export default function ManualOrderSidebar({
   }
 
   const handleCreditsInputChange = (raw: string) => {
-    if (raw === '' || /^\d*\.?\d{0,2}$/.test(raw)) {
-      setCreditInputStr(raw)
-      const parsed = parseFloat(raw)
+    const normalized = raw.replace(/,/g, '.')
+    if (normalized === '' || /^\d*\.?\d{0,2}$/.test(normalized)) {
+      setCreditInputStr(normalized)
+      const parsed = parseFloat(normalized)
       const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
       const customCost = manualOrderData.customDeliveryCost
       const deliveryCost = manualOrderData.deliveryType === 'delivery'
@@ -4419,8 +4421,9 @@ export default function ManualOrderSidebar({
                         type="text"
                         inputMode="decimal"
                         value={tempDeliveryCost}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
-                          const val = e.target.value
+                          const val = e.target.value.replace(/,/g, '.')
                           if (val === '' || /^[0-9]*\.?[0-9]*$/.test(val)) {
                             setTempDeliveryCost(val)
                           }
