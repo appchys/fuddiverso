@@ -340,7 +340,7 @@ function getPaymentMethodText(orderData) {
 /**
  * Construir mapa de variables a partir de una orden
  */
-function buildTemplateVariables(orderData, businessName, options = {}) {
+function buildTemplateVariables(orderData, businessName, options = {}, businessData = null) {
     const orderId = orderData.id || '';
     const customerName = orderData.customer?.name || 'No especificado';
     const phone = orderData.customer?.phone || '';
@@ -445,7 +445,7 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         return sum + (itemStore * (item.quantity || 1));
     }, 0) || Math.max(0, subtotal - commissionAmount);
 
-    const pickupTimeInfo = getDynamicPickupTimeInfo(orderData);
+    const pickupTimeInfo = getDynamicPickupTimeInfo(orderData, businessData);
 
     return {
         businessName: businessName || 'Negocio',
@@ -508,7 +508,7 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
  * Función para formatear el mensaje de Telegram
  * Intenta usar plantilla de Firestore primero, luego fallback a hardcoded.
  */
-async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = false) {
+async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = false, businessData = null) {
     let templateKey = '';
     let isAccepted = false;
     let isAdminNewOrder = false;
@@ -553,7 +553,7 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
         }
 
         if (template) {
-            const variables = buildTemplateVariables(orderData, businessName);
+            const variables = buildTemplateVariables(orderData, businessName, {}, businessData);
             const rendered = renderTemplate(template, variables);
             if (rendered) {
                 let mapsLink = '';
@@ -1587,6 +1587,7 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
                 console.warn('⚠️ Error obteniendo datos de negocio para botón WhatsApp en update:', bErr.message);
             }
         }
+        const isCancelled = orderData.status === 'cancelled';
         const whatsappText = await buildWhatsAppClipboardTextForOrder(orderData, businessDataForWa);
         const waUrl = whatsappText ? `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText)}` : '';
         const waRow = (!isCancelled && waUrl) ? [{ text: "📲 Enviar por WhatsApp", url: waUrl }] : [];
@@ -1725,7 +1726,7 @@ async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = f
                 ]
             };
         } else {
-            const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store');
+            const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store', businessData);
             syncText = telegramText;
             if (hasBeenUpdated) {
                 syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
@@ -1774,6 +1775,22 @@ async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = f
             const errorDesc = editError.response?.data?.description || '';
             if (errorDesc.includes('message is not modified')) {
                 console.log(`ℹ️ [updateAdminTelegramMessage] Mensaje sin cambios para orden ${orderId}, no se modificó.`);
+                return;
+            }
+            if (editError.response?.status === 400 && errorDesc.includes("can't parse entities")) {
+                console.warn(`⚠️ [updateAdminTelegramMessage] HTML malformado. Reintentando sin parse_mode...`);
+                try {
+                    await axios.post(editUrl, {
+                        chat_id: adminMsg.chatId,
+                        message_id: adminMsg.messageId,
+                        text: syncText.replace(/<[^>]+>/g, ''),
+                        link_preview_options: { is_disabled: true },
+                        reply_markup: replyMarkup
+                    });
+                    console.log(`✅ [updateAdminTelegramMessage] Fallback sin HTML exitoso para orden ${orderId}`);
+                } catch (retryErr) {
+                    console.error(`❌ [updateAdminTelegramMessage] Fallback también falló:`, retryErr.message);
+                }
                 return;
             }
             console.error(`❌ [updateAdminTelegramMessage] Error editando mensaje de admin:`, editError.response?.data || editError.message);
@@ -2673,7 +2690,8 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
 
     const businessName = businessData.name || await resolveBusinessName(orderData, 'Tienda');
-    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey);
+    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey, businessData);
+    const linkPreviewOptions = { is_disabled: true };
     const whatsappText = await buildWhatsAppClipboardTextForOrder(orderData, businessData);
     const waUrl = whatsappText ? `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText)}` : '';
     const waRow = waUrl ? [{ text: "📲 Enviar por WhatsApp", url: waUrl }] : [];
@@ -3547,12 +3565,12 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
 
     const businessName = businessData.name || 'Tienda';
 
-    // Generar mensaje base para Telegram
-    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store');
-    console.log(`📝 [Admin Notification] Mensaje Telegram formateado. Longitud: ${telegramText.length}`);
-
-    // Obtener Chat ID del admin desde Firestore
+    // Obtener Chat ID del admin desde Firestore y enviar notificación
     try {
+        // Generar mensaje base para Telegram
+        const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store', businessData);
+        console.log(`📝 [Admin Notification] Mensaje Telegram formateado. Longitud: ${telegramText.length}`);
+
         const adminDoc = await admin.firestore().collection('settings').doc('admin_telegram').get();
         if (!adminDoc.exists || !adminDoc.data().chatId) {
             console.warn('⚠️ [Telegram] Chat ID de admin no encontrado en settings/admin_telegram.');

@@ -151,13 +151,19 @@ const getConfiguredDeliveryTime = (business?: Business | null) => {
 }
 
 // Auto-assign logic
+// Solo asigna repartidores configurados explícitamente por la tienda
+// (predeterminado por zona o predeterminado general). Si no hay ninguno, no asigna.
 const autoAssignDeliveryForOrder = async (order: Order, businessOrDeliveryId?: Business | string): Promise<string | undefined> => {
     try {
-        const deliveries = await getDeliveriesByStatus('activo');
-        let assignedDeliveryId: string | undefined = undefined;
-
         const businessObj = typeof businessOrDeliveryId === 'object' ? businessOrDeliveryId : undefined;
-        let defaultDeliveryId = typeof businessOrDeliveryId === 'string' ? businessOrDeliveryId : businessObj?.defaultDeliveryId;
+        const defaultDeliveryId = typeof businessOrDeliveryId === 'string' ? businessOrDeliveryId : businessObj?.defaultDeliveryId;
+        const hasZoneDefaults = !!businessObj?.deliveryZoneSettings?.zones &&
+            Object.values(businessObj.deliveryZoneSettings.zones).some((z: any) => !!z?.defaultDeliveryId);
+
+        // Sin ningún repartidor predeterminado configurado → no asignar
+        if (!defaultDeliveryId && !hasZoneDefaults) return undefined;
+
+        const deliveries = await getDeliveriesByStatus('activo');
 
         // 1. Verificar si la ubicación del pedido cae en una zona con repartidor asignado por la tienda
         const latlong = order.delivery?.latlong;
@@ -193,28 +199,8 @@ const autoAssignDeliveryForOrder = async (order: Order, businessOrDeliveryId?: B
             }
         }
 
-        // 3. Repartidor asignado a nivel global en la zona
-        if (matchingZone?.assignedDeliveryId) {
-            const zoneDelivery = deliveries.find(d => d.id === matchingZone.assignedDeliveryId);
-            if (zoneDelivery) {
-                assignedDeliveryId = zoneDelivery.id;
-            }
-        }
-
-        // 4. Fallbacks
-        if (!assignedDeliveryId) {
-            const pedroDelivery = deliveries.find(d => d.celular === '0990815097');
-            if (pedroDelivery) {
-                assignedDeliveryId = pedroDelivery.id;
-            } else {
-                const sergioDelivery = deliveries.find(d => d.celular === '0978697867');
-                if (sergioDelivery) {
-                    assignedDeliveryId = sergioDelivery.id;
-                }
-            }
-        }
-
-        return assignedDeliveryId;
+        // 3. Sin predeterminado válido/activo → no se asigna ningún repartidor
+        return undefined;
     } catch (error) {
         console.error('Error in autoAssign:', error);
         return undefined;
@@ -1166,11 +1152,13 @@ export default function AdminPedidosPage() {
             const isScheduled = previousOrder.timing?.type === 'scheduled';
             const isDelivery = previousOrder.delivery?.type === 'delivery';
             const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
-            const isAutoAssignMode = business?.deliveryAssignmentMode !== 'manual';
+            // Usar la tienda dueña de la orden (en vista "todas" `business` puede ser otra o null)
+            const orderBusiness = (business?.id === previousOrder.businessId ? business : businesses.find(b => b.id === previousOrder.businessId)) || undefined;
+            const isAutoAssignMode = orderBusiness?.deliveryAssignmentMode !== 'manual';
 
             if (isDelivery && hasNoDeliveryAssigned && isAutoAssignMode) {
                 if (previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
+                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, orderBusiness);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                         const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);
@@ -1186,7 +1174,7 @@ export default function AdminPedidosPage() {
                     }
                 }
                 else if (previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, business?.defaultDeliveryId);
+                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, orderBusiness);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                         const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);

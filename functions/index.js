@@ -318,6 +318,11 @@ async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
       return;
     }
 
+    if (orderData.status === 'borrador') {
+      console.log(`ℹ️ Orden ${orderId} es un borrador, omitiendo notificación a Admin.`);
+      return;
+    }
+
     // Obtener datos del negocio
     let businessData = {};
     if (orderData.businessId) {

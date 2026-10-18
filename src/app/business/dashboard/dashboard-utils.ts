@@ -164,13 +164,19 @@ export const getDeliveryZone = (order: Order | null) => {
 
 // ── Auto-assign Logic ──────────────────────────────────────────────────
 
+// Solo asigna repartidores configurados explícitamente por la tienda
+// (predeterminado por zona o predeterminado general). Si no hay ninguno, no asigna.
 export const autoAssignDeliveryForOrder = async (order: Order, businessOrDeliveryId?: Business | string): Promise<string | undefined> => {
     try {
-        const deliveries = await getDeliveriesByStatus('activo');
-        let assignedDeliveryId: string | undefined = undefined;
-
         const businessObj = typeof businessOrDeliveryId === 'object' ? businessOrDeliveryId : undefined;
-        let defaultDeliveryId = typeof businessOrDeliveryId === 'string' ? businessOrDeliveryId : businessObj?.defaultDeliveryId;
+        const defaultDeliveryId = typeof businessOrDeliveryId === 'string' ? businessOrDeliveryId : businessObj?.defaultDeliveryId;
+        const hasZoneDefaults = !!businessObj?.deliveryZoneSettings?.zones &&
+            Object.values(businessObj.deliveryZoneSettings.zones).some((z: any) => !!z?.defaultDeliveryId);
+
+        // Sin ningún repartidor predeterminado configurado → no asignar
+        if (!defaultDeliveryId && !hasZoneDefaults) return undefined;
+
+        const deliveries = await getDeliveriesByStatus('activo');
 
         // 1. Verificar si la ubicación del pedido cae en una zona con repartidor asignado por la tienda
         const latlong = order.delivery?.latlong;
@@ -206,28 +212,8 @@ export const autoAssignDeliveryForOrder = async (order: Order, businessOrDeliver
             }
         }
 
-        // 3. Repartidor asignado a nivel global en la zona
-        if (matchingZone?.assignedDeliveryId) {
-            const zoneDelivery = deliveries.find(d => d.id === matchingZone.assignedDeliveryId);
-            if (zoneDelivery) {
-                assignedDeliveryId = zoneDelivery.id;
-            }
-        }
-
-        // 4. Fallbacks
-        if (!assignedDeliveryId) {
-            const pedroDelivery = deliveries.find(d => d.celular === '0990815097');
-            if (pedroDelivery) {
-                assignedDeliveryId = pedroDelivery.id;
-            } else {
-                const sergioDelivery = deliveries.find(d => d.celular === '0978697867');
-                if (sergioDelivery) {
-                    assignedDeliveryId = sergioDelivery.id;
-                }
-            }
-        }
-
-        return assignedDeliveryId;
+        // 3. Sin predeterminado válido/activo → no se asigna ningún repartidor
+        return undefined;
     } catch (error) {
         console.error('Error in autoAssign:', error);
         return undefined;

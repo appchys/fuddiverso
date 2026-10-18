@@ -3,24 +3,15 @@ import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { updateOrderStatus, getDeliveriesByStatus } from '@/lib/database';
 
-// Función de auto-asignación de delivery (misma lógica que en dashboard)
+// Función de auto-asignación de delivery: solo usa el predeterminado de la tienda.
+// Si la tienda no tiene predeterminado (o no está activo), no se asigna ninguno.
 const autoAssignDeliveryForOrder = async (order: any, defaultDeliveryId?: string): Promise<string | undefined> => {
   try {
+    if (!defaultDeliveryId) return undefined;
+
     const deliveries = await getDeliveriesByStatus('activo');
-    let assignedDeliveryId: string | undefined = undefined;
-
-    if (defaultDeliveryId) {
-      const defaultDelivery = deliveries.find(d => d.id === defaultDeliveryId);
-      if (defaultDelivery) {
-        assignedDeliveryId = defaultDelivery.id;
-      }
-    }
-
-    if (!assignedDeliveryId && deliveries.length > 0) {
-      assignedDeliveryId = deliveries[0].id;
-    }
-
-    return assignedDeliveryId;
+    const defaultDelivery = deliveries.find(d => d.id === defaultDeliveryId);
+    return defaultDelivery?.id;
   } catch (error) {
     console.error('Error en autoAssignDeliveryForOrder:', error);
     return undefined;
