@@ -830,14 +830,24 @@ exports.sendDailyOrderSummary = onSchedule({
   console.log('📊 Iniciando envío de resumen diario de órdenes programadas (7 AM)...');
   try {
     const nowUtc = new Date();
-    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
-    const startOfDay = new Date(nowEcuador); startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(nowEcuador); endOfDay.setHours(23, 59, 59, 999);
+    // Ecuador es UTC-5 todo el año (America/Guayaquil)
+    const ecDateStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Guayaquil',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(nowUtc);
+    const [year, month, day] = ecDateStr.split('-').map(Number);
+
+    // En Ecuador (UTC-5), el inicio del día (00:00:00) corresponde a las 05:00:00 UTC de esa misma fecha
+    const startOfDay = new Date(Date.UTC(year, month - 1, day, 5, 0, 0, 0));
+    // Y el fin del día (23:59:59.999) corresponde a las 04:59:59.999 UTC del día siguiente
+    const endOfDay = new Date(Date.UTC(year, month - 1, day + 1, 4, 59, 59, 999));
     const startSeconds = Math.floor(startOfDay.getTime() / 1000);
     const endSeconds = Math.floor(endOfDay.getTime() / 1000);
 
-    const todayFormatted = nowEcuador.toLocaleDateString('es-EC', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const previewDateStr = nowEcuador.toLocaleDateString('es-EC', { day: 'numeric', month: 'long' });
+    const todayFormatted = nowUtc.toLocaleDateString('es-EC', { timeZone: 'America/Guayaquil', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const previewDateStr = nowUtc.toLocaleDateString('es-EC', { timeZone: 'America/Guayaquil', day: 'numeric', month: 'long' });
 
     const businessesSnapshot = await admin.firestore().collection('businesses').get();
 
@@ -861,6 +871,11 @@ exports.sendDailyOrderSummary = onSchedule({
       const todayOrders = [];
       for (const orderDoc of ordersSnapshot.docs) {
         const order = orderDoc.data();
+        // Omitir órdenes canceladas, rechazadas o en borrador
+        if (order.status === 'cancelled' || order.status === 'borrador' || order.status === 'rechazado') {
+          continue;
+        }
+
         const scheduledDate = order.timing?.scheduledDate;
         if (!scheduledDate) continue;
         const orderSeconds = scheduledDate.seconds || scheduledDate._seconds;
