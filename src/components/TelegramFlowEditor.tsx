@@ -165,6 +165,8 @@ const AVAILABLE_FIELDS = [
     { key: 'total', label: 'Total', example: '$15.50' },
     { key: 'subtotal', label: 'Subtotal', example: '$12.00' },
     { key: 'deliveryCost', label: 'Costo Envío', example: '$3.50' },
+    { key: 'creditUsed', label: 'Crédito Aplicado (Monto)', example: '$0.50' },
+    { key: 'creditsLine', label: 'Línea de Crédito Aplicado', example: '🎁 Crédito aplicado: -$0.50' },
     { key: 'paymentMethod', label: 'Método de Pago', example: '💵 Efectivo' },
     { key: 'deliveryAddress', label: 'Dirección Entrega', example: 'Av. Principal y 2da' },
     { key: 'scheduledTime', label: 'Hora Programada (Solo Hora)', example: '3:00 PM' },

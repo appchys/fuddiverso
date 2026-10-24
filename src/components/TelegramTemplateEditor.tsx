@@ -370,6 +370,8 @@ const AVAILABLE_FIELDS: FieldDef[] = [
     { key: 'total', label: 'Total', example: '$15.50' },
     { key: 'subtotal', label: 'Subtotal', example: '$12.00' },
     { key: 'deliveryCost', label: 'Costo Envío', example: '$3.50' },
+    { key: 'creditUsed', label: 'Crédito Aplicado (Monto)', example: '$0.50' },
+    { key: 'creditsLine', label: 'Línea de Crédito Aplicado', example: '🎁 Crédito aplicado: -$0.50' },
     { key: 'paymentMethod', label: 'Método de Pago', example: '💵 Efectivo' },
     { key: 'deliveryAddress', label: 'Dirección Entrega', example: 'Av. Principal y 2da' },
     {
@@ -471,7 +473,8 @@ Hora estimada: {{scheduledDateTime}}
 <b>Detalles del pago</b>
 Pedido: {{subtotal}}
 Envío: {{deliveryCost}}
-
+{{#if creditsLine}}{{creditsLine}}
+{{/if}}
 {{paymentMethod}}
 💰 Valor a cobrar: {{total}}`,
     store_reminder: `⏰ <b>¡Recordatorio de Pedido!</b>
@@ -511,7 +514,8 @@ Hora estimada: {{scheduledDateTime}}
 <b>Detalles del pago</b>
 Pedido: {{subtotal}}
 Envío: {{deliveryCost}}
-
+{{#if creditsLine}}{{creditsLine}}
+{{/if}}
 {{paymentMethod}}
 💰 Valor a cobrar: {{total}}`,
 
@@ -533,7 +537,8 @@ Hora estimada: {{scheduledDateTime}}
 <b>Detalles del pago</b>
 Pedido: {{subtotal}}
 Envío: {{deliveryCost}}
-
+{{#if creditsLine}}{{creditsLine}}
+{{/if}}
 {{paymentMethod}}
 💰 Valor a cobrar: {{total}}`,
 
@@ -572,7 +577,8 @@ El repartidor se dirige a entregar el pedido de <b>{{customerName}}</b>.`,
 
 Pedido: {{subtotal}}
 Envío: {{deliveryCost}}
-
+{{#if creditsLine}}{{creditsLine}}
+{{/if}}
 {{paymentMethod}}
 
 🎉 <b>Entregado</b>`,

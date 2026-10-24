@@ -324,8 +324,14 @@ export const buildDeliveryWhatsAppMessage = (
     const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : ''
     const productsList = buildProductsList(order)
     const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
-    const creditUsed = order.creditUsed || 0
-    const subtotalVal = order.subtotal || Math.max(0, (order.total || 0) - deliveryCost)
+    const creditUsed = Number((order as any).creditUsed || (order.payment as any)?.creditsAmount || 0)
+    const itemsSubtotal = order.items?.reduce((sum: number, item: any) => {
+        const price = item.price || item.product?.price || 0
+        return sum + (price * (item.quantity || 1))
+    }, 0) || 0
+    const subtotalVal = (typeof order.subtotal === 'number' && order.subtotal > 0)
+        ? order.subtotal
+        : (itemsSubtotal > 0 ? itemsSubtotal : Math.max(0, (order.total || 0) - deliveryCost))
     const grossTotalVal = subtotalVal + deliveryCost
     const effectiveTotal = Math.max(
         0,
@@ -362,6 +368,14 @@ export const buildDeliveryWhatsAppMessage = (
 
     // Obtención síncrona instantánea desde memoria para preservar el gesto de usuario (User Activation)
     const template = getSavedTemplateSync(templateKey)
+    const hasCreditsPlaceholder = template.includes('{{creditsLine}}')
+    const hasDeliveryCostPlaceholder = template.includes('{{deliveryCostLine}}')
+    const baseDeliveryCostLine = order.delivery.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : ''
+
+    if (!hasCreditsPlaceholder && !hasDeliveryCostPlaceholder && creditsLine) {
+        paymentDetailsBlock = `${creditsLine}${paymentDetailsBlock}`
+    }
+
     return renderWhatsAppTemplate(template, {
         businessName: business?.name || 'Tienda',
         businessPhoneLine: business?.phone ? `+593${business.phone.replace(/\D/g, '').startsWith('0') ? business.phone.replace(/\D/g, '').slice(1) : business.phone.replace(/\D/g, '')}` : '',
@@ -375,8 +389,8 @@ export const buildDeliveryWhatsAppMessage = (
         locationLine,
         productsList,
         subtotal: `$${subtotalVal.toFixed(2)}`,
-        deliveryCostLine: (order.delivery.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '') + creditsLine,
-        creditsLine: '',
+        deliveryCostLine: hasCreditsPlaceholder ? baseDeliveryCostLine : (baseDeliveryCostLine + creditsLine),
+        creditsLine: hasCreditsPlaceholder ? creditsLine : '',
         paymentDetailsBlock,
         total: effectiveTotal.toFixed(2)
     })
@@ -586,9 +600,15 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
     const locationLink = buildLocationLink(order)
     const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : ''
     
-    const creditUsed = order.creditUsed || 0
-    const subtotalVal = order.subtotal || 0
+    const creditUsed = Number((order as any).creditUsed || (order.payment as any)?.creditsAmount || 0)
+    const itemsSubtotal = order.items?.reduce((sum: number, item: any) => {
+        const price = item.price || item.product?.price || 0
+        return sum + (price * (item.quantity || 1))
+    }, 0) || 0
     const deliveryFeeVal = order.delivery?.deliveryCost || 0
+    const subtotalVal = (typeof order.subtotal === 'number' && order.subtotal > 0)
+        ? order.subtotal
+        : (itemsSubtotal > 0 ? itemsSubtotal : Math.max(0, (order.total || 0) - deliveryFeeVal))
     const grossTotalVal = subtotalVal + deliveryFeeVal
     const effectiveTotal = Math.max(
         0,

@@ -38,16 +38,22 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
       const createdAtDate = order.createdAt instanceof Timestamp ? order.createdAt.toDate() : new Date(order.createdAt);
 
       // Calcular subtotal, envío y créditos
-      const deliveryCost = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0;
-      const subtotal = order.subtotal ?? (order.total - deliveryCost);
-      const creditUsed = (order as any).creditUsed || 0;
+      const deliveryCost = order.delivery?.type === 'delivery' ? Number(order.delivery?.deliveryCost || 0) : 0;
+      const creditUsed = Number((order as any).creditUsed || (order.payment as any)?.creditsAmount || 0);
+      const itemsSubtotal = Array.isArray(order.items)
+        ? order.items.reduce((sum: number, item: any) => sum + ((Number(item.price ?? item.product?.price ?? 0)) * (Number(item.quantity) || 1)), 0)
+        : 0;
+      const rawTotal = Number(order.total ?? 0);
+      const subtotal = (typeof order.subtotal === 'number' && order.subtotal > 0)
+        ? order.subtotal
+        : (itemsSubtotal > 0 ? itemsSubtotal : Math.max(0, rawTotal - deliveryCost));
       const grossTotal = subtotal + deliveryCost;
 
       const effectiveTotal = Math.max(
         0,
-        creditUsed > 0 && Math.abs((order.total ?? 0) - grossTotal) < 0.02
-          ? (order.total ?? 0) - creditUsed
-          : (order.total ?? 0)
+        creditUsed > 0 && Math.abs(rawTotal - grossTotal) < 0.02
+          ? rawTotal - creditUsed
+          : rawTotal
       );
       
       // Forma de pago

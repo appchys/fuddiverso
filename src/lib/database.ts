@@ -8767,20 +8767,50 @@ export async function getOrdersByReferralCode(referralCode: string): Promise<any
  * Obtiene el total de créditos acumulados de un usuario buscando por múltiples identificadores
  * (ID de usuario, celular y teléfono normalizado).
  */
+async function expandUserCreditIdentifiers(
+  userIdentifiers: (string | undefined | null)[]
+): Promise<string[]> {
+  const idSet = new Set<string>()
+  const phoneSet = new Set<string>()
+
+  userIdentifiers.filter(Boolean).forEach(raw => {
+    const str = String(raw).trim()
+    if (!str) return
+    idSet.add(str)
+    const norm = normalizeEcuadorianPhone(str)
+    if (norm && /^09\d{8}$/.test(norm)) {
+      idSet.add(norm)
+      phoneSet.add(norm)
+      idSet.add(`593${norm.slice(1)}`)
+      idSet.add(`+593${norm.slice(1)}`)
+    }
+  })
+
+  // Buscar otros documentos de cliente con el mismo celular para unificar posibles IDs duplicados
+  if (phoneSet.size > 0) {
+    try {
+      const phoneQueries = Array.from(phoneSet).map(phone =>
+        getDocs(query(collection(db, 'clients'), where('celular', '==', phone)))
+      )
+      const clientSnaps = await Promise.all(phoneQueries)
+      clientSnaps.forEach(snap => {
+        snap.docs.forEach(d => {
+          if (d.id) idSet.add(d.id)
+        })
+      })
+    } catch (e) {
+      console.warn('Error expanding client IDs by phone:', e)
+    }
+  }
+
+  return Array.from(idSet)
+}
+
 export async function getUserCreditsFlexible(
   userIdentifiers: (string | undefined | null)[]
 ): Promise<{ available: number; referral: number; manual: number; docs: any[] }> {
   try {
-    const ids = Array.from(new Set(
-      userIdentifiers
-        .filter(Boolean)
-        .flatMap(id => {
-          const str = String(id).trim()
-          if (!str) return []
-          const norm = normalizeEcuadorianPhone(str)
-          return norm && norm !== str ? [str, norm] : [str]
-        })
-    ))
+    const ids = await expandUserCreditIdentifiers(userIdentifiers)
 
     if (ids.length === 0) return { available: 0, referral: 0, manual: 0, docs: [] }
 
@@ -8829,16 +8859,7 @@ export async function useUserCreditsFlexible(
   orderId: string
 ): Promise<void> {
   try {
-    const ids = Array.from(new Set(
-      userIdentifiers
-        .filter(Boolean)
-        .flatMap(id => {
-          const str = String(id).trim()
-          if (!str) return []
-          const norm = normalizeEcuadorianPhone(str)
-          return norm && norm !== str ? [str, norm] : [str]
-        })
-    ))
+    const ids = await expandUserCreditIdentifiers(userIdentifiers)
 
     if (ids.length === 0) throw new Error('No se especificaron identificadores de usuario para descontar créditos')
 
@@ -9002,6 +9023,11 @@ export async function creditReferral(
       const docRef = snapshot.docs[0].ref
       const currentData = snapshot.docs[0].data()
       const referrals = currentData.referrals || []
+
+      // Evitar doble acreditación para la misma orden
+      if (referrals.some((r: any) => r.orderId === orderId)) {
+        return
+      }
 
       await updateDoc(docRef, {
         totalCredits: firestoreIncrement(0.25),

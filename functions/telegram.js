@@ -338,17 +338,47 @@ function getPaymentMethodText(orderData) {
 
 
 /**
+ * Calcular subtotal, envío, créditos aplicados y total efectivo a cobrar de una orden
+ */
+function getOrderFinancials(orderData) {
+    const itemsSubtotal = Array.isArray(orderData?.items)
+        ? orderData.items.reduce((sum, item) => {
+            const price = item.price ?? item.product?.price ?? 0;
+            return sum + (price * (item.quantity || 1));
+        }, 0)
+        : 0;
+    const rawTotal = Number(orderData?.total ?? orderData?.payment?.total ?? 0);
+    const creditUsed = Number(orderData?.creditUsed ?? orderData?.payment?.creditsAmount ?? 0);
+    const subtotal = (typeof orderData?.subtotal === 'number' && orderData.subtotal > 0)
+        ? orderData.subtotal
+        : (itemsSubtotal > 0
+            ? itemsSubtotal
+            : Math.max(0, rawTotal - (orderData?.delivery?.type === 'delivery' ? Number(orderData?.delivery?.deliveryCost ?? 0) : 0)));
+    const deliveryCost = orderData?.delivery?.type === 'pickup'
+        ? 0
+        : (orderData?.delivery?.deliveryCost !== undefined
+            ? Number(orderData.delivery.deliveryCost)
+            : (orderData?.delivery?.cost !== undefined
+                ? Number(orderData.delivery.cost)
+                : Math.max(0, rawTotal + creditUsed - subtotal)));
+    const grossTotal = subtotal + deliveryCost;
+    const effectiveTotal = Math.max(
+        0,
+        creditUsed > 0 && Math.abs(rawTotal - grossTotal) < 0.02
+            ? rawTotal - creditUsed
+            : rawTotal
+    );
+    return { subtotal, deliveryCost, creditUsed, grossTotal, effectiveTotal };
+}
+
+/**
  * Construir mapa de variables a partir de una orden
  */
 function buildTemplateVariables(orderData, businessName, options = {}, businessData = null) {
     const orderId = orderData.id || '';
     const customerName = orderData.customer?.name || 'No especificado';
     const phone = orderData.customer?.phone || '';
-    const total = orderData.total || 0;
-    const subtotal = orderData.subtotal || 0;
-    const deliveryCost = orderData.delivery?.deliveryCost !== undefined
-        ? orderData.delivery.deliveryCost
-        : Math.max(0, total - subtotal);
+    const { subtotal, deliveryCost, creditUsed, effectiveTotal: total } = getOrderFinancials(orderData);
     const paymentMethod = orderData.payment?.method || 'No especificado';
     let paymentMethodText = '';
     if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo';
@@ -460,6 +490,8 @@ function buildTemplateVariables(orderData, businessName, options = {}, businessD
         commission: `$${commissionAmount.toFixed(2)}`,
         commissionVal: commissionAmount.toFixed(2),
         deliveryCost: `$${deliveryCost.toFixed(2)}`,
+        creditUsed: creditUsed > 0 ? `$${creditUsed.toFixed(2)}` : '',
+        creditsLine: creditUsed > 0 ? `🎁 Crédito aplicado: -$${creditUsed.toFixed(2)}` : '',
         paymentMethod: paymentMethodText,
         deliveryAddress,
         deliveryType: deliveryTypeText,
@@ -554,6 +586,13 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
 
         if (template) {
             const variables = buildTemplateVariables(orderData, businessName, {}, businessData);
+            if (variables.creditsLine && !template.includes('creditsLine') && !template.includes('creditUsed')) {
+                if (template.includes('{{deliveryCost}}')) {
+                    template = template.replace(/(\{\{deliveryCost\}\})/g, '$1\n{{creditsLine}}');
+                } else if (template.includes('{{paymentMethod}}')) {
+                    template = template.replace(/(\{\{paymentMethod\}\})/g, '{{creditsLine}}\n$1');
+                }
+            }
             const rendered = renderTemplate(template, variables);
             if (rendered) {
                 let mapsLink = '';
@@ -610,11 +649,7 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
     else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia';
     else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto';
 
-    const total = orderData.total || 0;
-    const subtotal = orderData.subtotal || 0;
-    const deliveryCost = orderData.delivery?.deliveryCost !== undefined
-        ? orderData.delivery.deliveryCost
-        : Math.max(0, total - subtotal);
+    const { subtotal, deliveryCost, creditUsed, effectiveTotal: total } = getOrderFinancials(orderData);
     const commissionAmount = typeof orderData.totalCommission === 'number'
         ? orderData.totalCommission
         : (typeof orderData.commissionTotal === 'number'
@@ -727,7 +762,11 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
     text += `\n<b>Detalles del pago</b>\n`;
     text += `Pedido: $${storeSubtotal.toFixed(2)}\n`;
     text += `Comisión: $${commissionAmount.toFixed(2)}\n`;
-    text += `Delivery: $${deliveryCost.toFixed(2)}\n\n`;
+    text += `Delivery: $${deliveryCost.toFixed(2)}\n`;
+    if (creditUsed > 0) {
+        text += `🎁 Crédito aplicado: -$${creditUsed.toFixed(2)}\n`;
+    }
+    text += `\n`;
 
     text += `${paymentMethodText}\n`;
 
@@ -1396,11 +1435,12 @@ async function handleStoreWebhook(req, res) {
 
                             if (action === 'delivered') {
                                 const customerName = orderData.customer?.name || 'Cliente';
-                                const total = orderData.total || orderData.payment?.total || 0;
+                                const { creditUsed, effectiveTotal: total } = getOrderFinancials(orderData);
                                 const paymentMethodText = getPaymentMethodText(orderData);
+                                const creditLine = creditUsed > 0 ? `🎁 Crédito aplicado: -$${creditUsed.toFixed(2)}\n` : '';
 
                                 newText = `<b>${businessName}</b> • ${customerName}\n` +
-                                    `Total de pedido: $${total.toFixed(2)}\n` +
+                                    `${creditLine}Total de pedido: $${total.toFixed(2)}\n` +
                                     `${paymentMethodText}\n\n` +
                                     `✅ <b>Entregado</b>`;
                             } else if (action !== 'discard') {
@@ -1509,12 +1549,13 @@ async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated 
 
         if (orderData.status === 'ready' || orderData.status === 'delivered') {
             const customerName = orderData.customer?.name || 'Cliente';
-            const total = orderData.total || 0;
+            const { creditUsed, effectiveTotal: total } = getOrderFinancials(orderData);
             const paymentMethodText = getPaymentMethodText(orderData);
             const statusLabel = orderData.status === 'delivered' ? 'Entregado' : 'Listo';
+            const creditLine = creditUsed > 0 ? `🎁 Crédito aplicado: -$${creditUsed.toFixed(2)}\n` : '';
 
             syncText = `<b>${businessName}</b> • ${customerName}\n` +
-                       `Total de pedido: $${total.toFixed(2)}\n` +
+                       `${creditLine}Total de pedido: $${total.toFixed(2)}\n` +
                        `${paymentMethodText}\n\n` +
                        `✅ <b>${statusLabel}</b>`;
 
@@ -1675,15 +1716,11 @@ async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = f
 
         if (isConfirmedOrLater) {
             const customerName = orderData.customer?.name || 'No especificado';
-            
-            const subtotalVal = orderData.subtotal || 0;
+            const { subtotal: subtotalVal, deliveryCost: deliveryCostVal, creditUsed, effectiveTotal } = getOrderFinancials(orderData);
             const commissionVal = orderData.items?.reduce((sum, item) => {
                 const itemCommission = item.commission || 0;
                 return sum + (itemCommission * (item.quantity || 1));
             }, 0) || 0;
-            const deliveryCostVal = orderData.delivery?.deliveryCost !== undefined
-                ? orderData.delivery.deliveryCost
-                : Math.max(0, (orderData.total || 0) - subtotalVal);
 
             const paymentMethod = orderData.payment?.method || 'No especificado';
             let paymentMethodText = 'No especificado';
@@ -1702,13 +1739,21 @@ async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = f
                 borrador: 'Borrador'
             })[orderData.status] || (orderData.status || 'Confirmado');
 
+            const creditLine = creditUsed > 0 ? `🎁 Crédito aplicado: -$${creditUsed.toFixed(2)}\n` : '';
+            const cobrarLine = paymentMethod === 'cash'
+                ? `\n💰 Valor a cobrar: $${effectiveTotal.toFixed(2)}`
+                : (paymentMethod === 'mixed' && (orderData.payment?.cashAmount || 0) > 0
+                    ? `\n💰 Valor a cobrar: $${(orderData.payment.cashAmount || 0).toFixed(2)}`
+                    : '');
+
             syncText = `Tienda: ${businessName}\n` +
                        `Cliente: ${customerName}\n\n` +
                        `<b>Detalles del pago</b>\n` +
                        `Pedido: $${subtotalVal.toFixed(2)}\n` +
                        `Comisión: $${commissionVal.toFixed(2)}\n` +
-                       `Delivery: $${deliveryCostVal.toFixed(2)}\n\n` +
-                       `${paymentMethodText}\n\n` +
+                       `Delivery: $${deliveryCostVal.toFixed(2)}\n` +
+                       `${creditLine}\n` +
+                       `${paymentMethodText}${cobrarLine}\n\n` +
                        `${statusLabel}`;
 
             if (hasBeenUpdated) {
@@ -1997,15 +2042,16 @@ async function handleDeliveryWebhook(req, res) {
                                 // ... Lógica existente para delivered ...
                                 const customerName = orderData.customer?.name || 'Cliente';
                                 const references = orderData.delivery?.references || 'Sin referencias';
-                                const total = orderData.total || orderData.payment?.total || 0;
-                                const subtotal = orderData.subtotal || orderData.payment?.subtotal || 0;
-                                const deliveryCost = orderData.delivery?.deliveryCost || orderData.delivery?.cost || Math.max(0, total - subtotal);
+                                const { subtotal, deliveryCost, creditUsed, effectiveTotal: total } = getOrderFinancials(orderData);
                                 const paymentMethod = orderData.payment?.method || 'cash';
 
                                 newText = `<b>${businessName}</b> · ${customerName}\n`;
                                 newText += `${references}\n\n`;
                                 newText += `Pedido: $${subtotal.toFixed(2)}\n`;
                                 newText += `Envío: $${deliveryCost.toFixed(2)}\n`;
+                                if (creditUsed > 0) {
+                                    newText += `🎁 Crédito aplicado: -$${creditUsed.toFixed(2)}\n`;
+                                }
 
                                 if (paymentMethod === 'cash') {
                                     newText += `💵 Efectivo: $${total.toFixed(2)}`;
@@ -3214,16 +3260,7 @@ async function buildWhatsAppClipboardTextForOrder(orderData, businessData) {
         const productsListStandard = buildWhatsAppProductsList(orderData, false);
 
         // Totales y cálculos
-        const deliveryCost = orderData.delivery?.type === 'delivery' ? (orderData.delivery?.deliveryCost ?? 1) : 0;
-        const creditUsed = orderData.creditUsed || 0;
-        const subtotalVal = orderData.subtotal || Math.max(0, (orderData.total || 0) - deliveryCost);
-        const grossTotalVal = subtotalVal + deliveryCost;
-        const effectiveTotal = Math.max(
-            0,
-            creditUsed > 0 && Math.abs((orderData.total || 0) - grossTotalVal) < 0.02
-                ? (orderData.total || 0) - creditUsed
-                : (orderData.total || 0)
-        );
+        const { subtotal: subtotalVal, deliveryCost, creditUsed, effectiveTotal } = getOrderFinancials(orderData);
 
         // Timing
         let orderType = '⚡ Inmediato';
@@ -3286,6 +3323,12 @@ async function buildWhatsAppClipboardTextForOrder(orderData, businessData) {
 
         const templateKey = orderData.delivery?.type === 'delivery' ? 'delivery_assignment' : 'pickup_store_notification';
         const template = await getWhatsAppTemplate(templateKey);
+        const hasCreditsPlaceholder = template.includes('{{creditsLine}}');
+        const hasDeliveryCostPlaceholder = template.includes('{{deliveryCostLine}}');
+        const baseDeliveryCostLine = orderData.delivery?.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '';
+        if (!hasCreditsPlaceholder && !hasDeliveryCostPlaceholder && creditsLine) {
+            paymentDetailsBlock = `${creditsLine}${paymentDetailsBlock}`;
+        }
 
         const bizPhoneStr = businessData?.phone
             ? `+593${businessData.phone.replace(/\D/g, '').replace(/^0/, '')}`
@@ -3304,8 +3347,8 @@ async function buildWhatsAppClipboardTextForOrder(orderData, businessData) {
             locationLine,
             productsList: productsListStandard,
             subtotal: `$${subtotalVal.toFixed(2)}`,
-            deliveryCostLine: (orderData.delivery?.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '') + creditsLine,
-            creditsLine: '',
+            deliveryCostLine: hasCreditsPlaceholder ? baseDeliveryCostLine : (baseDeliveryCostLine + creditsLine),
+            creditsLine: hasCreditsPlaceholder ? creditsLine : '',
             paymentDetailsBlock,
             total: `$${effectiveTotal.toFixed(2)}`
         });
@@ -3356,9 +3399,8 @@ async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {
         const productsListWithPrice = buildWhatsAppProductsList(orderData, true);
 
         // Cost and Totals
-        const deliveryCost = orderData.delivery?.type === 'delivery' ? (orderData.delivery?.deliveryCost || 0) : 0;
-        const totalAmount = orderData.total || 0;
-        const subtotal = totalAmount - deliveryCost;
+        const { subtotal, deliveryCost, creditUsed, effectiveTotal: totalAmount } = getOrderFinancials(orderData);
+        const creditsLine = creditUsed > 0 ? `Créditos: -$${creditUsed.toFixed(2)}\n` : '';
 
         // Timing
         let orderType = '⚡ Inmediato';
@@ -3515,6 +3557,12 @@ async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {
 
                 const templateKey = orderData.delivery?.type === 'delivery' ? 'delivery_assignment' : 'pickup_store_notification';
                 const deliveryTemplate = await getWhatsAppTemplate(templateKey);
+                const hasCreditsPlaceholder = deliveryTemplate.includes('{{creditsLine}}');
+                const hasDeliveryCostPlaceholder = deliveryTemplate.includes('{{deliveryCostLine}}');
+                const baseDeliveryCostLine = orderData.delivery?.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '';
+                const deliveryPaymentBlock = (!hasCreditsPlaceholder && !hasDeliveryCostPlaceholder && creditsLine)
+                    ? `${creditsLine}${paymentDetailsBlock}`
+                    : paymentDetailsBlock;
                 const deliveryMsg = renderTemplate(deliveryTemplate, {
                     businessName: businessData.name || 'Tienda',
                     businessPhoneLine: bizPhoneStr ? `${bizPhoneStr}` : '',
@@ -3526,9 +3574,10 @@ async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {
                     references,
                     locationLine,
                     productsList: productsListStandard,
-                    subtotal: subtotal.toFixed(2),
-                    deliveryCostLine: orderData.delivery?.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '',
-                    paymentDetailsBlock,
+                    subtotal: `$${subtotal.toFixed(2)}`,
+                    deliveryCostLine: hasCreditsPlaceholder ? baseDeliveryCostLine : (baseDeliveryCostLine + creditsLine),
+                    creditsLine: hasCreditsPlaceholder ? creditsLine : '',
+                    paymentDetailsBlock: deliveryPaymentBlock,
                     total: totalAmount.toFixed(2)
                 });
                 urls.delivery = `https://wa.me/${normalizePhoneForWhatsApp(deliveryPhone)}?text=${encodeURIComponent(deliveryMsg)}`;

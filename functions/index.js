@@ -49,13 +49,75 @@ async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
     }
   }
 
-  // Si la orden fue entregada, borrar el mensaje de recordatorio enviado a la tienda
+  // Si la orden fue entregada, borrar el mensaje de recordatorio enviado a la tienda y acreditar referido si aplica
   if (afterData.status === 'delivered') {
     try {
       await telegramServices.deleteBusinessReminderTelegramMessages(afterData, orderId);
       console.log(`✅ [Telegram] Recordatorio de tienda eliminado tras entrega de orden ${orderId}`);
     } catch (err) {
       console.error(`❌ [Telegram] Error eliminando recordatorio de tienda para orden ${orderId}:`, err);
+    }
+
+    if (afterData.referralCode && afterData.businessId) {
+      try {
+        const db = admin.firestore();
+        const referralsSnap = await db.collection('referrals')
+          .where('referralCode', '==', afterData.referralCode)
+          .limit(1)
+          .get();
+
+        if (!referralsSnap.empty) {
+          const referral = referralsSnap.docs[0].data();
+          const referrerId = referral.createdBy;
+          const customerId = afterData.customer?.id || afterData.customer?.phone || '';
+
+          if (referrerId && referrerId !== customerId) {
+            const creditsSnap = await db.collection('userCredits')
+              .where('userId', '==', referrerId)
+              .limit(1)
+              .get();
+
+            const referralRecord = {
+              referralCode: afterData.referralCode,
+              referredUserId: customerId,
+              orderId,
+              creditAmount: 0.25,
+              status: 'completed',
+              createdAt: new Date(),
+              completedAt: new Date()
+            };
+
+            if (!creditsSnap.empty) {
+              const docRef = creditsSnap.docs[0].ref;
+              const currentData = creditsSnap.docs[0].data();
+              const existingReferrals = currentData.referrals || [];
+              if (!existingReferrals.some(r => r.orderId === orderId)) {
+                await docRef.update({
+                  totalCredits: admin.firestore.FieldValue.increment(0.25),
+                  availableCredits: admin.firestore.FieldValue.increment(0.25),
+                  referrals: [...existingReferrals, referralRecord],
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`✅ [Referidos] Acreditados $0.25 a ${referrerId} por orden ${orderId}`);
+              }
+            } else {
+              await db.collection('userCredits').add({
+                userId: referrerId,
+                businessId: afterData.businessId,
+                totalCredits: 0.25,
+                availableCredits: 0.25,
+                usedCredits: 0,
+                referrals: [referralRecord],
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+              });
+              console.log(`✅ [Referidos] Creado registro de créditos ($0.25) para ${referrerId} por orden ${orderId}`);
+            }
+          }
+        }
+      } catch (refErr) {
+        console.error(`❌ [Referidos] Error acreditando referido para orden ${orderId}:`, refErr);
+      }
     }
   }
 
@@ -534,6 +596,9 @@ async function updateTelegramMessagesOnOrderChange(beforeData, afterData, orderI
     JSON.stringify(beforeData.items) !== JSON.stringify(afterData.items),
     // Subtotal
     beforeData.subtotal !== afterData.subtotal,
+    // Créditos aplicados
+    beforeData.creditUsed !== afterData.creditUsed,
+    beforeData.payment?.creditsAmount !== afterData.payment?.creditsAmount,
     // Tipo de entrega
     beforeData.delivery?.type !== afterData.delivery?.type,
     // Horario programado
@@ -1409,9 +1474,12 @@ exports.sendDailyDeliveryClosureReports = onSchedule({
 
       const getEffectiveOrderTotal = (o) => {
         if (!o) return 0;
-        const subtotal = o.subtotal ?? 0;
+        const itemsSubtotal = Array.isArray(o.items)
+          ? o.items.reduce((sum, item) => sum + ((item.price ?? item.product?.price ?? 0) * (item.quantity || 1)), 0)
+          : 0;
+        const subtotal = (typeof o.subtotal === 'number' && o.subtotal > 0) ? o.subtotal : itemsSubtotal;
         const deliveryFee = o.delivery?.deliveryCost ?? 0;
-        const creditUsed = o.creditUsed ?? 0;
+        const creditUsed = Number(o.creditUsed ?? o.payment?.creditsAmount ?? 0);
         const grossTotal = subtotal + deliveryFee;
         if (creditUsed > 0 && Math.abs((o.total ?? 0) - grossTotal) < 0.02) {
           return Math.max(0, (o.total ?? 0) - creditUsed);
@@ -1463,7 +1531,7 @@ exports.sendDailyDeliveryClosureReports = onSchedule({
           if (cashOrders.length > 0) {
             message += `\n<b>Efectivo</b>\n`;
             cashOrders.forEach(o => {
-              const amount = o.payment?.method === 'mixed' ? (o.payment?.cashAmount || 0) : (o.total || 0);
+              const amount = o.payment?.method === 'mixed' ? (o.payment?.cashAmount || 0) : getEffectiveOrderTotal(o);
               const customerName = o.customer?.name || 'Cliente';
               message += `° ${customerName} $${formatMoney(amount)}\n`;
             });

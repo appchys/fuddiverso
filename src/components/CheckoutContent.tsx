@@ -994,6 +994,9 @@ export function CheckoutContent({
     }
   }, [user])
 
+  const userToggledCreditsRef = useRef(false)
+  const userEditedCreditAmountRef = useRef(false)
+
   // Cargar créditos del usuario para este negocio o cuenta global
   useEffect(() => {
     const loadUserCredits = async () => {
@@ -1001,6 +1004,7 @@ export function CheckoutContent({
         user?.id,
         user?.celular,
         clientFound?.id,
+        clientFound?.celular,
         clientFound?.phone,
         customerData.phone
       ].filter(Boolean) as string[]
@@ -1023,7 +1027,40 @@ export function CheckoutContent({
     }
 
     void loadUserCredits()
-  }, [user?.id, user?.celular, clientFound?.id, clientFound?.phone, customerData.phone])
+  }, [user?.id, user?.celular, clientFound?.id, clientFound?.celular, clientFound?.phone, customerData.phone])
+
+  // Activar y sincronizar automáticamente los créditos disponibles si el usuario no los desactivó ni editó manualmente
+  useEffect(() => {
+    const sub = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
+    const delCost = deliveryData.type === 'delivery' ? getDeliveryCost() : 0
+    const finalDelCost = isFreeDeliveryActive ? 0 : delCost
+    const totalBefore = sub + finalDelCost
+
+    if (userCredits.available <= 0) {
+      if (paymentData.useCredits || (paymentData.creditsAmount || 0) > 0) {
+        setPaymentData(prev => ({ ...prev, useCredits: false, creditsAmount: 0 }))
+        setCreditInputStr('')
+      }
+      return
+    }
+
+    const maxPossible = Math.round(Math.min(userCredits.available, totalBefore) * 100) / 100
+
+    if (!userToggledCreditsRef.current && !paymentData.useCredits && maxPossible > 0) {
+      setPaymentData(prev => ({
+        ...prev,
+        useCredits: true,
+        creditsAmount: maxPossible
+      }))
+      setCreditInputStr(maxPossible.toString())
+    } else if (paymentData.useCredits && !userEditedCreditAmountRef.current && Math.abs((paymentData.creditsAmount || 0) - maxPossible) > 0.005) {
+      setPaymentData(prev => ({
+        ...prev,
+        creditsAmount: maxPossible
+      }))
+      setCreditInputStr(maxPossible > 0 ? maxPossible.toString() : '')
+    }
+  }, [userCredits.available, cartItems, deliveryData.type, deliveryData.tarifa, selectedLocation?.tarifa, isFreeDeliveryActive])
 
   // Cargar ubicaciones guardadas del cliente loggeado (funciona tanto embebido como /checkout)
   useEffect(() => {
@@ -2291,10 +2328,18 @@ export function CheckoutContent({
       // Calcular todos los valores necesarios primero
       const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
       const deliveryCost = deliveryData.type === 'delivery' ? (verifiedDeliveryCost ?? getDeliveryCost()) : 0;
-      const creditToApply = paymentData.useCredits ? (paymentData.creditsAmount || 0) : 0;
       // Si la campaña de delivery gratis aplica, el cliente no paga el costo de envío
       const clientDeliveryCost = isFreeDeliveryActive ? 0 : deliveryCost;
-      const total = Math.max(0, subtotal + clientDeliveryCost - creditToApply);
+      const totalBeforeCreditsSubmit = subtotal + clientDeliveryCost;
+      const rawCreditAmount = paymentData.useCredits
+        ? (userEditedCreditAmountRef.current
+            ? (paymentData.creditsAmount || 0)
+            : Math.min(userCredits.available, totalBeforeCreditsSubmit))
+        : 0;
+      const creditToApply = paymentData.useCredits
+        ? Math.round(Math.min(rawCreditAmount, userCredits.available, totalBeforeCreditsSubmit) * 100) / 100
+        : 0;
+      const total = Math.max(0, totalBeforeCreditsSubmit - creditToApply);
       const businessId = embeddedBusinessId || searchParams?.get('businessId') || business?.id || cartItems?.[0]?.originalBusinessId || ''
 
       // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
@@ -2408,6 +2453,10 @@ export function CheckoutContent({
           }),
           ...(paymentData.receiptImageUrl && {
             receiptImageUrl: paymentData.receiptImageUrl
+          }),
+          ...(creditToApply > 0 && {
+            useCredits: true,
+            creditsAmount: creditToApply
           })
         },
         total,
@@ -2442,6 +2491,7 @@ export function CheckoutContent({
             user?.id,
             user?.celular,
             clientFound?.id,
+            clientFound?.celular,
             clientFound?.phone,
             customerData.phone
           ].filter(Boolean) as string[]
@@ -3512,6 +3562,8 @@ export function CheckoutContent({
                                   checked={!!paymentData.useCredits}
                                   onChange={(e) => {
                                     const checked = e.target.checked
+                                    userToggledCreditsRef.current = true
+                                    userEditedCreditAmountRef.current = false
                                     const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
                                     const roundedMaxPossible = Math.round(maxPossible * 100) / 100
                                     setCreditInputStr(checked ? roundedMaxPossible.toString() : '')
@@ -3534,6 +3586,8 @@ export function CheckoutContent({
                                     <button
                                       type="button"
                                       onClick={() => {
+                                        userToggledCreditsRef.current = true
+                                        userEditedCreditAmountRef.current = false
                                         const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
                                         const roundedMax = Math.round(maxPossible * 100) / 100
                                         setCreditInputStr(roundedMax.toString())
@@ -3559,6 +3613,8 @@ export function CheckoutContent({
                                         onChange={(e) => {
                                           const raw = e.target.value.replace(',', '.')
                                           if (raw === '' || /^\d*\.?\d{0,2}$/.test(raw)) {
+                                            userToggledCreditsRef.current = true
+                                            userEditedCreditAmountRef.current = true
                                             setCreditInputStr(raw)
                                             const parsed = parseFloat(raw)
                                             const maxAllowed = Math.min(userCredits.available, totalBeforeCredits)

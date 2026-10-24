@@ -1365,6 +1365,9 @@ export default function AdminPedidosPage() {
             level: 'info'
         })
 
+        const checkoutSubtotal = checkoutSession.cartItems?.reduce((acc: number, item: any) => acc + ((item.price || item.product?.price || 0) * item.quantity), 0) || 0
+        const checkoutDeliveryCost = checkoutSession.deliveryData?.type === 'pickup' ? 0 : parseFloat(checkoutSession.deliveryData?.tarifa || '0')
+        const checkoutCreditUsed = (checkoutSession.paymentData as any)?.useCredits ? Number((checkoutSession.paymentData as any)?.creditsAmount || 0) : 0
         const tempOrder: any = {
             id: `checkout-${checkoutSession.id}`,
             businessId: checkoutSession.businessId || checkoutSession.cartItems?.[0]?.originalBusinessId || business?.id || '',
@@ -1373,7 +1376,7 @@ export default function AdminPedidosPage() {
                 type: checkoutSession.deliveryData?.type || 'delivery',
                 address: checkoutSession.deliveryData?.address || '',
                 references: checkoutSession.deliveryData?.references || '',
-                deliveryCost: parseFloat(checkoutSession.deliveryData?.tarifa || '0'),
+                deliveryCost: checkoutDeliveryCost,
                 latlong: checkoutSession.deliveryData?.latlong || '',
                 photo: (checkoutSession.deliveryData as any)?.photo || ''
             },
@@ -1383,7 +1386,9 @@ export default function AdminPedidosPage() {
                 paymentStatus: 'pending'
             },
             items: checkoutSession.cartItems,
-            total: (checkoutSession.cartItems?.reduce((acc: number, item: any) => acc + ((item.price || item.product?.price || 0) * item.quantity), 0) || 0) + (parseFloat(checkoutSession.deliveryData?.tarifa || '0')),
+            subtotal: checkoutSubtotal,
+            creditUsed: checkoutCreditUsed,
+            total: Math.max(0, checkoutSubtotal + checkoutDeliveryCost - checkoutCreditUsed),
             status: 'pending',
             createdAt: new Date(),
             checkoutSessionId: checkoutSession.id,

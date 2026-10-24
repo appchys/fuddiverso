@@ -545,6 +545,13 @@ export default function ManualOrderSidebar({
     }
   }
 
+  // En modo edición de una orden ya creada, el saldo que la orden ya tenía aplicado
+  // ya fue descontado de la billetera al crearse, por lo que sigue formando parte del saldo disponible para esta orden.
+  const existingOrderCredit = (mode === 'edit' && editOrder && !editOrder._isFromCheckout && !editOrder.id?.startsWith('checkout-'))
+    ? Number((editOrder as any).creditUsed || (editOrder.payment as any)?.creditsAmount || 0)
+    : 0
+  const effectiveAvailableCredits = Math.round((userCredits.available + existingOrderCredit) * 100) / 100
+
   // Cargar saldo de créditos del cliente seleccionado
   useEffect(() => {
     const loadUserCredits = async () => {
@@ -557,9 +564,11 @@ export default function ManualOrderSidebar({
 
       if (identifiers.length === 0) {
         setUserCredits({ available: 0, referral: 0, manual: 0 })
-        setUseCredits(false)
-        setCreditsAmount(0)
-        setCreditInputStr('')
+        if (!existingOrderCredit) {
+          setUseCredits(false)
+          setCreditsAmount(0)
+          setCreditInputStr('')
+        }
         return
       }
 
@@ -576,22 +585,23 @@ export default function ManualOrderSidebar({
     }
 
     void loadUserCredits()
-  }, [manualOrderData.customerId, manualOrderData.customerPhone, editingClient?.id, editingClient?.celular])
+  }, [manualOrderData.customerId, manualOrderData.customerPhone, editingClient?.id, editingClient?.celular, existingOrderCredit])
 
-  // Recalcular total cuando cambie la ubicación seleccionada o el tipo de entrega
+  // Recalcular total cuando cambie la ubicación seleccionada, el tipo de entrega o los créditos
   useEffect(() => {
-    // Si cambia la ubicación o el tipo de entrega, reseteamos el costo de envío personalizado
     setManualOrderData(prev => {
       const subtotal = prev.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+      const customCost = prev.customDeliveryCost
       const deliveryCost = prev.deliveryType === 'delivery'
-        ? (prev.selectedLocation?.latlong ? parseFloat(prev.selectedLocation?.tarifa || '0') : 1.25)
+        ? (customCost !== null && customCost !== undefined
+            ? customCost
+            : (prev.selectedLocation?.latlong ? parseFloat(prev.selectedLocation?.tarifa || '0') : 1.25))
         : 0
       const totalBeforeCredits = subtotal + deliveryCost
-      const creditToApply = useCredits ? Math.min(creditsAmount || 0, userCredits.available, totalBeforeCredits) : 0
+      const creditToApply = useCredits ? Math.min(creditsAmount || 0, effectiveAvailableCredits, totalBeforeCredits) : 0
       const total = Math.max(0, totalBeforeCredits - creditToApply)
       return {
         ...prev,
-        customDeliveryCost: null,
         total: total,
         ...(prev.paymentMethod === 'mixed' && (prev.cashAmount === 0 && prev.transferAmount === 0) && {
           cashAmount: total / 2,
@@ -599,7 +609,7 @@ export default function ManualOrderSidebar({
         })
       }
     })
-  }, [manualOrderData.selectedLocation, manualOrderData.deliveryType, useCredits, creditsAmount, userCredits.available])
+  }, [manualOrderData.selectedLocation, manualOrderData.deliveryType, useCredits, creditsAmount, effectiveAvailableCredits])
 
   // Eliminar el useEffect que calculaba tarifa automáticamente al cambiar deliveryType
   // Ahora el cálculo se hace explícitamente al seleccionar o crear una ubicación
@@ -741,6 +751,11 @@ export default function ManualOrderSidebar({
         comboSelection: it.comboSelection || undefined,
         image: it.image || ''
       }))
+
+      const prefillCredit = Number((eo as any).creditUsed || (eo.payment as any)?.creditsAmount || 0)
+      setUseCredits(prefillCredit > 0)
+      setCreditsAmount(prefillCredit)
+      setCreditInputStr(prefillCredit > 0 ? String(prefillCredit) : '')
 
       setManualOrderData(prev => ({
         ...prev,
@@ -2786,7 +2801,7 @@ export default function ManualOrderSidebar({
           : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
       : 0
     const totalBeforeCredits = subtotal + deliveryCost
-    const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
+    const maxPossible = Math.min(effectiveAvailableCredits, totalBeforeCredits)
     const roundedMax = Math.round(maxPossible * 100) / 100
 
     setUseCredits(checked)
@@ -2804,7 +2819,7 @@ export default function ManualOrderSidebar({
           : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
       : 0
     const totalBeforeCredits = subtotal + deliveryCost
-    const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
+    const maxPossible = Math.min(effectiveAvailableCredits, totalBeforeCredits)
     const roundedMax = Math.round(maxPossible * 100) / 100
 
     setUseCredits(true)
@@ -2826,7 +2841,7 @@ export default function ManualOrderSidebar({
             : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
         : 0
       const totalBeforeCredits = subtotal + deliveryCost
-      const maxAllowed = Math.min(userCredits.available, totalBeforeCredits)
+      const maxAllowed = Math.min(effectiveAvailableCredits, totalBeforeCredits)
 
       if (!isNaN(parsed) && parsed > 0) {
         const amount = Math.min(parsed, maxAllowed)
@@ -2863,7 +2878,7 @@ export default function ManualOrderSidebar({
     const activeUseCredits = overrideUseCredits !== undefined ? overrideUseCredits : useCredits
     const activeCreditsAmount = overrideCreditsAmount !== undefined ? overrideCreditsAmount : creditsAmount
 
-    const creditToApply = activeUseCredits ? Math.min(activeCreditsAmount || 0, userCredits.available, totalBeforeCredits) : 0
+    const creditToApply = activeUseCredits ? Math.min(activeCreditsAmount || 0, effectiveAvailableCredits, totalBeforeCredits) : 0
     const total = Math.max(0, totalBeforeCredits - creditToApply)
 
     setManualOrderData(prev => ({
@@ -3099,7 +3114,7 @@ export default function ManualOrderSidebar({
                 ? customCost
                 : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
             : 0
-          return useCredits ? Math.min(creditsAmount || 0, userCredits.available, sub + del) : 0
+          return useCredits ? Math.min(creditsAmount || 0, effectiveAvailableCredits, sub + del) : 0
         })(),
         status: finalStatus as any,
         createdByAdmin: true,
@@ -3199,6 +3214,8 @@ export default function ManualOrderSidebar({
               delivery: orderData.delivery,
               timing: orderData.timing,
               payment: orderData.payment,
+              subtotal: orderData.subtotal,
+              creditUsed: orderData.creditUsed,
               total: orderData.total,
               status: finalStatus,
               updatedAt: new Date(),
@@ -4491,12 +4508,12 @@ export default function ManualOrderSidebar({
               )}
 
               {/* Descuento por Saldo */}
-              {useCredits && Math.min(creditsAmount || 0, userCredits.available) > 0 && (
+              {useCredits && Math.min(creditsAmount || 0, effectiveAvailableCredits) > 0 && (
                 <div className="flex justify-between text-xs font-semibold text-emerald-700 py-0.5">
                   <span className="flex items-center gap-1">
                     <i className="bi bi-gift-fill text-emerald-600"></i> Saldo aplicado:
                   </span>
-                  <span>-${Math.min(creditsAmount || 0, userCredits.available, (manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0) + (manualOrderData.deliveryType === 'delivery' ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)) : 0))).toFixed(2)}</span>
+                  <span>-${Math.min(creditsAmount || 0, effectiveAvailableCredits, (manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0) + (manualOrderData.deliveryType === 'delivery' ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)) : 0))).toFixed(2)}</span>
                 </div>
               )}
 
@@ -4509,7 +4526,7 @@ export default function ManualOrderSidebar({
             </div>
 
             {/* Opción de Pago con Créditos / Saldo disponible */}
-            {userCredits.available > 0 && (
+            {effectiveAvailableCredits > 0 && (
               <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
                 <div className="bg-emerald-50/90 border border-emerald-200 rounded-xl p-3.5 transition-all shadow-xs">
                   <div className="flex items-center justify-between">
@@ -4520,7 +4537,7 @@ export default function ManualOrderSidebar({
                       <div>
                         <span className="text-xs font-bold text-gray-900 block leading-tight">Pagar con Saldo del Cliente</span>
                         <p className="text-[11px] font-medium text-emerald-800">
-                          Disponible: <span className="font-bold">${userCredits.available.toFixed(2)}</span>
+                          Disponible: <span className="font-bold">${effectiveAvailableCredits.toFixed(2)}</span>
                         </p>
                       </div>
                     </div>
@@ -4546,7 +4563,7 @@ export default function ManualOrderSidebar({
                             onClick={handleUseAllCredits}
                             className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-300 hover:bg-emerald-100 rounded-lg px-2 py-1 transition-colors shadow-xs"
                           >
-                            Usar todo (${Math.min(userCredits.available, (manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0) + (manualOrderData.deliveryType === 'delivery' ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)) : 0))).toFixed(2)})
+                            Usar todo (${Math.min(effectiveAvailableCredits, (manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0) + (manualOrderData.deliveryType === 'delivery' ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)) : 0))).toFixed(2)})
                           </button>
 
                           <div className="flex items-center gap-1 bg-white border border-emerald-300 rounded-lg px-2.5 py-1 shadow-xs focus-within:ring-2 focus-within:ring-emerald-500 transition-all">
@@ -4566,7 +4583,7 @@ export default function ManualOrderSidebar({
                                     ? (manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined ? manualOrderData.customDeliveryCost : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25))
                                     : 0
                                   const totalBeforeCredits = subtotal + deliveryCost
-                                  const maxAllowed = Math.min(userCredits.available, totalBeforeCredits)
+                                  const maxAllowed = Math.min(effectiveAvailableCredits, totalBeforeCredits)
                                   const amount = Math.min(parsed, maxAllowed)
                                   setCreditInputStr(amount.toString())
                                 }
