@@ -497,6 +497,8 @@ const businessByIdCache = new Map<string, { business: Business; timestamp: numbe
 const productsByBusinessCache = new Map<string, { products: Product[]; timestamp: number }>()
 
 const CACHE_TTL = 30 * 60 * 1000 // 30 minutos de persistencia en sesión (revalida en tiempo real con Firestore)
+const SERVER_CACHE_TTL = 15 * 1000 // 15 segundos en servidor (SSR) para acelerar picos de tráfico manteniendo datos frescos
+const getEffectiveCacheTTL = () => (typeof window === 'undefined' ? SERVER_CACHE_TTL : CACHE_TTL)
 
 export function cacheBusiness(business: Business) {
   if (!business) return
@@ -514,7 +516,7 @@ export function getCachedBusinessByUsername(username: string): Business | null {
   if (!username) return null
   const lower = username.toLowerCase()
   const cached = businessByUsernameCache.get(lower)
-  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+  if (cached && (Date.now() - cached.timestamp < getEffectiveCacheTTL())) {
     return cached.business
   }
   if (typeof window !== 'undefined') {
@@ -566,7 +568,7 @@ export function cacheProductsByBusiness(businessId: string, products: Product[])
 export function getCachedProductsByBusiness(businessId: string): Product[] | null {
   if (!businessId) return null
   const cached = productsByBusinessCache.get(businessId)
-  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+  if (cached && (Date.now() - cached.timestamp < getEffectiveCacheTTL())) {
     return cached.products
   }
   if (typeof window !== 'undefined') {
@@ -1076,22 +1078,13 @@ export async function getProductsByBusiness(businessId: string, forceRefresh: bo
   }
 
   try {
-    let querySnapshot
-    try {
-      const q = query(
-        collection(db, 'products'),
-        where('businessId', '==', businessId),
-        orderBy('createdAt', 'desc')
-      )
-      querySnapshot = await getDocs(q)
-    } catch (err) {
-      console.warn('Fallback to query without orderBy for products:', err)
-      const fallbackQ = query(
-        collection(db, 'products'),
-        where('businessId', '==', businessId)
-      )
-      querySnapshot = await getDocs(fallbackQ)
-    }
+    // Consultar directamente por businessId (usa el índice simple automático sin fallar por índice compuesto
+    // ni excluir documentos antiguos sin campo createdAt) y ordenar en memoria inmediatamente abajo.
+    const q = query(
+      collection(db, 'products'),
+      where('businessId', '==', businessId)
+    )
+    const querySnapshot = await getDocs(q)
 
     const products = querySnapshot.docs.map(doc => {
       const data = doc.data()
@@ -1105,8 +1098,8 @@ export async function getProductsByBusiness(businessId: string, forceRefresh: bo
 
     // Asegurar ordenamiento descendente en memoria
     products.sort((a, b) => {
-      const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
-      const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
+      const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : (a.createdAt ? new Date(a.createdAt as any).getTime() : 0)
+      const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : (b.createdAt ? new Date(b.createdAt as any).getTime() : 0)
       return dateB - dateA
     })
 
@@ -3520,10 +3513,10 @@ export async function migrateAdminEmailsField(): Promise<{
 
 
 // Función para obtener todas las sucursales de un negocio (o hermanos si el negocio actual es sucursal)
-export async function getBranchesForBusiness(businessId: string): Promise<Business[]> {
+export async function getBranchesForBusiness(businessId: string, existingBusiness?: Business | null): Promise<Business[]> {
   try {
     if (!businessId) return []
-    const currentBiz = await getBusiness(businessId)
+    const currentBiz = (existingBusiness && existingBusiness.id === businessId) ? existingBusiness : await getBusiness(businessId)
     if (!currentBiz) return []
 
     const rootId = currentBiz.parentBusinessId || businessId

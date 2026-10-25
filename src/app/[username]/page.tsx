@@ -5,11 +5,79 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating, syncProductsStockAvailability } from '@/lib/database'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, cacheBusiness, cacheProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating, syncProductsStockAvailability } from '@/lib/database'
+function prepareInitialStoreProducts(
+  targetBiz: Business,
+  productsData: Product[],
+  sharedProducts: Product[] = [],
+  ownerBizs: Business[] = []
+): Product[] {
+  const storePackagingFee = getPackagingFee(targetBiz)
+
+  const initialAvailable = productsData
+    .filter(product => {
+      if (product.isAvailable === false) return false
+      if (product.autoHideByStock && product.isStockAvailable === false) {
+        return false
+      }
+      return true
+    })
+    .map(product => {
+      let availableVariants = product.variants
+      if (product.variants && product.variants.length > 0) {
+        availableVariants = product.variants.filter(v => {
+          if (v.isAvailable === false) return false
+          if (v.autoHideByStock && v.isStockAvailable === false) return false
+          return true
+        })
+      }
+
+      return {
+        ...product,
+        packagingFee: storePackagingFee,
+        variants: availableVariants
+      }
+    })
+    .filter(product => {
+      const originalProd = productsData.find(p => p.id === product.id)
+      if (product.autoHideByStock && originalProd?.variants && originalProd.variants.length > 0) {
+        return Boolean(product.variants && product.variants.length > 0)
+      }
+      return true
+    })
+
+  if (!sharedProducts || sharedProducts.length === 0) {
+    return initialAvailable
+  }
+
+  const availableShared = sharedProducts
+    .filter(p => {
+      if (p.isAvailable === false) return false
+      if (p.autoHideByStock && p.isStockAvailable === false) return false
+      const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+      if (!ownerBiz || ownerBiz.isActive === false) return false
+      return isStoreOpen(ownerBiz)
+    })
+    .map(p => {
+      const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+      return {
+        ...p,
+        category: 'Compartidos',
+        isShared: true,
+        packagingFee: storePackagingFee,
+        variants: p.variants,
+        originalBusinessId: p.businessId,
+        originalBusinessName: ownerBiz?.name || 'Otra tienda',
+        originalBusinessImage: ownerBiz?.image || undefined
+      } as Product
+    })
+
+  return [...initialAvailable, ...availableShared]
+}
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { isStoreOpen, getNextOpeningMessage, formatBusinessName } from '@/lib/store-utils'
+import { isStoreOpen, getNextOpeningMessage, formatBusinessName, getEcuadorDate } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import { Store, LayoutGrid, Share2, Settings, Star, Heart, ChevronDown } from 'lucide-react'
@@ -107,7 +175,7 @@ function getMinVariantPrice(variants: any[], biz: any): number {
   return prices.length > 0 ? Math.min(...prices) : 0
 }
 
-const ProductVariantSelector = memo(function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral, hasRecommended, referralCount, business }: {
+const ProductVariantSelector = memo(function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral, hasRecommended, referralCount, business, priority = false }: {
   product: any,
   onAddToCart: (item: any) => void,
   onShowDetails: (product: any) => void,
@@ -118,9 +186,9 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
   onGenerateReferral: (product: any) => void,
   hasRecommended?: boolean,
   referralCount?: number,
-  business?: any
+  business?: any,
+  priority?: boolean
 }) {
-  const [imgLoaded, setImgLoaded] = useState(false)
   const [showFeeTooltip, setShowFeeTooltip] = useState(false)
   const handleCardClick = () => onShowDetails(product)
 
@@ -160,8 +228,7 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
       </button>
 
       {/* Imagen del producto */}
-      <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 hover:opacity-90 transition-opacity">
-        <div className={`absolute inset-0 animate-pulse bg-gray-100 ${imgLoaded ? 'hidden' : 'block'}`}></div>
+      <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100 relative border border-gray-100">
         <img
           src={product.image || businessImage}
           alt={product.name}
@@ -171,15 +238,14 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
             transformOrigin: product.imagePosition || 'center',
             transform: product.imageScale && product.imageScale > 1 ? `scale(${product.imageScale})` : undefined
           }}
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : "auto"}
           decoding="async"
-          onLoad={() => setImgLoaded(true)}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             if (target.src !== (businessImage || '')) {
               target.src = businessImage || '';
             }
-            setImgLoaded(true)
           }}
         />
       </div>
@@ -464,8 +530,6 @@ function RestaurantContent() {
     }
   )
   const [premioAgregado, setPremioAgregado] = useState(false)
-  const [coverLoaded, setCoverLoaded] = useState(false)
-  const [logoLoaded, setLogoLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState<'catalogo' | 'perfil' | 'calificaciones'>('catalogo')
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
@@ -638,13 +702,22 @@ function RestaurantContent() {
     }
   }, [business?.id, user?.id])
 
-  // Cargar sucursales de la marca si existen
+  // Cargar sucursales de la marca SOLO si el negocio pertenece a una red de sucursales
   useEffect(() => {
     if (!business?.id) return
-    getBranchesForBusiness(business.id)
+    const hasBranchNetwork = Boolean(
+      business.parentBusinessId ||
+      business.isBranch ||
+      ((business as any).branches && Array.isArray((business as any).branches) && (business as any).branches.length > 0)
+    )
+    if (!hasBranchNetwork) {
+      setBranches([])
+      return
+    }
+    getBranchesForBusiness(business.id, business)
       .then(list => setBranches(list))
       .catch(err => console.error('Error loading branches in store:', err))
-  }, [business?.id])
+  }, [business?.id, business?.parentBusinessId, business?.isBranch])
 
   // Lightweight isOwner check from localStorage — avoids loading Firebase Auth SDK for all visitors
   useEffect(() => {
@@ -664,151 +737,127 @@ function RestaurantContent() {
   // Track whether products have been loaded for this username to avoid re-fetching on real-time updates
   const productsLoadedRef = useRef(false)
 
-  // Carga e inicialización de productos de la tienda (inmediata + enriquecimiento en segundo plano)
-  const loadProductsForStore = useCallback(async (targetBiz: Business) => {
-    try {
-      // Handle visit increment (Non-blocking background call)
+  // Carga diferida de tareas secundarias (visita + otras tiendas) para no competir con el menú ni las imágenes
+  const scheduleBackgroundStoreTasks = useCallback((targetBiz: Business) => {
+    const timer = setTimeout(() => {
       try {
         const sessionKey = `visited:${targetBiz.id}`
         if (!sessionStorage.getItem(sessionKey)) {
           sessionStorage.setItem(sessionKey, '1')
-          incrementVisitFirestore(targetBiz.id).catch(e => {
+          incrementVisitFirestore(targetBiz.id).catch(() => {
             const pendingRaw = localStorage.getItem('pendingVisits')
             const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
             pending[targetBiz.id] = (pending[targetBiz.id] || 0) + 1
             localStorage.setItem('pendingVisits', JSON.stringify(pending))
-            console.warn('Failed to increment visit in Firestore, stored pendingVisits locally')
           })
         }
       } catch (e) {
         console.error('Error handling visit increment:', e)
       }
 
+      const otherQ = query(
+        collection(db, 'businesses'),
+        where('isActive', '==', true),
+        limit(6)
+      )
+      getDocs(otherQ).then(snap => {
+        const others = snap.docs
+          .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() || d.data().createdAt } as Business))
+          .filter(b => b.username !== username && b.isHidden !== true && b.businessType !== 'distributor')
+          .sort(() => 0.5 - Math.random())
+          .slice(0, 4)
+        setOtherBusinesses(others)
+      }).catch(e => console.error('Error loading other businesses:', e))
+    }, 2500)
+
+    return () => clearTimeout(timer)
+  }, [username])
+
+  // Carga e inicialización de productos de la tienda (inmediata + enriquecimiento en segundo plano solo si aplica)
+  const loadProductsForStore = useCallback(async (targetBiz: Business) => {
+    try {
+      scheduleBackgroundStoreTasks(targetBiz)
+
       const storePackagingFee = getPackagingFee(targetBiz)
       const hasShared = Boolean(targetBiz.sharedProductIds && targetBiz.sharedProductIds.length > 0)
 
-      // 1. CARGA DE PRODUCTOS: Obtener productos propios del negocio
+      // 1. CARGA DE PRODUCTOS: Obtener productos propios del negocio y mostrarlos de inmediato
       const productsData = await getProductsByBusiness(targetBiz.id)
+      const initialAvailable = prepareInitialStoreProducts(targetBiz, productsData)
 
-      // Verificar si hay productos que requieren control por stock pero aún no tienen isStockAvailable persistido en Firebase
+      setProducts(initialAvailable)
+      setLoading(false)
+
+      // Verificar si hay productos antiguos con autoHideByStock que aún no tienen isStockAvailable persistido
       const needsInitialStockSync = productsData.some(
         p => (p.autoHideByStock || (p.variants && p.variants.some(v => v.autoHideByStock))) && p.isStockAvailable === undefined
       )
 
-      let stockMap: Map<string, IngredientStockSummary> | null = null
-      let stockSummaryData: IngredientStockSummary[] = []
-
-      // Si hay productos con autoHideByStock sin dato persistido, obtenemos el stock previo para no mostrar productos agotados
-      if (needsInitialStockSync) {
-        try {
-          stockSummaryData = await getIngredientStockSummary(targetBiz.id)
-          stockMap = new Map<string, IngredientStockSummary>()
-          stockSummaryData.forEach(item => {
-            if (item.ingredientName) {
-              stockMap!.set(item.ingredientName.toLowerCase().trim(), item)
-            }
-          })
-          // Sincronizar en Firebase para que las próximas visitas tengan el dato listo
-          void syncProductsStockAvailability(targetBiz.id, stockSummaryData, productsData)
-        } catch (e) {
-          console.error('Error sincronizando stock inicial no persistido:', e)
-        }
+      // Si no hay productos compartidos ni falta sincronizar stock inicial, no hacemos lecturas extra
+      if (!hasShared && !needsInitialStockSync) {
+        return
       }
 
-      // Filtrar y preparar productos con disponibilidad inmediata y variantes por stock
-      const initialAvailable = productsData
-        .filter(product => {
-          if (product.isAvailable === false) return false
-          // Si tenemos stockMap (por sincronización pendiente), evaluar con el stockMap
-          if (stockMap && product.autoHideByStock) {
-            return isProductEffectivelyAvailable(product, stockMap)
-          }
-          // Si el dato ya está persistido en Firebase (caso óptimo), usarlo directamente
-          if (product.autoHideByStock && product.isStockAvailable === false) {
-            return false
-          }
-          return true
-        })
-        .map(product => {
-          let availableVariants = product.variants
-          if (product.variants && product.variants.length > 0) {
-            if (stockMap) {
-              const evaluation = evaluateProductStock(product, stockMap)
-              availableVariants = product.variants.filter(v => {
-                const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
-                return isAvailByStock && v.isAvailable !== false
-              })
-            } else {
-              availableVariants = product.variants.filter(v => {
-                if (v.isAvailable === false) return false
-                if (v.autoHideByStock && v.isStockAvailable === false) return false
-                return true
-              })
-            }
-          }
-
-          return {
-            ...product,
-            packagingFee: storePackagingFee,
-            variants: availableVariants
-          }
-        })
-        .filter(product => {
-          // Si el producto tiene variantes y autoHideByStock pero todas quedaron agotadas, no mostrarlo
-          const originalProd = productsData.find(p => p.id === product.id)
-          if (product.autoHideByStock && originalProd?.variants && originalProd.variants.length > 0) {
-            return (product.variants && product.variants.length > 0)
-          }
-          return true
-        })
-
-      setProducts(initialAvailable)
-      setLoading(false) // ¡Los productos aparecen inmediatamente con el stock ya filtrado y sin parpadeos!
-
-      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO: Productos compartidos y sincronización de fondo
+      // 2. ENRIQUECIMIENTO EN SEGUNDO PLANO: Solo cuando hay productos compartidos o stock sin inicializar
       Promise.all([
         hasShared ? getProductsByIds(targetBiz.sharedProductIds!) : Promise.resolve([] as Product[]),
-        !needsInitialStockSync
+        needsInitialStockSync
           ? getIngredientStockSummary(targetBiz.id).catch(e => {
-              console.error('Error cargando stock de ingredientes en segundo plano:', e)
+              console.error('Error sincronizando stock inicial no persistido:', e)
               return [] as IngredientStockSummary[]
             })
-          : Promise.resolve(stockSummaryData)
-      ]).then(async ([sharedProducts, bgStockSummary]) => {
-        let enrichedProducts: any[] = [...initialAvailable]
+          : Promise.resolve([] as IngredientStockSummary[])
+      ]).then(async ([sharedProducts, stockSummaryData]) => {
+        let baseAvailable = initialAvailable
 
-        // Si no se hizo sync inicial, sincronizar en Firebase en segundo plano si hay ingredientes
-        if (!needsInitialStockSync && bgStockSummary && bgStockSummary.length > 0) {
-          void syncProductsStockAvailability(targetBiz.id, bgStockSummary, productsData)
+        if (needsInitialStockSync && stockSummaryData.length > 0) {
+          const stockMap = new Map<string, IngredientStockSummary>()
+          stockSummaryData.forEach(item => {
+            if (item.ingredientName) {
+              stockMap.set(item.ingredientName.toLowerCase().trim(), item)
+            }
+          })
+          void syncProductsStockAvailability(targetBiz.id, stockSummaryData, productsData)
+
+          baseAvailable = productsData
+            .filter(product => {
+              if (product.isAvailable === false) return false
+              if (product.autoHideByStock) {
+                return isProductEffectivelyAvailable(product, stockMap)
+              }
+              return true
+            })
+            .map(product => {
+              let availableVariants = product.variants
+              if (product.variants && product.variants.length > 0) {
+                const evaluation = evaluateProductStock(product, stockMap)
+                availableVariants = product.variants.filter(v => {
+                  const isAvailByStock = evaluation.availableVariants.some(av => av.id === v.id || av.name === v.name)
+                  return isAvailByStock && v.isAvailable !== false
+                })
+              }
+              return {
+                ...product,
+                packagingFee: storePackagingFee,
+                variants: availableVariants
+              }
+            })
+            .filter(product => {
+              const originalProd = productsData.find(p => p.id === product.id)
+              if (product.autoHideByStock && originalProd?.variants && originalProd.variants.length > 0) {
+                return Boolean(product.variants && product.variants.length > 0)
+              }
+              return true
+            })
         }
 
-        // Si hay productos compartidos, procesarlos y agregarlos
+        let enrichedProducts: Product[] = [...baseAvailable]
+
         if (sharedProducts && sharedProducts.length > 0) {
           try {
             const ownerIds = Array.from(new Set(sharedProducts.map(p => p.businessId)))
             const ownerBizs = await getBusinessesByIds(ownerIds)
-            const availableShared = sharedProducts
-              .filter(p => {
-                if (p.isAvailable === false) return false
-                if (p.autoHideByStock && p.isStockAvailable === false) return false
-                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                if (!ownerBiz || ownerBiz.isActive === false) return false
-                return isStoreOpen(ownerBiz)
-              })
-              .map(p => {
-                const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                return {
-                  ...p,
-                  category: 'Compartidos',
-                  isShared: true,
-                  packagingFee: storePackagingFee,
-                  variants: p.variants,
-                  originalBusinessId: p.businessId,
-                  originalBusinessName: ownerBiz?.name || 'Otra tienda',
-                  originalBusinessImage: ownerBiz?.image || null
-                }
-              })
-            enrichedProducts = [...enrichedProducts, ...availableShared]
+            enrichedProducts = prepareInitialStoreProducts(targetBiz, baseAvailable, sharedProducts, ownerBizs)
           } catch (e) {
             console.error('Error procesando productos compartidos:', e)
           }
@@ -823,57 +872,40 @@ function RestaurantContent() {
       }).catch(err => {
         console.error('Error en enriquecimiento de productos:', err)
       })
-
-      // Defer loading of non-critical background data: other businesses only
-      setTimeout(() => {
-        const otherQ = query(
-          collection(db, 'businesses'),
-          where('isActive', '==', true),
-          limit(6)
-        )
-        getDocs(otherQ).then(snap => {
-          const others = snap.docs
-            .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() || d.data().createdAt } as Business))
-            .filter(b => b.username !== username && b.isHidden !== true && b.businessType !== 'distributor')
-            .sort(() => 0.5 - Math.random())
-            .slice(0, 4)
-          setOtherBusinesses(others)
-        }).catch(e => console.error('Error loading other businesses:', e))
-      }, 100)
     } catch (err) {
       console.error('Error loading restaurant products:', err)
       setError('Error al cargar los productos')
       setLoading(false)
     }
-  }, [username])
+  }, [scheduleBackgroundStoreTasks])
 
   useEffect(() => {
     if (!username) return
 
-    productsLoadedRef.current = false
     let isCancelled = false
+    let unsubscribeSnapshot: (() => void) | null = null
 
-    // 1. CARGA RÁPIDA INMEDIATA: getBusinessByUsername consulta IndexedDB local o REST HTTPS directo
-    // Esto resuelve en 5ms a 150ms sin esperar la negociación prolongada del canal WebSocket
+    // 1. CARGA RÁPIDA: getBusinessByUsername consulta caché local (IndexedDB/sessionStorage) o REST directo
+    productsLoadedRef.current = false
     getBusinessByUsername(username).then((fastBiz) => {
       if (isCancelled || !fastBiz) return
       setBusiness(prev => prev || fastBiz)
       if (!productsLoadedRef.current) {
         productsLoadedRef.current = true
-        loadProductsForStore(fastBiz)
+        void loadProductsForStore(fastBiz)
       }
     }).catch(err => {
       console.warn('Fast business lookup fallback:', err)
     })
 
-    // 2. ACTUALIZACIÓN EN TIEMPO REAL: onSnapshot escucha cambios continuos sin bloquear la vista inicial
+    // 2. ACTUALIZACIÓN EN TIEMPO REAL: onSnapshot escucha cambios sin bloquear la vista inicial
     const q = query(
       collection(db, 'businesses'),
       where('username', '==', username),
       limit(1)
     )
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
       if (isCancelled) return
       if (snapshot.empty) {
         setBusiness(prev => {
@@ -895,12 +927,12 @@ function RestaurantContent() {
         updatedAt: businessData.updatedAt?.toDate?.() || businessData.updatedAt
       } as Business
 
+      cacheBusiness(updatedBusiness)
       setBusiness(updatedBusiness)
 
-      // Si los productos aún no se habían cargado, cargarlos ahora
       if (!productsLoadedRef.current) {
         productsLoadedRef.current = true
-        loadProductsForStore(updatedBusiness)
+        void loadProductsForStore(updatedBusiness)
       }
     }, (error) => {
       console.error('Error listening to business updates:', error)
@@ -915,7 +947,7 @@ function RestaurantContent() {
 
     return () => {
       isCancelled = true
-      unsubscribe()
+      if (unsubscribeSnapshot) unsubscribeSnapshot()
     }
   }, [username, loadProductsForStore])
 
@@ -1538,8 +1570,8 @@ function RestaurantContent() {
           const orderB = b.order ?? 0
           if (orderA !== orderB) return orderA - orderB
 
-          const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
-          const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
+          const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : (a.createdAt ? new Date(a.createdAt as any).getTime() : 0)
+          const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : (b.createdAt ? new Date(b.createdAt as any).getTime() : 0)
           return dateB - dateA
         })
 
@@ -1580,7 +1612,7 @@ function RestaurantContent() {
     )
   }
 
-  // Si aún no se ha montado o no se ha obtenido la tienda desde Firestore, mostrar skeleton enriquecido con nombre y botones
+  // Si aún no se ha montado o no se ha obtenido la tienda desde Firestore, mostrar skeleton
   if (!hasMounted || !business) {
     return <StoreProfileSkeleton username={username} initialBusiness={business} />
   }
@@ -1610,18 +1642,14 @@ function RestaurantContent() {
         {/* Portada con logo superpuesto */}
         <div className="relative w-full h-36 sm:h-48 bg-gray-200">
           {business.coverImage ? (
-            <>
-              <div className={`absolute inset-0 animate-pulse bg-gray-200 ${coverLoaded ? 'hidden' : 'block'}`}></div>
-              <img
-                src={business.coverImage}
-                alt={`Portada de ${business.name}`}
-                className="w-full h-full object-cover"
-                loading="eager"
-                decoding="async"
-                onLoad={() => setCoverLoaded(true)}
-                onError={() => setCoverLoaded(true)}
-              />
-            </>
+            <img
+              src={business.coverImage}
+              alt={`Portada de ${business.name}`}
+              className="w-full h-full object-cover"
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
+            />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200" />
           )}
@@ -1634,11 +1662,10 @@ function RestaurantContent() {
                 <img
                   src={business.image}
                   alt={business.name}
-                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl object-cover relative z-10"
+                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl object-cover relative z-10 bg-white"
                   loading="eager"
+                  fetchPriority="high"
                   decoding="async"
-                  onLoad={() => setLogoLoaded(true)}
-                  onError={() => setLogoLoaded(true)}
                 />
               </div>
             )}
@@ -1696,6 +1723,7 @@ function RestaurantContent() {
                 >
                   <button
                     type="button"
+                    suppressHydrationWarning
                     onClick={() => setShowStatusPopover(!showStatusPopover)}
                     onMouseEnter={() => setShowStatusPopover(true)}
                     className="relative flex items-center justify-center p-1 rounded-full hover:bg-gray-100/80 transition-all cursor-pointer focus:outline-none"
@@ -1703,6 +1731,7 @@ function RestaurantContent() {
                     title={storeIsOpen ? 'Abierto ahora' : 'Cerrado ahora'}
                   >
                     <span
+                      suppressHydrationWarning
                       className={`w-3.5 h-3.5 rounded-full transition-all ${
                         storeIsOpen
                           ? 'bg-emerald-500 ring-4 ring-emerald-100 animate-pulse'
@@ -1930,7 +1959,7 @@ function RestaurantContent() {
                     5: 'friday',
                     6: 'saturday'
                   }
-                  const todayKey = daysMap[new Date().getDay()]
+                  const todayKey = daysMap[getEcuadorDate().dayOfWeekIndex]
 
                   return Object.entries({
                     monday: 'Lunes',
@@ -2090,7 +2119,7 @@ function RestaurantContent() {
               )}
             </div>
           ) : (
-            Object.entries(productsByCategory).map(([category, categoryProducts]) => (
+            Object.entries(productsByCategory).map(([category, categoryProducts], catIdx) => (
               <div key={category} className="mb-12">
                 {category.toLowerCase() !== 'sin categoría' && category.toLowerCase() !== 'sin categoria' && (
                   <div className="flex items-center gap-3 mb-3.5 sm:mb-4">
@@ -2098,7 +2127,7 @@ function RestaurantContent() {
                   </div>
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  {categoryProducts.map((product) => (
+                  {categoryProducts.map((product, prodIdx) => (
                     <ProductVariantSelector
                       key={product.id}
                       product={product}
@@ -2112,6 +2141,7 @@ function RestaurantContent() {
                       hasRecommended={generatedReferralProducts.has(product.id)}
                       referralCount={referralCounts[product.id]}
                       business={business}
+                      priority={catIdx === 0 && prodIdx < 4}
                     />
                   ))}
                 </div>

@@ -307,7 +307,9 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
         console.error('Error loading categories:', error)
       }
     }
-    loadCategories()
+    if (typeof window !== 'undefined' && window.location.pathname === '/') {
+      loadCategories()
+    }
   }, [])
 
   const isFuddiesPage = pathname === '/fuddies' || pathname === '/fuddiverso'

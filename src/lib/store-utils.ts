@@ -80,6 +80,40 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
 }
 
 /**
+ * Obtiene la fecha y hora actual en zona horaria local de Ecuador (America/Guayaquil)
+ * garantizando que tanto en el servidor (SSR en UTC) como en el cliente se calculen
+ * exactamente el mismo día, hora y minutos, evitando desajustes de hidratación (hydration mismatch).
+ */
+export function getEcuadorDate(d: Date = new Date()): { dayOfWeekIndex: number; hours: number; minutes: number } {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Guayaquil',
+      weekday: 'short',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false
+    }).formatToParts(d)
+
+    let weekday = ''
+    let h = 0
+    let m = 0
+    for (const p of parts) {
+      if (p.type === 'weekday') weekday = p.value
+      else if (p.type === 'hour') h = parseInt(p.value, 10)
+      else if (p.type === 'minute') m = parseInt(p.value, 10)
+    }
+
+    const weekdayMap: Record<string, number> = {
+      Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6
+    }
+    const dayOfWeekIndex = weekdayMap[weekday] ?? d.getDay()
+    return { dayOfWeekIndex, hours: h, minutes: m }
+  } catch {
+    return { dayOfWeekIndex: d.getDay(), hours: d.getHours(), minutes: d.getMinutes() }
+  }
+}
+
+/**
  * Obtiene la fecha de hoy formateada como YYYY-MM-DD en zona horaria local (Ecuador)
  */
 export function getTodayDateString(d: Date = new Date()): string {
@@ -103,6 +137,7 @@ export function isStoreOpen(business: Business | null): boolean {
     if (!business) return false
 
     const now = new Date()
+    const { dayOfWeekIndex, hours: ecHours, minutes: ecMinutes } = getEcuadorDate(now)
 
     // 1. Control manual (prioridad máxima)
     if (business.manualStoreStatus) {
@@ -128,8 +163,8 @@ export function isStoreOpen(business: Business | null): boolean {
 
     const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
     const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
-    const currentDayEn = dayNamesEn[now.getDay()]
-    const currentDayEs = dayNamesEs[now.getDay()]
+    const currentDayEn = dayNamesEn[dayOfWeekIndex]
+    const currentDayEs = dayNamesEs[dayOfWeekIndex]
 
     const scheduleKeys = Object.keys(business.schedule)
     const todayKey = scheduleKeys.find(k => {
@@ -143,7 +178,7 @@ export function isStoreOpen(business: Business | null): boolean {
         return false
     }
 
-    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const currentMinutes = ecHours * 60 + ecMinutes
     const [openH, openM] = normalizeTime(todaySchedule.open).split(':').map(Number)
     const [closeH, closeM] = normalizeTime(todaySchedule.close).split(':').map(Number)
     
