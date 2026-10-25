@@ -23,7 +23,7 @@ const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), 
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
-// Componente para imágenes con carga progresiva y soporte offline/producción
+// Componente para imágenes directas de alto rendimiento y cero parpadeo
 const ProgressiveImage: React.FC<{
   src: string
   alt: string
@@ -44,17 +44,10 @@ const ProgressiveImage: React.FC<{
   priority = false,
   style
 }) => {
-  const [isLoaded, setIsLoaded] = useState(false)
   const [hasError, setHasError] = useState(false)
-  const imgRef = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
-    setIsLoaded(false)
     setHasError(false)
-    // Si la imagen ya está en caché del navegador
-    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
-      setIsLoaded(true)
-    }
   }, [src])
 
   if (hasError) {
@@ -69,32 +62,17 @@ const ProgressiveImage: React.FC<{
   }
 
   return (
-    <>
-      {/* Placeholder mientras carga */}
-      {!isLoaded && fill && (
-        <div className="absolute inset-0 bg-gray-200 animate-pulse" />
-      )}
-
-      {/* Imagen directa de alto rendimiento */}
-      <img
-        ref={imgRef}
-        src={src}
-        alt={alt}
-        width={!fill ? width : undefined}
-        height={!fill ? height : undefined}
-        loading={priority ? 'eager' : 'lazy'}
-        decoding="async"
-        className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${
-          fill ? 'absolute inset-0 w-full h-full object-cover' : ''
-        } ${className}`}
-        style={style}
-        onLoad={() => setIsLoaded(true)}
-        onError={() => {
-          setHasError(true)
-          setIsLoaded(true)
-        }}
-      />
-    </>
+    <img
+      src={src}
+      alt={alt}
+      width={!fill ? width : undefined}
+      height={!fill ? height : undefined}
+      loading={priority ? 'eager' : 'lazy'}
+      decoding="async"
+      className={`${fill ? 'absolute inset-0 w-full h-full object-cover' : ''} ${className}`}
+      style={style}
+      onError={() => setHasError(true)}
+    />
   )
 }
 
@@ -171,6 +149,7 @@ function HomePageContent() {
   const [detectedGroupName, setDetectedGroupName] = useState<string | null>('Daule')
   const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
+  const checkedReferralProductIdsRef = useRef<Set<string>>(new Set())
 
   // Restaurar caché de cliente tras hidratación limpia (0 Hydration Mismatches) y precargar bundle del sidebar
   useEffect(() => {
@@ -400,28 +379,43 @@ function HomePageContent() {
 
   // Cargar productos que el usuario ya ha recomendado + contadores globales de forma optimizada
   useEffect(() => {
+    let isMounted = true
+
     const loadRecommendedProducts = async () => {
       if (!user?.id || Object.keys(productsByBusiness).length === 0) return
 
       const allProducts = Object.values(productsByBusiness).flat()
       const productIds = allProducts.map(p => p.id)
 
-      // Obtener todos los referidos del usuario de una sola vez
-      const userReferrals = await getUserReferrals(user.id)
-      const recommendedSet = new Set<string>(
-        userReferrals
-          .filter(ref => ref.productId)
-          .map(ref => ref.productId)
-      )
+      // Identificar solo productos que no han sido consultados previamente
+      const newProductIds = productIds.filter(id => !checkedReferralProductIdsRef.current.has(id))
+      if (newProductIds.length === 0) return
 
-      setGeneratedReferralProducts(recommendedSet)
+      newProductIds.forEach(id => checkedReferralProductIdsRef.current.add(id))
 
-      // Cargar contadores de recomendaciones (internamente optimizados en paralelo)
-      const counts = await getProductsReferralCounts(productIds)
-      setReferralCounts(counts)
+      try {
+        // Obtener referidos del usuario
+        const userReferrals = await getUserReferrals(user.id)
+        if (!isMounted) return
+
+        const recommendedSet = new Set<string>(
+          userReferrals
+            .filter(ref => ref.productId)
+            .map(ref => ref.productId)
+        )
+        setGeneratedReferralProducts(prev => new Set([...prev, ...recommendedSet]))
+
+        // Cargar contadores de recomendaciones solo para los nuevos IDs detectados
+        const counts = await getProductsReferralCounts(newProductIds)
+        if (!isMounted) return
+        setReferralCounts(prev => ({ ...prev, ...counts }))
+      } catch (err) {
+        console.error('Error cargando referidos:', err)
+      }
     }
 
     loadRecommendedProducts()
+    return () => { isMounted = false }
   }, [user?.id, productsByBusiness])
 
   // Cargar comentarios y publicaciones recientes de la comunidad Fuddies
@@ -573,9 +567,14 @@ function HomePageContent() {
     const fetchBusinessProducts = async () => {
       if (businesses.length === 0) return
 
+      // Solo cargar productos para tiendas que aún no los tienen en caché local
+      const unvisitedBusinesses = businesses.filter(b => !productsByBusiness[b.id])
+      if (unvisitedBusinesses.length === 0) return
+
       try {
         setLoadingProducts(true)
-        const targetBusinesses = businesses.slice(0, 50)
+        // Límite óptimo de 16 tiendas para la portada (evita saturar Firestore y memoria)
+        const targetBusinesses = unvisitedBusinesses.slice(0, 16)
 
         // Helper para agrupar, ordenar y filtrar los productos de un lote
         const processBatch = (batchBusinesses: Business[], allProducts: Product[]) => {
@@ -625,8 +624,8 @@ function HomePageContent() {
           return map
         }
 
-        // 1. Fase Prioritaria: primeras 8 tiendas para mostrar UI ultra rápida
-        const priorityBusinesses = targetBusinesses.slice(0, 8)
+        // 1. Fase Prioritaria: primeras 6 tiendas para mostrar UI ultra rápida
+        const priorityBusinesses = targetBusinesses.slice(0, 6)
         const priorityIds = priorityBusinesses.map(b => b.id)
 
         if (priorityIds.length > 0) {
@@ -638,8 +637,8 @@ function HomePageContent() {
           }
         }
 
-        // 2. Fase Diferida: tiendas restantes cargadas en segundo plano
-        const secondaryBusinesses = targetBusinesses.slice(8)
+        // 2. Fase Diferida: tiendas restantes (máximo 10) cargadas en segundo plano
+        const secondaryBusinesses = targetBusinesses.slice(6, 16)
         const secondaryIds = secondaryBusinesses.map(b => b.id)
 
         if (secondaryIds.length > 0 && isMounted) {

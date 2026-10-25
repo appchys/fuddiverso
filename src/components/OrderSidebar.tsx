@@ -31,13 +31,22 @@ import { calculateETASimple } from '@/lib/eta-utils'
 import StarRating from '@/components/StarRating'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
-import { DeliveryStatusModal } from '@/app/business/dashboard/DeliveryStatusModal'
-import PaymentManagementModals from '@/components/PaymentManagementModals'
+import dynamic from 'next/dynamic'
+
+const DeliveryStatusModal = dynamic(
+  () => import('@/app/business/dashboard/DeliveryStatusModal').then((mod) => mod.DeliveryStatusModal),
+  { ssr: false }
+)
+const PaymentManagementModals = dynamic(
+  () => import('@/components/PaymentManagementModals'),
+  { ssr: false }
+)
 
 interface OrderSidebarProps {
   isOpen: boolean
   onClose: () => void
   orderId: string | null
+  onBusinessSlug?: (slug: string) => void
 }
 
 const STATUS_STEPS = [
@@ -50,7 +59,7 @@ const STATUS_STEPS = [
   { status: 'cancelled', label: 'Cancelado', desc: 'El pedido fue cancelado.', icon: 'bi-x-circle' }
 ]
 
-export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarProps) {
+export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug }: OrderSidebarProps) {
   const { user: clientUser } = useAuth()
   const pathname = usePathname()
   const isOrderPage = pathname?.startsWith('/o/')
@@ -70,6 +79,17 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [estimatedArrival, setEstimatedArrival] = useState<number | null>(null)
   const [showReceiptModal, setShowReceiptModal] = useState(false)
+
+  // Referencias para evitar consultas redundantes a Firestore durante el ciclo de vida del pedido
+  const fetchedBusinessIdRef = useRef<string | null>(null)
+  const fetchedDeliveryIdRef = useRef<string | null>(null)
+  const ratingCheckedRef = useRef<boolean>(false)
+
+  useEffect(() => {
+    fetchedBusinessIdRef.current = null
+    fetchedDeliveryIdRef.current = null
+    ratingCheckedRef.current = false
+  }, [orderId])
 
   // Estado para Firebase Auth (dueños/administradores del dashboard)
   const [fbUser, setFbUser] = useState<any>(null)
@@ -665,20 +685,31 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
 
             // Renderizado instantáneo de negocio si existe snapshot en la orden
             if (orderData.businessSnapshot) {
-              setBusiness((prev: any) => prev || ({
-                id: orderData.businessSnapshot.id,
-                name: orderData.businessSnapshot.name,
-                phone: orderData.businessSnapshot.phone,
-                image: orderData.businessSnapshot.logo,
-                address: orderData.businessSnapshot.address,
-                username: orderData.businessSnapshot.username,
-                ...(orderData.businessSnapshot.latlong ? {
+              const snap = orderData.businessSnapshot
+              setBusiness((prev: any) => ({
+                id: snap.id || orderData.businessId,
+                name: snap.name,
+                phone: snap.phone,
+                image: snap.logo || snap.image,
+                address: snap.address,
+                username: snap.username,
+                references: snap.references,
+                storePhotoUrl: snap.storePhotoUrl,
+                pickupSettings: snap.pickupSettings,
+                ...(snap.latlong ? {
                   mapLocation: {
-                    lat: parseFloat(orderData.businessSnapshot.latlong.split(',')[0]),
-                    lng: parseFloat(orderData.businessSnapshot.latlong.split(',')[1])
+                    lat: parseFloat(snap.latlong.split(',')[0]),
+                    lng: parseFloat(snap.latlong.split(',')[1])
                   }
-                } : {})
-              } as any))
+                } : {}),
+                ...prev
+              }))
+            }
+
+            // Propagar slug del negocio hacia el contenedor padre (para redirecciones sin consultas adicionales)
+            const resolvedSlug = orderData.businessSnapshot?.username || orderData.businessId
+            if (resolvedSlug && onBusinessSlug) {
+              onBusinessSlug(resolvedSlug)
             }
 
             // Renderizado instantáneo de calificación si ya existe en la orden
@@ -691,49 +722,46 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
                 comment: orderData.rating.comment,
                 createdAt: orderData.rating.createdAt
               } as any)
-            }
-
-            // Cargar información completa del negocio si es necesario
-            if (orderData.businessId) {
-              try {
-                const businessData = await getBusiness(orderData.businessId)
-                if (businessData) setBusiness(businessData)
-
-                // Cargar repartidores activos (igual que el Dashboard de Tienda)
-                getDeliveriesByStatus('activo')
-                  .then(deliveries => {
-                    if (deliveries && deliveries.length > 0) {
-                      setAvailableDeliveries(deliveries)
-                    } else if (orderData.businessId) {
-                      getDeliveriesByBusiness(orderData.businessId).then(setAvailableDeliveries)
-                    }
-                  })
-                  .catch(err => console.error('Error cargando repartidores:', err))
-
-                // Buscar calificación solo si no vino embebida en la orden
-                if (!orderData.rating) {
-                  const ratingData = await getOrderRating(orderData.businessId, orderId)
+            } else if (orderData.businessId && !ratingCheckedRef.current) {
+              // Buscar calificación externa a lo sumo 1 sola vez por ciclo de vida
+              ratingCheckedRef.current = true
+              getOrderRating(orderData.businessId, orderId)
+                .then(ratingData => {
                   if (ratingData) {
                     setExistingRating(ratingData)
                   }
-                }
-              } catch (e) {
-                console.error('Error cargando datos del negocio:', e)
-              }
+                })
+                .catch(err => console.error('Error buscando calificación:', err))
             }
 
-            // Cargar datos de repartidor
-            if (orderData.delivery?.assignedDelivery) {
-              if (orderData.delivery?.assignedDeliveryData) {
-                // Inmediato desde el documento de la orden, sin consulta adicional
-                setDeliveryPerson(orderData.delivery.assignedDeliveryData)
-              } else {
-                try {
-                  const deliveryData = await getDelivery(orderData.delivery.assignedDelivery)
-                  setDeliveryPerson(deliveryData)
-                } catch (e) {
-                  console.error('Error cargando repartidor:', e)
-                }
+            // Cargar información completa del negocio solo si es estrictamente necesario:
+            // 1) Si no vino businessSnapshot embebido, O
+            // 2) Si hay una sesión activa de administrador que requiere validar ownerId/administrators
+            const hasPotentialAdminSession = Boolean(fbUser || auth.currentUser || (localBizAuth.businessId && localBizAuth.businessId === orderData.businessId))
+            const shouldFetchFullBusiness = !orderData.businessSnapshot || hasPotentialAdminSession
+
+            if (shouldFetchFullBusiness && orderData.businessId && fetchedBusinessIdRef.current !== orderData.businessId) {
+              fetchedBusinessIdRef.current = orderData.businessId
+              getBusiness(orderData.businessId)
+                .then(businessData => {
+                  if (businessData) {
+                    setBusiness((prev: any) => ({ ...businessData, ...prev }))
+                  }
+                })
+                .catch(e => console.error('Error cargando datos completos del negocio:', e))
+            }
+
+            // Cargar datos de repartidor: si ya viene embebido en la orden, NUNCA consultar a Firestore
+            if (orderData.delivery?.assignedDeliveryData) {
+              setDeliveryPerson(orderData.delivery.assignedDeliveryData)
+            } else if (orderData.delivery?.assignedDelivery) {
+              if (fetchedDeliveryIdRef.current !== orderData.delivery.assignedDelivery) {
+                fetchedDeliveryIdRef.current = orderData.delivery.assignedDelivery
+                getDelivery(orderData.delivery.assignedDelivery)
+                  .then(deliveryData => {
+                    if (deliveryData) setDeliveryPerson(deliveryData)
+                  })
+                  .catch(e => console.error('Error cargando repartidor:', e))
               }
             } else {
               setDeliveryPerson(null)
@@ -759,7 +787,31 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
     return () => {
       if (unsubscribe) unsubscribe()
     }
-  }, [orderId, isOpen])
+  }, [orderId, isOpen, onBusinessSlug])
+
+  // Cargar repartidores activos ÚNICAMENTE si el usuario es administrador y se encuentra en la pestaña de gestión
+  useEffect(() => {
+    if (!isStoreAdmin || activeTab !== 'gestion' || !order?.businessId) return
+    if (availableDeliveries.length > 0) return
+
+    let isMounted = true
+    getDeliveriesByStatus('activo')
+      .then(deliveries => {
+        if (!isMounted) return
+        if (deliveries && deliveries.length > 0) {
+          setAvailableDeliveries(deliveries)
+        } else if (order?.businessId) {
+          getDeliveriesByBusiness(order.businessId).then(list => {
+            if (isMounted) setAvailableDeliveries(list)
+          })
+        }
+      })
+      .catch(err => console.error('Error cargando repartidores:', err))
+
+    return () => {
+      isMounted = false
+    }
+  }, [isStoreAdmin, activeTab, order?.businessId, availableDeliveries.length])
 
   // Listener para la ubicación del delivery en tiempo real (si está en camino)
   useEffect(() => {
@@ -2449,25 +2501,29 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
       )}
 
       {/* Modal Selector de Estado del Delivery */}
-      <DeliveryStatusModal
-        isOpen={isDeliveryModalOpen}
-        onClose={() => setIsDeliveryModalOpen(false)}
-        order={order}
-        deliveryAgent={(deliveryPerson || order?.delivery?.assignedDeliveryData) as any || undefined}
-        availableDeliveries={availableDeliveries}
-        canChangeDelivery={true}
-        onDeliveryAssign={handleDeliveryAssign}
-        onWhatsApp={() => {}}
-      />
+      {isDeliveryModalOpen && (
+        <DeliveryStatusModal
+          isOpen={isDeliveryModalOpen}
+          onClose={() => setIsDeliveryModalOpen(false)}
+          order={order}
+          deliveryAgent={(deliveryPerson || order?.delivery?.assignedDeliveryData) as any || undefined}
+          availableDeliveries={availableDeliveries}
+          canChangeDelivery={true}
+          onDeliveryAssign={handleDeliveryAssign}
+          onWhatsApp={() => {}}
+        />
+      )}
       {/* Modal de Gestión de Pago */}
-      <PaymentManagementModals
-        isOpen={isPaymentModalOpen}
-        onClose={() => setIsPaymentModalOpen(false)}
-        order={order}
-        onOrderUpdated={(updatedOrder) => {
-          setOrder(updatedOrder)
-        }}
-      />
+      {isPaymentModalOpen && (
+        <PaymentManagementModals
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          order={order}
+          onOrderUpdated={(updatedOrder) => {
+            setOrder(updatedOrder)
+          }}
+        />
+      )}
 
       {/* Modal para ver imagen de opinión en grande */}
       {viewingPhotoModalUrl && (
