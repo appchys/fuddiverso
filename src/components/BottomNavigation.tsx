@@ -144,9 +144,30 @@ export default function BottomNavigation() {
   }, [showRecommendationsSidebar, user, loadRecommendations])
 
   const handleReferralClick = (referral: any) => {
-    setSelectedReferralProduct(referral.product)
-    setSelectedReferralLink(referral.referralLink || '')
-    setSelectedReferralBusinessName(referral.businessName || '')
+    if (!referral) return
+
+    const bizUser = referral.businessUsername || referral.businessId || ''
+    const pSlug = referral.productSlug || referral.slug || referral.productId || ''
+    const bizName = referral.businessName || ''
+
+    const prod = referral.product || {
+      id: referral.productId || referral.id,
+      name: referral.productName || referral.name || 'Producto recomendado',
+      image: referral.productImage || referral.image || '',
+      price: referral.productPrice || referral.price || 0,
+      businessId: referral.businessId,
+      businessUsername: bizUser,
+      businessName: bizName,
+      slug: pSlug
+    }
+
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const code = referral.code || ''
+    const link = referral.referralLink || (code ? `${origin}/${bizUser}/${pSlug}?ref=${code}` : '')
+
+    setSelectedReferralProduct(prod)
+    setSelectedReferralLink(link)
+    setSelectedReferralBusinessName(bizName)
     setReferralModalOpen(true)
   }
 

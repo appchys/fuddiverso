@@ -579,7 +579,19 @@ export function ClientRecommendationsSidebar({
                                         <div className="flex items-center gap-3">
                                             <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0">
                                                 {referral.productImage ? (
-                                                    <img src={referral.productImage} alt={referral.productName || 'Producto'} className="w-full h-full object-cover" />
+                                                    <img
+                                                        src={referral.productImage}
+                                                        alt={referral.productName || 'Producto'}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            e.currentTarget.style.display = 'none'
+                                                            const p = e.currentTarget.parentElement
+                                                            if (p) {
+                                                                p.classList.add('flex', 'items-center', 'justify-center', 'text-orange-500', 'bg-orange-50')
+                                                                p.innerHTML = '<span class="text-xs">🔥</span>'
+                                                            }
+                                                        }}
+                                                    />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center text-orange-500 bg-orange-50">
                                                         <Flame size={18} />
@@ -1812,16 +1824,28 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     }
 
     const handleReferralClick = (referral: any) => {
-        if (!referral?.code || !referral?.businessUsername || !referral?.productSlug) return
+        if (!referral) return
+
+        const bizUser = referral.businessUsername || referral.businessId || ''
+        const pSlug = referral.productSlug || referral.slug || referral.productId || ''
+        const bizName = referral.businessName || ''
 
         setSelectedReferralProduct({
-            id: referral.productId,
-            name: referral.productName,
-            image: referral.productImage,
-            price: referral.productPrice
+            id: referral.productId || referral.id,
+            name: referral.productName || referral.name || 'Producto recomendado',
+            image: referral.productImage || referral.image || '',
+            price: referral.productPrice || referral.price || 0,
+            businessId: referral.businessId,
+            businessUsername: bizUser,
+            businessName: bizName,
+            slug: pSlug
         })
-        setSelectedReferralBusinessName(referral.businessName || '')
-        setSelectedReferralLink(`${window.location.origin}/${referral.businessUsername}/${referral.productSlug}?ref=${referral.code}`)
+        setSelectedReferralBusinessName(bizName)
+
+        const origin = typeof window !== 'undefined' ? window.location.origin : ''
+        const code = referral.code || ''
+        const link = code ? `${origin}/${bizUser}/${pSlug}?ref=${code}` : ''
+        setSelectedReferralLink(link)
         setReferralModalOpen(true)
     }
 

@@ -12,6 +12,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import ClientLoginModal from '@/components/ClientLoginModal'
 import UserSidebar from './UserSidebar'
+import ReferralCreditRewardModal from './ReferralCreditRewardModal'
 
 // Componente para mostrar carritos activos
 function CartIndicator() {
@@ -168,6 +169,27 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const [loadingNotifications, setLoadingNotifications] = useState(false)
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false)
   const [showMobileNotifications, setShowMobileNotifications] = useState(false)
+  const [selectedReferralRewardNotification, setSelectedReferralRewardNotification] = useState<any | null>(null)
+
+  const isReferralRewardNotification = (n: any) => {
+    if (!n) return false
+    const type = String(n.type || '').toLowerCase()
+    const title = String(n.title || '').toLowerCase()
+    const message = String(n.message || '').toLowerCase()
+    return (
+      type === 'referral_credit' ||
+      type === 'referral_bonus' ||
+      Boolean(n.referralCode) ||
+      title.includes('recomendaci') ||
+      title.includes('crédito') ||
+      title.includes('credito') ||
+      title.includes('ganaste') ||
+      title.includes('bono') ||
+      message.includes('recomendaci') ||
+      message.includes('tu link') ||
+      message.includes('sumaste')
+    )
+  }
   const router = useRouter()
   const pathname = usePathname() ?? ''
 
@@ -572,6 +594,11 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                                   setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, read: true } : n))
                                   setUnreadNotifications(prev => Math.max(0, prev - 1))
                                 }
+                                if (isReferralRewardNotification(notification)) {
+                                  setSelectedReferralRewardNotification(notification)
+                                  setShowNotificationsDropdown(false)
+                                  return
+                                }
                                 if (notification.type === 'order_tracking' && notification.orderId) {
                                   router.push(`/o/${notification.orderId}`)
                                   setShowNotificationsDropdown(false)
@@ -579,8 +606,8 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                               }}
                               className={`w-full py-3 px-2 text-left hover:bg-gray-50 rounded-xl transition-all flex items-start gap-2.5 mt-1 first:mt-0 ${notification.read ? 'bg-white' : 'bg-red-50/40'}`}
                             >
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${notification.type === 'referral_credit' ? 'bg-emerald-50 text-emerald-600' : notification.type === 'order_tracking' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-500'}`}>
-                                <i className={`bi ${notification.type === 'referral_credit' ? 'bi-cash-coin' : notification.type === 'order_tracking' ? 'bi-box-seam' : 'bi-bell'} text-sm`}></i>
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isReferralRewardNotification(notification) ? 'bg-emerald-50 text-emerald-600' : notification.type === 'order_tracking' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-500'}`}>
+                                <i className={`bi ${isReferralRewardNotification(notification) ? 'bi-cash-coin' : notification.type === 'order_tracking' ? 'bi-box-seam' : 'bi-bell'} text-sm`}></i>
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-1.5">
@@ -677,7 +704,12 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
               setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, read: true } : n))
               setUnreadNotifications(prev => Math.max(0, prev - 1))
             }
-            if (notification.orderId) {
+            if (isReferralRewardNotification(notification)) {
+              setSelectedReferralRewardNotification(notification)
+              setShowMobileNotifications(false)
+              return
+            }
+            if (notification.type === 'order_tracking' && notification.orderId) {
               router.push(`/o/${notification.orderId}`)
             }
             setShowMobileNotifications(false)
@@ -689,6 +721,15 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
           }}
         />
       )}
+
+      {/* Modal de recompensa por recomendación */}
+      <ReferralCreditRewardModal
+        isOpen={Boolean(selectedReferralRewardNotification)}
+        onClose={() => setSelectedReferralRewardNotification(null)}
+        notification={selectedReferralRewardNotification}
+        userId={user?.id}
+        userPhone={user?.celular}
+      />
     </>
   )
 }
@@ -768,15 +809,17 @@ function ClientNotificationsSidebar({
                             </div>
                         ) : (
                             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                                {notifications.map((notification) => (
+                                {notifications.map((notification) => {
+                                    const isRef = notification.type === 'referral_credit' || String(notification.title || '').toLowerCase().includes('recomendaci') || String(notification.title || '').toLowerCase().includes('crédito') || String(notification.title || '').toLowerCase().includes('credito')
+                                    return (
                                     <button
                                         key={notification.id}
                                         onClick={() => onNotificationClick(notification)}
                                         className={`w-full p-4 text-left border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-all ${notification.read ? 'bg-white' : 'bg-red-50/60'}`}
                                     >
                                         <div className="flex items-start gap-3">
-                                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${notification.type === 'referral_credit' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
-                                                {notification.type === 'referral_credit' ? <CircleDollarSign size={16} /> : <Bell size={16} />}
+                                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${isRef ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+                                                {isRef ? <CircleDollarSign size={16} /> : <Bell size={16} />}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-start justify-between gap-2">
@@ -789,7 +832,8 @@ function ClientNotificationsSidebar({
                                             </div>
                                         </div>
                                     </button>
-                                ))}
+                                    )
+                                })}
                             </div>
                         )}
                     </div>

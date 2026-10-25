@@ -5465,6 +5465,12 @@ export interface ClientNotification {
   orderId?: string;
   referralCode?: string;
   amount?: number;
+  productName?: string | null;
+  productImage?: string | null;
+  productId?: string | null;
+  referralLink?: string | null;
+  businessUsername?: string | null;
+  productSlug?: string | null;
   actorName?: string;
   createdAt: any;
 }
@@ -9071,16 +9077,29 @@ export async function creditReferral(
       })
     }
 
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://fuddi.shop'
+    const bizUsername = referral.businessUsername || ''
+    const pSlug = referral.productSlug || referral.productId || ''
+    const refLink = bizUsername && pSlug
+      ? `${origin}/${bizUsername}/${pSlug}?ref=${referralCode}`
+      : (referralCode ? `${origin}/?ref=${referralCode}` : null)
+
     await createClientNotification({
       userId: referral.createdBy,
       type: 'referral_credit',
       title: 'Ganaste credito por recomendacion',
       message: `Tu link genero una venta en ${businessName}. Sumaste $0.25 para tu proxima compra.`,
       businessId,
-      businessName,
+      businessName: businessName || referral.businessName,
       orderId,
       referralCode,
-      amount: 0.25
+      amount: 0.25,
+      productName: referral.productName || undefined,
+      productImage: referral.productImage || undefined,
+      productId: referral.productId || undefined,
+      businessUsername: bizUsername || undefined,
+      productSlug: pSlug || undefined,
+      referralLink: refLink || undefined
     })
   } catch (error) {
     console.error('Error crediting referral:', error)
