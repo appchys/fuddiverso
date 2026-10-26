@@ -533,6 +533,7 @@ export interface ReferralLink {
   clicks: number // Contador de clicks en el link
   conversions: number // Contador de ventas completadas
   lastUsedAt?: Date
+  lastConversionAt?: Date | any
 }
 
 export interface ReferralRecord {

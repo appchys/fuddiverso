@@ -5,10 +5,11 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Flame, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, ArrowRight, Edit3, Info, Store, Orbit } from 'lucide-react'
-import { getOrdersByClient, getBusiness, getUserReferrals, getAllUserCredits } from '@/lib/database'
+import { getOrdersByClient, getBusiness } from '@/lib/database'
 import OrderSidebar from '@/components/OrderSidebar'
 import { ClientRecommendationsSidebar } from '@/components/UserSidebar'
 import ReferralModal from '@/components/ReferralModal'
+import { useClientRecommendations } from '@/hooks/useClientRecommendations'
 
 function getPaymentBadgeConfig(paymentStatus?: string) {
   switch (paymentStatus) {
@@ -69,73 +70,38 @@ export default function BottomNavigation() {
   const [isOrderSidebarOpen, setIsOrderSidebarOpen] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
 
-  // ESTADOS Y CÁLCULO DE RECOMENDACIONES
+  // ESTADOS Y GESTIÓN OPTIMIZADA DE RECOMENDACIONES (SWR + Idle prefetch + ventas prioritarias)
   const [showRecommendationsSidebar, setShowRecommendationsSidebar] = useState(false)
-  const [clientReferrals, setClientReferrals] = useState<any[]>([])
-  const [walletBalance, setWalletBalance] = useState({ referralCredits: 0, manualBalance: 0 })
-  const [referralStats, setReferralStats] = useState({ totalClicks: 0, totalSales: 0, totalCredits: 0 })
-  const [loadingRecommendations, setLoadingRecommendations] = useState(false)
+  const {
+    referrals: clientReferrals,
+    walletBalance,
+    referralStats,
+    loading: loadingRecommendations,
+    isRefreshing: isRefreshingRecommendations,
+    loadRecommendations,
+    prefetchRecommendations,
+    refreshRecommendations
+  } = useClientRecommendations(user)
 
   const [referralModalOpen, setReferralModalOpen] = useState(false)
   const [selectedReferralProduct, setSelectedReferralProduct] = useState<any>(null)
   const [selectedReferralLink, setSelectedReferralLink] = useState('')
   const [selectedReferralBusinessName, setSelectedReferralBusinessName] = useState('')
 
-  const loadRecommendations = useCallback(async () => {
-    if (!user) return
-    setLoadingRecommendations(true)
-    try {
-      const [referralsById, referralsByPhone, creditsById, creditsByPhone] = await Promise.all([
-        getUserReferrals(user.id),
-        user.celular ? getUserReferrals(user.celular) : Promise.resolve([]),
-        getAllUserCredits(user.id),
-        user.celular ? getAllUserCredits(user.celular) : Promise.resolve([])
-      ])
-
-      const combinedReferrals = [...referralsById]
-      referralsByPhone.forEach(ref => {
-        if (!combinedReferrals.some(r => r.id === ref.id)) {
-          combinedReferrals.push(ref)
-        }
-      })
-
-      const combinedCredits = [...creditsById]
-      creditsByPhone.forEach(credit => {
-        if (combinedCredits.some(c => c.id === credit.id)) return
-        const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
-        if (index === -1) {
-          combinedCredits.push(credit)
-        } else {
-          combinedCredits[index].availableCredits = (combinedCredits[index].availableCredits || 0) + (credit.availableCredits || 0)
-          combinedCredits[index].balance = (combinedCredits[index].balance || 0) + (credit.balance || 0)
-        }
-      })
-
-      combinedReferrals.sort((a, b) => {
-        const earningsA = (a.conversions || 0) * 0.25
-        const earningsB = (b.conversions || 0) * 0.25
-        if (earningsB !== earningsA) return earningsB - earningsA
-        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0)
-        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0)
-        return dateB.getTime() - dateA.getTime()
-      })
-
-      const referralCredits = combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
-      const manualBalance = combinedCredits.reduce((sum, c) => sum + (c.balance || 0), 0)
-
-      setClientReferrals(combinedReferrals)
-      setWalletBalance({ referralCredits, manualBalance })
-      setReferralStats({
-        totalClicks: combinedReferrals.reduce((sum, r) => sum + (r.clicks || 0), 0),
-        totalSales: combinedReferrals.reduce((sum, r) => sum + (r.conversions || 0), 0),
-        totalCredits: referralCredits + manualBalance
-      })
-    } catch (e) {
-      console.error('Error loading recommendations in bottom nav:', e)
-    } finally {
-      setLoadingRecommendations(false)
-    }
-  }, [user])
+  // Prefetch no bloqueante en estado ocioso (después de 4 segundos, NO compite con la carga inicial de la app)
+  useEffect(() => {
+    if (!user?.id) return
+    const timer = setTimeout(() => {
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        window.requestIdleCallback(() => {
+          prefetchRecommendations()
+        }, { timeout: 3000 })
+      } else {
+        prefetchRecommendations()
+      }
+    }, 4000)
+    return () => clearTimeout(timer)
+  }, [user?.id, prefetchRecommendations])
 
   useEffect(() => {
     if (showRecommendationsSidebar && user) {
@@ -407,9 +373,16 @@ export default function BottomNavigation() {
           {/* RECOMENDACIONES - AHORA ABRE EL SIDEBAR */}
           <button
             type="button"
+            onMouseEnter={() => {
+              if (user) prefetchRecommendations()
+            }}
+            onTouchStart={() => {
+              if (user) prefetchRecommendations()
+            }}
             onClick={() => {
               if (user) {
                 setShowRecommendationsSidebar(true)
+                loadRecommendations()
               } else {
                 window.location.href = "/"
               }
@@ -468,6 +441,8 @@ export default function BottomNavigation() {
         loading={loadingRecommendations}
         formatDate={formatNotificationDate}
         onReferralClick={handleReferralClick}
+        onRefresh={refreshRecommendations}
+        isRefreshing={isRefreshingRecommendations}
       />
 
       {/* Modal de Detalle de Referido */}

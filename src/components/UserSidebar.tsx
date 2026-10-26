@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { auth } from '@/lib/firebase'
-import { Flame, User, Ticket, Headphones, Bell, Info, Store, Heart, Star, ChevronRight, ChevronUp, ChevronDown, X, ArrowLeft, ArrowRight, MapPin, Wallet, Settings, Map, LogOut, Trash2, ShoppingCart, CircleDollarSign, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, Edit3 } from 'lucide-react'
+import { Flame, User, Ticket, Headphones, Bell, Info, Store, Heart, Star, ChevronRight, ChevronUp, ChevronDown, X, ArrowLeft, ArrowRight, MapPin, Wallet, Settings, Map, LogOut, Trash2, ShoppingCart, CircleDollarSign, Clock, CheckCircle2, PackageCheck, Bike, AlertCircle, XCircle, Edit3, RotateCw, Sparkles, TrendingUp, BarChart2, Target, Zap, Award, Share2 } from 'lucide-react'
 import {
     searchClientByPhone, createClient, updateClient, getClientLocations,
     serverTimestamp, createClientLocation, deleteLocation,
@@ -20,6 +20,7 @@ import OrderSidebar from '@/components/OrderSidebar'
 import ReferralModal from '@/components/ReferralModal'
 import { ClientLocation } from '@/lib/database'
 import { formatRelativeTime } from '@/lib/date-utils'
+import { useClientRecommendations } from '@/hooks/useClientRecommendations'
 
 interface UserSidebarProps {
     isOpen: boolean
@@ -473,7 +474,9 @@ export function ClientRecommendationsSidebar({
     walletBalance,
     loading,
     formatDate,
-    onReferralClick
+    onReferralClick,
+    onRefresh,
+    isRefreshing
 }: {
     isOpen: boolean
     onClose: () => void
@@ -483,7 +486,158 @@ export function ClientRecommendationsSidebar({
     loading: boolean
     formatDate: (value: any) => string
     onReferralClick: (referral: any) => void
+    onRefresh?: () => void
+    isRefreshing?: boolean
 }) {
+    const [filter, setFilter] = useState<'suggestions' | 'sales' | 'all' | 'analytics'>('suggestions')
+
+    // Al abrir el sidebar, "Cuál volver a recomendar" es la pestaña principal activa al inicio
+    useEffect(() => {
+        if (isOpen) {
+            setFilter('suggestions')
+        }
+    }, [isOpen])
+
+    const referralsWithSales = useMemo(() => {
+        return referrals.filter(r => (r.conversions || 0) > 0 || r.hasSales)
+    }, [referrals])
+
+    const displayedReferrals = useMemo(() => {
+        if (filter === 'sales') {
+            return referralsWithSales
+        }
+        return referrals
+    }, [referrals, filter, referralsWithSales])
+
+    // Estadísticas calculadas de rendimiento del recomendador
+    const performanceMetrics = useMemo(() => {
+        const totalClicks = referralStats.totalClicks || 0
+        const totalSales = referralStats.totalSales || 0
+        const totalEarnings = totalSales * 0.25
+
+        const conversionRate = totalClicks > 0
+            ? Math.min(100, Math.round((totalSales / totalClicks) * 1000) / 10)
+            : 0
+
+        const earningsPerClick = totalClicks > 0
+            ? (totalEarnings / totalClicks).toFixed(2)
+            : '0.00'
+
+        const clicksPerSale = totalSales > 0
+            ? Math.round((totalClicks / totalSales) * 10) / 10
+            : null
+
+        const successfulReferralsCount = referrals.filter(r => (r.conversions || 0) > 0).length
+        const activationRate = referrals.length > 0
+            ? Math.round((successfulReferralsCount / referrals.length) * 100)
+            : 0
+
+        return {
+            totalClicks,
+            totalSales,
+            totalEarnings,
+            conversionRate,
+            earningsPerClick,
+            clicksPerSale,
+            activationRate,
+            successfulReferralsCount,
+            totalProducts: referrals.length
+        }
+    }, [referrals, referralStats])
+
+    // Sugerencias inteligentes de cuál producto volver a recomendar
+    const smartSuggestions = useMemo(() => {
+        if (!referrals || referrals.length === 0) return []
+
+        const suggestions: Array<{
+            referral: any
+            badge: string
+            badgeColor: string
+            reason: string
+        }> = []
+
+        const seenIds = new Set<string>()
+
+        // 1. Mayor efectividad: producto con ventas y mejor ratio conversiones/clics
+        const candidatesWithSales = referrals
+            .filter(r => (r.conversions || 0) > 0)
+            .map(r => {
+                const clicks = Math.max(r.clicks || 0, r.conversions || 1)
+                const rate = (r.conversions || 0) / clicks
+                return { referral: r, rate }
+            })
+            .sort((a, b) => b.rate - a.rate || (b.referral.conversions || 0) - (a.referral.conversions || 0))
+
+        if (candidatesWithSales.length > 0) {
+            const top = candidatesWithSales[0]
+            seenIds.add(top.referral.id)
+            suggestions.push({
+                referral: top.referral,
+                badge: '🏆 Mayor Efectividad',
+                badgeColor: 'bg-amber-50 text-amber-800 border-amber-200',
+                reason: `${Math.round(top.rate * 100)}% de conversión · ${top.referral.conversions} venta${top.referral.conversions > 1 ? 's' : ''} con ${top.referral.clicks || top.referral.conversions} clics`
+            })
+        }
+
+        // 2. Listo para reactivar: producto que generó ventas pasadas pero tiene margen de reimpulso
+        const dormants = referrals
+            .filter(r => !seenIds.has(r.id) && (r.conversions || 0) > 0)
+            .sort((a, b) => {
+                const timeA = a.lastSaleAt instanceof Date ? a.lastSaleAt.getTime() : 0
+                const timeB = b.lastSaleAt instanceof Date ? b.lastSaleAt.getTime() : 0
+                return timeA - timeB
+            })
+
+        if (dormants.length > 0) {
+            const dormant = dormants[0]
+            seenIds.add(dormant.id)
+            suggestions.push({
+                referral: dormant,
+                badge: '⚡ Listo para reactivar',
+                badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                reason: `Ya demostró que vende (${dormant.conversions} venta${dormant.conversions > 1 ? 's' : ''}). Vuelve a compartirlo en tus estados o grupos.`
+            })
+        }
+
+        // 3. A punto de convertir: tiene clics e interés (>= 2) pero todavía 0 ventas
+        const nearConversion = referrals
+            .filter(r => !seenIds.has(r.id) && (!r.conversions || r.conversions === 0) && (r.clicks || 0) >= 2)
+            .sort((a, b) => (b.clicks || 0) - (a.clicks || 0))
+
+        if (nearConversion.length > 0) {
+            const near = nearConversion[0]
+            seenIds.add(near.id)
+            suggestions.push({
+                referral: near,
+                badge: '🎯 A punto de convertir',
+                badgeColor: 'bg-blue-50 text-blue-800 border-blue-200',
+                reason: `${near.clicks} clics acumulados con interés activo. Compártelo para cerrar tu primera venta en este producto.`
+            })
+        }
+
+        // 4. Si aún no tenemos 3 sugerencias, añadir los más populares por clics
+        if (suggestions.length < 3) {
+            const remaining = referrals
+                .filter(r => !seenIds.has(r.id))
+                .sort((a, b) => (b.clicks || 0) - (a.clicks || 0))
+
+            for (const rem of remaining) {
+                if (suggestions.length >= 3) break
+                seenIds.add(rem.id)
+                suggestions.push({
+                    referral: rem,
+                    badge: '✨ Oportunidad recomendada',
+                    badgeColor: 'bg-purple-50 text-purple-800 border-purple-200',
+                    reason: rem.clicks > 0
+                        ? `Tiene ${rem.clicks} clics registrados. Compártelo con amigos para convertir el interés en saldo.`
+                        : 'Aún no lo has difundido mucho. Compártelo para empezar a sumar tus primeras ganancias.'
+                })
+            }
+        }
+
+        return suggestions
+    }, [referrals])
+
     return (
         <div className={`fixed inset-0 z-[130] overflow-hidden ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
             <div
@@ -507,24 +661,37 @@ export function ClientRecommendationsSidebar({
                                         <ArrowLeft size={20} />
                                     </button>
                                     <div className="min-w-0">
-                                        <h2 className="text-xl font-semibold text-gray-900 leading-tight">Recomendaciones</h2>
-                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                                        <h2 className="text-xl font-black text-gray-900 tracking-tight leading-tight">Recomendaciones</h2>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
                                             {referrals.length > 0 ? `${referrals.length} productos` : 'Sin recomendaciones'}
                                         </p>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={onClose}
-                                    className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors"
-                                    title="Cerrar"
-                                >
-                                    <X size={20} />
-                                </button>
+                                <div className="flex items-center gap-1">
+                                    {onRefresh && (
+                                        <button
+                                            onClick={onRefresh}
+                                            disabled={isRefreshing || loading}
+                                            className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-all disabled:opacity-50"
+                                            title="Actualizar datos"
+                                        >
+                                            <RotateCw size={18} className={isRefreshing ? 'animate-spin text-emerald-600' : ''} />
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={onClose}
+                                        className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors"
+                                        title="Cerrar"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     <div className="flex-1 px-6 py-6 space-y-4 overflow-y-auto">
+                        {/* Resumen de billetera */}
                         <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-4 text-white shadow-lg">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
@@ -555,72 +722,367 @@ export function ClientRecommendationsSidebar({
                             </div>
                         </div>
 
-                        {loading ? (
-                            <div className="bg-white rounded-xl border border-gray-200 p-4 text-xs font-bold text-gray-400">
-                                Cargando...
+                        {/* Pestañas de navegación de recomendaciones: "Cuál volver a recomendar" AL INICIO */}
+                        {referrals.length > 0 && (
+                            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide py-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setFilter('suggestions')}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all flex-shrink-0 ${
+                                        filter === 'suggestions'
+                                            ? 'bg-amber-500 text-white shadow-sm ring-2 ring-amber-500/20'
+                                            : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                    }`}
+                                >
+                                    <Target size={13} className={filter === 'suggestions' ? 'text-white' : 'text-amber-600'} />
+                                    <span>Cuál volver a recomendar</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilter('sales')}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all flex-shrink-0 ${
+                                        filter === 'sales'
+                                            ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-600/20'
+                                            : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                    }`}
+                                >
+                                    <Flame size={13} className={filter === 'sales' ? 'text-white' : 'text-emerald-600'} />
+                                    <span>Con ventas ({referralsWithSales.length})</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilter('all')}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-black transition-all flex-shrink-0 ${
+                                        filter === 'all'
+                                            ? 'bg-gray-900 text-white shadow-sm'
+                                            : 'bg-gray-100 text-gray-600 hover:text-gray-900'
+                                    }`}
+                                >
+                                    Todos ({referrals.length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilter('analytics')}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all flex-shrink-0 ${
+                                        filter === 'analytics'
+                                            ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/20'
+                                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                                    }`}
+                                >
+                                    <BarChart2 size={13} className={filter === 'analytics' ? 'text-white' : 'text-indigo-600'} />
+                                    <span>Rendimiento</span>
+                                </button>
+                            </div>
+                        )}
+
+                        {loading && referrals.length === 0 ? (
+                            /* Skeleton loader de alta estética para evitar saltos visuales */
+                            <div className="space-y-3 pt-2">
+                                {[1, 2, 3].map((idx) => (
+                                    <div key={idx} className="bg-white rounded-xl border border-gray-100 p-4 animate-pulse">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-12 h-12 rounded-xl bg-gray-200 flex-shrink-0" />
+                                            <div className="flex-1 space-y-2">
+                                                <div className="h-4 bg-gray-200 rounded-md w-3/4" />
+                                                <div className="h-3 bg-gray-100 rounded-md w-1/3" />
+                                            </div>
+                                            <div className="w-10 h-8 bg-gray-100 rounded-lg flex-shrink-0" />
+                                        </div>
+                                        <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2">
+                                            <div className="h-10 bg-gray-100 rounded-xl" />
+                                            <div className="h-10 bg-emerald-50/50 rounded-xl" />
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         ) : referrals.length === 0 ? (
                             <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-200">
                                 <div className="w-12 h-12 rounded-xl bg-gray-50 text-gray-300 flex items-center justify-center mx-auto mb-4">
                                     <Flame size={20} />
                                 </div>
-                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">Aun no has recomendado productos</p>
+                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">Aún no has recomendado productos</p>
+                                <p className="text-[11px] font-medium text-gray-500 mt-2 max-w-[240px] mx-auto leading-relaxed">
+                                    Recomienda platos y productos de tus restaurantes favoritos para ganar saldo en cada compra.
+                                </p>
+                            </div>
+                        ) : filter === 'suggestions' ? (
+                            /* PESTAÑA PRINCIPAL AL INICIO: CUÁL VOLVER A RECOMENDAR */
+                            <div className="space-y-4 pt-1">
+                                <div className="flex items-center gap-2">
+                                    <Target size={16} className="text-amber-500" />
+                                    <div>
+                                        <h3 className="text-xs font-black uppercase tracking-wider text-gray-900 leading-tight">
+                                            Cuál Volver a Recomendar
+                                        </h3>
+                                        <p className="text-[10px] font-medium text-gray-500">
+                                            Sugerencias automáticas para maximizar tus ganancias
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {smartSuggestions.length === 0 ? (
+                                    <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                                        <p className="text-xs font-bold text-gray-400">Sin datos suficientes para sugerencias</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFilter('all')}
+                                            className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-black shadow-sm"
+                                        >
+                                            Ver todos mis productos ({referrals.length})
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {smartSuggestions.map((sug, sIdx) => {
+                                            const ref = sug.referral
+                                            return (
+                                                <div
+                                                    key={ref.id || sIdx}
+                                                    className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm hover:border-gray-900 transition-all space-y-3"
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${sug.badgeColor}`}>
+                                                            {sug.badge}
+                                                        </span>
+                                                        <span className="text-[10px] font-bold text-gray-400 uppercase">
+                                                            {ref.conversions || 0} ventas · {ref.clicks || 0} clics
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0">
+                                                            {ref.productImage ? (
+                                                                <img
+                                                                    src={ref.productImage}
+                                                                    alt={ref.productName || 'Producto'}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center text-orange-500 bg-orange-50">
+                                                                    <Flame size={18} />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-black text-gray-900 tracking-tight leading-tight truncate">
+                                                                {ref.productName || 'Producto recomendado'}
+                                                            </p>
+                                                            <p className="text-[11px] font-medium text-gray-500 mt-1 leading-relaxed">
+                                                                {sug.reason}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="pt-2.5 border-t border-gray-100 flex items-center justify-between">
+                                                        <span className="text-[11px] font-black text-emerald-700">
+                                                            +${((ref.conversions || 0) * 0.25).toFixed(2)} ganado
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onReferralClick(ref)}
+                                                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-black tracking-tight transition-all shadow-sm active:scale-95"
+                                                        >
+                                                            <Share2 size={13} />
+                                                            <span>Volver a recomendar</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        ) : filter === 'analytics' ? (
+                            /* VISTA DE RENDIMIENTO */
+                            <div className="space-y-4 pt-1">
+                                <div className="flex items-center gap-2">
+                                    <BarChart2 size={16} className="text-indigo-600" />
+                                    <div>
+                                        <h3 className="text-xs font-black uppercase tracking-wider text-gray-900 leading-tight">
+                                            Estadísticas de Rendimiento
+                                        </h3>
+                                        <p className="text-[10px] font-medium text-gray-500">Métricas clave de efectividad de tus recomendaciones</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2.5">
+                                    {/* Tasa de conversión */}
+                                    <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tasa de Conversión</p>
+                                        <div className="flex items-baseline gap-1.5 mt-1">
+                                            <span className="text-xl font-black text-gray-900">
+                                                {performanceMetrics.conversionRate}%
+                                            </span>
+                                            <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full ${
+                                                performanceMetrics.conversionRate >= 10
+                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                    : performanceMetrics.conversionRate > 0
+                                                    ? 'bg-blue-100 text-blue-800'
+                                                    : 'bg-gray-200 text-gray-600'
+                                            }`}>
+                                                {performanceMetrics.conversionRate >= 10
+                                                    ? 'Alta'
+                                                    : performanceMetrics.conversionRate > 0
+                                                    ? 'Activa'
+                                                    : 'Inicial'}
+                                            </span>
+                                        </div>
+                                        <p className="text-[10px] font-medium text-gray-500 mt-1">
+                                            {performanceMetrics.totalSales} ventas de {performanceMetrics.totalClicks} clics
+                                        </p>
+                                    </div>
+
+                                    {/* Ganancia por Clic */}
+                                    <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Ganancia por Clic</p>
+                                        <div className="flex items-baseline gap-1 mt-1">
+                                            <span className="text-xl font-black text-emerald-700">
+                                                ${performanceMetrics.earningsPerClick}
+                                            </span>
+                                        </div>
+                                        <p className="text-[10px] font-medium text-gray-500 mt-1">
+                                            Retorno medio por cada interacción
+                                        </p>
+                                    </div>
+
+                                    {/* Ritmo de Venta */}
+                                    <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Ritmo de Ventas</p>
+                                        <div className="flex items-baseline gap-1 mt-1">
+                                            <span className="text-lg font-black text-gray-900">
+                                                {performanceMetrics.clicksPerSale ? `~${performanceMetrics.clicksPerSale} clics` : 'Sin ventas aún'}
+                                            </span>
+                                        </div>
+                                        <p className="text-[10px] font-medium text-gray-500 mt-1">
+                                            {performanceMetrics.clicksPerSale ? 'Promedio necesario por venta' : 'Comparte tus links para medir'}
+                                        </p>
+                                    </div>
+
+                                    {/* Catálogo Activo */}
+                                    <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Catálogo Ganador</p>
+                                        <div className="flex items-baseline gap-1 mt-1">
+                                            <span className="text-lg font-black text-gray-900">
+                                                {performanceMetrics.activationRate}%
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 font-bold">
+                                                ({performanceMetrics.successfulReferralsCount}/{performanceMetrics.totalProducts})
+                                            </span>
+                                        </div>
+                                        <p className="text-[10px] font-medium text-gray-500 mt-1">
+                                            Recomendaciones que ya vendieron
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : filter === 'sales' && displayedReferrals.length === 0 ? (
+                            <div className="text-center py-10 bg-gray-50/60 rounded-xl border border-dashed border-gray-200 p-6">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                                    <Sparkles size={18} />
+                                </div>
+                                <p className="text-xs font-black text-gray-900 tracking-tight">Sin ventas aún en tus recomendaciones</p>
+                                <p className="text-[11px] font-medium text-gray-500 mt-1 max-w-[250px] mx-auto leading-relaxed">
+                                    Comparte tus enlaces por WhatsApp o redes sociales para empezar a generar tus primeras ventas.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilter('all')}
+                                    className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-black hover:bg-gray-800 transition-all shadow-sm"
+                                >
+                                    <span>Ver todos mis productos ({referrals.length})</span>
+                                </button>
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Productos recomendados</p>
-                                {referrals.map((referral) => (
-                                    <button
-                                        key={referral.id}
-                                        type="button"
-                                        onClick={() => onReferralClick(referral)}
-                                        className="w-full text-left bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-900 hover:shadow-sm transition-all"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0">
-                                                {referral.productImage ? (
-                                                    <img
-                                                        src={referral.productImage}
-                                                        alt={referral.productName || 'Producto'}
-                                                        className="w-full h-full object-cover"
-                                                        onError={(e) => {
-                                                            e.currentTarget.style.display = 'none'
-                                                            const p = e.currentTarget.parentElement
-                                                            if (p) {
-                                                                p.classList.add('flex', 'items-center', 'justify-center', 'text-orange-500', 'bg-orange-50')
-                                                                p.innerHTML = '<span class="text-xs">🔥</span>'
-                                                            }
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center text-orange-500 bg-orange-50">
-                                                        <Flame size={18} />
-                                                    </div>
-                                                )}
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
+                                        {filter === 'sales' ? 'Productos con ventas generadas' : 'Tus recomendaciones'}
+                                    </p>
+                                    {isRefreshing && (
+                                        <span className="text-[10px] font-bold text-emerald-600 animate-pulse">
+                                            Actualizando...
+                                        </span>
+                                    )}
+                                </div>
+
+                                {displayedReferrals.map((referral) => {
+                                    const hasSales = Boolean(referral.hasSales || (referral.conversions || 0) > 0)
+                                    const recentSaleDateText = referral.lastSaleAt ? formatRelativeTime(referral.lastSaleAt) : null
+
+                                    return (
+                                        <button
+                                            key={referral.id}
+                                            type="button"
+                                            onClick={() => onReferralClick(referral)}
+                                            className={`w-full text-left bg-white rounded-xl border p-4 transition-all hover:shadow-sm ${
+                                                hasSales
+                                                    ? 'border-emerald-200/80 hover:border-emerald-500 hover:ring-1 hover:ring-emerald-400/30'
+                                                    : 'border-gray-200 hover:border-gray-900'
+                                            }`}
+                                        >
+                                            {/* Insignia de venta reciente */}
+                                            {hasSales && (
+                                                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-black uppercase tracking-wider mb-2.5 shadow-[0_1px_2px_rgba(16,185,129,0.06)]">
+                                                    <Flame size={12} className="text-emerald-600 fill-emerald-500" />
+                                                    <span>
+                                                        {recentSaleDateText
+                                                            ? `Venta reciente · ${recentSaleDateText}`
+                                                            : `${referral.conversions} venta${(referral.conversions || 0) > 1 ? 's' : ''} generada${(referral.conversions || 0) > 1 ? 's' : ''}`}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0">
+                                                    {referral.productImage ? (
+                                                        <img
+                                                            src={referral.productImage}
+                                                            alt={referral.productName || 'Producto'}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                e.currentTarget.style.display = 'none'
+                                                                const p = e.currentTarget.parentElement
+                                                                if (p) {
+                                                                    p.classList.add('flex', 'items-center', 'justify-center', 'text-orange-500', 'bg-orange-50')
+                                                                    p.innerHTML = '<span class="text-xs">🔥</span>'
+                                                                }
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-orange-500 bg-orange-50">
+                                                            <Flame size={18} />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-black text-gray-900 tracking-tight leading-tight truncate">
+                                                        {referral.productName || 'Producto recomendado'}
+                                                    </p>
+                                                    <p className="text-[10px] font-medium text-gray-500 mt-1">
+                                                        Recomendado: {formatDate(referral.createdAt)}
+                                                    </p>
+                                                </div>
+                                                <div className="text-right flex-shrink-0">
+                                                    <p className={`text-base font-black tracking-tight leading-none ${hasSales ? 'text-emerald-700' : 'text-gray-900'}`}>
+                                                        {referral.conversions || 0}
+                                                    </p>
+                                                    <p className="text-[9px] font-bold text-gray-400 uppercase mt-0.5">ventas</p>
+                                                </div>
                                             </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-black text-gray-900 truncate">{referral.productName || 'Producto recomendado'}</p>
-                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
-                                                    {formatDate(referral.createdAt)}
-                                                </p>
+
+                                            <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2">
+                                                <div className="bg-gray-50 rounded-xl px-3 py-2">
+                                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Clics</p>
+                                                    <p className="text-sm font-black text-gray-900">{referral.clicks || 0}</p>
+                                                </div>
+                                                <div className="bg-emerald-50 rounded-xl px-3 py-2">
+                                                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Ganado</p>
+                                                    <p className="text-sm font-black text-emerald-700">${((referral.conversions || 0) * 0.25).toFixed(2)}</p>
+                                                </div>
                                             </div>
-                                            <div className="text-right flex-shrink-0">
-                                                <p className="text-sm font-black text-gray-900">{referral.conversions || 0}</p>
-                                                <p className="text-[9px] font-bold text-gray-300 uppercase">ventas</p>
-                                            </div>
-                                        </div>
-                                        <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2">
-                                            <div className="bg-gray-50 rounded-xl px-3 py-2">
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Clics</p>
-                                                <p className="text-sm font-black text-gray-900">{referral.clicks || 0}</p>
-                                            </div>
-                                            <div className="bg-emerald-50 rounded-xl px-3 py-2">
-                                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Ganado</p>
-                                                <p className="text-sm font-black text-emerald-700">${((referral.conversions || 0) * 0.25).toFixed(2)}</p>
-                                            </div>
-                                        </div>
-                                    </button>
-                                ))}
+                                        </button>
+                                    )
+                                })}
                             </div>
                         )}
                     </div>
@@ -1146,12 +1608,17 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
     const [orderSidebarOpen, setOrderSidebarOpen] = useState(false)
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
-    const [walletBalance, setWalletBalance] = useState({ referralCredits: 0, manualBalance: 0 })
     const [showHowToEarn, setShowHowToEarn] = useState(false)
     const [showRecommendations, setShowRecommendations] = useState(false)
-    const [clientReferrals, setClientReferrals] = useState<any[]>([])
-    const [referralStats, setReferralStats] = useState({ totalClicks: 0, totalSales: 0, totalCredits: 0 })
-    const [loadingRecommendations, setLoadingRecommendations] = useState(false)
+    const {
+        referrals: clientReferrals,
+        walletBalance,
+        referralStats,
+        loading: loadingRecommendations,
+        isRefreshing: isRefreshingRecommendations,
+        loadRecommendations,
+        refreshRecommendations
+    } = useClientRecommendations(user)
     const [referralModalOpen, setReferralModalOpen] = useState(false)
     const [selectedReferralProduct, setSelectedReferralProduct] = useState<any>(null)
     const [selectedReferralLink, setSelectedReferralLink] = useState('')
@@ -1311,34 +1778,8 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 }
             }).catch(console.error)
 
-            // Cargar Créditos
-            const loadCredits = async () => {
-                try {
-                    const [creditsById, creditsByPhone] = await Promise.all([
-                        getAllUserCredits(user.id),
-                        user.celular ? getAllUserCredits(user.celular) : Promise.resolve([])
-                    ])
-
-                    const combinedCredits = [...creditsById]
-                    creditsByPhone.forEach(credit => {
-                        if (combinedCredits.some(c => c.id === credit.id)) return
-                        const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
-                        if (index === -1) {
-                            combinedCredits.push(credit)
-                        } else {
-                            combinedCredits[index].availableCredits = (combinedCredits[index].availableCredits || 0) + (credit.availableCredits || 0)
-                            combinedCredits[index].balance = (combinedCredits[index].balance || 0) + (credit.balance || 0)
-                        }
-                    })
-
-                    const referralCredits = combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
-                    const manualBalance = combinedCredits.reduce((sum, c) => sum + (c.balance || 0), 0)
-                    setWalletBalance({ referralCredits, manualBalance })
-                } catch (e) {
-                    console.error('Error loading credits in sidebar:', e)
-                }
-            }
-            loadCredits()
+            // Cargar datos de recomendaciones y billetera (con caché SWR)
+            loadRecommendations()
 
             const loadNotifications = async () => {
                 setLoadingNotifications(true)
@@ -1353,66 +1794,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 }
             }
             loadNotifications()
-
-            const loadRecommendations = async () => {
-                setLoadingRecommendations(true)
-                try {
-                    const [referralsById, referralsByPhone, creditsById, creditsByPhone] = await Promise.all([
-                        getUserReferrals(user.id),
-                        user.celular ? getUserReferrals(user.celular) : Promise.resolve([]),
-                        getAllUserCredits(user.id),
-                        user.celular ? getAllUserCredits(user.celular) : Promise.resolve([])
-                    ])
-
-                    const combinedReferrals = [...referralsById]
-                    referralsByPhone.forEach(ref => {
-                        if (!combinedReferrals.some(r => r.id === ref.id)) {
-                            combinedReferrals.push(ref)
-                        }
-                    })
-
-                    const combinedCredits = [...creditsById]
-                    creditsByPhone.forEach(credit => {
-                        if (combinedCredits.some(c => c.id === credit.id)) return
-                        const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
-                        if (index === -1) {
-                            combinedCredits.push(credit)
-                        } else {
-                            combinedCredits[index].availableCredits = (combinedCredits[index].availableCredits || 0) + (credit.availableCredits || 0)
-                            combinedCredits[index].balance = (combinedCredits[index].balance || 0) + (credit.balance || 0)
-                        }
-                    })
-
-                    combinedReferrals.sort((a, b) => {
-                        // Ordenar por ganancias (conversiones) de forma descendente
-                        const earningsA = (a.conversions || 0) * 0.25;
-                        const earningsB = (b.conversions || 0) * 0.25;
-                        if (earningsB !== earningsA) {
-                            return earningsB - earningsA;
-                        }
-
-                        // Si las ganancias son iguales, ordenar por fecha descendente (más recientes primero)
-                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0)
-                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0)
-                        return dateB.getTime() - dateA.getTime()
-                    })
-
-                    const referralCredits = combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
-                    const manualBalance = combinedCredits.reduce((sum, c) => sum + (c.balance || 0), 0)
-
-                    setClientReferrals(combinedReferrals)
-                    setWalletBalance({ referralCredits, manualBalance })
-                    setReferralStats({
-                        totalClicks: combinedReferrals.reduce((sum, r) => sum + (r.clicks || 0), 0),
-                        totalSales: combinedReferrals.reduce((sum, r) => sum + (r.conversions || 0), 0),
-                        totalCredits: referralCredits + manualBalance
-                    })
-                } catch (e) {
-                    console.error('Error loading recommendations in sidebar:', e)
-                } finally {
-                    setLoadingRecommendations(false)
-                }
-            }
             loadRecommendations()
 
             const loadFavorites = async () => {
@@ -1609,11 +1990,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             setUserLocations([])
             setSavedLocation(null)
             setActiveOrders([])
-            setWalletBalance({ referralCredits: 0, manualBalance: 0 })
-            setClientReferrals([])
-            setReferralStats({ totalClicks: 0, totalSales: 0, totalCredits: 0 })
             setShowRecommendations(false)
-            setLoadingRecommendations(false)
             setReferralModalOpen(false)
             setSelectedReferralProduct(null)
             setSelectedReferralLink('')
@@ -2637,6 +3014,8 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 loading={loadingRecommendations}
                 formatDate={formatNotificationDate}
                 onReferralClick={handleReferralClick}
+                onRefresh={refreshRecommendations}
+                isRefreshing={isRefreshingRecommendations}
             />
 
             <ReferralModal

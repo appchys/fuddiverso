@@ -8443,8 +8443,73 @@ export async function clearCheckoutProgress(clientId: string, businessId: string
 // ============================================================================
 
 /**
+ * Obtiene el conjunto unificado de identificadores de un usuario (ID de cliente, celular local, +593, etc.)
+ */
+export async function expandUserCreditIdentifiers(
+  userIdentifiers: (string | undefined | null)[]
+): Promise<string[]> {
+  const idSet = new Set<string>()
+  const phoneSet = new Set<string>()
+
+  userIdentifiers.filter(Boolean).forEach(raw => {
+    const str = String(raw).trim()
+    if (!str) return
+    idSet.add(str)
+    const norm = normalizeEcuadorianPhone(str)
+    if (norm && /^09\d{8}$/.test(norm)) {
+      idSet.add(norm)
+      phoneSet.add(norm)
+      idSet.add(`593${norm.slice(1)}`)
+      idSet.add(`+593${norm.slice(1)}`)
+    }
+  })
+
+  // Si algún identificador no parece celular, buscar en la colección 'clients' por doc ID
+  const nonPhoneIds = Array.from(idSet).filter(id => !/^(\+?593|0)9\d{8}$/.test(id))
+  for (const clientId of nonPhoneIds) {
+    try {
+      const clientSnap = await getDoc(doc(db, 'clients', clientId))
+      if (clientSnap.exists()) {
+        const cData = clientSnap.data()
+        const cell = cData.celular || cData.phone
+        if (cell) {
+          const norm = normalizeEcuadorianPhone(cell)
+          if (norm && /^09\d{8}$/.test(norm)) {
+            idSet.add(norm)
+            phoneSet.add(norm)
+            idSet.add(`593${norm.slice(1)}`)
+            idSet.add(`+593${norm.slice(1)}`)
+          }
+        }
+      }
+    } catch {
+      // Ignorar si no es doc de clients
+    }
+  }
+
+  // Buscar otros documentos de cliente con el mismo celular para unificar posibles IDs
+  if (phoneSet.size > 0) {
+    try {
+      const phoneQueries = Array.from(phoneSet).map(phone =>
+        getDocs(query(collection(db, 'clients'), where('celular', '==', phone)))
+      )
+      const clientSnaps = await Promise.all(phoneQueries)
+      clientSnaps.forEach(snap => {
+        snap.docs.forEach(d => {
+          if (d.id) idSet.add(d.id)
+        })
+      })
+    } catch (e) {
+      console.warn('Error expanding client IDs by phone:', e)
+    }
+  }
+
+  return Array.from(idSet)
+}
+
+/**
  * Genera un código único de referido para un producto
- * Si el usuario ya tiene un link para este producto, retorna el existente
+ * Si el usuario ya tiene un link para este producto (por ID o por celular), retorna el existente sin generar uno nuevo.
  */
 export async function generateReferralLink(
   productId: string,
@@ -8456,26 +8521,51 @@ export async function generateReferralLink(
   businessUsername?: string,
   productSlug?: string
 ): Promise<{ code: string; isNew: boolean }> {
-  console.log('🚀 Debug Referral - Generating link:', { productId, businessId, userId, productName })
+  console.log('🔗 Debug Referral - Generating link:', { productId, businessId, userId, productName })
   try {
-    // Si hay un userId, buscar si ya existe un referral para este producto
+    // Si hay un userId (ID o teléfono), buscar exhaustivamente si ya existe un link para este producto
     if (userId) {
-      const existingQuery = query(
-        collection(db, 'referralLinks'),
-        where('createdBy', '==', userId),
-        where('productId', '==', productId)
-      )
-      const existingSnapshot = await getDocs(existingQuery)
+      const userIdentifiers = await expandUserCreditIdentifiers([userId])
 
-      if (!existingSnapshot.empty) {
-        // Ya existe un link para este producto, retornar el código existente
-        const existingLink = existingSnapshot.docs[0].data()
-        console.log('🚀 Debug Referral - Found existing link:', existingLink.code)
-        return { code: existingLink.code, isNew: false }
+      // 1. Buscar en todos los referralLinks de este producto
+      try {
+        const prodQuery = query(
+          collection(db, 'referralLinks'),
+          where('productId', '==', productId)
+        )
+        const prodSnapshot = await getDocs(prodQuery)
+        const existingDoc = prodSnapshot.docs.find(d => {
+          const data = d.data()
+          if (!data.createdBy) return false
+          const normCreated = normalizeEcuadorianPhone(data.createdBy)
+          return userIdentifiers.some(uid =>
+            uid === data.createdBy || (normCreated && normCreated === normalizeEcuadorianPhone(uid))
+          )
+        })
+
+        if (existingDoc) {
+          const existingData = existingDoc.data()
+          console.log('🔗 Debug Referral - Reutilizando link existente para producto:', existingData.code)
+          return { code: existingData.code, isNew: false }
+        }
+      } catch (err) {
+        console.warn('Warning checking referralLinks by productId:', err)
+      }
+
+      // 2. Respaldo: Buscar entre todos los links generados por este usuario
+      try {
+        const userLinks = await getUserReferrals(userIdentifiers)
+        const matched = userLinks.find(l => l.productId === productId)
+        if (matched) {
+          console.log('🔗 Debug Referral - Reutilizando link encontrado en links del usuario:', matched.code)
+          return { code: matched.code, isNew: false }
+        }
+      } catch (err) {
+        console.warn('Warning checking user referrals:', err)
       }
     }
 
-    // No existe, generar código único
+    // No existe, generar código único nuevo
     const code = `REF-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
 
     const referralData = {
@@ -8493,7 +8583,7 @@ export async function generateReferralLink(
       conversions: 0
     }
 
-    console.log('🚀 Debug Referral - Saving new to Firestore:', referralData)
+    console.log('🔗 Debug Referral - Guardando nuevo link en Firestore:', referralData)
     await addDoc(collection(db, 'referralLinks'), referralData)
     return { code, isNew: true }
   } catch (error) {
@@ -8503,20 +8593,57 @@ export async function generateReferralLink(
 }
 
 /**
- * Obtiene todos los links de referido creados por un usuario
+ * Obtiene todos los links de referido creados por un usuario (soporta múltiples identificadores)
  */
-export async function getUserReferrals(userId: string): Promise<any[]> {
+export async function getUserReferrals(userId: string | string[]): Promise<any[]> {
   try {
-    const q = query(
-      collection(db, 'referralLinks'),
-      where('createdBy', '==', userId),
-      orderBy('createdAt', 'desc')
-    )
-    const snapshot = await getDocs(q)
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
+    const rawIds = Array.isArray(userId) ? userId : [userId]
+    const idSet = new Set<string>()
+
+    rawIds.filter(Boolean).forEach(id => {
+      const str = String(id).trim()
+      if (!str) return
+      idSet.add(str)
+      const norm = normalizeEcuadorianPhone(str)
+      if (norm && /^09\d{8}$/.test(norm)) {
+        idSet.add(norm)
+        idSet.add(`593${norm.slice(1)}`)
+        idSet.add(`+593${norm.slice(1)}`)
+      }
+    })
+
+    const ids = Array.from(idSet)
+    if (ids.length === 0) return []
+
+    // Firestore permite 'in' con hasta 10 elementos
+    const chunks: string[][] = []
+    for (let i = 0; i < ids.length; i += 10) {
+      chunks.push(ids.slice(i, i + 10))
+    }
+
+    const docMap = new Map<string, any>()
+    for (const chunk of chunks) {
+      const q = query(
+        collection(db, 'referralLinks'),
+        where('createdBy', 'in', chunk)
+      )
+      const snapshot = await getDocs(q)
+      snapshot.docs.forEach(doc => {
+        docMap.set(doc.id, {
+          id: doc.id,
+          ...doc.data()
+        })
+      })
+    }
+
+    const docs = Array.from(docMap.values())
+    // Ordenar en memoria por createdAt desc para evitar dependencia de índices compuestos en Firestore
+    docs.sort((a: any, b: any) => {
+      const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0)
+      const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0)
+      return dateB.getTime() - dateA.getTime()
+    })
+    return docs
   } catch (error) {
     console.error('❌ Error getting user referrals:', error)
     return []
@@ -8529,13 +8656,9 @@ export async function getUserReferrals(userId: string): Promise<any[]> {
 export async function userHasReferralForProduct(userId: string, productId: string): Promise<boolean> {
   try {
     if (!userId) return false
-    const q = query(
-      collection(db, 'referralLinks'),
-      where('createdBy', '==', userId),
-      where('productId', '==', productId)
-    )
-    const snapshot = await getDocs(q)
-    return !snapshot.empty
+    const userIds = await expandUserCreditIdentifiers([userId])
+    const userLinks = await getUserReferrals(userIds)
+    return userLinks.some(l => l.productId === productId)
   } catch (error) {
     console.error('Error checking user referral for product:', error)
     return false
@@ -8550,15 +8673,11 @@ export async function userHasReferralForProduct(userId: string, productId: strin
 export async function getUserReferredProductIds(userId: string): Promise<Set<string>> {
   try {
     if (!userId) return new Set()
-    const q = query(
-      collection(db, 'referralLinks'),
-      where('createdBy', '==', userId)
-    )
-    const snapshot = await getDocs(q)
+    const userIds = await expandUserCreditIdentifiers([userId])
+    const userLinks = await getUserReferrals(userIds)
     const productIds = new Set<string>()
-    snapshot.docs.forEach(doc => {
-      const data = doc.data()
-      if (data.productId) productIds.add(data.productId)
+    userLinks.forEach(l => {
+      if (l.productId) productIds.add(l.productId)
     })
     return productIds
   } catch (error) {
@@ -8748,14 +8867,19 @@ export async function getOrdersByReferralCode(referralCode: string): Promise<any
   try {
     const q = query(
       collection(db, 'orders'),
-      where('referralCode', '==', referralCode),
-      orderBy('createdAt', 'desc')
+      where('referralCode', '==', referralCode)
     )
     const snapshot = await getDocs(q)
-    return snapshot.docs.map(doc => ({
+    const docs = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }))
+    docs.sort((a: any, b: any) => {
+      const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0)
+      const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0)
+      return dateB.getTime() - dateA.getTime()
+    })
+    return docs
   } catch (error) {
     console.error('Error getting orders by referral code:', error)
     return []
@@ -8766,44 +8890,7 @@ export async function getOrdersByReferralCode(referralCode: string): Promise<any
  * Obtiene el total de créditos acumulados de un usuario buscando por múltiples identificadores
  * (ID de usuario, celular y teléfono normalizado).
  */
-async function expandUserCreditIdentifiers(
-  userIdentifiers: (string | undefined | null)[]
-): Promise<string[]> {
-  const idSet = new Set<string>()
-  const phoneSet = new Set<string>()
 
-  userIdentifiers.filter(Boolean).forEach(raw => {
-    const str = String(raw).trim()
-    if (!str) return
-    idSet.add(str)
-    const norm = normalizeEcuadorianPhone(str)
-    if (norm && /^09\d{8}$/.test(norm)) {
-      idSet.add(norm)
-      phoneSet.add(norm)
-      idSet.add(`593${norm.slice(1)}`)
-      idSet.add(`+593${norm.slice(1)}`)
-    }
-  })
-
-  // Buscar otros documentos de cliente con el mismo celular para unificar posibles IDs duplicados
-  if (phoneSet.size > 0) {
-    try {
-      const phoneQueries = Array.from(phoneSet).map(phone =>
-        getDocs(query(collection(db, 'clients'), where('celular', '==', phone)))
-      )
-      const clientSnaps = await Promise.all(phoneQueries)
-      clientSnaps.forEach(snap => {
-        snap.docs.forEach(d => {
-          if (d.id) idSet.add(d.id)
-        })
-      })
-    } catch (e) {
-      console.warn('Error expanding client IDs by phone:', e)
-    }
-  }
-
-  return Array.from(idSet)
-}
 
 export async function getUserCreditsFlexible(
   userIdentifiers: (string | undefined | null)[]
@@ -8997,6 +9084,31 @@ export async function creditReferral(
 
     const order = orderDoc.data()
     const businessId = order.businessId
+
+    // VERIFICACIÓN ANTI AUTO-COMPRA:
+    // No acreditar crédito si el cliente que compra es el mismo que generó el enlace de referido.
+    const buyerRawIdentifiers = [
+      order.clientId,
+      order.userId,
+      order.customerId,
+      order.customer?.id,
+      order.customerPhone,
+      order.phone,
+      order.customer?.phone,
+      order.customer?.celular
+    ].filter(Boolean) as string[]
+
+    const [buyerIdentifiers, creatorIdentifiers] = await Promise.all([
+      expandUserCreditIdentifiers(buyerRawIdentifiers),
+      expandUserCreditIdentifiers([referral.createdBy])
+    ])
+
+    const isSelfPurchase = buyerIdentifiers.some(bId => creatorIdentifiers.includes(bId))
+
+    if (isSelfPurchase) {
+      console.log(`⚠️ [Referral] Auto-compra detectada. El comprador (${buyerRawIdentifiers.join(', ')}) es el mismo creador del enlace (${referral.createdBy}). No se acreditará recompensa.`)
+      return
+    }
     const businessName = await getBusinessNameForNotification(businessId)
 
     // Obtener o crear créditos del usuario
@@ -9073,7 +9185,8 @@ export async function creditReferral(
     const linkSnapshot = await getDocs(linkQuery)
     if (!linkSnapshot.empty) {
       await updateDoc(linkSnapshot.docs[0].ref, {
-        conversions: firestoreIncrement(1)
+        conversions: firestoreIncrement(1),
+        lastConversionAt: serverTimestamp()
       })
     }
 

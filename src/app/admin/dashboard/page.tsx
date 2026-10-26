@@ -79,6 +79,7 @@ export default function AdminDashboard() {
   const [customerSyncFilter, setCustomerSyncFilter] = useState<'all' | 'synced' | 'pending'>('all')
   const [customers, setCustomers] = useState<any[]>([])
   const [recommenders, setRecommenders] = useState<any[]>([])
+  const [allReferralLinks, setAllReferralLinks] = useState<any[]>([])
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [chartData, setChartData] = useState<any[]>([])
   const [telegramChartData, setTelegramChartData] = useState<any[]>([])
@@ -456,6 +457,7 @@ export default function AdminDashboard() {
 
       setDeliveries(allDeliveries)
       setGlobalClients(allGlobalClients)
+      setAllReferralLinks(allLinks)
 
       // Indexar clientes globales por teléfono normalizado, teléfono crudo e ID (O(1))
       const clientByNormPhone = new Map<string, any>()
@@ -554,40 +556,91 @@ export default function AdminDashboard() {
 
       const recommenderMap = new Map<string, any>()
 
+      // Indexar créditos por userId y por teléfono normalizado
+      const creditByUser = new Map<string, any>()
       allCredits.forEach(credit => {
         const userId = credit.userId
         if (!userId) return
-        const userLinks = linksByCreatedBy.get(userId) || []
-        if (userLinks.length === 0) return
+        const existing = creditByUser.get(userId) || { totalCredits: 0, credits: 0, id: credit.id }
+        existing.totalCredits += credit.totalCredits || 0
+        existing.credits += credit.availableCredits || 0
+        creditByUser.set(userId, existing)
 
-        if (recommenderMap.has(userId)) {
-          const existing = recommenderMap.get(userId)
-          existing.totalCredits += credit.totalCredits || 0
-          existing.credits += credit.availableCredits || 0
+        const norm = normalizeEcuadorianPhone(userId)
+        if (norm) {
+          const existingNorm = creditByUser.get(norm) || { totalCredits: 0, credits: 0, id: credit.id }
+          existingNorm.totalCredits += credit.totalCredits || 0
+          existingNorm.credits += credit.availableCredits || 0
+          creditByUser.set(norm, existingNorm)
+        }
+      })
+
+      // Recopilar todos los creadores de links y de créditos
+      const allCreators = new Set<string>()
+      allLinks.forEach(l => {
+        if (l.createdBy) allCreators.add(l.createdBy)
+      })
+      allCredits.forEach(c => {
+        if (c.userId) allCreators.add(c.userId)
+      })
+
+      allCreators.forEach(creatorId => {
+        const normCreatorId = normalizeEcuadorianPhone(creatorId)
+        // Obtener todos los links asociados a este creador (por ID o teléfono normalizado)
+        const userLinks = [
+          ...(linksByCreatedBy.get(creatorId) || []),
+          ...(normCreatorId && normCreatorId !== creatorId ? (linksByCreatedBy.get(normCreatorId) || []) : [])
+        ]
+
+        // Eliminar links duplicados si los hubiere
+        const uniqueLinksMap = new Map<string, any>()
+        userLinks.forEach(l => uniqueLinksMap.set(l.id || l.code, l))
+        const uniqueUserLinks = Array.from(uniqueLinksMap.values())
+
+        const creditData = creditByUser.get(creatorId) || (normCreatorId ? creditByUser.get(normCreatorId) : null)
+
+        // Si no tiene links y tampoco créditos, omitir
+        if (uniqueUserLinks.length === 0 && (!creditData || creditData.totalCredits === 0)) return
+
+        const totalClicks = uniqueUserLinks.reduce((sum, l) => sum + (l.clicks || 0), 0)
+        const totalConversions = uniqueUserLinks.reduce((sum, l) => sum + (l.conversions || 0), 0)
+
+        const customerFromOrders = customerByPhone.get(creatorId) || (normCreatorId ? customerByPhone.get(normCreatorId) : null)
+        const globalClient = clientByNormPhone.get(creatorId) || (normCreatorId ? clientByNormPhone.get(normCreatorId) : null)
+        const globalClientById = clientById.get(creatorId)
+
+        // Llave canónica para unificar
+        const canonicalKey = normCreatorId || globalClient?.id || creatorId
+
+        if (recommenderMap.has(canonicalKey)) {
+          const existing = recommenderMap.get(canonicalKey)
+          existing.linksCount = Math.max(existing.linksCount, uniqueUserLinks.length)
+          existing.clicks = Math.max(existing.clicks, totalClicks)
+          existing.conversions = Math.max(existing.conversions, totalConversions)
+          if (creditData) {
+            existing.credits = Math.max(existing.credits, creditData.credits || 0)
+            existing.totalCredits = Math.max(existing.totalCredits, creditData.totalCredits || 0)
+          }
         } else {
-          const totalClicks = userLinks.reduce((sum, l) => sum + (l.clicks || 0), 0)
-          const totalConversions = userLinks.reduce((sum, l) => sum + (l.conversions || 0), 0)
-
-          const normUserId = normalizeEcuadorianPhone(userId)
-          const customerFromOrders = customerByPhone.get(userId) || (normUserId ? customerByPhone.get(normUserId) : null)
-          const globalClient = clientByNormPhone.get(userId) || (normUserId ? clientByNormPhone.get(normUserId) : null)
-          const globalClientById = clientById.get(userId)
-
-          recommenderMap.set(userId, {
-            id: credit.id,
-            phone: userId,
-            name: customerFromOrders?.name || globalClient?.nombres || globalClientById?.nombres || userId,
+          recommenderMap.set(canonicalKey, {
+            id: creditData?.id || globalClient?.id || creatorId,
+            userId: creatorId,
+            phone: globalClient?.celular || customerFromOrders?.phone || creatorId,
+            name: customerFromOrders?.name || globalClient?.nombres || globalClientById?.nombres || creatorId,
             image: globalClient?.photoURL || globalClientById?.photoURL || null,
-            credits: credit.availableCredits || 0,
-            totalCredits: credit.totalCredits || 0,
-            linksCount: userLinks.length,
+            credits: creditData?.credits || 0,
+            totalCredits: creditData?.totalCredits || 0,
+            linksCount: uniqueUserLinks.length,
             clicks: totalClicks,
             conversions: totalConversions
           })
         }
       })
 
-      const recommenderData = Array.from(recommenderMap.values()).sort((a, b) => b.totalCredits - a.totalCredits)
+      const recommenderData = Array.from(recommenderMap.values()).sort((a, b) => {
+        if (b.conversions !== a.conversions) return b.conversions - a.conversions
+        return b.totalCredits - a.totalCredits
+      })
       setRecommenders(recommenderData)
 
     } catch (error) {
@@ -1780,6 +1833,8 @@ export default function AdminDashboard() {
             globalClients={globalClients}
             recommenders={recommenders}
             businesses={businesses}
+            allReferralLinks={allReferralLinks}
+            orders={orders}
           />
         </Suspense>
       )}
