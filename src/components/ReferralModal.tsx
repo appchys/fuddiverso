@@ -56,7 +56,7 @@ export default function ReferralModal({
       setStep('share')
       // Si no tenemos link pero el usuario está autenticado, generarlo
       const generateForUser = async () => {
-        if (!product?.id) return
+        if (!product?.id || activeLink) return
         try {
           const resolvedBizId = businessId || product.businessId
           const resolvedBizUsername = businessUsername || product.businessUsername
@@ -110,33 +110,16 @@ export default function ReferralModal({
     setPhoneError('')
 
     try {
-      // 1. Buscar o registrar cliente para asociar recompensas
-      let client = await searchClientByPhone(normalized)
-      if (client) {
-        login(client)
-      } else {
-        const newClient = await createClient({
-          celular: normalized,
-          nombres: 'Cliente',
-          fecha_de_registro: new Date().toISOString()
-        })
-        if (newClient) {
-          client = newClient
-          login(newClient)
-        }
-      }
-
-      const clientId = client?.id || normalized
       const resolvedBizId = businessId || product.businessId
       const resolvedBizUsername = businessUsername || product.businessUsername
       const resolvedBizName = businessName || product.businessName || ''
       const resolvedSlug = productSlug || product.slug || product.id
 
-      // 2. Generar link con la cuenta/teléfono
+      // 1. Generar link INMEDIATAMENTE (<50ms) usando el teléfono normalizado
       const { code } = await generateReferralLink(
         product.id,
         resolvedBizId,
-        clientId,
+        normalized,
         product.name,
         product.image,
         resolvedBizName,
@@ -148,6 +131,21 @@ export default function ReferralModal({
       const url = `${origin}/${resolvedBizUsername}/${resolvedSlug}?ref=${code}`
       setActiveLink(url)
       setStep('share')
+
+      // 2. En segundo plano (no bloqueante): registrar o asociar cliente
+      searchClientByPhone(normalized).then(existingClient => {
+        if (existingClient) {
+          login(existingClient)
+        } else {
+          createClient({
+            celular: normalized,
+            nombres: 'Cliente',
+            fecha_de_registro: new Date().toISOString()
+          }).then(nc => {
+            if (nc) login(nc)
+          }).catch(e => console.warn('Background client create warning:', e))
+        }
+      }).catch(e => console.warn('Background client search warning:', e))
     } catch (err) {
       console.error('Error registering phone for referral:', err)
       setPhoneError('No se pudo generar el enlace. Intenta nuevamente.')

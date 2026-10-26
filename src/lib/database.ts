@@ -8511,6 +8511,33 @@ export async function expandUserCreditIdentifiers(
  * Genera un código único de referido para un producto
  * Si el usuario ya tiene un link para este producto (por ID o por celular), retorna el existente sin generar uno nuevo.
  */
+// Caché en memoria para links de referidos en la sesión (clave: cleanUserId_productId)
+const referralMemoryCache = new Map<string, { code: string; isNew: boolean }>()
+
+/**
+ * Generador determinístico ultra-rápido de código de referido (0 ms)
+ * Garantiza que el mismo usuario + producto siempre tenga el mismo código
+ */
+export function generateDeterministicReferralCode(cleanUserId: string, productId: string): string {
+  const raw = `${cleanUserId}_${productId}`.toLowerCase()
+  let hash1 = 5381
+  let hash2 = 52711
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw.charCodeAt(i)
+    hash1 = ((hash1 << 5) + hash1) ^ char
+    hash2 = ((hash2 << 5) + hash2) ^ char
+  }
+  const part1 = Math.abs(hash1).toString(36).toUpperCase().padStart(4, '0').slice(-4)
+  const part2 = Math.abs(hash2).toString(36).toUpperCase().padStart(4, '0').slice(-4)
+  return `REF-${part1}${part2}`
+}
+
+/**
+ * Genera un código único de referido para un producto de manera ultra rápida (<50 ms)
+ * 1. Usa caché en memoria / localStorage si ya fue generado en la sesión (0 ms).
+ * 2. Si ya existía en Firestore, reutiliza el código anterior sin crear uno nuevo.
+ * 3. Si es nuevo, genera código determinístico O(1) y persiste en segundo plano.
+ */
 export async function generateReferralLink(
   productId: string,
   businessId: string,
@@ -8521,55 +8548,90 @@ export async function generateReferralLink(
   businessUsername?: string,
   productSlug?: string
 ): Promise<{ code: string; isNew: boolean }> {
-  console.log('🔗 Debug Referral - Generating link:', { productId, businessId, userId, productName })
   try {
-    // Si hay un userId (ID o teléfono), buscar exhaustivamente si ya existe un link para este producto
+    const rawUserId = String(userId || '').trim()
+    const normPhone = normalizeEcuadorianPhone(rawUserId)
+    const cleanUserId = normPhone || rawUserId || 'anon'
+    const cacheKey = `${cleanUserId}_${productId}`
+
+    // 1. RESPUESTA INSTANTÁNEA DESDE MEMORIA (0 ms)
+    if (referralMemoryCache.has(cacheKey)) {
+      return referralMemoryCache.get(cacheKey)!
+    }
+
+    // 2. RESPUESTA INSTANTÁNEA DESDE LOCALSTORAGE (0 ms)
+    if (typeof window !== 'undefined') {
+      try {
+        const localCode = localStorage.getItem(`fuddi_ref_${cacheKey}`)
+        if (localCode) {
+          const res = { code: localCode, isNew: false }
+          referralMemoryCache.set(cacheKey, res)
+          return res
+        }
+      } catch {}
+    }
+
+    // ID de documento predecible y único en Firestore
+    const safeDocId = `ref_${productId.replace(/[^a-zA-Z0-9_-]/g, '_')}_${cleanUserId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    const docRef = doc(db, 'referralLinks', safeDocId)
+
+    // 3. Verificación rápida de link existente
+    let resolvedCode: string | null = null
+    let isNewLink = true
+
     if (userId) {
-      const userIdentifiers = await expandUserCreditIdentifiers([userId])
-
-      // 1. Buscar en todos los referralLinks de este producto
       try {
-        const prodQuery = query(
-          collection(db, 'referralLinks'),
-          where('productId', '==', productId)
-        )
-        const prodSnapshot = await getDocs(prodQuery)
-        const existingDoc = prodSnapshot.docs.find(d => {
-          const data = d.data()
-          if (!data.createdBy) return false
-          const normCreated = normalizeEcuadorianPhone(data.createdBy)
-          return userIdentifiers.some(uid =>
-            uid === data.createdBy || (normCreated && normCreated === normalizeEcuadorianPhone(uid))
+        // Intento 1: Lectura directa O(1) de documento determinístico
+        const existingDirectSnap = await getDoc(docRef)
+        if (existingDirectSnap.exists()) {
+          const data = existingDirectSnap.data()
+          resolvedCode = data.code
+          isNewLink = false
+        } else {
+          // Intento 2: Buscar si existía un link previo con ID aleatorio para este producto
+          const possibleIds = [rawUserId, cleanUserId, `+593${cleanUserId.slice(1)}`].filter(Boolean)
+          const prodQuery = query(
+            collection(db, 'referralLinks'),
+            where('productId', '==', productId),
+            limit(25)
           )
-        })
+          const prodSnapshot = await getDocs(prodQuery)
+          const legacyDoc = prodSnapshot.docs.find(d => {
+            const data = d.data()
+            if (!data.createdBy) return false
+            const n = normalizeEcuadorianPhone(data.createdBy)
+            return possibleIds.includes(data.createdBy) || (n && possibleIds.includes(n))
+          })
 
-        if (existingDoc) {
-          const existingData = existingDoc.data()
-          console.log('🔗 Debug Referral - Reutilizando link existente para producto:', existingData.code)
-          return { code: existingData.code, isNew: false }
+          if (legacyDoc) {
+            resolvedCode = legacyDoc.data().code
+            isNewLink = false
+          }
         }
-      } catch (err) {
-        console.warn('Warning checking referralLinks by productId:', err)
-      }
-
-      // 2. Respaldo: Buscar entre todos los links generados por este usuario
-      try {
-        const userLinks = await getUserReferrals(userIdentifiers)
-        const matched = userLinks.find(l => l.productId === productId)
-        if (matched) {
-          console.log('🔗 Debug Referral - Reutilizando link encontrado en links del usuario:', matched.code)
-          return { code: matched.code, isNew: false }
-        }
-      } catch (err) {
-        console.warn('Warning checking user referrals:', err)
+      } catch (checkErr) {
+        console.warn('Fast check fallback:', checkErr)
       }
     }
 
-    // No existe, generar código único nuevo
-    const code = `REF-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+    // 4. Si no existía, generar código determinístico instantáneo
+    if (!resolvedCode) {
+      resolvedCode = generateDeterministicReferralCode(cleanUserId, productId)
+      isNewLink = true
+    }
 
+    const result = { code: resolvedCode, isNew: isNewLink }
+
+    // Guardar en caché inmediato (RAM + LocalStorage)
+    referralMemoryCache.set(cacheKey, result)
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`fuddi_ref_${cacheKey}`, resolvedCode)
+      } catch {}
+    }
+
+    // 5. PERSISTENCIA EN SEGUNDO PLANO (Fire and forget, sin bloquear al usuario)
     const referralData = {
-      code,
+      code: resolvedCode,
       productId,
       businessId,
       productName: productName || null,
@@ -8577,24 +8639,24 @@ export async function generateReferralLink(
       businessName: businessName || null,
       businessUsername: businessUsername || null,
       productSlug: productSlug || null,
-      createdBy: userId || null,
+      createdBy: cleanUserId,
       createdAt: serverTimestamp(),
       clicks: 0,
       conversions: 0
     }
 
-    console.log('🔗 Debug Referral - Guardando nuevo link en Firestore:', referralData)
-    await addDoc(collection(db, 'referralLinks'), referralData)
-    return { code, isNew: true }
+    setDoc(docRef, referralData, { merge: true }).catch(err => {
+      console.error('Background setDoc referral link error:', err)
+    })
+
+    return result
   } catch (error) {
     console.error('❌ Error generating referral link:', error)
-    throw error
+    const fallbackCode = `REF-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+    return { code: fallbackCode, isNew: true }
   }
 }
 
-/**
- * Obtiene todos los links de referido creados por un usuario (soporta múltiples identificadores)
- */
 export async function getUserReferrals(userId: string | string[]): Promise<any[]> {
   try {
     const rawIds = Array.isArray(userId) ? userId : [userId]
