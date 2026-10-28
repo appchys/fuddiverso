@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { DeliveryAuthProvider } from '@/contexts/DeliveryAuthContext'
 import { DeliveryUIProvider } from '@/contexts/DeliveryUIContext'
 import DeliveryHeader from '@/components/DeliveryHeader'
@@ -11,8 +12,12 @@ export default function DeliveryLayout({
   return (
     <DeliveryAuthProvider>
       <DeliveryUIProvider>
-        <DeliveryHeader />
-        <DeliverySidebar />
+        <Suspense fallback={null}>
+          <DeliveryHeader />
+        </Suspense>
+        <Suspense fallback={null}>
+          <DeliverySidebar />
+        </Suspense>
         <div className="min-h-screen bg-gray-50">
           {children}
         </div>

@@ -1,12 +1,12 @@
 'use client'
 
+import { Suspense, useEffect } from 'react'
 import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
 import { useDeliveryUI } from '@/contexts/DeliveryUIContext'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { useEffect } from 'react'
 
-export default function DeliverySidebar() {
+function DeliverySidebarContent() {
   const { user, logout, isAuthenticated } = useDeliveryAuth()
   const { isSidebarOpen, closeSidebar, activeAssignedOrdersCount } = useDeliveryUI()
   const pathname = usePathname()
@@ -133,7 +133,7 @@ export default function DeliverySidebar() {
             <i className={`bi bi-chevron-right text-xs ${isOrdersActive ? 'text-blue-200' : 'text-gray-400'}`}></i>
           </Link>
 
-          {/* Opción 2: Mapa de pedidos asignados (Solicitud explícita del usuario) */}
+          {/* Opción 2: Mapa de pedidos asignados */}
           <Link
             href="/delivery/dashboard?view=map"
             onClick={closeSidebar}
@@ -174,5 +174,13 @@ export default function DeliverySidebar() {
         </div>
       </aside>
     </>
+  )
+}
+
+export default function DeliverySidebar() {
+  return (
+    <Suspense fallback={null}>
+      <DeliverySidebarContent />
+    </Suspense>
   )
 }
