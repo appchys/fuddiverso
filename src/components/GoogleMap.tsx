@@ -31,7 +31,7 @@ let isGoogleMapsLoaded = false
 const loadingCallbacks: (() => void)[] = []
 
 // Función para cargar Google Maps API una sola vez
-const loadGoogleMapsAPI = (): Promise<void> => {
+export const loadGoogleMapsAPI = (): Promise<void> => {
   return new Promise((resolve) => {
     // Si ya está cargado, resolver inmediatamente
     if (window.google && window.google.maps) {

@@ -1,17 +1,21 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
+import { useDeliveryUI } from '@/contexts/DeliveryUIContext'
 import { getOrdersByDelivery, updateOrderStatus, getDeliveryById, getAllBusinesses } from '@/lib/database'
 import { Order, Delivery, Business } from '@/types'
 import { Timestamp, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
+import DeliveryAssignedOrdersMap from '@/components/DeliveryAssignedOrdersMap'
 
 function DeliveryDashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, deliveryId, isAuthenticated, authLoading, logout } = useDeliveryAuth()
+  const { setActiveAssignedOrdersCount } = useDeliveryUI()
+  const currentView = searchParams?.get('view') || 'orders'
   const [orders, setOrders] = useState<Order[]>([])
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [delivery, setDelivery] = useState<Delivery | null>(null)
@@ -343,6 +347,22 @@ function DeliveryDashboardContent() {
 
   const activeByMe = ordersByDate.filter(o => o.status !== 'delivered' && o.status !== 'cancelled' && o.delivery?.assignedDelivery === deliveryId && o.delivery?.acceptanceStatus === 'accepted')
   const deliveredByMeInRange = ordersByDate.filter(o => o.status === 'delivered' && o.delivery?.assignedDelivery === deliveryId)
+
+  // Todos los pedidos asignados activos a mí (incluye hoy y días futuros)
+  const allActiveAssignedOrders = useMemo(() => {
+    if (!deliveryId) return []
+    return orders.filter(order => {
+      const isAssigned = order.delivery?.assignedDelivery === deliveryId
+      const isNotFinished = order.status !== 'delivered' && order.status !== 'cancelled'
+      const isNotRejected = order.delivery?.acceptanceStatus !== 'rejected'
+      return isAssigned && isNotFinished && isNotRejected
+    })
+  }, [orders, deliveryId])
+
+  // Notificar al contexto de UI la cantidad de pedidos activos asignados
+  useEffect(() => {
+    setActiveAssignedOrdersCount(allActiveAssignedOrders.length)
+  }, [allActiveAssignedOrders.length, setActiveAssignedOrdersCount])
 
   // Efectivo
   const summaryCashActive = calculateCategorySummary(activeByMe, 'cash')
@@ -817,46 +837,85 @@ function DeliveryDashboardContent() {
   }
 
   return (
-    <div className="min-h-screen bg-transparent">
-      {/* Resumen del Delivery (cobros y ganancias) */}
-      <div className="bg-white border-b">
-        <div className="px-4 py-3">
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { id: 'cash', label: 'Efectivo', total: summaryCashTotal, active: summaryCashActive, delivered: summaryCashDelivered, color: 'green' },
-              { id: 'transfer', label: 'Transf.', total: summaryTransferTotal, active: summaryTransferActive, delivered: summaryTransferDelivered, color: 'blue' },
-              { id: 'earnings', label: 'Ganancia', total: summaryEarningsTotal, active: summaryEarningsActive, delivered: summaryEarningsDelivered, color: 'purple' }
-            ].map(card => (
-              <button
-                key={card.id}
-                onClick={() => setExpandedSummary(prev => prev === card.id ? 'none' : card.id as any)}
-                className={`p-1.5 rounded-xl border transition-all flex flex-col items-center text-center ${expandedSummary === card.id
-                  ? `ring-1 ring-${card.color}-500 bg-${card.color}-50 border-${card.color}-200`
-                  : `bg-${card.color}-50/30 border-transparent`
-                  }`}
-              >
-                <p className="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-0.5">{card.label}</p>
-                <p className={`text-sm font-black text-${card.color}-700 leading-none`}>${card.total.toFixed(2)}</p>
+    <div className="min-h-screen bg-transparent pb-16">
+      {currentView === 'map' ? (
+        <DeliveryAssignedOrdersMap
+          orders={orders}
+          deliveryId={deliveryId}
+          delivery={delivery}
+          businesses={businesses}
+          deliveryLocation={deliveryLocation}
+          onOpenOrderDetails={openOrderDetails}
+          onBackToOrders={() => router.push('/delivery/dashboard')}
+          onStatusChange={handleStatusChange}
+        />
+      ) : (
+        <>
+          {/* Resumen del Delivery (cobros y ganancias) */}
+          <div className="bg-white border-b">
+            <div className="px-4 py-3">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'cash', label: 'Efectivo', total: summaryCashTotal, active: summaryCashActive, delivered: summaryCashDelivered, color: 'green' },
+                  { id: 'transfer', label: 'Transf.', total: summaryTransferTotal, active: summaryTransferActive, delivered: summaryTransferDelivered, color: 'blue' },
+                  { id: 'earnings', label: 'Ganancia', total: summaryEarningsTotal, active: summaryEarningsActive, delivered: summaryEarningsDelivered, color: 'purple' }
+                ].map(card => (
+                  <button
+                    key={card.id}
+                    onClick={() => setExpandedSummary(prev => prev === card.id ? 'none' : card.id as any)}
+                    className={`p-1.5 rounded-xl border transition-all flex flex-col items-center text-center ${expandedSummary === card.id
+                      ? `ring-1 ring-${card.color}-500 bg-${card.color}-50 border-${card.color}-200`
+                      : `bg-${card.color}-50/30 border-transparent`
+                      }`}
+                  >
+                    <p className="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-0.5">{card.label}</p>
+                    <p className={`text-sm font-black text-${card.color}-700 leading-none`}>${card.total.toFixed(2)}</p>
 
-                {expandedSummary === card.id && (
-                  <div className="mt-1.5 pt-1.5 border-t border-gray-200 w-full animate-fadeIn">
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center justify-between px-1">
-                        <span className="text-[10px]">🔥</span>
-                        <span className="text-[10px] font-bold text-gray-700">${card.active.toFixed(2)}</span>
+                    {expandedSummary === card.id && (
+                      <div className="mt-1.5 pt-1.5 border-t border-gray-200 w-full animate-fadeIn">
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center justify-between px-1">
+                            <span className="text-[10px]">🔥</span>
+                            <span className="text-[10px] font-bold text-gray-700">${card.active.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between px-1">
+                            <span className="text-[10px]">📦</span>
+                            <span className={`text-[10px] font-black text-${card.color}-600`}>${card.delivered.toFixed(2)}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between px-1">
-                        <span className="text-[10px]">📦</span>
-                        <span className={`text-[10px] font-black text-${card.color}-600`}>${card.delivered.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </button>
-            ))}
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+
+          {/* Banner de acceso rápido al Mapa de pedidos asignados */}
+          <div className="px-4 pt-3 pb-1">
+            <button
+              onClick={() => router.push('/delivery/dashboard?view=map')}
+              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white p-3.5 rounded-2xl shadow-md hover:shadow-lg transition-all flex items-center justify-between group active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-xl shadow-inner">
+                  🗺️
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-black tracking-tight leading-tight">
+                    Mapa de Pedidos Asignados
+                  </p>
+                  <p className="text-[11px] text-blue-100 font-medium mt-0.5">
+                    {allActiveAssignedOrders.length} {allActiveAssignedOrders.length === 1 ? 'pedido activo en el mapa' : 'pedidos activos en el mapa (incluye días futuros)'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white/20 backdrop-blur-md px-2.5 py-1 rounded-xl text-xs font-black">
+                <span>Ver</span>
+                <i className="bi bi-chevron-right text-xs transition-transform group-hover:translate-x-0.5"></i>
+              </div>
+            </button>
+          </div>
 
       {/* Lista de pedidos agrupados */}
       <div className="p-4 pb-20 space-y-6">
@@ -1374,40 +1433,80 @@ function DeliveryDashboardContent() {
           </div>
         </div>
       )}
+        </>
+      )}
 
       {/* Barra de Navegación Inferior */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] px-4 py-2 flex items-center justify-around z-40 pb-safe safe-area-bottom">
         <button
-          onClick={() => setActiveTab('my_orders')}
-          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-24 ${activeTab === 'my_orders' ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600'
-            }`}
+          onClick={() => {
+            if (currentView === 'map') {
+              router.push('/delivery/dashboard')
+            }
+            setActiveTab('my_orders')
+          }}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-24 ${
+            currentView !== 'map' && activeTab === 'my_orders'
+              ? 'text-blue-600 bg-blue-50 font-bold'
+              : 'text-gray-400 hover:text-gray-600'
+          }`}
         >
           <div className="relative">
-            <i className={`bi ${activeTab === 'my_orders' ? 'bi-box-seam-fill' : 'bi-box-seam'} text-xl`}></i>
-            {/* Badge para pedidos activos míos (opcional) */}
+            <i className={`bi ${currentView !== 'map' && activeTab === 'my_orders' ? 'bi-box-seam-fill' : 'bi-box-seam'} text-xl`}></i>
             {groupedOrders['Activos']?.length > 0 && (
               <span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border-2 border-white">
                 {groupedOrders['Activos'].length}
               </span>
             )}
           </div>
-          <span className="text-[10px] font-bold">Mis Pedidos</span>
+          <span className="text-[10px]">Mis Pedidos</span>
         </button>
 
         <button
-          onClick={() => setActiveTab('available')}
-          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-24 ${activeTab === 'available' ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-gray-600'
-            }`}
+          onClick={() => {
+            if (currentView !== 'map') {
+              router.push('/delivery/dashboard?view=map')
+            }
+          }}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-24 ${
+            currentView === 'map'
+              ? 'text-blue-600 bg-blue-50 font-bold'
+              : 'text-gray-400 hover:text-gray-600'
+          }`}
         >
           <div className="relative">
-            <i className={`bi ${activeTab === 'available' ? 'bi-bag-plus-fill' : 'bi-bag-plus'} text-xl`}></i>
+            <i className={`bi ${currentView === 'map' ? 'bi-geo-alt-fill' : 'bi-geo-alt'} text-xl`}></i>
+            {allActiveAssignedOrders.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-rose-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border-2 border-white animate-pulse">
+                {allActiveAssignedOrders.length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px]">Mapa</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (currentView === 'map') {
+              router.push('/delivery/dashboard')
+            }
+            setActiveTab('available')
+          }}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-24 ${
+            currentView !== 'map' && activeTab === 'available'
+              ? 'text-green-600 bg-green-50 font-bold'
+              : 'text-gray-400 hover:text-gray-600'
+          }`}
+        >
+          <div className="relative">
+            <i className={`bi ${currentView !== 'map' && activeTab === 'available' ? 'bi-bag-plus-fill' : 'bi-bag-plus'} text-xl`}></i>
             {groupedOrders['Disponibles']?.length > 0 && (
               <span className="absolute -top-2 -right-3 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white animate-pulse">
                 {groupedOrders['Disponibles'].length}
               </span>
             )}
           </div>
-          <span className="text-[10px] font-bold">Disponibles</span>
+          <span className="text-[10px]">Disponibles</span>
         </button>
       </div>
 

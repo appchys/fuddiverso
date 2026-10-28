@@ -1,11 +1,13 @@
 'use client'
 
 import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
+import { useDeliveryUI } from '@/contexts/DeliveryUIContext'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 export default function DeliveryHeader() {
     const { user, logout, isAuthenticated } = useDeliveryAuth()
+    const { toggleSidebar, activeAssignedOrdersCount } = useDeliveryUI()
     const pathname = usePathname()
 
     // No mostrar nada si no está autenticado o estamos en la página de login
@@ -14,12 +16,27 @@ export default function DeliveryHeader() {
     return (
         <header className="bg-white border-b sticky top-0 left-0 right-0 z-40 h-16 shadow-sm">
             <div className="max-w-5xl mx-auto px-4 h-full flex items-center justify-between">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                    {/* Botón hamburguesa */}
+                    <button
+                        onClick={toggleSidebar}
+                        className="p-2 -ml-1 text-gray-700 hover:text-gray-900 hover:bg-gray-100 active:bg-gray-200 rounded-xl transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500 relative"
+                        title="Abrir menú"
+                        aria-label="Abrir menú"
+                    >
+                        <i className="bi bi-list text-2xl"></i>
+                        {activeAssignedOrdersCount > 0 && (
+                            <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white"></span>
+                        )}
+                    </button>
+
                     <Link href="/delivery/dashboard" className="flex items-center gap-2">
-                        <div className="bg-blue-600 text-white p-2 rounded-lg">
+                        <div className="bg-blue-600 text-white p-2 rounded-lg shadow-sm shadow-blue-500/20">
                             <i className="bi bi-bicycle text-xl"></i>
                         </div>
-                        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Fuddi <span className="text-blue-600">Delivery</span></h1>
+                        <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+                            Fuddi <span className="text-blue-600">Delivery</span>
+                        </h1>
                     </Link>
                 </div>
 
