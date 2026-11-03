@@ -136,6 +136,93 @@ function renderTemplate(templateString, variables) {
 }
 
 /**
+ * Convierte cualquier representación de scheduledDate (Timestamp, {seconds}, Date o string YYYY-MM-DD)
+ * a un objeto Date válido, interpretando cadenas 'YYYY-MM-DD' en la zona horaria de Ecuador (UTC-5).
+ */
+function parseOrderScheduledDate(sd, scheduledTime = '') {
+    if (!sd) return null;
+
+    if (typeof sd === 'string') {
+        const dateOnlyMatch = sd.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnlyMatch) {
+            const year = parseInt(dateOnlyMatch[1], 10);
+            const month = parseInt(dateOnlyMatch[2], 10);
+            const day = parseInt(dateOnlyMatch[3], 10);
+            let hours = 12;
+            let minutes = 0;
+            if (scheduledTime && scheduledTime.includes(':')) {
+                const parts = scheduledTime.split(':').map(Number);
+                if (!isNaN(parts[0])) hours = parts[0];
+                if (!isNaN(parts[1])) minutes = parts[1];
+            }
+            // Ecuador (America/Guayaquil) es UTC-5 fijo todo el año
+            return new Date(Date.UTC(year, month - 1, day, hours + 5, minutes, 0, 0));
+        }
+        const parsed = new Date(sd);
+        return isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    if (sd.toDate && typeof sd.toDate === 'function') {
+        const d = sd.toDate();
+        return isNaN(d.getTime()) ? null : d;
+    }
+    if (sd.seconds !== undefined) {
+        const d = new Date(sd.seconds * 1000);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    if (sd._seconds !== undefined) {
+        const d = new Date(sd._seconds * 1000);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    if (sd instanceof Date) {
+        return isNaN(sd.getTime()) ? null : sd;
+    }
+
+    const fallback = new Date(sd);
+    return isNaN(fallback.getTime()) ? null : fallback;
+}
+
+/**
+ * Formatea el texto de programación para mensajes y enlaces de WhatsApp usando siempre America/Guayaquil.
+ */
+function formatWhatsAppScheduledOrderType(timing, multilineDate = false) {
+    if (timing?.type !== 'scheduled') {
+        return '⚡ Inmediato';
+    }
+
+    const scheduledTime = timing.scheduledTime || '';
+    const dateObj = parseOrderScheduledDate(timing.scheduledDate, scheduledTime);
+    if (!dateObj) {
+        return `⏰ Programado para las ${scheduledTime}`;
+    }
+
+    const timeZone = 'America/Guayaquil';
+    const now = new Date();
+    const isoDateFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+
+    const todayStr = isoDateFormatter.format(now);
+    const tomorrowStr = isoDateFormatter.format(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+    const scheduledStr = isoDateFormatter.format(dateObj);
+
+    if (scheduledStr === todayStr) {
+        return `⏰ Programado para hoy a las ${scheduledTime}`;
+    }
+    if (scheduledStr === tomorrowStr) {
+        return `⏰ Programado para mañana a las ${scheduledTime}`;
+    }
+
+    const [, monthNum, dayNum] = scheduledStr.split('-').map(Number);
+    const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const sep = multilineDate ? '\n' : ' ';
+    return `⏰ Programado para:${sep}${dayNum} de ${months[(monthNum || 1) - 1]} a las ${scheduledTime}`;
+}
+
+/**
  * Helper para obtener fechas formateadas
  */
 function getFormattedScheduledTime(orderData) {
@@ -149,23 +236,9 @@ function getFormattedScheduledTime(orderData) {
         scheduledTimeStr = scheduledTime;
         scheduledDateTimeStr = scheduledTime;
 
-        // Intentar parsear la fecha programada
-        let dateObj = null;
-        if (orderData.timing.scheduledDate) {
-            const sd = orderData.timing.scheduledDate;
-            // Manejar Timestamp de Firestore (objeto con seconds) o Date nativo
-            if (sd.toDate && typeof sd.toDate === 'function') {
-                dateObj = sd.toDate();
-            } else if (sd.seconds) {
-                dateObj = new Date(sd.seconds * 1000);
-            } else if (sd._seconds) {
-                dateObj = new Date(sd._seconds * 1000);
-            } else {
-                dateObj = new Date(sd);
-            }
-        }
+        const dateObj = parseOrderScheduledDate(orderData.timing.scheduledDate, scheduledTime);
 
-        if (dateObj && !isNaN(dateObj.getTime())) {
+        if (dateObj) {
             // Configuración para Zona Horaria de Ecuador
             const timeZone = 'America/Guayaquil';
             const now = new Date();
@@ -175,11 +248,7 @@ function getFormattedScheduledTime(orderData) {
 
             const todayStr = isoDateFormatter.format(now);
             const scheduledStr = isoDateFormatter.format(dateObj);
-
-            // Calcular mañana
-            const tomorrow = new Date(now);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const tomorrowStr = isoDateFormatter.format(tomorrow);
+            const tomorrowStr = isoDateFormatter.format(new Date(now.getTime() + 24 * 60 * 60 * 1000));
 
             if (scheduledStr === todayStr) {
                 scheduledDateTimeStr = `Hoy a las ${scheduledTime}`;
@@ -221,23 +290,21 @@ function getDynamicPickupTimeInfo(orderData, businessData = null) {
 
     if (orderData.timing?.type === 'scheduled') {
         const time = orderData.timing.scheduledTime || '';
-        const sd = orderData.timing.scheduledDate;
-        let dateObj = null;
+        const dateObj = parseOrderScheduledDate(orderData.timing.scheduledDate, time);
 
-        if (sd) {
-            if (sd.toDate && typeof sd.toDate === 'function') dateObj = sd.toDate();
-            else if (sd.seconds !== undefined) dateObj = new Date(sd.seconds * 1000);
-            else if (sd._seconds !== undefined) dateObj = new Date(sd._seconds * 1000);
-            else if (sd instanceof Date) dateObj = sd;
-            else dateObj = new Date(sd);
-        }
-
-        if (dateObj && !isNaN(dateObj.getTime()) && time && time.includes(':')) {
+        if (dateObj && time && time.includes(':')) {
             const [hours, minutes] = time.split(':').map(Number);
-            targetDate = new Date(dateObj);
-            targetDate.setHours(hours, minutes, 0, 0);
+            const ecDateStr = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'America/Guayaquil',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(dateObj);
+            const [year, month, day] = ecDateStr.split('-').map(Number);
+            // Ecuador es UTC-5 fijo todo el año
+            const deliveryUtcMs = Date.UTC(year, (month || 1) - 1, day || 1, (hours || 0) + 5, minutes || 0, 0, 0);
             // Para delivery programado, la comida debe estar lista para recoger ~22 min antes de la hora de entrega
-            targetDate = new Date(targetDate.getTime() - 22 * 60 * 1000);
+            targetDate = new Date(deliveryUtcMs - 22 * 60 * 1000);
         }
     }
 
@@ -1009,19 +1076,26 @@ async function sendAdminTelegramMessage(text, replyMarkup = null, linkPreviewOpt
 }
 
 function formatCheckInAdminDate(dateStr) {
+    let targetDateStr = dateStr;
+    if (!targetDateStr) {
+        targetDateStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Guayaquil',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(new Date());
+    }
+    const parts = targetDateStr.split('-');
     let dateObj = new Date();
-    if (dateStr) {
-        const parts = dateStr.split('-');
-        if (parts.length === 3) {
-            dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-        }
+    if (parts.length === 3) {
+        dateObj = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0));
     }
     const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
     const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
-    const dayName = days[dateObj.getDay()];
-    const dayNum = dateObj.getDate();
-    const monthName = months[dateObj.getMonth()];
+    const dayName = days[dateObj.getUTCDay()];
+    const dayNum = dateObj.getUTCDate();
+    const monthName = months[dateObj.getUTCMonth()];
 
     return `hoy ${dayName} ${dayNum} de ${monthName}`;
 }
@@ -3263,40 +3337,7 @@ async function buildWhatsAppClipboardTextForOrder(orderData, businessData) {
         const { subtotal: subtotalVal, deliveryCost, creditUsed, effectiveTotal } = getOrderFinancials(orderData);
 
         // Timing
-        let orderType = '⚡ Inmediato';
-        if (orderData.timing?.type === 'scheduled') {
-            const scheduledTime = orderData.timing.scheduledTime || '';
-            const scheduledDate = orderData.timing.scheduledDate;
-            if (scheduledDate) {
-                let date;
-                if (typeof scheduledDate.toDate === 'function') {
-                    date = scheduledDate.toDate();
-                } else if (scheduledDate.seconds !== undefined) {
-                    date = new Date(scheduledDate.seconds * 1000);
-                } else {
-                    date = new Date(scheduledDate);
-                }
-                if (!isNaN(date.getTime())) {
-                    const now = new Date();
-                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                    const tomorrow = new Date(today);
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-                    if (checkDate.getTime() === today.getTime()) {
-                        orderType = `⏰ Programado para hoy a las ${scheduledTime}`;
-                    } else if (checkDate.getTime() === tomorrow.getTime()) {
-                        orderType = `⏰ Programado para mañana a las ${scheduledTime}`;
-                    } else {
-                        const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-                        orderType = `⏰ Programado para:\n${date.getDate()} de ${months[date.getMonth()]} a las ${scheduledTime}`;
-                    }
-                } else {
-                    orderType = `⏰ Programado para las ${scheduledTime}`;
-                }
-            } else {
-                orderType = `⏰ Programado para las ${scheduledTime}`;
-            }
-        }
+        const orderType = formatWhatsAppScheduledOrderType(orderData.timing, true);
 
         // Formas de pago
         const paymentMethodKey = orderData.payment?.method || '';
@@ -3403,40 +3444,7 @@ async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {
         const creditsLine = creditUsed > 0 ? `Créditos: -$${creditUsed.toFixed(2)}\n` : '';
 
         // Timing
-        let orderType = '⚡ Inmediato';
-        if (orderData.timing?.type === 'scheduled') {
-            const scheduledTime = orderData.timing.scheduledTime || '';
-            const scheduledDate = orderData.timing.scheduledDate;
-            if (scheduledDate) {
-                let date;
-                if (typeof scheduledDate.toDate === 'function') {
-                    date = scheduledDate.toDate();
-                } else if (scheduledDate.seconds !== undefined) {
-                    date = new Date(scheduledDate.seconds * 1000);
-                } else {
-                    date = new Date(scheduledDate);
-                }
-                if (!isNaN(date.getTime())) {
-                    const now = new Date();
-                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                    const tomorrow = new Date(today);
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-                    if (checkDate.getTime() === today.getTime()) {
-                        orderType = `⏰ Programado para hoy a las ${scheduledTime}`;
-                    } else if (checkDate.getTime() === tomorrow.getTime()) {
-                        orderType = `⏰ Programado para mañana a las ${scheduledTime}`;
-                    } else {
-                        const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-                        orderType = `⏰ Programado para: ${date.getDate()} de ${months[date.getMonth()]} a las ${scheduledTime}`;
-                    }
-                } else {
-                    orderType = `⏰ Programado para las ${scheduledTime}`;
-                }
-            } else {
-                orderType = `⏰ Programado para las ${scheduledTime}`;
-            }
-        }
+        const orderType = formatWhatsAppScheduledOrderType(orderData.timing, false);
 
         // Payment details
         const paymentMethodKey = orderData.payment?.method || '';

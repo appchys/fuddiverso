@@ -943,7 +943,11 @@ exports.sendDailyOrderSummary = onSchedule({
 
         const scheduledDate = order.timing?.scheduledDate;
         if (!scheduledDate) continue;
-        const orderSeconds = scheduledDate.seconds || scheduledDate._seconds;
+        const orderSeconds = typeof scheduledDate === 'string'
+          ? (/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate.trim())
+            ? Math.floor(new Date(`${scheduledDate.trim()}T17:00:00Z`).getTime() / 1000)
+            : Math.floor(new Date(scheduledDate).getTime() / 1000))
+          : (scheduledDate.seconds ?? scheduledDate._seconds ?? (typeof scheduledDate.toDate === 'function' ? Math.floor(scheduledDate.toDate().getTime() / 1000) : undefined));
 
         if (orderSeconds && orderSeconds >= startSeconds && orderSeconds <= endSeconds) {
           // Procesar datos (Customer name, items summary...) - Simplificado para brevedad

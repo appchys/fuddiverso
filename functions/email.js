@@ -195,7 +195,7 @@ async function sendOrderCreatedEmail(order, orderId) {
       const seconds = dateObj.seconds || dateObj._seconds;
       if (seconds) {
         scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
-          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Guayaquil'
         });
       }
     }
@@ -423,7 +423,7 @@ async function sendBusinessLoginEmail(business) {
             <tr><td style="padding: 5px;"><strong>Negocio:</strong></td><td>${business.name}</td></tr>
             <tr><td style="padding: 5px;"><strong>Email:</strong></td><td>${business.email}</td></tr>
             <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${business.loginSource || 'No especificado'}</td></tr>
-            <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC')}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC', { timeZone: 'America/Guayaquil' })}</td></tr>
           </table>
         </div>
       `
@@ -516,7 +516,7 @@ async function sendCheckoutProgressEmail(clientData, businessData, clientId, bus
             <tr><td style="padding: 10px; background-color: #aa1918; color: white; font-weight: bold;" colspan="2">Detalles</td></tr>
             <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Cliente ID:</strong></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${clientId}</td></tr>
             <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Negocio ID:</strong></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${businessId}</td></tr>
-            <tr><td style="padding: 8px;"><strong>Fecha:</strong></td><td style="padding: 8px;">${new Date().toLocaleString('es-EC')}</td></tr>
+            <tr><td style="padding: 8px;"><strong>Fecha:</strong></td><td style="padding: 8px;">${new Date().toLocaleString('es-EC', { timeZone: 'America/Guayaquil' })}</td></tr>
           </table>
 
           <p style="font-size: 12px; color: #999; margin-top: 20px;">
@@ -769,7 +769,7 @@ async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, custom
     const seconds = dateObj?.seconds || dateObj?._seconds;
     if (seconds) {
       scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Guayaquil'
       });
     }
     scheduledTimeStr = order.timing.scheduledTime || 'No especificada';
