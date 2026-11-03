@@ -741,6 +741,17 @@ export default function OrderHistory({
 
   const { upcomingOrders, pastOrders } = categorizedOrders
   const groupedPastOrders = useMemo(() => groupOrdersByDate(pastOrders), [pastOrders, getOrderDateTime])
+  const groupedUpcomingOrders = useMemo(() => {
+    const grouped = groupOrdersByDate(upcomingOrders)
+    return grouped.sort((a, b) => {
+      const orderA = a.orders[0]
+      const orderB = b.orders[0]
+      return getOrderDateTime(orderA).getTime() - getOrderDateTime(orderB).getTime()
+    }).map(g => ({
+      ...g,
+      orders: g.orders.sort((a, b) => getOrderDateTime(a).getTime() - getOrderDateTime(b).getTime())
+    }))
+  }, [upcomingOrders, getOrderDateTime])
 
   return (
     <div>
@@ -754,31 +765,59 @@ export default function OrderHistory({
                 Pedidos Próximos ({upcomingOrders.length})
               </h2>
             </div>
-            <div className="space-y-3">
-              {upcomingOrders.map((order) =>
-                OrderRow ? (
-                  <OrderRow key={order.id} order={order} isToday={false} />
-                ) : (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    availableDeliveries={availableDeliveries}
-                    onStatusChange={(id, status, reason) => onOrderStatusChange?.(id, status)}
-                    onDeliveryAssign={(id, deliveryId) => onDeliveryAssign?.(id, deliveryId)}
-                    onPaymentEdit={() => onPaymentEdit?.(order)}
-                    onWhatsAppDelivery={() => onWhatsAppDelivery?.(order)}
-                    onPrint={(silent) => onPrint?.(order, silent)}
-                    onDeliveryStatusClick={() => onDeliveryStatusClick?.(order)}
-                    onEdit={() => onOrderEdit?.(order)}
-                    onDelete={() => onOrderDelete?.(order.id)}
-                    onCustomerClick={() => onCustomerClick?.(order)}
-                    businessPhone={businessPhone}
-                    autoPrintOnConfirm={autoPrintOnConfirm}
-                    canDeleteOrders={canDeleteOrders}
-                    getStatusText={getStatusText}
-                  />
+            <div className="space-y-4">
+              {groupedUpcomingOrders.map(({ date, orders: groupOrders }) => {
+                const isExpanded = !expandedDates.has(`upcoming-${date}`)
+                return (
+                  <div key={date} className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
+                    <button
+                      onClick={() => toggleDateExpansion(`upcoming-${date}`)}
+                      className="w-full px-4 py-3 bg-blue-50/50 border-b border-gray-200 text-left hover:bg-blue-50/80 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <i className="bi bi-calendar-event text-blue-600 text-sm"></i>
+                          <h3 className="text-base font-bold text-gray-900 capitalize">
+                            {date}
+                          </h3>
+                          <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                            {groupOrders.length}
+                          </span>
+                        </div>
+                        <i className={`bi ${isExpanded ? 'bi-chevron-up' : 'bi-chevron-down'} text-gray-400`}></i>
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="p-4 space-y-3">
+                        {groupOrders.map((order) =>
+                          OrderRow ? (
+                            <OrderRow key={order.id} order={order} isToday={false} />
+                          ) : (
+                            <OrderCard
+                              key={order.id}
+                              order={order}
+                              availableDeliveries={availableDeliveries}
+                              onStatusChange={(id, status, reason) => onOrderStatusChange?.(id, status)}
+                              onDeliveryAssign={(id, deliveryId) => onDeliveryAssign?.(id, deliveryId)}
+                              onPaymentEdit={() => onPaymentEdit?.(order)}
+                              onWhatsAppDelivery={() => onWhatsAppDelivery?.(order)}
+                              onPrint={(silent) => onPrint?.(order, silent)}
+                              onDeliveryStatusClick={() => onDeliveryStatusClick?.(order)}
+                              onEdit={() => onOrderEdit?.(order)}
+                              onDelete={() => onOrderDelete?.(order.id)}
+                              onCustomerClick={() => onCustomerClick?.(order)}
+                              businessPhone={businessPhone}
+                              autoPrintOnConfirm={autoPrintOnConfirm}
+                              canDeleteOrders={canDeleteOrders}
+                              getStatusText={getStatusText}
+                            />
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )
-              )}
+              })}
             </div>
           </div>
         )}

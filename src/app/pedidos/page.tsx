@@ -598,7 +598,15 @@ export default function AdminPedidosPage() {
             const orderDate = getOrderReferenceDate(order)
             return orderDate >= startOfDay && orderDate < endOfDay
         }
+        const isValidOrder = (order: Order) => {
+            if (!order || !order.id) return false
+            if (!(order as any)._isOptimistic && !order.createdAt && !order.timing?.scheduledDate) return false
+            if (!order.businessId && !(order as any).businessId && !order.items?.length) return false
+            return true
+        }
+
         const shouldShowInTodayOrders = (order: Order) => {
+            if (!isValidOrder(order)) return false
             if (isScheduledOrder(order)) return isOrderForToday(order)
             return isActiveOrder(order) || isOrderForToday(order)
         }
@@ -626,15 +634,20 @@ export default function AdminPedidosPage() {
 
                 const combined = [...todayOrders, ...stillPendingOptimistic]
                 combined.sort((a, b) => {
-                    const getMinutes = (o: Order) => {
-                        if (o.timing?.type === 'scheduled' && o.timing.scheduledTime) {
-                            const [h, m] = o.timing.scheduledTime.split(':').map(Number);
-                            return h * 60 + m;
+                    const getOrderFullTimestamp = (o: Order) => {
+                        if (o.timing?.type === 'scheduled' && o.timing.scheduledDate) {
+                            const date = toSafeDate(o.timing.scheduledDate);
+                            if (o.timing.scheduledTime) {
+                                const [h, m] = o.timing.scheduledTime.split(':').map(Number);
+                                if (!isNaN(h) && !isNaN(m)) {
+                                    date.setHours(h, m, 0, 0);
+                                }
+                            }
+                            return date.getTime();
                         }
-                        const date = toSafeDate(o.createdAt);
-                        return date.getHours() * 60 + date.getMinutes();
+                        return toSafeDate(o.createdAt).getTime();
                     };
-                    return getMinutes(a) - getMinutes(b);
+                    return getOrderFullTimestamp(a) - getOrderFullTimestamp(b);
                 })
 
                 return combined
