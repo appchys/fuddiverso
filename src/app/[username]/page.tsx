@@ -4,8 +4,8 @@ import { useState, useEffect, useRef, useMemo, useCallback, memo, Suspense } fro
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, getPackagingFee } from '@/lib/price-utils'
-import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, cacheBusiness, cacheProductsByBusiness, getBusinessByUsername, getBusinessRatings, BusinessRating, syncProductsStockAvailability } from '@/lib/database'
+import { Business, Product } from '@/types'
+import { getProductsByBusiness, getProductsByIds, getBusinessesByIds, incrementVisitFirestore, unredeemQRCodePrize, generateReferralLink, trackReferralClick, getUserReferredProductIds, getProductsReferralCounts, getBranchesForBusiness, getIngredientStockSummary, IngredientStockSummary, getCachedBusinessByUsername, getCachedProductsByBusiness, cacheBusiness, cacheProductsByBusiness, getBusinessRatings, BusinessRating, syncProductsStockAvailability, getAllBusinesses } from '@/lib/database'
 function prepareInitialStoreProducts(
   targetBiz: Business,
   productsData: Product[],
@@ -85,7 +85,6 @@ import dynamic from 'next/dynamic'
 
 const CartSidebar = dynamic(() => import('@/components/CartSidebar'), { ssr: false })
 const LocationMap = dynamic(() => import('@/components/LocationMap'), { ssr: false })
-const CheckoutContent = dynamic(() => import('@/components/CheckoutContent').then(m => m.CheckoutContent), { ssr: false })
 const UserSidebar = dynamic(() => import('@/components/UserSidebar'), { ssr: false })
 const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), { ssr: false })
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
@@ -232,6 +231,8 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
         <img
           src={product.image || businessImage}
           alt={product.name}
+          width={96}
+          height={96}
           className="w-full h-full object-cover transition-transform duration-500 md:group-hover:scale-110"
           style={{ 
             objectPosition: product.imagePosition || 'center',
@@ -498,8 +499,10 @@ function RestaurantContent() {
   const [error, setError] = useState<string | null>(null)
   const [cart, setCart] = useState<any[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
+  const [hasOpenedCart, setHasOpenedCart] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
+  const [hasOpenedDetail, setHasOpenedDetail] = useState(false)
 
   // Abrir producto automáticamente si viene en el query parameter "open"
   useEffect(() => {
@@ -510,6 +513,7 @@ function RestaurantContent() {
         const prod = products.find(p => p.slug === openSlug || p.id === openSlug);
         if (prod) {
           setSelectedProduct(prod);
+          setHasOpenedDetail(true);
           setIsVariantModalOpen(true);
           // Limpiar el parámetro 'open' de la URL para evitar reabrir al recargar
           const newUrl = window.location.pathname;
@@ -519,9 +523,6 @@ function RestaurantContent() {
     }
   }, [products]);
   const [clientPhone, setClientPhone] = useState<string | null>(null)
-  const [qrCodes, setQrCodes] = useState<QRCode[]>([])
-  const [qrProgress, setQrProgress] = useState<UserQRProgress | null>(null)
-  const [redeemingQrId, setRedeemingQrId] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>(
     {
       show: false,
@@ -755,14 +756,8 @@ function RestaurantContent() {
         console.error('Error handling visit increment:', e)
       }
 
-      const otherQ = query(
-        collection(db, 'businesses'),
-        where('isActive', '==', true),
-        limit(6)
-      )
-      getDocs(otherQ).then(snap => {
-        const others = snap.docs
-          .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() || d.data().createdAt } as Business))
+      getAllBusinesses().then(all => {
+        const others = all
           .filter(b => b.username !== username && b.isHidden !== true && b.businessType !== 'distributor')
           .sort(() => 0.5 - Math.random())
           .slice(0, 4)
@@ -885,20 +880,16 @@ function RestaurantContent() {
     let isCancelled = false
     let unsubscribeSnapshot: (() => void) | null = null
 
-    // 1. CARGA RÁPIDA: getBusinessByUsername consulta caché local (IndexedDB/sessionStorage) o REST directo
+    // 1. CARGA INMEDIATA DE CACHÉ LOCAL (Síncrona - 0ms de latencia)
     productsLoadedRef.current = false
-    getBusinessByUsername(username).then((fastBiz) => {
-      if (isCancelled || !fastBiz) return
-      setBusiness(prev => prev || fastBiz)
-      if (!productsLoadedRef.current) {
-        productsLoadedRef.current = true
-        void loadProductsForStore(fastBiz)
-      }
-    }).catch(err => {
-      console.warn('Fast business lookup fallback:', err)
-    })
+    const fastBiz = getCachedBusinessByUsername(username)
+    if (fastBiz) {
+      setBusiness(fastBiz)
+      productsLoadedRef.current = true
+      void loadProductsForStore(fastBiz)
+    }
 
-    // 2. ACTUALIZACIÓN EN TIEMPO REAL: onSnapshot escucha cambios sin bloquear la vista inicial
+    // 2. ACTUALIZACIÓN EN TIEMPO REAL: onSnapshot escucha cambios sin duplicar consultas REST/getDocs
     const q = query(
       collection(db, 'businesses'),
       where('username', '==', username),
@@ -992,30 +983,7 @@ function RestaurantContent() {
     }
   }, [])
 
-  useEffect(() => {
-    const loadQrData = async () => {
-      if (!business?.id || !clientPhone) {
-        setQrCodes([])
-        setQrProgress(null)
-        return
-      }
 
-      try {
-        const [codes, progress] = await Promise.all([
-          getQRCodesByBusiness(business.id, true),
-          getUserQRProgress(clientPhone, business.id)
-        ])
-        setQrCodes(codes)
-        setQrProgress(progress)
-      } catch (e) {
-        console.error('Error loading QR data:', e)
-        setQrCodes([])
-        setQrProgress(null)
-      }
-    }
-
-    void loadQrData()
-  }, [business?.id, clientPhone])
 
   // Flush pending visits stored locally when we mount and when we go online
   useEffect(() => {
@@ -1214,20 +1182,24 @@ function RestaurantContent() {
     }
   }, [isCartOpen, isUserSidebarOpen, showLoginModal, isVariantModalOpen, referralModalOpen])
 
-  // Cargar datos de referidos — una sola query batch en vez de N+1 queries individuales
+  // Cargar datos de referidos diferido para no competir con el render inicial del catálogo
   useEffect(() => {
-    const loadReferralData = async () => {
-      if (!clientUser?.id || products.length === 0) return
+    if (!clientUser?.id || products.length === 0) return
+
+    const timer = setTimeout(() => {
       const productIds = products.map(p => p.id)
-      // Una sola query obtiene todos los productIds referidos por el usuario
-      const [recommendedSet, counts] = await Promise.all([
+      Promise.all([
         getUserReferredProductIds(clientUser.id),
         getProductsReferralCounts(productIds)
-      ])
-      setGeneratedReferralProducts(recommendedSet)
-      setReferralCounts(counts)
-    }
-    loadReferralData()
+      ]).then(([recommendedSet, counts]) => {
+        setGeneratedReferralProducts(recommendedSet)
+        setReferralCounts(counts)
+      }).catch(err => {
+        console.error('Error cargando datos de referidos:', err)
+      })
+    }, 1200)
+
+    return () => clearTimeout(timer)
   }, [clientUser?.id, products.length])
 
   const addToCart = useCallback((productInput: any) => {
@@ -1236,6 +1208,7 @@ function RestaurantContent() {
     // Si el producto tiene variantes, abrir modal
     if (productInput.variants && productInput.variants.length > 0) {
       setSelectedProduct(productInput)
+      setHasOpenedDetail(true)
       setIsVariantModalOpen(true)
       return
     }
@@ -1295,6 +1268,7 @@ function RestaurantContent() {
       updateCartInStorage(business.id, newCart)
       return newCart
     })
+    setHasOpenedCart(true)
     setIsCartOpen(true)
   }, [business])
 
@@ -1332,6 +1306,7 @@ function RestaurantContent() {
 
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
+    setHasOpenedCart(true)
     setIsCartOpen(true)
   }
 
@@ -1355,8 +1330,6 @@ function RestaurantContent() {
 
         if (qrCodeIdToUnredeem && clientPhone) {
           void unredeemQRCodePrize(clientPhone, business.id, qrCodeIdToUnredeem)
-            .then(() => getUserQRProgress(clientPhone, business.id))
-            .then((p) => setQrProgress(p))
             .catch((e) => console.error('Error unredeeming QR prize after cart removal:', e))
         }
       }
@@ -1417,63 +1390,7 @@ function RestaurantContent() {
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0), [cart])
   const cartItemsCount = useMemo(() => cart.filter(item => !item.esPremio).reduce((sum, item) => sum + item.quantity, 0), [cart])
 
-  const addQrPrizeToCart = async (qrCode: QRCode) => {
-    if (!business?.id) return
-    if (!clientPhone) {
-      showNotification('Inicia sesión para canjear tu tarjeta', 'error')
-      return
-    }
-    if (!qrCode.prize?.trim()) {
-      showNotification('Este código no tiene premio configurado', 'error')
-      return
-    }
 
-    const premioId = `premio-qr-${qrCode.id}`
-    const alreadyInCart = cart.some((item: any) => item.esPremio === true && item.id === premioId)
-    if (alreadyInCart) {
-      showNotification('Este premio ya está en tu carrito', 'error')
-      return
-    }
-
-    setRedeemingQrId(qrCode.id)
-    try {
-      const result = await redeemQRCodePrize(clientPhone, business.id, qrCode.id)
-      if (!result.success) {
-        showNotification(result.message || 'No se pudo canjear el premio', 'error')
-        return
-      }
-
-      const premioQr = {
-        id: premioId,
-        name: `🎁 ${qrCode.prize}`,
-        variantName: null,
-        productName: `🎁 ${qrCode.prize}`,
-        description: `Premio canjeado por tarjeta: ${qrCode.name}`,
-        price: 0,
-        isAvailable: true,
-        esPremio: true,
-        quantity: 1,
-        image: business.image || 'https://via.placeholder.com/150?text=Premio',
-        businessId: business.id,
-        businessName: business.name,
-        businessImage: business.image,
-        qrCodeId: qrCode.id
-      }
-
-      const newCart = [...cart, premioQr]
-      setCart(newCart)
-      updateCartInStorage(business.id, newCart)
-      showNotification('Premio agregado al carrito', 'success')
-
-      const refreshed = await getUserQRProgress(clientPhone, business.id)
-      setQrProgress(refreshed)
-    } catch (e) {
-      console.error('Error redeeming QR prize:', e)
-      showNotification('Error al canjear el premio', 'error')
-    } finally {
-      setRedeemingQrId(null)
-    }
-  }
 
   // Función para copiar enlace
   const copyStoreLink = async () => {
@@ -1586,6 +1503,7 @@ function RestaurantContent() {
   // Callback estable para mostrar detalles de producto
   const handleShowDetails = useCallback((p: any) => {
     setSelectedProduct(p)
+    setHasOpenedDetail(true)
     setIsVariantModalOpen(true)
   }, [])
 
@@ -2155,7 +2073,10 @@ function RestaurantContent() {
       {cartItemsCount > 0 && (
         <div className="fixed bottom-cart-position right-6 z-[50]">
           <button
-            onClick={() => setIsCartOpen(true)}
+            onClick={() => {
+              setHasOpenedCart(true)
+              setIsCartOpen(true)
+            }}
             className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"
           >
             {/* Glossy Effect */}
@@ -2181,52 +2102,61 @@ function RestaurantContent() {
       )}
 
       <>
-        {/* Cart Sidebar */}
-        <CartSidebar
-          isOpen={isCartOpen}
-          onClose={() => setIsCartOpen(false)}
-          cart={cart}
+        {/* Cart Sidebar — montado diferido solo al abrirse por primera vez */}
+        {(hasOpenedCart || isCartOpen) && (
+          <CartSidebar
+            isOpen={isCartOpen}
+            onClose={() => setIsCartOpen(false)}
+            cart={cart}
+            business={business}
+            removeFromCart={removeFromCart}
+            updateQuantity={updateQuantity}
+            clearCart={clearCart}
+            addItemToCart={(item: any) => {
+              if (!business?.id) return
+
+              const existingItem = cart.find((i: any) => i.id === item.id && i.variantName === (item.variantName ?? null))
+              const newCart = existingItem
+                ? cart.map((i: any) => (i.id === item.id && i.variantName === (item.variantName ?? null))
+                  ? { ...i, quantity: (i.quantity || 1) + (item.quantity || 1) }
+                  : i
+                )
+                : [...cart, { ...item, quantity: item.quantity || 1 }]
+
+              setCart(newCart)
+              updateCartInStorage(business.id, newCart)
+            }}
+            onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
+            onShowProductDetails={(p) => {
+              setSelectedProduct(p)
+              setHasOpenedDetail(true)
+              setIsVariantModalOpen(true)
+            }}
+            products={products}
+          />
+        )}
+
+      {/* Product Detail Sidebar — montado diferido solo al abrirse por primera vez */}
+      {(hasOpenedDetail || isVariantModalOpen) && selectedProduct && (
+        <ProductDetailSidebar
+          product={selectedProduct}
+          isOpen={isVariantModalOpen}
+          onClose={() => {
+            setIsVariantModalOpen(false)
+            setSelectedProduct(null)
+          }}
           business={business}
-          removeFromCart={removeFromCart}
-          updateQuantity={updateQuantity}
-          clearCart={clearCart}
-          addItemToCart={(item: any) => {
-            if (!business?.id) return
-
-            const existingItem = cart.find((i: any) => i.id === item.id && i.variantName === (item.variantName ?? null))
-            const newCart = existingItem
-              ? cart.map((i: any) => (i.id === item.id && i.variantName === (item.variantName ?? null))
-                ? { ...i, quantity: (i.quantity || 1) + (item.quantity || 1) }
-                : i
-              )
-              : [...cart, { ...item, quantity: item.quantity || 1 }]
-
-            setCart(newCart)
-            updateCartInStorage(business.id, newCart)
+          onProductSelect={(product) => setSelectedProduct(product)}
+          onOpenCart={() => {
+            setHasOpenedCart(true)
+            setIsCartOpen(true)
           }}
-          onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
-          onShowProductDetails={(p) => {
-            setSelectedProduct(p)
-            setIsVariantModalOpen(true)
-          }}
-          products={products}
+          onGenerateReferral={selectedProduct ? () => handleGenerateReferral(selectedProduct) : undefined}
+          hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+          referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
+          onOpenRatingModal={() => setIsRatingModalOpen(true)}
         />
-
-      <ProductDetailSidebar
-        product={selectedProduct}
-        isOpen={isVariantModalOpen}
-        onClose={() => {
-          setIsVariantModalOpen(false)
-          setSelectedProduct(null)
-        }}
-        business={business}
-        onProductSelect={(product) => setSelectedProduct(product)}
-        onOpenCart={() => setIsCartOpen(true)}
-        onGenerateReferral={selectedProduct ? () => handleGenerateReferral(selectedProduct) : undefined}
-        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
-        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
-        onOpenRatingModal={() => setIsRatingModalOpen(true)}
-      />
+      )}
 
       {notification.show && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[300] w-[calc(100%-2rem)] max-w-xs pointer-events-none animate-[slideDown_0.3s_ease-out]">
