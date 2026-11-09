@@ -2155,6 +2155,7 @@ function RestaurantContent() {
           hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
           referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
           onOpenRatingModal={() => setIsRatingModalOpen(true)}
+          storeProducts={products}
         />
       )}
 

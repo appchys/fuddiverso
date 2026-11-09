@@ -16,8 +16,46 @@ import { formatRelativeTime } from '@/lib/date-utils'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { storage } from '@/lib/firebase'
 import { optimizeImage } from '@/lib/image-utils'
+import { isProductAvailableBySchedule } from '@/lib/product-availability-utils'
 
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
+
+function isProductAvailable(p: Product): boolean {
+    if (!p) return false
+
+    // 1. Disponibilidad explícita global
+    if (p.isAvailable === false || (p as any).isAvailable === 'false') {
+        return false
+    }
+
+    // 2. Control de stock automático (autoHideByStock)
+    if (p.autoHideByStock && p.isStockAvailable === false) {
+        return false
+    }
+
+    // 3. Si tiene variantes, verificar que al menos una variante esté disponible y con stock
+    if (p.variants && Array.isArray(p.variants) && p.variants.length > 0) {
+        const hasAvailableVariant = p.variants.some(v => {
+            if (v.isAvailable === false || (v as any).isAvailable === 'false') return false
+            if (v.autoHideByStock && v.isStockAvailable === false) return false
+            return true
+        })
+        if (!hasAvailableVariant) return false
+    }
+
+    // 4. Control de horarios de atención / disponibilidad programada
+    if (p.scheduleAvailability?.enabled) {
+        try {
+            if (!isProductAvailableBySchedule(p)) {
+                return false
+            }
+        } catch {
+            // En caso de error inesperado de fecha, no bloquear
+        }
+    }
+
+    return true
+}
 
 interface ProductDetailSidebarProps {
     isOpen: boolean
@@ -30,9 +68,10 @@ interface ProductDetailSidebarProps {
     hasRecommended?: boolean
     referralCount?: number
     onOpenRatingModal?: () => void
+    storeProducts?: Product[]
 }
 
-export default function ProductDetailSidebar({ isOpen, onClose, product, business, onProductSelect, onOpenCart, onGenerateReferral, hasRecommended, referralCount, onOpenRatingModal }: ProductDetailSidebarProps) {
+export default function ProductDetailSidebar({ isOpen, onClose, product, business, onProductSelect, onOpenCart, onGenerateReferral, hasRecommended, referralCount, onOpenRatingModal, storeProducts }: ProductDetailSidebarProps) {
     const router = useRouter()
     const { user, login } = useAuth()
     const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
@@ -747,20 +786,30 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         }
     }, [business?.id, isOpen])
 
-    // Load other products for the business
+    // Load other products for the business (filtrando rigurosamente solo productos disponibles)
     useEffect(() => {
         if (business?.id && isOpen && product?.id) {
+            let isCancelled = false
             const fetchOtherProducts = async () => {
                 try {
-                    const products = await getProductsByBusiness(business.id)
-                    setOtherProducts(products.filter(p => p.id !== product.id && p.isAvailable).slice(0, 10))
+                    // Si el catálogo de la tienda ya fue provisto, reusarlo inmediatamente
+                    const sourceProducts = (storeProducts && storeProducts.length > 0)
+                        ? storeProducts
+                        : await getProductsByBusiness(business.id)
+
+                    if (isCancelled) return
+                    const available = sourceProducts.filter(p => p.id !== product.id && isProductAvailable(p))
+                    setOtherProducts(available.slice(0, 10))
                 } catch (error) {
                     console.error("Error fetching other products:", error)
                 }
             }
             fetchOtherProducts()
+            return () => {
+                isCancelled = true
+            }
         }
-    }, [business?.id, isOpen, product?.id])
+    }, [business?.id, isOpen, product?.id, storeProducts])
 
 
     const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -1489,11 +1538,21 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                     <i className="bi bi-image text-2xl"></i>
                                                                 </div>
                                                             )}
-                                                            {otherProduct.price > 0 && (
-                                                                <div className="absolute top-1 right-1 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm">
-                                                                    {formatPrice(getProductPublicPrice(otherProduct))}
-                                                                </div>
-                                                            )}
+                                                            {(() => {
+                                                                let price = otherProduct.price || 0
+                                                                if (otherProduct.variants && otherProduct.variants.length > 0) {
+                                                                    const avail = otherProduct.variants.filter(v => v.isAvailable !== false)
+                                                                    const list = avail.length > 0 ? avail : otherProduct.variants
+                                                                    price = getProductPublicPrice(list[0], business || undefined)
+                                                                } else {
+                                                                    price = getProductPublicPrice(otherProduct, business || undefined)
+                                                                }
+                                                                return price > 0 ? (
+                                                                    <div className="absolute top-1 right-1 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm text-gray-900">
+                                                                        {formatPrice(price)}
+                                                                    </div>
+                                                                ) : null
+                                                            })()}
                                                         </div>
                                                         <h5 className="text-xs font-black text-gray-900 tracking-tight line-clamp-2 leading-tight group-hover:text-red-600 transition-colors h-[2.5em]">
                                                             {otherProduct.name}
