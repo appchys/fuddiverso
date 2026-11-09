@@ -2,168 +2,27 @@
 
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { useState, useEffect, forwardRef, useImperativeHandle, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { searchClientByPhone, searchBusinesses, getAllBusinesses, createClient, setClientPin, updateClient, getClientNotifications, markClientNotificationAsRead } from '@/lib/database'
+import { getAllBusinesses, markClientNotificationAsRead } from '@/lib/database'
 import { ArrowLeft, X, Bell, CircleDollarSign } from 'lucide-react'
-import { storage } from '@/lib/firebase'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
-import ClientLoginModal from '@/components/ClientLoginModal'
-import UserSidebar from './UserSidebar'
-import ReferralCreditRewardModal from './ReferralCreditRewardModal'
+import dynamic from 'next/dynamic'
 
-// Componente para mostrar carritos activos
-function CartIndicator() {
-  const [activeCarts, setActiveCarts] = useState<{ [key: string]: any[] }>({})
-  const [showDropdown, setShowDropdown] = useState(false)
-
-  useEffect(() => {
-    const loadCarts = () => {
-      const cartsData = localStorage.getItem('carts')
-      if (cartsData) {
-        try {
-          const allCarts = JSON.parse(cartsData)
-          // Filtrar solo carritos que tienen productos
-          const filteredCarts: { [key: string]: any[] } = {}
-          Object.entries(allCarts).forEach(([businessId, cart]: [string, any]) => {
-            if (Array.isArray(cart) && cart.length > 0) {
-              filteredCarts[businessId] = cart
-            }
-          })
-          setActiveCarts(filteredCarts)
-        } catch (e) {
-          console.error('Error parsing carts:', e)
-        }
-      }
-    }
-
-    loadCarts()
-
-    // Escuchar cambios en localStorage y eventos de actualización del carrito
-    const handleStorageChange = () => loadCarts()
-    window.addEventListener('storage', handleStorageChange)
-    window.addEventListener('cart-updated', handleStorageChange)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      window.removeEventListener('cart-updated', handleStorageChange)
-    }
-  }, [])
-
-  const activeCartsCount = Object.keys(activeCarts).length
-  const totalItems = Object.values(activeCarts).reduce((total, cart) =>
-    total + cart.reduce((sum, item) => sum + item.quantity, 0), 0
-  )
-
-  const handleDeleteCart = (businessId: string) => {
-    try {
-      const cartsData = localStorage.getItem('carts')
-      if (!cartsData) return
-      const allCarts = JSON.parse(cartsData)
-      if (allCarts[businessId]) {
-        delete allCarts[businessId]
-        localStorage.setItem('carts', JSON.stringify(allCarts))
-        // Dispatch events for other components to update
-        window.dispatchEvent(new Event('storage'))
-        window.dispatchEvent(new Event('cart-updated'))
-        // Update local state immediately
-        setActiveCarts(prev => {
-          const copy = { ...prev }
-          delete copy[businessId]
-          return copy
-        })
-      }
-    } catch (e) {
-      console.error('Error deleting cart for business:', businessId, e)
-    }
-  }
-
-  if (activeCartsCount === 0) return null
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setShowDropdown(!showDropdown)}
-        className="relative p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
-      >
-        <i className="bi bi-bag text-xl"></i>
-        {totalItems > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-            {totalItems > 99 ? '99+' : totalItems}
-          </span>
-        )}
-      </button>
-
-      {showDropdown && (
-        <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border z-50 max-h-96 overflow-y-auto">
-          <div className="p-3 border-b bg-gray-50">
-            <h3 className="font-semibold text-gray-900">Carritos Activos</h3>
-            <p className="text-sm text-gray-600">{activeCartsCount} {activeCartsCount === 1 ? 'tienda' : 'tiendas'}</p>
-          </div>
-
-          <div className="divide-y">
-            {Object.entries(activeCarts).map(([businessId, cart]) => {
-              const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-              const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
-              const businessName = cart[0]?.businessName || 'Tienda'
-              const logo = cart[0]?.businessImage || '/default-restaurant-og.svg'
-
-              return (
-                <div key={businessId} className="p-3 hover:bg-gray-50">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center min-w-0">
-                      <img src={logo} alt={businessName} className="w-6 h-6 rounded object-cover mr-2" />
-                      <h4 className="font-medium text-gray-900 text-sm truncate">{businessName}</h4>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-red-600">${cartTotal.toFixed(2)}</span>
-                      <button
-                        aria-label="Eliminar carrito"
-                        onClick={() => handleDeleteCart(businessId)}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded"
-                        title="Eliminar"
-                      >
-                        <i className="bi bi-trash text-base"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">{cartItemsCount} productos</span>
-                    <Link
-                      href={`/checkout?businessId=${businessId}`}
-                      className="text-xs bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600 transition-colors"
-                      onClick={() => setShowDropdown(false)}
-                    >
-                      Finalizar Pedido
-                    </Link>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Componente para mostrar carritos en el menú de perfil
-// CartIndicator and other components below...
+const UserSidebar = dynamic(() => import('./UserSidebar'), { ssr: false })
+const ReferralCreditRewardModal = dynamic(() => import('./ReferralCreditRewardModal'), { ssr: false })
 
 type HeaderProps = {
   initialShowLoginModal?: boolean;
 }
 
 export default function Header({ initialShowLoginModal = false }: HeaderProps) {
-  const { user, logout } = useAuth()
-  const [showLoginModal, setShowLoginModal] = useState(initialShowLoginModal)
+  const { user } = useAuth()
   const [showMobileSearch, setShowMobileSearch] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [categories, setCategories] = useState<string[]>(['all'])
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
+  const [hasOpenedUserSidebar, setHasOpenedUserSidebar] = useState(false)
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [loadingNotifications, setLoadingNotifications] = useState(false)
@@ -373,33 +232,6 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     return null
   }
 
-  // CAMBIO: Agregada limpieza de localStorage para resetear datos del cliente
-  const handleLogout = () => {
-    logout()
-    // Limpiar datos de cliente en localStorage para que el modal quede vacío al reabrir
-    localStorage.removeItem('loginPhone')
-    localStorage.removeItem('clientData')
-    // Opcional: Limpiar carritos si quieres resetear todo al logout (descomenta si aplica)
-    // localStorage.removeItem('carts')
-
-    router.push('/')
-  }
-
-  const handleLoginSuccess = (client: any) => {
-    setShowLoginModal(false)
-    // El login ya se maneja en ClientLoginModal
-  }
-
-  // Función para obtener las iniciales del nombre
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(word => word.charAt(0))
-      .join('')
-      .toUpperCase()
-      .slice(0, 2)
-  }
-
   return (
     <>
       <header className={`bg-white/95 backdrop-blur-md shadow-sm border-b fixed top-0 left-0 right-0 z-40 transition-transform duration-300 ${isStorePage && !isHeaderVisible ? '-translate-y-full' : 'translate-y-0'}`}>
@@ -453,57 +285,49 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                   </div>
                 </div>
 
-                {/* Mobile Expanded Search - Grows to the left */}
-                <AnimatePresence>
-                  {showMobileSearch && (
-                    <motion.div
-                      initial={{ width: 0, opacity: 0, x: 20 }}
-                      animate={{ width: 'auto', opacity: 1, x: 0 }}
-                      exit={{ width: 0, opacity: 0, x: 20 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="flex-1 flex items-center bg-gray-50 rounded-2xl border border-gray-100 p-1 gap-1 ml-4 md:hidden overflow-hidden"
+                {/* Mobile Expanded Search */}
+                {showMobileSearch && (
+                  <div className="flex-1 flex items-center bg-gray-50 rounded-2xl border border-gray-100 p-1 gap-1 ml-4 md:hidden overflow-hidden animate-in fade-in duration-200">
+                    <div className="relative flex-1 flex items-center min-w-0">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder={isFuddiesPage ? "Buscar en Fuddiverso..." : "Buscar..."}
+                        value={searchTerm}
+                        onChange={(e) => handleSearchChange(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        className="w-full bg-transparent pl-3 py-2 text-sm text-gray-900 focus:outline-none placeholder:text-gray-400"
+                      />
+                    </div>
+                    
+                    {!isFuddiesPage && (
+                      <>
+                        <div className="w-[1px] h-6 bg-gray-200 flex-shrink-0"></div>
+                        <select
+                          value={selectedCategory}
+                          onChange={(e) => setSelectedCategory(e.target.value)}
+                          className="bg-transparent px-1 py-1 text-gray-600 focus:outline-none text-[10px] font-bold uppercase tracking-tighter w-20 flex-shrink-0"
+                        >
+                          {categories.map(category => (
+                            <option key={category} value={category}>
+                              {category === 'all' ? 'TODO' : category.toUpperCase()}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                    
+                    <button
+                      onClick={() => {
+                        handleSearch();
+                        setShowMobileSearch(false);
+                      }}
+                      className="bg-[#aa1918] text-white w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
                     >
-                      <div className="relative flex-1 flex items-center min-w-0">
-                        <input
-                          autoFocus
-                          type="text"
-                          placeholder={isFuddiesPage ? "Buscar en Fuddiverso..." : "Buscar..."}
-                          value={searchTerm}
-                          onChange={(e) => handleSearchChange(e.target.value)}
-                          onKeyPress={handleKeyPress}
-                          className="w-full bg-transparent pl-3 py-2 text-sm text-gray-900 focus:outline-none placeholder:text-gray-400"
-                        />
-                      </div>
-                      
-                      {!isFuddiesPage && (
-                        <>
-                          <div className="w-[1px] h-6 bg-gray-200 flex-shrink-0"></div>
-                          <select
-                            value={selectedCategory}
-                            onChange={(e) => setSelectedCategory(e.target.value)}
-                            className="bg-transparent px-1 py-1 text-gray-600 focus:outline-none text-[10px] font-bold uppercase tracking-tighter w-20 flex-shrink-0"
-                          >
-                            {categories.map(category => (
-                              <option key={category} value={category}>
-                                {category === 'all' ? 'TODO' : category.toUpperCase()}
-                              </option>
-                            ))}
-                          </select>
-                        </>
-                      )}
-                      
-                      <button
-                        onClick={() => {
-                          handleSearch();
-                          setShowMobileSearch(false);
-                        }}
-                        className="bg-[#aa1918] text-white w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                      >
-                        <i className="bi bi-search text-xs"></i>
-                      </button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      <i className="bi bi-search text-xs"></i>
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
@@ -635,7 +459,10 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
 
               <div className="relative">
                 <button
-                  onClick={() => setIsUserSidebarOpen(true)}
+                  onClick={() => {
+                    setHasOpenedUserSidebar(true)
+                    setIsUserSidebarOpen(true)
+                  }}
                   className="flex items-center space-x-2 p-1 rounded-full hover:bg-gray-100 transition-colors group"
                   aria-label="Menú de usuario"
                 >
@@ -677,21 +504,17 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
             </div>
           </div>
         </div>
-
-        {/* Mobile Navigation - Removed as requested */}
-        <div className="md:hidden border-t bg-white" style={{ display: 'none' }}>
-          {/* Mobile navigation removed */}
-        </div>
-
       </header>
       
-      <UserSidebar 
-        isOpen={isUserSidebarOpen} 
-        onClose={() => setIsUserSidebarOpen(false)} 
-      />
+      {(hasOpenedUserSidebar || isUserSidebarOpen) && (
+        <UserSidebar 
+          isOpen={isUserSidebarOpen} 
+          onClose={() => setIsUserSidebarOpen(false)} 
+        />
+      )}
 
       {/* Sidebar de notificaciones móvil */}
-      {user && (
+      {user && showMobileNotifications && (
         <ClientNotificationsSidebar
           isOpen={showMobileNotifications}
           onClose={() => setShowMobileNotifications(false)}
@@ -723,13 +546,15 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
       )}
 
       {/* Modal de recompensa por recomendación */}
-      <ReferralCreditRewardModal
-        isOpen={Boolean(selectedReferralRewardNotification)}
-        onClose={() => setSelectedReferralRewardNotification(null)}
-        notification={selectedReferralRewardNotification}
-        userId={user?.id}
-        userPhone={user?.celular}
-      />
+      {selectedReferralRewardNotification && (
+        <ReferralCreditRewardModal
+          isOpen={true}
+          onClose={() => setSelectedReferralRewardNotification(null)}
+          notification={selectedReferralRewardNotification}
+          userId={user?.id}
+          userPhone={user?.celular}
+        />
+      )}
     </>
   )
 }

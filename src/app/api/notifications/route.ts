@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFirestore, collection, addDoc, Timestamp } from 'firebase/firestore'
+import { collection, Timestamp } from 'firebase/firestore'
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore'
+import { getMessaging } from 'firebase-admin/messaging'
 import * as fs from 'fs'
 import * as path from 'path'
 
 // Inicializar Firebase Admin si aún no está inicializado
 let adminDb: any
+let adminAppInstance: any
 try {
   let serviceAccount: any = null
 
@@ -38,17 +40,108 @@ try {
   const existingApp = getApps().find((app: any) => app.name === 'notifications')
 
   if (existingApp) {
+    adminAppInstance = existingApp
     adminDb = getAdminFirestore(existingApp)
   } else if (serviceAccount && serviceAccount.type) {
-    const adminApp = initializeApp({
+    adminAppInstance = initializeApp({
       credential: cert(serviceAccount)
     }, 'notifications')
-    adminDb = getAdminFirestore(adminApp)
+    adminDb = getAdminFirestore(adminAppInstance)
   } else {
     console.warn('[Firebase Admin] No se pudo cargar serviceAccount')
   }
 } catch (error) {
   console.error('[Firebase Admin] Error initializing Firebase Admin:', error)
+}
+
+function sanitizeTopicName(raw: string): string {
+  return String(raw || '').trim().replace(/[^a-zA-Z0-9-_.~%]/g, '_')
+}
+
+async function sendHighPriorityFcmForStoreOrder(params: {
+  businessId: string
+  orderId?: string
+  title?: string
+  message?: string
+  orderData?: any
+}) {
+  if (!adminAppInstance || !adminDb) return
+
+  const { businessId, orderId, title, message, orderData } = params
+  const messaging = getMessaging(adminAppInstance)
+
+  const customerName = orderData?.customer?.name || 'Cliente'
+  const totalAmount = typeof orderData?.total === 'number' ? orderData.total.toFixed(2) : (orderData?.total || '0.00')
+  const itemCount = Array.isArray(orderData?.items)
+    ? orderData.items.reduce((acc: number, it: any) => acc + (Number(it?.quantity) || 1), 0)
+    : 0
+
+  const finalTitle = title || '¡Nuevo Pedido Recibido! 🛍️'
+  const finalBody = message || `Cliente: ${customerName}${itemCount > 0 ? ` • ${itemCount} producto(s)` : ''} • Total: $${totalAmount}`
+
+  const dataPayload: Record<string, string> = {
+    type: 'new_order',
+    businessId: String(businessId),
+    orderId: String(orderId || ''),
+    title: String(finalTitle),
+    body: String(finalBody),
+    message: String(finalBody)
+  }
+
+  const androidConfig: any = {
+    priority: 'high',
+    ttl: 3600 * 1000,
+    notification: {
+      channelId: 'fuddi_tienda_orders_alert_channel',
+      sound: 'default',
+      priority: 'max',
+      defaultVibrateTimings: true,
+      defaultSound: true,
+      visibility: 'public',
+      tag: orderId ? `order_${orderId}` : undefined
+    }
+  }
+
+  // 1. Enviar al topic de la tienda (store_<businessId>)
+  const topic = `store_${sanitizeTopicName(businessId)}`
+  try {
+    await messaging.send({
+      topic,
+      notification: {
+        title: finalTitle,
+        body: finalBody
+      },
+      data: dataPayload,
+      android: androidConfig
+    })
+  } catch (topicErr) {
+    console.warn(`[FCM] Error enviando al topic ${topic}:`, topicErr)
+  }
+
+  // 2. Enviar directamente a los fcmTokens guardados en el documento de la tienda
+  try {
+    const bizDoc = await adminDb.collection('businesses').doc(businessId).get()
+    if (bizDoc.exists) {
+      const bizData = bizDoc.data() || {}
+      const tokens: string[] = Array.isArray(bizData.fcmTokens)
+        ? bizData.fcmTokens.filter((t: any) => typeof t === 'string' && t.trim().length > 0)
+        : []
+
+      if (tokens.length > 0) {
+        await messaging.sendEachForMulticast({
+          tokens,
+          notification: {
+            title: finalTitle,
+            body: finalBody
+          },
+          data: dataPayload,
+          android: androidConfig
+        })
+      }
+    }
+  } catch (tokenErr) {
+    console.warn(`[FCM] Error enviando a tokens de la tienda ${businessId}:`, tokenErr)
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -79,9 +172,15 @@ export async function POST(request: NextRequest) {
     // Guardar en Firestore usando Firebase Admin SDK
     if (adminDb) {
       if (type === 'new_order' || !type) {
-        console.log('[POST /api/notifications] Omitiendo notificación de nuevo pedido por solicitud del negocio')
+        await sendHighPriorityFcmForStoreOrder({
+          businessId,
+          orderId,
+          title,
+          message,
+          orderData
+        })
         return NextResponse.json(
-          { success: true, message: 'Notification skipped (new_order notifications are disabled)' },
+          { success: true, message: 'FCM push notification sent for new_order' },
           { status: 200 }
         )
       }

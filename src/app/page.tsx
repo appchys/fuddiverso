@@ -2,12 +2,17 @@
 
 import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getBusinessesByIds, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals, getGlobalProductReviews, GlobalProductReviewItem } from '@/lib/database'
-import { ensureCartItemMetadata } from '@/lib/price-utils'
-import { Business, Product, CoverageGroup } from '@/types'
-import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
+import {
+  getAllBusinesses,
+  getProductsByBusiness,
+  getProductsByBusinessesBatch,
+  generateReferralLink,
+  getGlobalProductReviews,
+  GlobalProductReviewItem
+} from '@/lib/database'
+import { ensureCartItemMetadata, getProductPublicPrice, formatPrice } from '@/lib/price-utils'
+import { Business, Product } from '@/types'
 import { isStoreOpen, formatBusinessName, getNextOpeningMessage } from '@/lib/store-utils'
 import { formatRelativeTime } from '@/lib/date-utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -21,7 +26,6 @@ const CartSidebar = dynamic(() => import('@/components/CartSidebar'), { ssr: fal
 const ReferralModal = dynamic(() => import('@/components/ReferralModal'), { ssr: false })
 const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), { ssr: false })
 const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
-import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
 // Componente para imágenes directas de alto rendimiento y cero parpadeo
 const ProgressiveImage: React.FC<{
@@ -116,6 +120,14 @@ function getSessionHash(str: string, seed: number = 42): number {
   return hash
 }
 
+function getSafeTime(value: any): number {
+  if (!value) return 0
+  if (value instanceof Date) return value.getTime()
+  if (typeof value?.toDate === 'function') return value.toDate().getTime()
+  const parsed = new Date(value).getTime()
+  return isNaN(parsed) ? 0 : parsed
+}
+
 function HomePageContent() {
   const { user } = useAuth()
   const searchParams = useSearchParams()
@@ -124,50 +136,58 @@ function HomePageContent() {
 
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingProducts, setLoadingProducts] = useState(true)
+  const [newestProducts, setNewestProducts] = useState<Product[]>([])
+  const [bestSellersProducts, setBestSellersProducts] = useState<Product[]>([])
+  const [productsByBusiness, setProductsByBusiness] = useState<Record<string, Product[]>>({})
+  const [recentReviews, setRecentReviews] = useState<GlobalProductReviewItem[]>([])
+
+  const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
+  const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
+  const [hasOpenedProductSidebar, setHasOpenedProductSidebar] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(false)
   const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
   const [selectedRatingBusiness, setSelectedRatingBusiness] = useState<Business | null>(null)
   const [ratingNotification, setRatingNotification] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
-
 
   // Swipe State for Stories
   const touchStartXRef = useRef<number>(0)
   const touchStartYRef = useRef<number>(0)
   const touchStartTimeRef = useRef<number>(0)
 
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('all')
-  const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
-  const [categories, setCategories] = useState<string[]>(['all'])
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [newestProducts, setNewestProducts] = useState<Product[]>([])
-  const [bestSellersProducts, setBestSellersProducts] = useState<Product[]>([])
-  const [productsByBusiness, setProductsByBusiness] = useState<Record<string, Product[]>>({})
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
-  const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
-  const [groupId, setGroupId] = useState<string | null>(null)
-  const [detectedGroupName, setDetectedGroupName] = useState<string | null>('Daule')
-  const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
-  const [loadingProducts, setLoadingProducts] = useState(true)
-  const checkedReferralProductIdsRef = useRef<Set<string>>(new Set())
+  const searchTerm = (searchParams?.get('search') || '').trim().toLowerCase()
+  const selectedCategory = searchParams?.get('category') || 'all'
 
-  // Restaurar caché de cliente tras hidratación limpia (0 Hydration Mismatches) y precargar bundle del sidebar
+  // Carga inicial unificada (Caché instantáneo + Firestore en paralelo sin cascadas)
   useEffect(() => {
+    let isMounted = true
+
+    // 1. Restaurar caché de sesión en 0ms
     try {
       const savedBiz = sessionStorage.getItem('home_businesses_v2')
       if (savedBiz) {
         const parsedBiz = JSON.parse(savedBiz)
-        if (parsedBiz.length > 0) {
-          const visibleBiz = parsedBiz.filter((b: Business) => !b.isHidden)
-          setBusinesses(visibleBiz)
+        if (Array.isArray(parsedBiz) && parsedBiz.length > 0) {
+          setBusinesses(parsedBiz.filter((b: Business) => !b.isHidden))
           setLoading(false)
+        }
+      }
+
+      const savedByBiz = sessionStorage.getItem('home_products_by_biz_v2')
+      if (savedByBiz) {
+        const parsedMap = JSON.parse(savedByBiz)
+        if (parsedMap && Object.keys(parsedMap).length > 0) {
+          setProductsByBusiness(parsedMap)
+          setLoadingProducts(false)
         }
       }
 
       const savedNew = sessionStorage.getItem('home_newest_products_v2')
       if (savedNew) {
         const parsedNew = JSON.parse(savedNew)
-        if (parsedNew.length > 0) {
+        if (Array.isArray(parsedNew) && parsedNew.length > 0) {
           setNewestProducts(parsedNew)
           setLoadingProducts(false)
         }
@@ -176,107 +196,264 @@ function HomePageContent() {
       const savedBest = sessionStorage.getItem('home_bestsellers_products_v2')
       if (savedBest) {
         const parsedBest = JSON.parse(savedBest)
-        if (parsedBest.length > 0) {
+        if (Array.isArray(parsedBest) && parsedBest.length > 0) {
           setBestSellersProducts(parsedBest)
         }
       }
 
-      const savedGroupId = localStorage.getItem('lastDetectedGroupId')
-      if (savedGroupId) setGroupId(savedGroupId)
-
-      const savedGroupName = localStorage.getItem('lastDetectedGroupName')
-      if (savedGroupName) setDetectedGroupName(savedGroupName)
+      const savedReviews = sessionStorage.getItem('home_recent_reviews_v2')
+      if (savedReviews) {
+        const parsedRev = JSON.parse(savedReviews)
+        if (Array.isArray(parsedRev) && parsedRev.length > 0) {
+          setRecentReviews(parsedRev)
+        }
+      }
     } catch {}
 
-    // Precargar en background el bundle del sidebar para apertura en 0ms
-    import('@/components/ProductDetailSidebar')
-  }, [])
-  const [showGroupSelector, setShowGroupSelector] = useState(false)
-  const groupSelectorRef = useRef<HTMLDivElement>(null)
-  const [isOutOfCoverage, setIsOutOfCoverage] = useState(false)
-  const [showAllRestaurants, setShowAllRestaurants] = useState(false)
-  const [surveySubmitted, setSurveySubmitted] = useState(false)
-  const [requestName, setRequestName] = useState('')
-  const [requestWhatsapp, setRequestWhatsapp] = useState('')
-  const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false)
-  const [showLoginModal, setShowLoginModal] = useState(false)
-  const [recentReviews, setRecentReviews] = useState<GlobalProductReviewItem[]>([])
-  const [loadingReviews, setLoadingReviews] = useState(true)
+    // Helper para procesar productos en una sola pasada en memoria
+    const buildCatalog = (targetBusinesses: Business[], rawProducts: Product[]) => {
+      const bizMap = new Map(targetBusinesses.map(b => [b.id, b]))
+      const grouped: Record<string, Product[]> = {}
+      targetBusinesses.forEach(b => { grouped[b.id] = [] })
 
-  // Use useMemo for story businesses to ensure a stable random order per session/businesses-update
+      const eligibleForHighlights: Product[] = []
+
+      for (const product of rawProducts) {
+        if (!product.image || !product.isAvailable) continue
+        const biz = bizMap.get(product.businessId)
+        if (grouped[product.businessId]) {
+          grouped[product.businessId].push(product)
+        }
+        if (biz && !biz.isHidden && biz.businessType !== 'distributor') {
+          eligibleForHighlights.push({
+            ...product,
+            businessName: product.businessName || biz.name,
+            businessImage: product.businessImage || biz.image
+          })
+        }
+      }
+
+      const sortedMap: Record<string, Product[]> = {}
+      for (const biz of targetBusinesses) {
+        const master = biz.categories || []
+        const bizProducts = grouped[biz.id] || []
+        const fromProducts = Array.from(new Set(bizProducts.map(p => p.category).filter(Boolean))) as string[]
+        const extras = fromProducts.filter(c => !master.includes(c))
+        const categoryOrder = [...master, ...extras]
+        if (bizProducts.some(p => !p.category || p.category === 'Sin categoría') && !categoryOrder.includes('Sin categoría')) {
+          categoryOrder.push('Sin categoría')
+        }
+
+        sortedMap[biz.id] = bizProducts
+          .sort((a, b) => {
+            const catA = categoryOrder.indexOf(a.category || 'Sin categoría')
+            const catB = categoryOrder.indexOf(b.category || 'Sin categoría')
+            const idxA = catA !== -1 ? catA : 9999
+            const idxB = catB !== -1 ? catB : 9999
+            if (idxA !== idxB) return idxA - idxB
+
+            const orderA = a.order ?? 0
+            const orderB = b.order ?? 0
+            if (orderA !== orderB) return orderA - orderB
+
+            return getSafeTime(b.updatedAt) - getSafeTime(a.updatedAt)
+          })
+          .slice(0, 10)
+      }
+
+      const sortedByNew = [...eligibleForHighlights].sort(
+        (a, b) => getSafeTime(b.createdAt) - getSafeTime(a.createdAt)
+      )
+      const sortedBySales = [...eligibleForHighlights].sort((a, b) => {
+        const salesDiff = (b.salesCount || 0) - (a.salesCount || 0)
+        if (salesDiff !== 0) return salesDiff
+        return getSafeTime(b.createdAt) - getSafeTime(a.createdAt)
+      })
+
+      return { sortedMap, sortedByNew, sortedBySales }
+    }
+
+    // 2. Cargar tiendas y productos en un único flujo directo
+    const loadMainData = async () => {
+      try {
+        const allBiz = await getAllBusinesses()
+        if (!isMounted) return
+
+        const visibleBiz = allBiz.filter(b => !b.isHidden)
+        setBusinesses(visibleBiz)
+        setLoading(false)
+
+        try {
+          sessionStorage.setItem('home_businesses_v2', JSON.stringify(visibleBiz))
+        } catch {}
+
+        if (visibleBiz.length === 0) {
+          setLoadingProducts(false)
+          return
+        }
+
+        // Priorizar tiendas abiertas para que el primer lote pinte la pantalla principal de inmediato
+        const prioritizedBiz = [...visibleBiz].sort((a, b) => {
+          const aOpen = isStoreOpen(a)
+          const bOpen = isStoreOpen(b)
+          return aOpen === bOpen ? 0 : aOpen ? -1 : 1
+        })
+
+        const priorityBiz = prioritizedBiz.slice(0, 8)
+        const secondaryBiz = prioritizedBiz.slice(8, 24)
+
+        const priorityProducts = await getProductsByBusinessesBatch(priorityBiz.map(b => b.id))
+        if (!isMounted) return
+
+        const initialCatalog = buildCatalog(priorityBiz, priorityProducts)
+        setProductsByBusiness(prev => ({ ...prev, ...initialCatalog.sortedMap }))
+        if (initialCatalog.sortedByNew.length > 0) setNewestProducts(initialCatalog.sortedByNew)
+        if (initialCatalog.sortedBySales.length > 0) setBestSellersProducts(initialCatalog.sortedBySales)
+        setLoadingProducts(false)
+
+        let allProducts = priorityProducts
+        let allTargetBiz = priorityBiz
+
+        if (secondaryBiz.length > 0) {
+          const secondaryProducts = await getProductsByBusinessesBatch(secondaryBiz.map(b => b.id))
+          if (!isMounted) return
+          allProducts = [...priorityProducts, ...secondaryProducts]
+          allTargetBiz = [...priorityBiz, ...secondaryBiz]
+        }
+
+        const fullCatalog = buildCatalog(allTargetBiz, allProducts)
+        setProductsByBusiness(prev => {
+          const merged = { ...prev, ...fullCatalog.sortedMap }
+          try {
+            sessionStorage.setItem('home_products_by_biz_v2', JSON.stringify(merged))
+          } catch {}
+          return merged
+        })
+        setNewestProducts(fullCatalog.sortedByNew)
+        setBestSellersProducts(fullCatalog.sortedBySales)
+
+        try {
+          sessionStorage.setItem('home_newest_products_v2', JSON.stringify(fullCatalog.sortedByNew.slice(0, 24)))
+          sessionStorage.setItem('home_bestsellers_products_v2', JSON.stringify(fullCatalog.sortedBySales.slice(0, 24)))
+        } catch {}
+      } catch (error) {
+        console.error('Error loading home data:', error)
+      } finally {
+        if (isMounted) {
+          setLoading(false)
+          setLoadingProducts(false)
+        }
+      }
+    }
+
+    // 3. Cargar reseñas recientes en paralelo sin bloquear el catálogo
+    const loadReviews = async () => {
+      try {
+        const items = await getGlobalProductReviews(12)
+        if (!isMounted) return
+        const validReviews = items
+          .filter(r => (r.comment && r.comment.trim().length > 0) || r.image)
+          .slice(0, 8)
+        setRecentReviews(validReviews)
+        try {
+          sessionStorage.setItem('home_recent_reviews_v2', JSON.stringify(validReviews))
+        } catch {}
+      } catch (error) {
+        console.error('Error fetching recent reviews:', error)
+      }
+    }
+
+    loadMainData()
+    loadReviews()
+
+    return () => { isMounted = false }
+  }, [])
+
+  // Filtrado en memoria por búsqueda y categoría (0ms de latencia)
+  const filteredBusinesses = React.useMemo(() => {
+    return businesses.filter(b => {
+      if (b.isHidden) return false
+      if (selectedCategory !== 'all') {
+        const hasCatInBiz = b.categories?.includes(selectedCategory)
+        const hasCatInProds = (productsByBusiness[b.id] || []).some(p => p.category === selectedCategory)
+        if (!hasCatInBiz && !hasCatInProds) return false
+      }
+      if (searchTerm) {
+        const nameMatch = b.name?.toLowerCase().includes(searchTerm)
+        const descMatch = b.description?.toLowerCase().includes(searchTerm)
+        const prodMatch = (productsByBusiness[b.id] || []).some(
+          p => p.name?.toLowerCase().includes(searchTerm) || p.description?.toLowerCase().includes(searchTerm)
+        )
+        if (!nameMatch && !descMatch && !prodMatch) return false
+      }
+      return true
+    })
+  }, [businesses, productsByBusiness, selectedCategory, searchTerm])
+
   const storyBusinesses = React.useMemo(() => {
-    return businesses
-      .filter(b => !b.isHidden && b.businessType !== 'distributor' && !!b.image)
+    return filteredBusinesses
+      .filter(b => b.businessType !== 'distributor' && !!b.image)
       .filter(b => {
         const products = productsByBusiness[b.id]
-        if (products !== undefined) {
-          return products.length > 0
-        }
-        return true
+        return products !== undefined ? products.length > 0 : true
       })
       .sort((a, b) => {
         const aOpen = isStoreOpen(a)
         const bOpen = isStoreOpen(b)
         if (aOpen !== bOpen) return aOpen ? -1 : 1
-        
-        const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
-        const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
+        const aLastEdit = getSafeTime(productsByBusiness[a.id]?.[0]?.updatedAt)
+        const bLastEdit = getSafeTime(productsByBusiness[b.id]?.[0]?.updatedAt)
         return bLastEdit - aLastEdit
       })
-  }, [businesses, productsByBusiness])
+  }, [filteredBusinesses, productsByBusiness])
 
   const sortedRestaurants = React.useMemo(() => {
-    const filtered = businesses
-      .filter(b => !b.isHidden && b.businessType !== 'distributor')
+    const filtered = filteredBusinesses
+      .filter(b => b.businessType !== 'distributor')
       .filter(b => {
         const products = productsByBusiness[b.id]
         return products && products.length > 0
       })
-    
-    // Separar abiertos y cerrados
+
     const open = filtered.filter(b => isStoreOpen(b))
     const closed = filtered.filter(b => !isStoreOpen(b))
-    
-    // Ordenar abiertos con rotación estable por sesión (evita que las tiendas salten de posición con cada re-render)
+
     const seed = sessionSeedRef.current
     const shuffledOpen = [...open].sort((a, b) => getSessionHash(a.id, seed) - getSessionHash(b.id, seed))
-    
-    // Ordenar cerrados por última edición
+
     const sortedClosed = closed.sort((a, b) => {
-      const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
-      const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
+      const aLastEdit = getSafeTime(productsByBusiness[a.id]?.[0]?.updatedAt)
+      const bLastEdit = getSafeTime(productsByBusiness[b.id]?.[0]?.updatedAt)
       return bLastEdit - aLastEdit
     })
-    
-    // Combinar: abiertos (estable) + cerrados (por edición)
+
     return [...shuffledOpen, ...sortedClosed]
-  }, [businesses, productsByBusiness])
+  }, [filteredBusinesses, productsByBusiness])
 
   const sortedDistributors = React.useMemo(() => {
-    return businesses
+    return filteredBusinesses
       .filter(b => b.businessType === 'distributor')
       .filter(b => {
         const products = productsByBusiness[b.id]
         return products && products.length > 0
       })
       .sort((a, b) => {
-        const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
-        const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
+        const aLastEdit = getSafeTime(productsByBusiness[a.id]?.[0]?.updatedAt)
+        const bLastEdit = getSafeTime(productsByBusiness[b.id]?.[0]?.updatedAt)
         return bLastEdit - aLastEdit
       })
-  }, [businesses, productsByBusiness])
+  }, [filteredBusinesses, productsByBusiness])
 
   // Story Modal State
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false)
-  const [isStoryPaused, setIsStoryPaused] = useState(false) // Modal de detalle abierto
-  const [isStoryHeld, setIsStoryHeld] = useState(false) // Pantalla presionada
+  const [isStoryPaused, setIsStoryPaused] = useState(false)
+  const [isStoryHeld, setIsStoryHeld] = useState(false)
   const [selectedStoryBusiness, setSelectedStoryBusiness] = useState<Business | null>(null)
   const [storyProducts, setStoryProducts] = useState<Product[]>([])
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0)
   const [loadingStoryProducts, setLoadingStoryProducts] = useState(false)
   const [storyProgress, setStoryProgress] = useState<Record<string, number>>({})
 
-  // Update progress when story index changes
   useEffect(() => {
     if (selectedStoryBusiness && isStoryModalOpen) {
       setStoryProgress(prev => ({
@@ -286,7 +463,6 @@ function HomePageContent() {
     }
   }, [currentStoryIndex, selectedStoryBusiness?.id, isStoryModalOpen])
 
-  // Automatic Story Progression
   useEffect(() => {
     let interval: NodeJS.Timeout
     if (isStoryModalOpen && storyProducts.length > 0 && !loadingStoryProducts && !isStoryPaused && !isStoryHeld) {
@@ -301,7 +477,6 @@ function HomePageContent() {
     return () => clearInterval(interval)
   }, [isStoryModalOpen, currentStoryIndex, storyProducts.length, loadingStoryProducts, isStoryPaused, isStoryHeld])
 
-  // Disable pull-to-refresh and history navigation when story is open
   useEffect(() => {
     if (isStoryModalOpen) {
       document.body.style.overscrollBehaviorY = 'none'
@@ -316,17 +491,13 @@ function HomePageContent() {
     }
   }, [isStoryModalOpen])
 
-  // Pre-load next story images for smoother navigation
   useEffect(() => {
     if (isStoryModalOpen && storyProducts.length > 0) {
-      // Pre-cargar la siguiente imagen
       const nextIndex = currentStoryIndex + 1
       if (nextIndex < storyProducts.length && storyProducts[nextIndex].image) {
         const img = document.createElement('img')
         img.src = storyProducts[nextIndex].image!
       }
-
-      // Pre-cargar la subsiguiente para mayor fluidez
       const nextNextIndex = currentStoryIndex + 2
       if (nextNextIndex < storyProducts.length && storyProducts[nextNextIndex].image) {
         const img2 = document.createElement('img')
@@ -347,99 +518,29 @@ function HomePageContent() {
   const [generatedReferralProducts, setGeneratedReferralProducts] = useState<Set<string>>(new Set())
   const [referralCounts, setReferralCounts] = useState<Record<string, number>>({})
 
-  // Load Cart Logic
   useEffect(() => {
-    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
     const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
+    if (!currentBusinessId) return
 
-    if (currentBusinessId) {
-      const loadCart = () => {
-        const savedCarts = localStorage.getItem('carts')
-        if (savedCarts) {
-          const allCarts = JSON.parse(savedCarts)
-          const businessCart = allCarts[currentBusinessId] || []
-          setCart(businessCart)
-        } else {
-          setCart([])
-        }
+    const loadCart = () => {
+      const savedCarts = localStorage.getItem('carts')
+      if (savedCarts) {
+        const allCarts = JSON.parse(savedCarts)
+        setCart(allCarts[currentBusinessId] || [])
+      } else {
+        setCart([])
       }
+    }
 
-      loadCart()
-      const handleStorageChange = () => loadCart()
-      window.addEventListener('storage', handleStorageChange)
-      // Custom event for same-window updates
-      window.addEventListener('cart-updated', handleStorageChange)
+    loadCart()
+    window.addEventListener('storage', loadCart)
+    window.addEventListener('cart-updated', loadCart)
 
-      return () => {
-        window.removeEventListener('storage', handleStorageChange)
-        window.removeEventListener('cart-updated', handleStorageChange)
-      }
+    return () => {
+      window.removeEventListener('storage', loadCart)
+      window.removeEventListener('cart-updated', loadCart)
     }
   }, [selectedStoryBusiness?.id, selectedProductBusiness?.id, isCartOpen])
-
-  // Cargar productos que el usuario ya ha recomendado + contadores globales de forma optimizada
-  useEffect(() => {
-    let isMounted = true
-
-    const loadRecommendedProducts = async () => {
-      if (!user?.id || Object.keys(productsByBusiness).length === 0) return
-
-      const allProducts = Object.values(productsByBusiness).flat()
-      const productIds = allProducts.map(p => p.id)
-
-      // Identificar solo productos que no han sido consultados previamente
-      const newProductIds = productIds.filter(id => !checkedReferralProductIdsRef.current.has(id))
-      if (newProductIds.length === 0) return
-
-      newProductIds.forEach(id => checkedReferralProductIdsRef.current.add(id))
-
-      try {
-        // Obtener referidos del usuario
-        const userReferrals = await getUserReferrals(user.id)
-        if (!isMounted) return
-
-        const recommendedSet = new Set<string>(
-          userReferrals
-            .filter(ref => ref.productId)
-            .map(ref => ref.productId)
-        )
-        setGeneratedReferralProducts(prev => new Set([...prev, ...recommendedSet]))
-
-        // Cargar contadores de recomendaciones solo para los nuevos IDs detectados
-        const counts = await getProductsReferralCounts(newProductIds)
-        if (!isMounted) return
-        setReferralCounts(prev => ({ ...prev, ...counts }))
-      } catch (err) {
-        console.error('Error cargando referidos:', err)
-      }
-    }
-
-    loadRecommendedProducts()
-    return () => { isMounted = false }
-  }, [user?.id, productsByBusiness])
-
-  // Cargar comentarios y publicaciones recientes de la comunidad Fuddies
-  useEffect(() => {
-    let isMounted = true
-    const fetchRecentReviews = async () => {
-      try {
-        const items = await getGlobalProductReviews(12)
-        if (isMounted) {
-          // Filtrar items que tengan comentario o imagen
-          const validReviews = items.filter(r => (r.comment && r.comment.trim().length > 0) || r.image)
-          setRecentReviews(validReviews.slice(0, 8))
-          // Precarga en segundo plano de la página de Fuddiverso
-          router.prefetch('/fuddiverso')
-        }
-      } catch (error) {
-        console.error('Error fetching recent reviews for home:', error)
-      } finally {
-        if (isMounted) setLoadingReviews(false)
-      }
-    }
-    fetchRecentReviews()
-    return () => { isMounted = false }
-  }, [])
 
   const updateCartInStorage = (businessId: string, businessCart: any[]) => {
     const savedCarts = localStorage.getItem('carts')
@@ -457,7 +558,6 @@ function HomePageContent() {
   }
 
   const updateQuantity = (productId: string, quantity: number, variantName?: string | null) => {
-    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
     const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
     if (!currentBusinessId) return
 
@@ -477,12 +577,8 @@ function HomePageContent() {
   }
 
   const removeFromCart = (productId: string, variantName?: string | null) => {
-    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
     const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
     if (!currentBusinessId) return
-
-    // Note: unredeem logic normally here, but for now we implement basic removal
-    // (CartSidebar handles unredeem logic for QR prizes internally via useEffects usually, or we can copy it if needed)
 
     const newCart = cart.filter(item => !(item.id === productId && item.variantName === variantName))
     setCart(newCart)
@@ -490,7 +586,6 @@ function HomePageContent() {
   }
 
   const addItemToCart = (item: any) => {
-    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
     const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
     if (!currentBusinessId) return
 
@@ -512,25 +607,21 @@ function HomePageContent() {
   }
 
   const clearCart = () => {
-    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
     const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
     if (!currentBusinessId) return
     setCart([])
     updateCartInStorage(currentBusinessId, [])
   }
 
-  // Función para generar link de referido
   const handleGenerateReferral = async (product: any, business: Business) => {
     if (!business?.id) return
 
-    // Abrir modal de inmediato para máxima fluidez en la interfaz (0ms)
     setSelectedProductForReferral(product)
     setSelectedProductBusiness(business)
     setReferralBusinessName(business.name)
     setGeneratedReferralLink('')
     setReferralModalOpen(true)
 
-    // Si el usuario ya está autenticado, pre-generar enlace
     if (user?.id || user?.celular) {
       try {
         const { code, isNew } = await generateReferralLink(
@@ -547,7 +638,6 @@ function HomePageContent() {
         const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
         setGeneratedReferralLink(referralUrl)
         setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
-        // Actualizar contador local solo si es nuevo
         if (isNew) {
           setReferralCounts(prev => ({
             ...prev,
@@ -560,368 +650,6 @@ function HomePageContent() {
     }
   }
 
-  // Cargar productos de negocios de forma escalonada (primeras tiendas prioritarias, resto en segundo plano)
-  useEffect(() => {
-    let isMounted = true
-
-    const fetchBusinessProducts = async () => {
-      if (businesses.length === 0) return
-
-      // Solo cargar productos para tiendas que aún no los tienen en caché local
-      const unvisitedBusinesses = businesses.filter(b => !productsByBusiness[b.id])
-      if (unvisitedBusinesses.length === 0) return
-
-      try {
-        setLoadingProducts(true)
-        // Límite óptimo de 16 tiendas para la portada (evita saturar Firestore y memoria)
-        const targetBusinesses = unvisitedBusinesses.slice(0, 16)
-
-        // Helper para agrupar, ordenar y filtrar los productos de un lote
-        const processBatch = (batchBusinesses: Business[], allProducts: Product[]) => {
-          const map: Record<string, Product[]> = {}
-          batchBusinesses.forEach(b => { map[b.id] = [] })
-
-          allProducts.forEach(product => {
-            if (map[product.businessId] && product.image && product.isAvailable) {
-              map[product.businessId].push(product)
-            }
-          })
-
-          const businessMap = new Map(batchBusinesses.map(b => [b.id, b]))
-          batchBusinesses.forEach(biz => {
-            const master = biz?.categories || []
-            const businessProducts = map[biz.id] || []
-
-            const fromProducts = Array.from(new Set(businessProducts.map(p => p.category).filter(Boolean))) as string[]
-            const extras = fromProducts.filter(c => !master.includes(c))
-            const categoryOrder = [...master, ...extras]
-            if (businessProducts.some(p => !p.category || p.category === 'Sin categoría') && !categoryOrder.includes('Sin categoría')) {
-              categoryOrder.push('Sin categoría')
-            }
-
-            const getCategoryIndex = (pCat: string | undefined) => {
-              const cat = pCat || 'Sin categoría'
-              const idx = categoryOrder.indexOf(cat)
-              return idx !== -1 ? idx : 9999
-            }
-
-            map[biz.id] = businessProducts
-              .sort((a, b) => {
-                const catIndexA = getCategoryIndex(a.category)
-                const catIndexB = getCategoryIndex(b.category)
-                if (catIndexA !== catIndexB) return catIndexA - catIndexB
-
-                const orderA = a.order ?? 0
-                const orderB = b.order ?? 0
-                if (orderA !== orderB) return orderA - orderB
-
-                const dateA = a.updatedAt?.getTime() || 0
-                const dateB = b.updatedAt?.getTime() || 0
-                return dateB - dateA
-              })
-              .slice(0, 10)
-          })
-          return map
-        }
-
-        // 1. Fase Prioritaria: primeras 6 tiendas para mostrar UI ultra rápida
-        const priorityBusinesses = targetBusinesses.slice(0, 6)
-        const priorityIds = priorityBusinesses.map(b => b.id)
-
-        if (priorityIds.length > 0) {
-          const priorityProducts = await getProductsByBusinessesBatch(priorityIds)
-          if (isMounted) {
-            const priorityMap = processBatch(priorityBusinesses, priorityProducts)
-            setProductsByBusiness(prev => ({ ...prev, ...priorityMap }))
-            setLoadingProducts(false)
-          }
-        }
-
-        // 2. Fase Diferida: tiendas restantes (máximo 10) cargadas en segundo plano
-        const secondaryBusinesses = targetBusinesses.slice(6, 16)
-        const secondaryIds = secondaryBusinesses.map(b => b.id)
-
-        if (secondaryIds.length > 0 && isMounted) {
-          await new Promise(resolve => setTimeout(resolve, 150))
-          if (!isMounted) return
-
-          const secondaryProducts = await getProductsByBusinessesBatch(secondaryIds)
-          if (isMounted) {
-            const secondaryMap = processBatch(secondaryBusinesses, secondaryProducts)
-            setProductsByBusiness(prev => ({ ...prev, ...secondaryMap }))
-          }
-        }
-      } catch (error) {
-        console.error("Error loading business products:", error)
-      } finally {
-        if (isMounted) {
-          setLoadingProducts(false)
-        }
-      }
-    }
-
-    if (businesses.length > 0) {
-      fetchBusinessProducts()
-    }
-
-    return () => { isMounted = false }
-  }, [businesses])
-
-  // Helper: detectar grupo por coordenadas y actualizar estado
-  const detectGroupFromCoords = async (coords: { lat: number; lng: number }, groupsReference?: CoverageGroup[]) => {
-    try {
-      console.log('[LOCATION] Detecting group for:', coords)
-      const zone = await getCoverageZoneForLocation(coords)
-      console.log('[LOCATION] Zone found:', zone)
-
-      if (zone?.groupId) {
-        setGroupId(zone.groupId)
-        setIsOutOfCoverage(false)
-        localStorage.setItem('lastDetectedGroupId', zone.groupId)
-
-        // Usar los grupos pasados o los del estado
-        const groups = groupsReference || (coverageGroups.length > 0 ? coverageGroups : await getCoverageGroups())
-        const found = groups.find(g => g.id === zone.groupId)
-        console.log('[LOCATION] Group confirmed:', found?.name)
-        setDetectedGroupName(found?.name || null)
-      } else {
-        console.log('[LOCATION] No coverage for these coords')
-        // Si hay coordenadas pero no hay zona, mostramos fuera de cobertura
-        setGroupId(null)
-        setIsOutOfCoverage(true)
-        setDetectedGroupName(null)
-        localStorage.removeItem('lastDetectedGroupId')
-      }
-    } catch (err) {
-      console.error('[LOCATION] Error in detection:', err)
-    }
-  }
-
-  // Cerrar dropdown al hacer clic fuera
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (groupSelectorRef.current && !groupSelectorRef.current.contains(event.target as Node)) {
-        setShowGroupSelector(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  // Sistema de inicialización de grupos y ubicación (Solo selector manual)
-  useEffect(() => {
-    const initLocation = async () => {
-      try {
-        // 1. Cargar grupos de cobertura
-        const groups = await getCoverageGroups()
-        const activeGroups = groups.filter(g => g.isActive)
-        setCoverageGroups(activeGroups)
-
-        // Verificamos si ya hay un grupo guardado en localStorage y es válido
-        const savedGroupId = localStorage.getItem('lastDetectedGroupId')
-        if (savedGroupId && activeGroups.some(g => g.id === savedGroupId)) {
-          const matchedGroup = activeGroups.find(g => g.id === savedGroupId)
-          if (matchedGroup) {
-            setGroupId(matchedGroup.id)
-            setDetectedGroupName(matchedGroup.name)
-            localStorage.setItem('lastDetectedGroupName', matchedGroup.name)
-          }
-        } else {
-          // 2. Buscar el grupo Daule por defecto y establecerlo
-          const daule = activeGroups.find(g => g.name.toLowerCase().includes('daule'))
-          if (daule) {
-            setGroupId(daule.id)
-            setDetectedGroupName(daule.name)
-            localStorage.setItem('lastDetectedGroupId', daule.id)
-            localStorage.setItem('lastDetectedGroupName', daule.name)
-          }
-        }
-      } catch (err) {
-        console.error('Error in location system init:', err)
-      }
-    }
-
-    initLocation()
-
-    // Listeners para cambios externos
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'userCoordinates' && e.newValue) {
-        try {
-          const coords = JSON.parse(e.newValue)
-          setUserLocation(coords)
-          detectGroupFromCoords(coords)
-        } catch (err) {
-          console.warn('Error parsing updated coordinates:', err)
-        }
-      }
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-    }
-  }, [])
-
-  // Categorías y carga inicial consolidadas en loadBusinessesWithParams
-
-  // Sincronizar parámetros de la URL y ubicación
-  useEffect(() => {
-    const urlSearch = searchParams?.get('search') || ''
-    const urlCategory = searchParams?.get('category') || 'all'
-    setSearchTerm(urlSearch)
-    setSelectedCategory(urlCategory)
-    loadBusinessesWithParams(urlSearch, urlCategory)
-  }, [searchParams, groupId, showAllRestaurants])
-
-  // Cargar productos de la página de inicio (más nuevos y más vendidos) de forma eficiente
-  const loadHomeProducts = async (category: string = 'all') => {
-    try {
-      if (newestProducts.length === 0) {
-        setLoadingProducts(true)
-      }
-      // 1. Cargar productos inmediatamente (36 productos es el tamaño óptimo para respuesta ágil de red)
-      const selected = await getGlobalProducts(category, 36, showAllRestaurants ? 'ALL' : (groupId || undefined))
-
-      // 1. Lo más nuevo (ordenar por createdAt desc)
-      const sortedByNew = [...selected].sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
-        return dateB - dateA
-      })
-      setNewestProducts(sortedByNew)
-
-      // 2. Los más vendidos — ordenados instantáneamente por salesCount acumulado (0ms de latencia, 0 lecturas extra)
-      const sortedBySales = [...selected].sort((a, b) => {
-        const salesA = a.salesCount || 0
-        const salesB = b.salesCount || 0
-        if (salesB !== salesA) {
-          return salesB - salesA
-        }
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
-        return dateB - dateA
-      })
-      setBestSellersProducts(sortedBySales)
-      setLoadingProducts(false)
-
-      // Guardar en sessionStorage para renderizado instantáneo en visitas siguientes
-      if (typeof window !== 'undefined' && category === 'all') {
-        try {
-          sessionStorage.setItem('home_newest_products_v2', JSON.stringify(sortedByNew.slice(0, 20)))
-          sessionStorage.setItem('home_bestsellers_products_v2', JSON.stringify(sortedBySales.slice(0, 20)))
-        } catch {}
-      }
-
-      // Asegurar que las tiendas de todos los productos estén disponibles en el estado de negocios
-      const missingBusinessIds = Array.from(new Set(
-        selected
-          .map(p => p.businessId)
-          .filter((id): id is string => Boolean(id) && !businesses.some(b => b.id === id))
-      ))
-
-      if (missingBusinessIds.length > 0) {
-        getBusinessesByIds(missingBusinessIds).then(extraBusinesses => {
-          if (extraBusinesses.length > 0) {
-            setBusinesses(prev => {
-              const existingMap = new Map(prev.filter(b => !b.isHidden).map(b => [b.id, b]))
-              let hasChanges = false
-              extraBusinesses.filter(b => !b.isHidden).forEach(b => {
-                if (!existingMap.has(b.id)) {
-                  existingMap.set(b.id, b)
-                  hasChanges = true
-                }
-              })
-              if (!hasChanges) return prev
-              const updated = Array.from(existingMap.values()).filter(b => !b.isHidden)
-              if (typeof window !== 'undefined') {
-                try {
-                  sessionStorage.setItem('home_businesses_v2', JSON.stringify(updated))
-                } catch {}
-              }
-              return updated
-            })
-          }
-        }).catch(e => console.error('Error fetching businesses for products:', e))
-      }
-
-      // Actualizar categorías del menú con los productos obtenidos (evita consulta duplicada)
-      if (selected.length > 0) {
-        setCategories(prev => {
-          const currentSet = new Set(prev)
-          selected.forEach(p => {
-            if (p.category) currentSet.add(p.category)
-          })
-          return Array.from(currentSet).sort()
-        })
-      }
-
-    } catch (error) {
-      console.error('Error loading home products:', error)
-      setLoadingProducts(false)
-    }
-  }
-
-  useEffect(() => {
-    loadHomeProducts(selectedCategory)
-  }, [selectedCategory, groupId, showAllRestaurants])
-
-  const loadBusinessesWithParams = async (search: string, category: string) => {
-    try {
-      if (businesses.length === 0) {
-        setLoading(true)
-      }
-      const data = search || category !== 'all' || (groupId && !showAllRestaurants)
-        ? await searchBusinesses(search, category, showAllRestaurants ? undefined : (groupId || undefined))
-        : await getAllBusinesses()
-
-      // Filtrar negocios ocultos
-      let visibleBusinesses = data.filter(b => !b.isHidden)
-
-      // Si usamos getAllBusinesses, el groupId no se filtró en la query
-      if (!search && category === 'all' && !showAllRestaurants) {
-        if (groupId) {
-          visibleBusinesses = visibleBusinesses.filter(b => b.groupId === groupId)
-        } else {
-          visibleBusinesses = visibleBusinesses.filter(b => !b.groupId)
-        }
-      }
-
-      setBusinesses(prev => {
-        // Filtrar prev para descartar tiendas que se hayan ocultado
-        const validPrev = prev.filter(b => !b.isHidden)
-        const map = new Map(validPrev.map(b => [b.id, b]))
-        visibleBusinesses.forEach(b => map.set(b.id, b))
-        const combined = Array.from(map.values()).filter(b => !b.isHidden)
-        if (typeof window !== 'undefined' && !search && category === 'all') {
-          try {
-            sessionStorage.setItem('home_businesses_v2', JSON.stringify(combined))
-          } catch {}
-        }
-        return combined
-      })
-
-      // Extraer categorías de los negocios (rápido, no bloquea el render)
-      const uniqueCategories = new Set<string>()
-      visibleBusinesses.forEach(b => {
-        b.categories?.forEach(c => uniqueCategories.add(c))
-      })
-      const initialCategories = Array.from(uniqueCategories).sort()
-      setCategories(['all', ...initialCategories])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // El recargo de negocios por cambio de groupId se maneja en el hook sincronizado principal anterior
-
-  const handleCategoryChange = async (category: string) => {
-    setSelectedCategory(category)
-    const newUrl = category === 'all' ? '/' : `/?category=${category}`
-    router.push(newUrl)
-    await loadBusinessesWithParams(searchTerm, category)
-  }
-
   const handleOpenRatingModal = (business: Business) => {
     setSelectedRatingBusiness(business)
     setIsRatingModalOpen(true)
@@ -932,17 +660,10 @@ function HomePageContent() {
     setTimeout(() => setRatingNotification({ show: false, message: '' }), 3000)
   }
 
-  const loadFollowedBusinesses = () => {
+  useEffect(() => {
     if (typeof window !== 'undefined' && user) {
       const saved = localStorage.getItem(`followedBusinesses_${user.id}`)
       if (saved) setFollowedBusinesses(new Set(JSON.parse(saved)))
-    }
-  }
-
-  // Sincronizar lectura de favoritos al cargar el usuario (Auth asíncrono)
-  useEffect(() => {
-    if (user) {
-      loadFollowedBusinesses()
     }
   }, [user])
 
@@ -979,57 +700,35 @@ function HomePageContent() {
     if (isStoryModalOpen) {
       setIsStoryPaused(true)
     } else {
+      setHasOpenedProductSidebar(true)
       setIsProductSidebarOpen(true)
     }
-  }
-
-  const handleReviewItemClick = (review: GlobalProductReviewItem, e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    const biz = review.business || businesses.find(b => b.id === review.businessId)
-    
-    // Si la reseña tiene un producto asociado, abrir el sidebar de detalle de producto
-    if (review.productId || review.product) {
-      const prod: Product = review.product || (review.productId && biz ? productsByBusiness[biz.id]?.find(p => p.id === review.productId) : null) || {
-        id: review.productId || '',
-        businessId: review.businessId,
-        name: review.productName || 'Producto',
-        price: review.productPrice || 0,
-        image: review.productImage || review.image || '',
-        slug: review.productSlug || '',
-        isAvailable: true,
-        description: ''
-      } as Product
-
-      handleProductClick(prod, biz)
-      return
-    }
-
-    // Si solo es tienda, navegar a la página de la tienda
-    const storeLink = review.businessUsername 
-      ? `/${review.businessUsername}` 
-      : (review.businessId ? `/restaurant/${review.businessId}` : '/fuddiverso')
-    
-    router.push(storeLink)
   }
 
   const handleOpenStory = async (business: Business) => {
     setSelectedStoryBusiness(business)
     setIsStoryModalOpen(true)
 
-    // Set initial index from saved progress
     const savedIndex = storyProgress[business.id] || 0
     setCurrentStoryIndex(savedIndex)
+
+    // Si ya tenemos los productos en memoria, mostrarlos en 0ms sin spinner
+    const preloaded = productsByBusiness[business.id]
+    if (preloaded && preloaded.length > 0) {
+      setStoryProducts(preloaded)
+      setLoadingStoryProducts(false)
+      if (savedIndex >= preloaded.length) {
+        setCurrentStoryIndex(0)
+      }
+      return
+    }
 
     setLoadingStoryProducts(true)
     try {
       const products = await getProductsByBusiness(business.id)
-      // Filter only products with images for stories, max 10
       const productsWithImage = products.filter(p => p.image && p.isAvailable).slice(0, 10)
       setStoryProducts(productsWithImage)
 
-      // Safety check: if saved index is now out of bounds because products changed
       if (savedIndex >= productsWithImage.length && productsWithImage.length > 0) {
         setCurrentStoryIndex(0)
       }
@@ -1059,139 +758,61 @@ function HomePageContent() {
   const filteredNewestProducts = React.useMemo(() => {
     const seenNewestBusinesses = new Set<string>()
     const filtered = newestProducts.filter(product => {
-      const business = businesses.find(b => b.id === product.businessId)
-      // Si el negocio está marcado como oculto, no mostrar sus productos
-      if (business && business.isHidden) return false
-      // Si el negocio aún no carga, se asume elegible si tiene imagen para mostrar productos inmediatamente
-      const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
-      
-      if (!isEligible) return false
-      
-      // Limitar a máximo 1 producto por tienda (conservando el más nuevo)
-      if (seenNewestBusinesses.has(product.businessId)) {
-        return false
+      if (selectedCategory !== 'all' && product.category !== selectedCategory) return false
+      if (searchTerm) {
+        const pMatch = product.name?.toLowerCase().includes(searchTerm) || product.description?.toLowerCase().includes(searchTerm)
+        const bMatch = product.businessName?.toLowerCase().includes(searchTerm)
+        if (!pMatch && !bMatch) return false
       }
+      const business = businesses.find(b => b.id === product.businessId)
+      if (business && business.isHidden) return false
+      const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
+      if (!isEligible) return false
+
+      if (seenNewestBusinesses.has(product.businessId)) return false
       seenNewestBusinesses.add(product.businessId)
       return true
     })
-    
-    // Si aún no tenemos negocios cargados, devolver de inmediato los productos sin bloquear
+
     if (businesses.length === 0) return filtered
 
-    // Separar productos de tiendas abiertas y cerradas
     const openProducts = filtered.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
       return business ? isStoreOpen(business) : true
     })
-    
+
     const closedProducts = filtered.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
       return business ? !isStoreOpen(business) : false
     })
-    
+
     return [...openProducts, ...closedProducts]
-  }, [newestProducts, businesses])
+  }, [newestProducts, businesses, selectedCategory, searchTerm])
 
   const filteredBestSellers = React.useMemo(() => {
     const seenBestBusinesses = new Set<string>()
-    const filtered = bestSellersProducts.filter(product => {
+    return bestSellersProducts.filter(product => {
+      if (selectedCategory !== 'all' && product.category !== selectedCategory) return false
+      if (searchTerm) {
+        const pMatch = product.name?.toLowerCase().includes(searchTerm) || product.description?.toLowerCase().includes(searchTerm)
+        const bMatch = product.businessName?.toLowerCase().includes(searchTerm)
+        if (!pMatch && !bMatch) return false
+      }
       const business = businesses.find(b => b.id === product.businessId)
-      // Si el negocio está marcado como oculto, no mostrar sus productos
       if (business && business.isHidden) return false
       const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
-      
       if (!isEligible) return false
-      
-      // Limitar a máximo 1 producto por tienda (conservando el más vendido)
-      if (seenBestBusinesses.has(product.businessId)) {
-        return false
-      }
+
+      if (seenBestBusinesses.has(product.businessId)) return false
       seenBestBusinesses.add(product.businessId)
       return true
     })
-    
-    // Retornar directamente la lista filtrada (que ya conserva el orden estricto de ventas globales de mayor a menor)
-    return filtered
-  }, [bestSellersProducts, businesses])
+  }, [bestSellersProducts, businesses, selectedCategory, searchTerm])
 
   return (
     <div className="min-h-screen bg-gray-50">
-
-      {/* Indicador de zona (FUERA de la sección de stories para evitar overflow-hidden) */}
-      {(detectedGroupName || coverageGroups.length > 0) && (
-        <div className="max-w-6xl mx-auto px-6 pt-4 pb-2 relative">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
-
-              </h2>
-            </div>
-            <div className="flex items-center gap-2">
-              {showAllRestaurants && (
-                <button
-                  onClick={() => {
-                    setShowAllRestaurants(false)
-                    setShowGroupSelector(false)
-                  }}
-                  className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
-                >
-                  Ver solo mi zona
-                </button>
-              )}
-              <button
-                onClick={() => setShowGroupSelector(!showGroupSelector)}
-                className="text-xs font-black text-[#aa1918] bg-red-50 px-3 py-1 rounded-full hover:bg-red-100 transition-colors flex items-center gap-1"
-              >
-                <i className="bi bi-geo-alt-fill text-sm"></i>
-                {detectedGroupName || 'Daule'}
-                <i className={`bi bi-chevron-${showGroupSelector ? 'up' : 'down'} text-[10px]`}></i>
-              </button>
-            </div>
-          </div>
-
-          {/* Dropdown de grupos */}
-          {showGroupSelector && coverageGroups.length > 0 && (
-            <div ref={groupSelectorRef} className="absolute top-full right-4 mt-1 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-[9999] min-w-[200px]">
-              {coverageGroups.map(group => (
-                <button
-                  key={group.id}
-                  onClick={() => {
-                    setGroupId(group.id)
-                    setDetectedGroupName(group.name)
-                    setShowGroupSelector(false)
-                    setShowAllRestaurants(false)
-                    localStorage.setItem('lastDetectedGroupId', group.id)
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${groupId === group.id ? 'text-[#aa1918] bg-red-50' : 'text-gray-700'
-                    }`}
-                >
-                  <i className={`bi bi-${groupId === group.id ? 'check-circle-fill text-[#aa1918]' : 'circle text-gray-300'} text-xs`}></i>
-                  {group.name}
-                </button>
-              ))}
-              <div className="border-t border-gray-100 mt-1 pt-1">
-                <button
-                  onClick={() => {
-                    setGroupId(null)
-                    setDetectedGroupName(null)
-                    setShowAllRestaurants(true)
-                    setShowGroupSelector(false)
-                    localStorage.removeItem('lastDetectedGroupId')
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${!groupId && showAllRestaurants ? 'text-[#aa1918] bg-red-50' : 'text-gray-500'
-                    }`}
-                >
-                  <i className="bi bi-globe text-xs"></i>
-                  Todos los restaurantes
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* STORE STORIES (Instagram style) */}
-      <section className="pt-1 pb-1 bg-gray-50">
+      <section className="pt-3 pb-1 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-2 items-start">
             {storyBusinesses.length === 0 && (loading || loadingProducts) ? (
@@ -1785,18 +1406,12 @@ function HomePageContent() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight leading-none">
-                  {detectedGroupName ? `Restaurantes en ${detectedGroupName}` : 'Restaurantes cerca de ti'}
+                  Restaurantes
                 </h2>
                 <span className="bg-red-50 text-[#aa1918] border border-red-100 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
                   Tiendas
                 </span>
               </div>
-              {detectedGroupName && (
-                <p className="text-[11px] font-medium text-gray-400 mt-1 flex items-center gap-1 leading-normal">
-                  <i className="bi bi-geo-alt-fill text-[#aa1918]"></i>
-                  Mostrando tiendas en tu ciudad
-                </p>
-              )}
             </div>
             <Link
               href="/business/register"
@@ -1812,107 +1427,11 @@ function HomePageContent() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#aa1918] mx-auto"></div>
               <p className="mt-4 text-gray-600">Cargando restaurantes...</p>
             </div>
-          ) : (isOutOfCoverage || sortedRestaurants.length === 0) ? (
-            <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100">
-              {surveySubmitted ? (
-                <div className="text-center animate-in fade-in zoom-in duration-500">
-                  <div className="text-6xl mb-4">🚀</div>
-                  <h3 className="text-2xl font-black text-gray-900 mb-2">¡Pedido recibido!</h3>
-                  <p className="text-gray-600 mb-6">Gracias por ayudarnos a crecer. ¡Pronto estaremos en tu zona!</p>
-                  <button
-                    onClick={() => setSurveySubmitted(false)}
-                    className="text-[#aa1918] font-bold text-sm hover:underline"
-                  >
-                    Enviar otra sugerencia
-                  </button>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <div className="text-6xl mb-6">🍽️</div>
-                  <h3 className="text-2xl font-black text-gray-900 mb-3 leading-tight">
-                    Aún no estamos repartiendo en tu zona, pero tú mandas.
-                  </h3>
-                  <p className="text-gray-500 mb-8 font-medium">¿Qué restaurante nos falta aquí?</p>
-
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!requestName.trim()) return;
-
-                    setIsSubmittingSurvey(true);
-                    try {
-                      await saveRestaurantRequest({
-                        restaurantName: requestName,
-                        whatsapp: requestWhatsapp,
-                        location: userLocation,
-                        groupId: groupId
-                      });
-                      setSurveySubmitted(true);
-                      setRequestName('');
-                      setRequestWhatsapp('');
-                    } catch (err) {
-                      alert('Error al enviar la sugerencia. Inténtalo de nuevo.');
-                    } finally {
-                      setIsSubmittingSurvey(false);
-                    }
-                  }} className="space-y-4">
-                    <div className="text-left">
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">
-                        Nombre del Restaurante
-                      </label>
-                      <input
-                        type="text"
-                        value={requestName}
-                        onChange={(e) => setRequestName(e.target.value)}
-                        placeholder="Ej: Las Burguesas de la Esquina"
-                        required
-                        className="w-full bg-gray-50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-[#aa1918]/20 transition-all"
-                      />
-                    </div>
-
-                    <div className="text-left">
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 ml-1">
-                        Tu WhatsApp (Opcional)
-                      </label>
-                      <p className="text-[10px] text-gray-500 mb-2 ml-1">
-                        Te avisaremos en cuanto los sumemos y te enviaremos un cupón de regalo 🎁
-                      </p>
-                      <input
-                        type="tel"
-                        value={requestWhatsapp}
-                        onChange={(e) => setRequestWhatsapp(e.target.value)}
-                        placeholder="0987654321"
-                        className="w-full bg-gray-50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-[#aa1918]/20 transition-all"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isSubmittingSurvey || !requestName.trim()}
-                      className={`w-full bg-[#aa1918] text-white font-black py-4 rounded-2xl shadow-lg shadow-red-900/10 hover:shadow-red-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group ${isSubmittingSurvey ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    >
-                      {isSubmittingSurvey ? (
-                        <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      ) : (
-                        <>
-                          Enviar Sugerencia
-                          <i className="bi bi-arrow-right group-hover:translate-x-1 transition-transform"></i>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsOutOfCoverage(false)
-                        setShowAllRestaurants(true)
-                      }}
-                      className="w-full text-gray-400 font-bold text-xs uppercase tracking-widest border border-gray-100 py-3 rounded-2xl hover:bg-gray-50 transition-all"
-                    >
-                      Ver todos los restaurantes
-                    </button>
-                  </form>
-                </div>
-              )}
+          ) : sortedRestaurants.length === 0 ? (
+            <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100 text-center">
+              <i className="bi bi-shop text-4xl text-gray-300 mb-3 block"></i>
+              <h3 className="text-lg font-black text-gray-900 mb-1">No se encontraron restaurantes</h3>
+              <p className="text-xs font-medium text-gray-500">Intenta con otra búsqueda o categoría.</p>
             </div>
           ) : (
             <div className="flex flex-col gap-8 sm:gap-10">
@@ -2471,23 +1990,25 @@ function HomePageContent() {
       )}
 
       {/* Modals & Sidebars */}
-      <ProductDetailSidebar
-        isOpen={isProductSidebarOpen}
-        onClose={() => setIsProductSidebarOpen(false)}
-        product={selectedProduct}
-        business={selectedProductBusiness}
-        onProductSelect={handleProductClick}
-        onOpenCart={() => setIsCartOpen(true)}
-        onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
-        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
-        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
-        onOpenRatingModal={() => {
-          if (selectedProductBusiness) {
-            setSelectedRatingBusiness(selectedProductBusiness)
-            setIsRatingModalOpen(true)
-          }
-        }}
-      />
+      {(hasOpenedProductSidebar || isProductSidebarOpen) && (
+        <ProductDetailSidebar
+          isOpen={isProductSidebarOpen}
+          onClose={() => setIsProductSidebarOpen(false)}
+          product={selectedProduct}
+          business={selectedProductBusiness}
+          onProductSelect={handleProductClick}
+          onOpenCart={() => setIsCartOpen(true)}
+          onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
+          hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+          referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
+          onOpenRatingModal={() => {
+            if (selectedProductBusiness) {
+              setSelectedRatingBusiness(selectedProductBusiness)
+              setIsRatingModalOpen(true)
+            }
+          }}
+        />
+      )}
 
       {isStoryPaused && (
         <StoryProductDetail

@@ -339,5 +339,10 @@ service cloud.firestore {
     match /debug_logs/{document} {
       allow read, write: if true;
     }
+
+    // Configuración global y control de versiones OTA de las apps Android (Tienda / Delivery)
+    match /appConfig/{document} {
+      allow read, write: if true;
+    }
   }
 }

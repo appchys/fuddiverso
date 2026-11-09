@@ -490,6 +490,7 @@ export async function getBusinessByOwner(ownerId: string): Promise<Business | nu
 
 let cachedBusinesses: Business[] | null = null
 let cachedBusinessesTime = 0
+let inFlightBusinessesPromise: Promise<Business[]> | null = null
 
 // In-Memory Cache Maps para velocidad instantánea
 const businessByUsernameCache = new Map<string, { business: Business; timestamp: number }>()
@@ -611,24 +612,32 @@ export async function getAllBusinesses(): Promise<Business[]> {
   if (cachedBusinesses && (now - cachedBusinessesTime < 60000)) {
     return cachedBusinesses
   }
-  try {
-    const querySnapshot = await getDocs(collection(db, 'businesses'))
-    const businesses = querySnapshot.docs.map(doc => {
-      const bData = {
-        id: doc.id,
-        ...doc.data(),
-        createdAt: toSafeDate(doc.data().createdAt)
-      } as Business
-      cacheBusiness(bData)
-      return bData
-    })
-    cachedBusinesses = businesses
-    cachedBusinessesTime = now
-    return businesses
-  } catch (error) {
-    console.error('Error getting businesses:', error)
-    throw error
+  if (inFlightBusinessesPromise) {
+    return inFlightBusinessesPromise
   }
+  inFlightBusinessesPromise = (async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'businesses'))
+      const businesses = querySnapshot.docs.map(doc => {
+        const bData = {
+          id: doc.id,
+          ...doc.data(),
+          createdAt: toSafeDate(doc.data().createdAt)
+        } as Business
+        cacheBusiness(bData)
+        return bData
+      })
+      cachedBusinesses = businesses
+      cachedBusinessesTime = Date.now()
+      return businesses
+    } catch (error) {
+      console.error('Error getting businesses:', error)
+      throw error
+    } finally {
+      inFlightBusinessesPromise = null
+    }
+  })()
+  return inFlightBusinessesPromise
 }
 
 export async function getBusinessesByIds(businessIds: string[]): Promise<Business[]> {
@@ -1655,6 +1664,32 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
     const shortId = generateShortOrderCode(6)
     const docRef = doc(db, 'orders', shortId)
     await commitWrite(setDoc(docRef, standardizedOrder), { label: `createOrder:${shortId}` })
+
+    // Disparar notificación Push FCM de alta prioridad a la app Android de la tienda
+    if (typeof window !== 'undefined') {
+      try {
+        const targetBizIds = Array.from(new Set([
+          standardizedOrder.businessId,
+          ...(Array.isArray(standardizedOrder.businessIds) ? standardizedOrder.businessIds : [])
+        ].filter(Boolean)))
+        for (const targetBizId of targetBizIds) {
+          fetch('/api/notifications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              businessId: targetBizId,
+              orderId: shortId,
+              type: 'new_order',
+              orderData: {
+                customer: standardizedOrder.customer,
+                total: standardizedOrder.total,
+                items: standardizedOrder.items
+              }
+            })
+          }).catch(() => {})
+        }
+      } catch (_pushErr) {}
+    }
 
     // Registrar log persistente en debug_logs
     logDebug('order_creation', `Orden creada en Firestore: ${shortId}`, {

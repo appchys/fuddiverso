@@ -553,10 +553,108 @@ exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => 
   console.log(`🚀 [CONSOLIDADO] Procesando CREACIÓN de orden: ${orderId}`);
   console.log(`📋 [Order Details] businessId: ${order.businessId}, customer: ${order.customer?.name}, createdByAdmin: ${order.createdByAdmin}`);
 
+
+function sanitizeTopicName(raw) {
+  return String(raw || '').trim().replace(/[^a-zA-Z0-9-_.~%]/g, '_');
+}
+
+async function sendStoreFcmPushOnOrderCreation(order, orderId) {
+  const businessId = order.businessId || order.businessSnapshot?.id;
+  if (!businessId) {
+    console.warn(`[FCM] Orden ${orderId} no tiene businessId, omitiendo push.`);
+    return;
+  }
+
+  const customerName = order.customer?.name || 'Cliente';
+  const totalAmount = typeof order.total === 'number' ? order.total.toFixed(2) : (order.total || '0.00');
+  const itemCount = Array.isArray(order.items)
+    ? order.items.reduce((acc, it) => acc + (Number(it?.quantity) || 1), 0)
+    : 0;
+
+  const finalTitle = '¡Nuevo Pedido Recibido! 🛍️';
+  const finalBody = `Cliente: ${customerName}${itemCount > 0 ? ` • ${itemCount} producto(s)` : ''} • Total: $${totalAmount}`;
+
+  const dataPayload = {
+    type: 'new_order',
+    businessId: String(businessId),
+    orderId: String(orderId || ''),
+    title: String(finalTitle),
+    body: String(finalBody),
+    message: String(finalBody)
+  };
+
+  const androidConfig = {
+    priority: 'high',
+    ttl: 3600 * 1000,
+    notification: {
+      channelId: 'fuddi_tienda_orders_alert_channel',
+      sound: 'default',
+      priority: 'max',
+      defaultVibrateTimings: true,
+      defaultSound: true,
+      visibility: 'public',
+      tag: `order_${orderId}`
+    }
+  };
+
+  const messaging = admin.messaging();
+  let deliveredDirectly = false;
+
+  // 1. Enviar directamente a los tokens únicos registrados en la tienda (evita enviar doble por topic + token)
+  try {
+    const bizDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+    if (bizDoc.exists) {
+      const bizData = bizDoc.data() || {};
+      const rawTokens = Array.isArray(bizData.fcmTokens)
+        ? bizData.fcmTokens.filter(t => typeof t === 'string' && t.trim().length > 0).map(t => t.trim())
+        : [];
+      const tokens = [...new Set(rawTokens)];
+
+      if (tokens.length > 0) {
+        const multiRes = await messaging.sendEachForMulticast({
+          tokens,
+          notification: {
+            title: finalTitle,
+            body: finalBody
+          },
+          data: dataPayload,
+          android: androidConfig
+        });
+        if (multiRes.successCount > 0) {
+          deliveredDirectly = true;
+        }
+        console.log(`✅ [FCM] Push directo enviado a ${tokens.length} dispositivos para orden ${orderId} (éxitos: ${multiRes.successCount})`);
+      }
+    }
+  } catch (err) {
+    console.warn(`⚠️ [FCM] Error enviando a tokens directos para negocio ${businessId}:`, err.message);
+  }
+
+  // 2. Fallback al topic de la tienda únicamente si no se entregó por token directo
+  if (!deliveredDirectly) {
+    const topic = `store_${sanitizeTopicName(businessId)}`;
+    try {
+      const topicRes = await messaging.send({
+        topic,
+        notification: {
+          title: finalTitle,
+          body: finalBody
+        },
+        data: dataPayload,
+        android: androidConfig
+      });
+      console.log(`✅ [FCM] Push enviado a topic fallback ${topic} para orden ${orderId}:`, topicRes);
+    } catch (err) {
+      console.warn(`⚠️ [FCM] Error enviando a topic ${topic}:`, err.message);
+    }
+  }
+}
+
   await Promise.allSettled([
     linkCustomerTelegramToOrderLogic(order, orderId),
     sendOrderEmailLogic(order, orderId),
     createOrderNotificationLogic(order, orderId),
+    sendStoreFcmPushOnOrderCreation(order, orderId),
     notifyDeliveryOnOrderCreationLogic(order, orderId),
     notifyBusinessTelegramOnOrderCreation(order, orderId),
     notifyAdminTelegramOnOrderCreation(order, orderId)
@@ -1598,5 +1696,79 @@ exports.sendDailyDeliveryClosureReports = onSchedule({
   }
 });
 
+/**
+ * Cloud Function: Despertar dispositivos Android por FCM de alta prioridad
+ * cuando se envía un trabajo de impresión desde la Web o se reintenta uno en estado 'pending'.
+ */
+exports.onPrintJobWritten = onDocumentWritten("printJobs/{jobId}", async (event) => {
+  const afterSnap = event.data?.after;
+  if (!afterSnap || !afterSnap.exists) return;
 
+  const beforeData = event.data?.before?.exists ? event.data.before.data() : null;
+  const afterData = afterSnap.data() || {};
+
+  // Solo despertar al dispositivo cuando el trabajo entra en estado 'pending'
+  if (afterData.status !== 'pending') return;
+  if (beforeData && beforeData.status === 'pending' && beforeData.retriedAt === afterData.retriedAt) return;
+
+  const businessId = afterData.businessId || afterData.order?.businessId;
+  if (!businessId) return;
+
+  const jobId = event.params.jobId;
+  const orderId = afterData.order?.id || '';
+
+  const dataPayload = {
+    type: 'print_job',
+    businessId: String(businessId),
+    jobId: String(jobId),
+    orderId: String(orderId)
+  };
+
+  const androidConfig = {
+    priority: 'high',
+    ttl: 300 * 1000
+  };
+
+  const messaging = admin.messaging();
+  let deliveredDirectly = false;
+
+  try {
+    const bizDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+    if (bizDoc.exists) {
+      const bizData = bizDoc.data() || {};
+      const rawTokens = Array.isArray(bizData.fcmTokens)
+        ? bizData.fcmTokens.filter(t => typeof t === 'string' && t.trim().length > 0).map(t => t.trim())
+        : [];
+      const tokens = [...new Set(rawTokens)];
+
+      if (tokens.length > 0) {
+        const multiRes = await messaging.sendEachForMulticast({
+          tokens,
+          data: dataPayload,
+          android: androidConfig
+        });
+        if (multiRes.successCount > 0) {
+          deliveredDirectly = true;
+        }
+        console.log(`🖨️ [FCM Print] Señal de impresión enviada a ${tokens.length} dispositivos para trabajo ${jobId} (éxitos: ${multiRes.successCount})`);
+      }
+    }
+  } catch (err) {
+    console.warn(`⚠️ [FCM Print] Error enviando a tokens directos para negocio ${businessId}:`, err.message);
+  }
+
+  if (!deliveredDirectly) {
+    const topic = `store_${String(businessId).trim().replace(/[^a-zA-Z0-9-_.~%]/g, '_')}`;
+    try {
+      await messaging.send({
+        topic,
+        data: dataPayload,
+        android: androidConfig
+      });
+      console.log(`🖨️ [FCM Print] Señal de impresión enviada a topic ${topic} para trabajo ${jobId}`);
+    } catch (err) {
+      console.warn(`⚠️ [FCM Print] Error enviando a topic ${topic}:`, err.message);
+    }
+  }
+});
 
