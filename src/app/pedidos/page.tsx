@@ -30,21 +30,22 @@ import {
 import { isStoreOpen, calculateManualStatusExpiry } from '@/lib/store-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
-import CierreSidebarView from '@/components/CierreSidebarView'
-import ReportesSidebarView from '@/components/ReportesSidebarView'
-import TransferenciasSidebarView from '@/components/TransferenciasSidebarView'
 import DailyCheckInBanner from '@/components/DailyCheckInBanner'
 
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
-import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { logDebug } from '@/lib/debug-log'
 
 import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
 
 import OrderStatusColumn from '@/components/pedidos/OrderStatusColumn'
-import CustomerContactModal from '@/components/pedidos/CustomerContactModal'
-import DeliveryStatusModal from '@/components/pedidos/DeliveryStatusModal'
+
+// Lazy-loaded SPA components & modales (reducen el bundle inicial de /pedidos)
+const CierreSidebarView = dynamic(() => import('@/components/CierreSidebarView'), { ssr: false })
+const ReportesSidebarView = dynamic(() => import('@/components/ReportesSidebarView'), { ssr: false })
+const TransferenciasSidebarView = dynamic(() => import('@/components/TransferenciasSidebarView'), { ssr: false })
+const CustomerContactModal = dynamic(() => import('@/components/pedidos/CustomerContactModal'), { ssr: false })
+const DeliveryStatusModal = dynamic(() => import('@/components/pedidos/DeliveryStatusModal'), { ssr: false })
 
 // Lazy-loaded SPA components
 const PaymentManagementModals = dynamic(() => import('@/components/PaymentManagementModals'), { ssr: false })
@@ -284,12 +285,15 @@ export default function AdminPedidosPage() {
     const [isMenuSidebarOpen, setIsMenuSidebarOpen] = useState(false)
     const [activeSidebarTab, setActiveSidebarTab] = useState<'menu' | 'cierre' | 'reportes' | 'transferencias'>('menu')
     const [pendingTransfersCount, setPendingTransfersCount] = useState<number>(0)
+    const [pendingCierreCount, setPendingCierreCount] = useState<number>(0)
 
-    // Cargar la cantidad de transferencias pendientes (on-demand, no real-time)
+    // Cargar indicadores de transferencias y cierres pendientes en una sola consulta diferida
     useEffect(() => {
         if (!isAuthenticated) return
 
-        const loadTransferCount = async () => {
+        let isCancelled = false
+        // Diferir 2.5s para no competir con el montaje inicial y los listeners de pedidos de hoy
+        const timer = setTimeout(async () => {
             try {
                 const now = new Date()
                 const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30, 0, 0, 0)
@@ -306,76 +310,50 @@ export default function AdminPedidosPage() {
                       )
 
                 const snapshot = await getDocs(q)
-                let count = 0
+                if (isCancelled) return
+
+                let transferCount = 0
+                const pendingStores = new Set<string>()
+                const pendingDeliveryDays = new Set<string>()
+                const todayStr = toLocalDateInputValue(new Date())
+
                 snapshot.docs.forEach(docSnap => {
                     const o = docSnap.data() as Order
                     if (o.status === 'cancelled' || o.status === 'borrador') return
+
+                    // Conteo de transferencias pendientes
                     const isTransfer = o.payment?.method === 'transfer' || 
                         (o.payment?.method === 'mixed' && (o.payment.transferAmount || 0) > 0)
                     if (isTransfer && o.payment?.paymentStatus !== 'paid') {
-                        count++
+                        transferCount++
                     }
-                })
-                setPendingTransfersCount(count)
-            } catch (err) {
-                console.error("Error al contar transferencias pendientes:", err)
-            }
-        }
-        loadTransferCount()
-    }, [selectedBusinessId, isAuthenticated])
 
-    const [pendingCierreCount, setPendingCierreCount] = useState<number>(0)
-
-    // Cargar la cantidad de cierres pendientes (on-demand, no real-time)
-    useEffect(() => {
-        if (!isAuthenticated) return
-
-        const loadCierreCount = async () => {
-            try {
-                const now = new Date()
-                const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30, 0, 0, 0)
-
-                const q = (selectedBusinessId === 'all' || !selectedBusinessId)
-                    ? query(
-                        collection(db, 'orders'),
-                        where('createdAt', '>=', Timestamp.fromDate(startDate))
-                      )
-                    : query(
-                        collection(db, 'orders'),
-                        where('businessId', '==', selectedBusinessId),
-                        where('createdAt', '>=', Timestamp.fromDate(startDate))
-                      )
-
-                const snapshot = await getDocs(q)
-                const pendingStores = new Set<string>()
-                const pendingDeliveryDays = new Set<string>()
-
-                snapshot.docs.forEach(docSnap => {
-                    const o = docSnap.data() as Order
-                    if (o.status === 'cancelled' || o.status === 'borrador') return
-
-                    // Restaurantes pendientes
+                    // Restaurantes pendientes de liquidación
                     if (o.settlementStatus !== 'settled') {
                         if (o.businessId) pendingStores.add(o.businessId)
                     }
 
-                    // Delivery pendientes (solo hoy y días pasados)
+                    // Delivery pendientes de liquidación (hoy y pasados)
                     if (o.delivery?.type === 'delivery' && o.deliverySettlementStatus !== 'settled') {
                         const refDate = toSafeDate(o.timing?.scheduledDate || o.createdAt)
                         const dateStr = toLocalDateInputValue(refDate)
-                        const todayStr = toLocalDateInputValue(new Date())
                         if (dateStr <= todayStr) {
                             pendingDeliveryDays.add(dateStr)
                         }
                     }
                 })
 
+                setPendingTransfersCount(transferCount)
                 setPendingCierreCount(pendingStores.size + pendingDeliveryDays.size)
             } catch (err) {
-                console.error("Error al contar cierres pendientes:", err)
+                console.error("Error al contar transferencias y cierres pendientes:", err)
             }
+        }, 2500)
+
+        return () => {
+            isCancelled = true
+            clearTimeout(timer)
         }
-        loadCierreCount()
     }, [selectedBusinessId, isAuthenticated])
 
     const mergedHistoryOrders = useMemo(() => {
@@ -511,16 +489,35 @@ export default function AdminPedidosPage() {
         fetchDeliveries()
     }, [])
 
-    // 5. Load products when business changes
+    // 5. Carga de productos diferida: solo para ManualOrderSidebar (no satura la carga inicial del tablero)
+    const [shouldLoadProducts, setShouldLoadProducts] = useState(false)
+
     useEffect(() => {
-        if (!selectedBusinessId) return
+        if (manualOrderSidebarOpen) {
+            setShouldLoadProducts(true)
+        }
+    }, [manualOrderSidebarOpen])
+
+    useEffect(() => {
+        // Precarga en reposo después de 4 segundos si el usuario se mantiene en la página
+        const timer = setTimeout(() => {
+            setShouldLoadProducts(true)
+        }, 4000)
+        return () => clearTimeout(timer)
+    }, [])
+
+    useEffect(() => {
+        if (!selectedBusinessId || !shouldLoadProducts) return
         if (selectedBusinessId === 'all') {
             setProducts([])
             return
         }
+
+        let isCancelled = false
         const fetchProducts = async () => {
             try {
                 let productsData = await getProductsByBusiness(selectedBusinessId)
+                if (isCancelled) return
                 
                 // Cargar también productos compartidos (usa cache de businesses ya cargados)
                 try {
@@ -541,7 +538,7 @@ export default function AdminPedidosPage() {
                                 const ownerBiz = allBizs.find(b => b.id === p.businessId)
                                 return {
                                     ...p,
-                                    category: 'Compartidos', // Forzar categoría Compartidos
+                                    category: 'Compartidos',
                                     isShared: true,
                                     originalBusinessId: p.businessId,
                                     originalBusinessName: ownerBiz?.name || 'Otra tienda',
@@ -554,13 +551,16 @@ export default function AdminPedidosPage() {
                     console.error("Error loading shared products in pedidos dashboard:", e)
                 }
 
-                setProducts(productsData)
+                if (!isCancelled) {
+                    setProducts(productsData)
+                }
             } catch (error) {
                 console.error("Error fetching products", error)
             }
         }
         fetchProducts()
-    }, [selectedBusinessId])
+        return () => { isCancelled = true }
+    }, [selectedBusinessId, shouldLoadProducts, businesses])
 
     // 6. Real-time orders listener for the selected business
     const isFirstOrdersLoad = useRef(true)
@@ -848,39 +848,59 @@ export default function AdminPedidosPage() {
         }
     }, [])
 
-    // 7. Fetch all upcoming orders (future scheduled)
+    // 7. Fetch all upcoming orders (future scheduled) — diferido para priorizar la carga de pedidos de hoy
     useEffect(() => {
         if (!selectedBusinessId) return
 
-        const now = new Date()
-        const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+        let unsubscribe: (() => void) | null = null
+        let isCancelled = false
 
-        const q = selectedBusinessId === 'all'
-            ? query(
-                collection(db, 'orders'),
-                where('timing.scheduledDate', '>=', Timestamp.fromDate(startOfTomorrow)),
-                orderBy('timing.scheduledDate', 'asc')
-            )
-            : query(
-                collection(db, 'orders'),
-                where('businessId', '==', selectedBusinessId),
-                where('timing.type', '==', 'scheduled'),
-                where('timing.scheduledDate', '>=', Timestamp.fromDate(startOfTomorrow)),
-                orderBy('timing.scheduledDate', 'asc')
-            )
+        const setupUpcomingListener = () => {
+            const now = new Date()
+            const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as Order[]
-            setAllUpcomingOrders(data)
-        }, (error) => {
-            console.error("Error fetching upcoming orders:", error)
-        })
+            const q = selectedBusinessId === 'all'
+                ? query(
+                    collection(db, 'orders'),
+                    where('timing.scheduledDate', '>=', Timestamp.fromDate(startOfTomorrow)),
+                    orderBy('timing.scheduledDate', 'asc')
+                )
+                : query(
+                    collection(db, 'orders'),
+                    where('businessId', '==', selectedBusinessId),
+                    where('timing.type', '==', 'scheduled'),
+                    where('timing.scheduledDate', '>=', Timestamp.fromDate(startOfTomorrow)),
+                    orderBy('timing.scheduledDate', 'asc')
+                )
 
-        return () => unsubscribe()
-    }, [selectedBusinessId])
+            unsubscribe = onSnapshot(q, (snapshot) => {
+                if (isCancelled) return
+                const data = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                })) as Order[]
+                setAllUpcomingOrders(data)
+            }, (error) => {
+                console.error("Error fetching upcoming orders:", error)
+            })
+        }
+
+        if (ordersSubTab === 'history') {
+            setupUpcomingListener()
+        } else {
+            const timer = setTimeout(setupUpcomingListener, 2500)
+            return () => {
+                isCancelled = true
+                clearTimeout(timer)
+                if (unsubscribe) unsubscribe()
+            }
+        }
+
+        return () => {
+            isCancelled = true
+            if (unsubscribe) unsubscribe()
+        }
+    }, [selectedBusinessId, ordersSubTab])
 
     // 8. Load History paginated function
     const isFetchingHistoryRef = useRef(false)
@@ -960,11 +980,13 @@ export default function AdminPedidosPage() {
         return () => unsubscribe()
     }, [selectedBusinessId])
 
-    // Load customer notes cache
+    // Load customer notes cache (con debounce para evitar ráfagas de consultas a clientes)
     useEffect(() => {
-        const fetchNotesForCustomers = async () => {
-            const allOrdersList = [...orders, ...allUpcomingOrders]
-            if (allOrdersList.length === 0) return
+        const allOrdersList = [...orders, ...allUpcomingOrders]
+        if (allOrdersList.length === 0) return
+
+        let isCancelled = false
+        const timer = setTimeout(async () => {
             const { searchClientByPhone } = await import('@/lib/database')
             
             const phones = Array.from(new Set(
@@ -974,7 +996,7 @@ export default function AdminPedidosPage() {
             ))
 
             const newPhones = phones.filter(phone => clientsWithNotes[phone] === undefined)
-            if (newPhones.length === 0) return
+            if (newPhones.length === 0 || isCancelled) return
 
             const provisionalNotes: Record<string, string> = {}
             for (const phone of newPhones) {
@@ -994,6 +1016,7 @@ export default function AdminPedidosPage() {
                     })
                 )
 
+                if (isCancelled) return
                 const finalNotes: Record<string, string> = {}
                 for (const r of results) {
                     if (r.notas) {
@@ -1007,9 +1030,12 @@ export default function AdminPedidosPage() {
             } catch (error) {
                 console.error("Error fetching notes in parallel:", error)
             }
-        }
+        }, 1000)
 
-        fetchNotesForCustomers()
+        return () => {
+            isCancelled = true
+            clearTimeout(timer)
+        }
     }, [orders, allUpcomingOrders])
 
     // Reset notes cache when manual order sidebar closes
@@ -1947,73 +1973,81 @@ export default function AdminPedidosPage() {
                 </button>
             )}
 
-            {/* Modals and Sidebars */}
-            <PaymentManagementModals
-                isOpen={paymentModalOpen}
-                onClose={() => setPaymentModalOpen(false)}
-                order={selectedOrderForPayment}
-                onOrderUpdated={handleOrderUpdatedFromModal}
-            />
+            {/* Modals and Sidebars — montados condicionalmente para aligerar el DOM inicial */}
+            {paymentModalOpen && (
+                <PaymentManagementModals
+                    isOpen={paymentModalOpen}
+                    onClose={() => setPaymentModalOpen(false)}
+                    order={selectedOrderForPayment}
+                    onOrderUpdated={handleOrderUpdatedFromModal}
+                />
+            )}
 
-            <DeliveryStatusModal
-                isOpen={deliveryStatusModalOpen}
-                onClose={() => setDeliveryStatusModalOpen(false)}
-                order={selectedOrderForStatusModal}
-                deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
-                availableDeliveries={availableDeliveries}
-                canChangeDelivery={true}
-                onDeliveryAssign={handleDeliveryAssignment}
-                deliveryServiceType={business?.deliveryServiceType ?? 'fuddi'}
-                defaultDeliveryId={business?.defaultDeliveryId}
-                onAutoAssignFuddi={handleAutoAssignFuddi}
-                onWhatsApp={() => {
-                    if (selectedOrderForStatusModal) {
-                        handleSendWhatsAppToDelivery(selectedOrderForStatusModal)
-                        setDeliveryStatusModalOpen(false)
-                    }
-                }}
-            />
+            {deliveryStatusModalOpen && (
+                <DeliveryStatusModal
+                    isOpen={deliveryStatusModalOpen}
+                    onClose={() => setDeliveryStatusModalOpen(false)}
+                    order={selectedOrderForStatusModal}
+                    deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
+                    availableDeliveries={availableDeliveries}
+                    canChangeDelivery={true}
+                    onDeliveryAssign={handleDeliveryAssignment}
+                    deliveryServiceType={business?.deliveryServiceType ?? 'fuddi'}
+                    defaultDeliveryId={business?.defaultDeliveryId}
+                    onAutoAssignFuddi={handleAutoAssignFuddi}
+                    onWhatsApp={() => {
+                        if (selectedOrderForStatusModal) {
+                            handleSendWhatsAppToDelivery(selectedOrderForStatusModal)
+                            setDeliveryStatusModalOpen(false)
+                        }
+                    }}
+                />
+            )}
 
-            <ManualOrderSidebar
-                isOpen={manualOrderSidebarOpen}
-                onClose={() => {
-                    setManualOrderSidebarOpen(false)
-                    setSelectedOrderForEdit(null)
-                    setManualSidebarMode('create')
-                }}
-                business={business}
-                businesses={businesses}
-                onBusinessChange={(newId) => {
-                    setSelectedBusinessId(newId)
-                    const found = businesses.find(b => b.id === newId)
-                    if (found) setBusiness(found)
-                }}
-                products={products}
-                onOrderCreated={(optimisticOrder) => {
-                    if (optimisticOrder) {
-                        setOrders(prev => [optimisticOrder as Order, ...prev])
-                    }
-                    setManualOrderSidebarOpen(false)
-                }}
-                mode={manualSidebarMode}
-                editOrder={selectedOrderForEdit}
-                onOrderUpdated={(updatedOrder) => {
-                    if (updatedOrder) {
-                        updateOrderEverywhere(updatedOrder as Order)
-                    }
-                    setManualOrderSidebarOpen(false)
-                    setSelectedOrderForEdit(null)
-                    setManualSidebarMode('create')
-                }}
-                setActiveTab={() => {}}
-                setProfileSubTab={() => {}}
-            />
+            {manualOrderSidebarOpen && (
+                <ManualOrderSidebar
+                    isOpen={manualOrderSidebarOpen}
+                    onClose={() => {
+                        setManualOrderSidebarOpen(false)
+                        setSelectedOrderForEdit(null)
+                        setManualSidebarMode('create')
+                    }}
+                    business={business}
+                    businesses={businesses}
+                    onBusinessChange={(newId) => {
+                        setSelectedBusinessId(newId)
+                        const found = businesses.find(b => b.id === newId)
+                        if (found) setBusiness(found)
+                    }}
+                    products={products}
+                    onOrderCreated={(optimisticOrder) => {
+                        if (optimisticOrder) {
+                            setOrders(prev => [optimisticOrder as Order, ...prev])
+                        }
+                        setManualOrderSidebarOpen(false)
+                    }}
+                    mode={manualSidebarMode}
+                    editOrder={selectedOrderForEdit}
+                    onOrderUpdated={(updatedOrder) => {
+                        if (updatedOrder) {
+                            updateOrderEverywhere(updatedOrder as Order)
+                        }
+                        setManualOrderSidebarOpen(false)
+                        setSelectedOrderForEdit(null)
+                        setManualSidebarMode('create')
+                    }}
+                    setActiveTab={() => {}}
+                    setProfileSubTab={() => {}}
+                />
+            )}
 
-            <CustomerContactModal
-                isOpen={customerContactModalOpen}
-                onClose={() => setCustomerContactModalOpen(false)}
-                order={selectedOrderForCustomerContact}
-            />
+            {customerContactModalOpen && (
+                <CustomerContactModal
+                    isOpen={customerContactModalOpen}
+                    onClose={() => setCustomerContactModalOpen(false)}
+                    order={selectedOrderForCustomerContact}
+                />
+            )}
 
             {/* Menu Sidebar Component */}
             {isMenuSidebarOpen && (
