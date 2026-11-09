@@ -100,6 +100,7 @@ interface CierreSidebarViewProps {
     selectedBusinessId: string | null
     businesses: Business[]
     onManagePayment: (order: Order) => void
+    isFullWidth?: boolean
 }
 
 // Función helper pura para calcular el resumen de cuentas de los repartidores
@@ -364,7 +365,8 @@ export default function CierreSidebarView({
     onClose,
     selectedBusinessId,
     businesses,
-    onManagePayment
+    onManagePayment,
+    isFullWidth = false
 }: CierreSidebarViewProps) {
     // Estados principales
     const [entityType, setEntityType] = useState<'deliveries' | 'restaurants'>('deliveries')
@@ -1695,25 +1697,34 @@ export default function CierreSidebarView({
     }
 
     return (
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50">
-            {/* Cierre Header inside sidebar */}
-            <div className="px-4 py-3 bg-white border-b border-gray-100 flex items-center justify-between gap-2 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                    <button
-                        onClick={onBack}
-                        className="p-1 text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors flex items-center shrink-0"
-                        title="Volver"
-                    >
-                        <i className="bi bi-chevron-left text-lg"></i>
-                    </button>
-                    <div className="min-w-0">
-                        <h2 className="text-base font-bold text-gray-900 leading-tight truncate">Cierre de Caja</h2>
-                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider truncate">{currentBusinessName}</p>
+        <div className={`flex-1 flex flex-col h-full overflow-hidden ${isFullWidth ? 'bg-slate-50/50' : 'bg-gray-50'}`}>
+            {/* Cierre Header */}
+            <div className="px-4 sm:px-6 py-3.5 bg-white border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                    {!isFullWidth && (
+                        <button
+                            onClick={onBack}
+                            className="p-1 text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors flex items-center shrink-0"
+                            title="Volver"
+                        >
+                            <i className="bi bi-chevron-left text-lg"></i>
+                        </button>
+                    )}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        {isFullWidth && (
+                            <div className="w-9 h-9 rounded-xl bg-red-50 text-red-600 flex items-center justify-center font-bold shrink-0">
+                                <i className="bi bi-calculator-fill text-base"></i>
+                            </div>
+                        )}
+                        <div className="min-w-0">
+                            <h2 className="text-base sm:text-lg font-black text-gray-900 leading-tight truncate">Cierre de Caja</h2>
+                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider truncate">{currentBusinessName}</p>
+                        </div>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                    {onClose && (
+                    {onClose && !isFullWidth && (
                         <button
                             onClick={onClose}
                             className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
@@ -1727,28 +1738,28 @@ export default function CierreSidebarView({
 
             {/* Selector de entidad: Deliverys / Restaurantes */}
             {selectedDeliveryId === 'all' && !selectedHistoryDelivery && (
-                <div className="px-4 py-2 bg-white border-b border-gray-100 shrink-0">
-                    <div className="flex gap-2">
+                <div className="px-4 sm:px-6 py-2.5 bg-white border-b border-gray-100 shrink-0">
+                    <div className={`flex gap-2 ${isFullWidth ? 'max-w-md mx-auto sm:mx-0' : ''}`}>
                         <button
                             onClick={() => setEntityType('deliveries')}
-                            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-xl border transition-all flex items-center justify-center gap-1.5 ${
+                            className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-2 ${
                                 entityType === 'deliveries'
-                                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                    ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                                     : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                             }`}
                         >
-                            <i className="bi bi-scooter text-xs"></i>
+                            <i className="bi bi-scooter text-sm"></i>
                             <span>Deliverys</span>
                         </button>
                         <button
                             onClick={() => setEntityType('restaurants')}
-                            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-xl border transition-all flex items-center justify-center gap-1.5 ${
+                            className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl border transition-all flex items-center justify-center gap-2 ${
                                 entityType === 'restaurants'
-                                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                    ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                                     : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                             }`}
                         >
-                            <i className="bi bi-shop text-xs"></i>
+                            <i className="bi bi-shop text-sm"></i>
                             <span>Restaurantes</span>
                         </button>
                     </div>
@@ -1756,7 +1767,7 @@ export default function CierreSidebarView({
             )}
 
             {/* Scrollable View Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 ${isFullWidth ? 'max-w-5xl w-full mx-auto' : ''}`}>
                 {selectedDeliveryId === 'all' ? (
                         entityType === 'restaurants' ? (
                             selectedStoreId !== 'all' && selectedStoreAccount ? (

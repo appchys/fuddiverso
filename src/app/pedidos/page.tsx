@@ -241,8 +241,24 @@ export default function AdminPedidosPage() {
         needsUserAction = false
     } = pushNotifications || {} as any
 
-    // Tab state
-    const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today')
+    // Tab state — Cierre de caja como vista principal prioritaria
+    const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'cierre' | 'history'>('cierre')
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem('admin_orders_subtab')
+            if (saved === 'today' || saved === 'cierre' || saved === 'history') {
+                setOrdersSubTab(saved)
+            }
+        } catch { /* ignore */ }
+    }, [])
+
+    const handleSubTabChange = (tab: 'today' | 'cierre' | 'history') => {
+        setOrdersSubTab(tab)
+        try {
+            localStorage.setItem('admin_orders_subtab', tab)
+        } catch { /* ignore */ }
+    }
     const [summaryExpanded, setSummaryExpanded] = useState(false)
 
     // Active orders & history lists
@@ -292,7 +308,7 @@ export default function AdminPedidosPage() {
         if (!isAuthenticated) return
 
         let isCancelled = false
-        // Diferir 2.5s para no competir con el montaje inicial y los listeners de pedidos de hoy
+        const delay = ordersSubTab === 'cierre' ? 600 : 2000
         const timer = setTimeout(async () => {
             try {
                 const now = new Date()
@@ -348,13 +364,13 @@ export default function AdminPedidosPage() {
             } catch (err) {
                 console.error("Error al contar transferencias y cierres pendientes:", err)
             }
-        }, 2500)
+        }, delay)
 
         return () => {
             isCancelled = true
             clearTimeout(timer)
         }
-    }, [selectedBusinessId, isAuthenticated])
+    }, [selectedBusinessId, isAuthenticated, ordersSubTab])
 
     const mergedHistoryOrders = useMemo(() => {
         const seen = new Set<string>()
@@ -1486,18 +1502,30 @@ export default function AdminPedidosPage() {
                             </span>
                             
                             {/* Segment Tabs */}
-                            <div className="hidden sm:flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+                            <div className="hidden sm:flex bg-gray-100 p-1 rounded-xl border border-gray-200 gap-0.5">
                                 <button
-                                    onClick={() => setOrdersSubTab('today')}
-                                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${ordersSubTab === 'today' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                    onClick={() => handleSubTabChange('cierre')}
+                                    className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${ordersSubTab === 'cierre' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                                 >
-                                    Hoy ({orders.length})
+                                    <i className={`bi bi-calculator-fill ${ordersSubTab === 'cierre' ? 'text-red-600' : 'text-gray-400'}`}></i>
+                                    <span>Cierre de Caja</span>
+                                    {pendingCierreCount > 0 && (
+                                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-500 text-white leading-none">
+                                            {pendingCierreCount}
+                                        </span>
+                                    )}
                                 </button>
                                 <button
-                                    onClick={() => setOrdersSubTab('history')}
-                                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${ordersSubTab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                    onClick={() => handleSubTabChange('today')}
+                                    className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${ordersSubTab === 'today' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                                 >
-                                    Historial
+                                    <span>Hoy ({orders.length})</span>
+                                </button>
+                                <button
+                                    onClick={() => handleSubTabChange('history')}
+                                    className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${ordersSubTab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    <span>Historial</span>
                                 </button>
                             </div>
                         </div>
@@ -1689,15 +1717,27 @@ export default function AdminPedidosPage() {
             </header>
 
             {/* Mobile View Navigation Toggle */}
-            <div className="sm:hidden bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-center gap-4">
+            <div className="sm:hidden bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-center gap-1.5">
                 <button
-                    onClick={() => setOrdersSubTab('today')}
+                    onClick={() => handleSubTabChange('cierre')}
+                    className={`flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${ordersSubTab === 'cierre' ? 'bg-red-50 text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                    <i className="bi bi-calculator-fill text-xs"></i>
+                    <span>Cierre</span>
+                    {pendingCierreCount > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-white leading-none">
+                            {pendingCierreCount}
+                        </span>
+                    )}
+                </button>
+                <button
+                    onClick={() => handleSubTabChange('today')}
                     className={`flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all ${ordersSubTab === 'today' ? 'bg-red-50 text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                     Hoy ({orders.length})
                 </button>
                 <button
-                    onClick={() => setOrdersSubTab('history')}
+                    onClick={() => handleSubTabChange('history')}
                     className={`flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all ${ordersSubTab === 'history' ? 'bg-red-50 text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                     Historial
@@ -1706,7 +1746,19 @@ export default function AdminPedidosPage() {
 
             {/* Main Area */}
             <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
-                {ordersSubTab === 'history' ? (
+                {ordersSubTab === 'cierre' ? (
+                    <div className="bg-white rounded-3xl border border-gray-200/80 shadow-sm overflow-hidden flex flex-col min-h-[750px]">
+                        <CierreSidebarView
+                            orders={orders}
+                            availableDeliveries={availableDeliveries}
+                            onBack={() => handleSubTabChange('today')}
+                            selectedBusinessId={selectedBusinessId}
+                            businesses={businesses}
+                            onManagePayment={handlePaymentClick}
+                            isFullWidth={true}
+                        />
+                    </div>
+                ) : ordersSubTab === 'history' ? (
                     <div className="bg-white rounded-2xl border border-gray-100 p-4 sm:p-6 shadow-sm">
                         <OrderHistory
                             orders={mergedHistoryOrders}
@@ -2078,7 +2130,10 @@ export default function AdminPedidosPage() {
                         {activeSidebarTab === 'menu' ? (
                             <div className="flex-1 overflow-y-auto p-4 space-y-2">
                                 <button
-                                    onClick={() => setActiveSidebarTab('cierre')}
+                                    onClick={() => {
+                                        handleSubTabChange('cierre')
+                                        setIsMenuSidebarOpen(false)
+                                    }}
                                     className="w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
                                 >
                                     <div className="flex items-center gap-3 min-w-0">
