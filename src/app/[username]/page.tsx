@@ -79,7 +79,6 @@ import { collection, query, where, onSnapshot, doc, limit, getDocs, orderBy } fr
 import { db } from '@/lib/firebase'
 import { isStoreOpen, getNextOpeningMessage, formatBusinessName, getEcuadorDate } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
-import StarRating from '@/components/StarRating'
 import { Store, LayoutGrid, Share2, Settings, Star, Heart, ChevronDown } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
@@ -2196,50 +2195,39 @@ function RestaurantContent() {
                 <Link
                   key={store.id}
                   href={`/${store.username}`}
-                  className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100"
+                  className="group flex-shrink-0 w-60 sm:w-64 bg-white rounded-3xl p-5 shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 flex flex-col items-center text-center hover:-translate-y-1"
                 >
-                  <div className="relative h-40 bg-gray-100 flex items-center justify-center">
+                  {/* Logo de la tienda circular */}
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-gray-100 border-2 border-gray-100 shadow-inner mb-4 relative flex items-center justify-center shrink-0">
                     {store.image ? (
                       <img
                         src={store.image}
                         alt={store.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                         loading="lazy"
                         decoding="async"
+                        width={96}
+                        height={96}
                       />
                     ) : (
-                      <i className="bi bi-shop text-5xl text-gray-400"></i>
+                      <i className="bi bi-shop text-3xl text-gray-400"></i>
                     )}
                   </div>
-                  <div className="p-4">
-                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">{store.name}</h3>
-                    {store.categories && store.categories.length > 0 && (
-                      <div className="flex gap-1 my-2 overflow-x-auto scrollbar-hide">
-                        {store.categories.slice(0, 3).map((cat, i) => (
-                          <span
-                            key={i}
-                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0"
-                          >
-                            {cat}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="mb-2">
-                      {store.ratingAverage ? (
-                        <div className="flex items-center">
-                          <StarRating rating={store.ratingAverage} size="sm" />
-                          <span className="text-xs text-gray-500 ml-1">({store.ratingCount || 0})</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center">
-                          <StarRating rating={0} size="sm" showGrayStars={true} />
-                        </div>
-                      )}
-                    </div>
-                    {store.description && (
-                      <p className="text-sm text-gray-600 line-clamp-2 mb-3">{store.description}</p>
-                    )}
+
+                  {/* Nombre de la tienda */}
+                  <h3 className="w-full font-black text-base sm:text-lg text-gray-900 tracking-tight leading-tight line-clamp-1 group-hover:text-red-600 transition-colors">
+                    {store.name}
+                  </h3>
+
+                  {/* Descripción: máximo 1 línea y truncar */}
+                  <p className="w-full text-xs font-medium text-gray-500 truncate leading-relaxed mt-1 mb-5">
+                    {store.description || 'Tienda disponible en Fuddi'}
+                  </p>
+
+                  {/* Botón de Visitar */}
+                  <div className="mt-auto w-full py-2.5 px-4 bg-gray-900 group-hover:bg-red-600 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm flex items-center justify-center gap-2 active:scale-95">
+                    <span>Visitar</span>
+                    <i className="bi bi-arrow-right text-xs transition-transform group-hover:translate-x-1"></i>
                   </div>
                 </Link>
               ))}
