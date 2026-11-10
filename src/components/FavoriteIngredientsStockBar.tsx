@@ -5,12 +5,11 @@ import { createPortal } from 'react-dom'
 import { Business, Order, Product } from '@/types'
 import {
   getIngredientStockSummary,
-  getFavoriteIngredients,
   IngredientStockSummary,
   recordStockMovement
 } from '@/lib/database'
 import { db } from '@/lib/firebase'
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore'
+import { collection, onSnapshot } from 'firebase/firestore'
 import StockConfigModal from '@/components/StockConfigModal'
 import { resolveItemIngredients } from '@/lib/stock-utils'
 
@@ -90,69 +89,58 @@ export default function FavoriteIngredientsStockBar({
     return { pendingUsageByIngredient: pendingMap, deliveredUsageByIngredient: deliveredMap }
   }, [orders, products, business?.rewardSettings])
 
-  // Cargar datos de stock y favoritos
+  // Cargar datos de stock (los favoritos vienen del negocio, que el dashboard mantiene en tiempo real)
   const loadStockData = useCallback(async (showIndicator = false) => {
     if (!business?.id) return
     if (showIndicator) setIsRefreshing(true)
     try {
-      const [summary, favs] = await Promise.all([
-        getIngredientStockSummary(business.id),
-        getFavoriteIngredients(business.id)
-      ])
+      const summary = await getIngredientStockSummary(business.id)
       setStockSummary(summary)
-      if (favs && favs.length > 0) {
-        setFavoriteIds(favs)
-      } else if (business.favoriteIngredients) {
-        setFavoriteIds(business.favoriteIngredients)
-      }
     } catch (error) {
       console.error('Error al cargar stock de ingredientes favoritos:', error)
     } finally {
       setLoading(false)
       if (showIndicator) setIsRefreshing(false)
     }
-  }, [business?.id, business?.favoriteIngredients])
+  }, [business?.id])
 
-  // Carga inicial y listeners en tiempo real
+  // Sincronizar favoritos desde el documento del negocio (sin lecturas extra a Firestore)
+  const favoriteIngredientsKey = (business.favoriteIngredients || []).join('|')
+  useEffect(() => {
+    if (Array.isArray(business.favoriteIngredients)) {
+      setFavoriteIds(business.favoriteIngredients)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favoriteIngredientsKey])
+
+  // Carga inicial y listener en tiempo real
   useEffect(() => {
     if (!business?.id) return
 
-    loadStockData()
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-    // 1. Listener en tiempo real para movimientos de stock
-    const movementsRef = collection(db, 'ingredientStockMovements')
-    const qMovements = query(movementsRef, where('businessId', '==', business.id))
-    const unsubscribeMovements = onSnapshot(
-      qMovements,
+    // Listener sobre la biblioteca de ingredientes: cada movimiento de stock actualiza
+    // currentStock del ingrediente, así que no hace falta escuchar todo el historial
+    // de ingredientStockMovements (que crece sin límite). El primer snapshot hace la carga inicial.
+    const libraryRef = collection(db, 'businesses', business.id, 'ingredientLibrary')
+    const unsubscribeLibrary = onSnapshot(
+      libraryRef,
       () => {
+        if (debounceTimer) clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          loadStockData()
+        }, 300)
+      },
+      (error) => {
+        console.error('Error en listener de biblioteca de ingredientes:', error)
         loadStockData()
-      },
-      (error) => {
-        console.error('Error en listener de movimientos de stock:', error)
-      }
-    )
-
-    // 2. Listener en tiempo real para cambios en los favoritos del negocio
-    const businessDocRef = doc(db, 'businesses', business.id)
-    const unsubscribeBusiness = onSnapshot(
-      businessDocRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data()
-          if (Array.isArray(data?.favoriteIngredients)) {
-            setFavoriteIds(data.favoriteIngredients)
-          }
-        }
-      },
-      (error) => {
-        console.error('Error en listener de negocio para favoritos:', error)
       }
     )
 
     // Limpieza de suscripciones
     return () => {
-      unsubscribeMovements()
-      unsubscribeBusiness()
+      if (debounceTimer) clearTimeout(debounceTimer)
+      unsubscribeLibrary()
     }
   }, [business?.id, loadStockData])
 

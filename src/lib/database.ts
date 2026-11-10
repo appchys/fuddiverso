@@ -5,6 +5,7 @@ import {
   addDoc,
   getDoc,
   getDocs,
+  getDocsFromCache,
   updateDoc,
   deleteDoc,
   setDoc,
@@ -462,6 +463,52 @@ export async function getBusiness(businessId: string, bypassCache = false): Prom
     console.error('Error getting business:', error)
     throw error
   }
+}
+
+/**
+ * Suscripción en tiempo real al documento de un negocio.
+ * Con persistentLocalCache, Firestore emite primero el snapshot de la caché local
+ * (IndexedDB) casi al instante y luego el del servidor, por lo que la UI no
+ * tiene que esperar un round-trip de red como ocurre con getDoc().
+ * Retorna la función de desuscripción.
+ */
+export function subscribeToBusiness(
+  businessId: string,
+  onData: (business: Business | null) => void,
+  onError?: (error: Error) => void
+): () => void {
+  const docRef = doc(db, 'businesses', businessId)
+  return onSnapshot(
+    docRef,
+    (docSnap) => {
+      if (!docSnap.exists()) {
+        // Un snapshot vacío desde caché no significa que no exista en el servidor
+        if (docSnap.metadata.fromCache) return
+        onData(null)
+        return
+      }
+      const data = docSnap.data()
+      const business = {
+        id: docSnap.id,
+        ...data,
+        createdAt: toSafeDate(data.createdAt),
+        updatedAt: toSafeDate(data.updatedAt),
+        manualStatusExpiry: data.manualStatusExpiry ? toSafeDate(data.manualStatusExpiry) : undefined
+      } as Business
+      businessCache.set(businessId, { business, timestamp: Date.now() })
+      onData(business)
+    },
+    (error) => {
+      console.error('Error subscribing to business:', error)
+      onError?.(error)
+    }
+  )
+}
+
+/** Devuelve el negocio si está en la caché en memoria (sin red). */
+export function getCachedBusinessById(businessId: string): Business | null {
+  if (!businessId) return null
+  return businessCache.get(businessId)?.business || businessByIdCache.get(businessId)?.business || null
 }
 
 export async function getBusinessByOwner(ownerId: string): Promise<Business | null> {
@@ -1078,6 +1125,44 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
   }
 }
 
+const productsInFlight = new Map<string, Promise<Product[]>>()
+
+const mapAndSortProductDocs = (docs: any[]): Product[] => {
+  const products = docs.map(doc => {
+    const data = doc.data()
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: toSafeDate(data.createdAt),
+      updatedAt: toSafeDate(data.updatedAt)
+    }
+  }) as Product[]
+
+  // Asegurar ordenamiento descendente en memoria
+  products.sort((a, b) => {
+    const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : (a.createdAt ? new Date(a.createdAt as any).getTime() : 0)
+    const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : (b.createdAt ? new Date(b.createdAt as any).getTime() : 0)
+    return dateB - dateA
+  })
+  return products
+}
+
+/**
+ * Lee los productos del negocio SOLO desde la caché persistente de Firestore (IndexedDB).
+ * No hace peticiones de red; útil para pintar la UI al instante mientras llega la versión del servidor.
+ */
+export async function getProductsByBusinessFromLocalCache(businessId: string): Promise<Product[] | null> {
+  if (typeof window === 'undefined' || !businessId) return null
+  try {
+    const q = query(collection(db, 'products'), where('businessId', '==', businessId))
+    const snapshot = await getDocsFromCache(q)
+    if (snapshot.empty) return null
+    return mapAndSortProductDocs(snapshot.docs)
+  } catch {
+    return null
+  }
+}
+
 export async function getProductsByBusiness(businessId: string, forceRefresh: boolean = false): Promise<Product[]> {
   if (!forceRefresh) {
     const cached = getCachedProductsByBusiness(businessId)
@@ -1086,38 +1171,38 @@ export async function getProductsByBusiness(businessId: string, forceRefresh: bo
     }
   }
 
-  try {
-    // Consultar directamente por businessId (usa el índice simple automático sin fallar por índice compuesto
-    // ni excluir documentos antiguos sin campo createdAt) y ordenar en memoria inmediatamente abajo.
-    const q = query(
-      collection(db, 'products'),
-      where('businessId', '==', businessId)
-    )
-    const querySnapshot = await getDocs(q)
+  // Deduplicar peticiones simultáneas (dashboard, monitor de stock...).
+  // Las lecturas forzadas no se unen a una petición previa para no devolver datos anteriores a una escritura.
+  const inFlight = productsInFlight.get(businessId)
+  if (inFlight && !forceRefresh) return inFlight
 
-    const products = querySnapshot.docs.map(doc => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: toSafeDate(data.createdAt),
-        updatedAt: toSafeDate(data.updatedAt)
+  let request: Promise<Product[]> | undefined = undefined
+  const run = async (): Promise<Product[]> => {
+    try {
+      // Consultar directamente por businessId (usa el índice simple automático sin fallar por índice compuesto
+      // ni excluir documentos antiguos sin campo createdAt) y ordenar en memoria inmediatamente abajo.
+      const q = query(
+        collection(db, 'products'),
+        where('businessId', '==', businessId)
+      )
+      const querySnapshot = await getDocs(q)
+      const products = mapAndSortProductDocs(querySnapshot.docs)
+      cacheProductsByBusiness(businessId, products)
+      return products
+    } catch (error) {
+      console.error('Error getting products:', error)
+      throw error
+    } finally {
+      if (productsInFlight.get(businessId) === request) {
+        productsInFlight.delete(businessId)
       }
-    }) as Product[]
-
-    // Asegurar ordenamiento descendente en memoria
-    products.sort((a, b) => {
-      const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : (a.createdAt ? new Date(a.createdAt as any).getTime() : 0)
-      const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : (b.createdAt ? new Date(b.createdAt as any).getTime() : 0)
-      return dateB - dateA
-    })
-
-    cacheProductsByBusiness(businessId, products)
-    return products
-  } catch (error) {
-    console.error('Error getting products:', error)
-    throw error
+    }
   }
+
+  const pending = run()
+  request = pending
+  productsInFlight.set(businessId, pending)
+  return pending
 }
 
 export async function getProductsByIds(productIds: string[]): Promise<Product[]> {
@@ -4613,6 +4698,7 @@ export async function updateDelivery(deliveryId: string, updates: Partial<Delive
     delete updateData.id
 
     await updateDoc(docRef, updateData)
+    invalidateDeliveriesCache()
   } catch (error) {
     console.error('Error updating delivery:', error)
     throw error
@@ -4644,50 +4730,75 @@ export async function deleteDelivery(deliveryId: string): Promise<void> {
   try {
     const docRef = doc(db, 'deliveries', deliveryId)
     await deleteDoc(docRef)
+    invalidateDeliveriesCache()
   } catch (error) {
     console.error('Error deleting delivery:', error)
     throw error
   }
 }
 
+let cachedDeliveriesByStatus = new Map<string, { data: Delivery[]; timestamp: number }>()
+let inFlightDeliveriesByStatus = new Map<string, Promise<Delivery[]>>()
+
+export function invalidateDeliveriesCache() {
+  cachedDeliveriesByStatus.clear()
+}
+
 /**
- * Buscar deliveries por estado
+ * Buscar deliveries por estado (con caché y deduplicación de consultas en vuelo)
  */
-export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Promise<Delivery[]> {
-  try {
-    const q = query(
-      collection(db, 'deliveries'),
-      where('estado', '==', estado),
-      orderBy('createdAt', 'desc')
-    )
-
-    const querySnapshot = await getDocs(q)
-    const deliveries: Delivery[] = []
-
-    querySnapshot.forEach((doc) => {
-      const data = doc.data()
-      deliveries.push({
-        id: doc.id,
-        nombres: data.nombres || '',
-        celular: data.celular || '',
-        email: data.email || '',
-        fotoUrl: data.fotoUrl,
-        estado: data.estado || 'activo',
-        fechaRegistro: data.fechaRegistro || new Date().toISOString(),
-        uid: data.uid,
-        manualStatus: data.manualStatus ?? null,
-        emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
-        scheduleAvailability: data.scheduleAvailability,
-        businessId: data.businessId,
-        businessIds: data.businessIds
-      })
-    })
-
-    return deliveries
-  } catch (error) {
-    console.error('Error getting deliveries by status:', error)
-    return []
+export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo', bypassCache = false): Promise<Delivery[]> {
+  if (!bypassCache) {
+    const cached = cachedDeliveriesByStatus.get(estado)
+    if (cached && Date.now() - cached.timestamp < 60000) {
+      return cached.data
+    }
+    const inFlight = inFlightDeliveriesByStatus.get(estado)
+    if (inFlight) return inFlight
   }
+
+  const promise = (async () => {
+    try {
+      const q = query(
+        collection(db, 'deliveries'),
+        where('estado', '==', estado),
+        orderBy('createdAt', 'desc')
+      )
+
+      const querySnapshot = await getDocs(q)
+      const deliveries: Delivery[] = []
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data()
+        deliveries.push({
+          id: doc.id,
+          nombres: data.nombres || '',
+          celular: data.celular || '',
+          email: data.email || '',
+          fotoUrl: data.fotoUrl,
+          estado: data.estado || 'activo',
+          fechaRegistro: data.fechaRegistro || new Date().toISOString(),
+          uid: data.uid,
+          manualStatus: data.manualStatus ?? null,
+          emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
+          scheduleAvailability: data.scheduleAvailability,
+          businessId: data.businessId,
+          businessIds: data.businessIds
+        })
+      })
+
+      cachedDeliveriesByStatus.set(estado, { data: deliveries, timestamp: Date.now() })
+      return deliveries
+    } catch (error) {
+      console.error('Error getting deliveries by status:', error)
+      return []
+    } finally {
+      inFlightDeliveriesByStatus.delete(estado)
+    }
+  })()
+
+  inFlightDeliveriesByStatus.set(estado, promise)
+  return promise
 }
 
 /**
@@ -7967,7 +8078,25 @@ export async function calculateCurrentStock(
  * Optimizado: Lee directamente el valor fijo currentStock de cada ingrediente en la biblioteca.
  * Solo si faltan datos en ingredientes antiguos ejecuta el cálculo por movimientos como fallback.
  */
-export async function getIngredientStockSummary(
+const stockSummaryInFlight = new Map<string, Promise<IngredientStockSummary[]>>()
+
+/**
+ * Resumen de stock por ingrediente. Las llamadas simultáneas para el mismo negocio
+ * comparten una única petición (dashboard monta varios consumidores a la vez).
+ */
+export function getIngredientStockSummary(
+  businessId: string
+): Promise<IngredientStockSummary[]> {
+  const inFlight = stockSummaryInFlight.get(businessId)
+  if (inFlight) return inFlight
+  const pending = fetchIngredientStockSummary(businessId).finally(() => {
+    stockSummaryInFlight.delete(businessId)
+  })
+  stockSummaryInFlight.set(businessId, pending)
+  return pending
+}
+
+async function fetchIngredientStockSummary(
   businessId: string
 ): Promise<IngredientStockSummary[]> {
   try {

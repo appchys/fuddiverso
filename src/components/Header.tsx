@@ -27,8 +27,35 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [loadingNotifications, setLoadingNotifications] = useState(false)
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false)
+  const notificationsDropdownRef = useRef<HTMLDivElement>(null)
+  const notificationsButtonRef = useRef<HTMLButtonElement>(null)
   const [showMobileNotifications, setShowMobileNotifications] = useState(false)
   const [selectedReferralRewardNotification, setSelectedReferralRewardNotification] = useState<any | null>(null)
+
+  // Cerrar dropdown de notificaciones al hacer clic fuera
+  useEffect(() => {
+    if (!showNotificationsDropdown) return
+
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node
+      if (
+        notificationsDropdownRef.current &&
+        !notificationsDropdownRef.current.contains(target) &&
+        notificationsButtonRef.current &&
+        !notificationsButtonRef.current.contains(target)
+      ) {
+        setShowNotificationsDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('touchstart', handleClickOutside)
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+    }
+  }, [showNotificationsDropdown])
 
   const isReferralRewardNotification = (n: any) => {
     if (!n) return false
@@ -347,6 +374,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
               {user && (
                 <div className="relative">
                   <button
+                    ref={notificationsButtonRef}
                     onClick={() => {
                       if (window.innerWidth >= 768) {
                         setShowNotificationsDropdown(!showNotificationsDropdown)
@@ -370,7 +398,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                     <>
                     {/* Overlay invisible para cerrar al clicar fuera */}
                     <div className="hidden md:block fixed inset-0 z-40" onClick={() => setShowNotificationsDropdown(false)} />
-                    <div className="hidden md:block absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[480px] overflow-y-auto p-4 space-y-3.5">
+                    <div ref={notificationsDropdownRef} className="hidden md:block absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[480px] overflow-y-auto p-4 space-y-3.5">
                       <div className="flex justify-between items-center pb-2 border-b border-gray-100">
                         <div>
                           <h3 className="font-extrabold text-sm text-gray-900">Notificaciones</h3>

@@ -26,7 +26,10 @@ import {
     updateBusinessAdministrator,
     removeBusinessAdministrator,
     getBusinessesByIds,
-    getProductsByIds
+    getProductsByIds,
+    subscribeToBusiness,
+    getCachedBusinessById,
+    getProductsByBusinessFromLocalCache
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -177,7 +180,14 @@ export default function TodayOrdersPage() {
     const [printJobs, setPrintJobs] = useState<PrintJob[]>([])
 
     useEffect(() => {
-        const refreshPrinterStatus = () => setPrinterStatus(getBluetoothPrinterStatus())
+        // Solo actualizar el estado si cambió: antes se creaba un objeto nuevo cada segundo
+        // y se re-renderizaba todo el dashboard (3.500+ líneas) aunque nada hubiera cambiado.
+        const refreshPrinterStatus = () => {
+            const next = getBluetoothPrinterStatus()
+            setPrinterStatus(prev =>
+                prev.connected === next.connected && prev.deviceName === next.deviceName ? prev : next
+            )
+        }
         refreshPrinterStatus()
         const intervalId = window.setInterval(refreshPrinterStatus, 1000)
         return () => window.clearInterval(intervalId)
@@ -494,73 +504,106 @@ export default function TodayOrdersPage() {
     const [productsLoaded, setProductsLoaded] = useState(false)
     const [productsLoading, setProductsLoading] = useState(false)
     
-    // Resetear productos cargados cuando cambie el negocio/sucursal
+    // Marca para saber si ya llegaron los productos desde la red para el negocio actual
+    // (evita que una lectura tardía de la caché local pise datos más frescos).
+    const productsFetchedForRef = useRef<string | null>(null)
+
+    // Resetear productos cuando cambie el negocio/sucursal e hidratar AL INSTANTE desde caché:
+    // 1) caché en memoria / sessionStorage (0 ms)
+    // 2) si no hay, caché persistente de Firestore en IndexedDB (sin red)
     useEffect(() => {
         setProductsLoaded(false)
-        setProducts(businessId ? (getCachedProductsByBusiness(businessId) || []) : [])
+        productsFetchedForRef.current = null
+        if (!businessId) {
+            setProducts([])
+            return
+        }
+        const cached = getCachedProductsByBusiness(businessId)
+        setProducts(cached || [])
+        if (cached) return
+
+        let cancelled = false
+        getProductsByBusinessFromLocalCache(businessId).then(local => {
+            if (cancelled || !local || local.length === 0) return
+            if (productsFetchedForRef.current === businessId) return
+            setProducts(local)
+        })
+        return () => { cancelled = true }
     }, [businessId])
 
-    // OPTIMIZED: Load products when needed (products tab, manual order sidebar) OR in background after initial dashboard load (!loading)
-    const needsProducts = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen || !loading
-    
+    // OPTIMIZADO: cargar productos propios de inmediato (sin esperar a que terminen los pedidos
+    // ni un retardo artificial). La petición se deduplica en database.ts con el monitor de stock.
     useEffect(() => {
         if (!businessId) return
-        if (!needsProducts) return
+        let cancelled = false
 
-        if (!productsLoaded && !productsLoading) {
-            const isImmediate = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen
-            const delay = isImmediate ? 0 : 2500
-
-            const timer = setTimeout(() => {
-                const fetchProducts = async () => {
-                    setProductsLoading(true)
-                    try {
-                        let productsData = await getProductsByBusiness(businessId)
-                        try {
-                            const biz = business || await getBusiness(businessId)
-                            if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
-                                const sharedProds = await getProductsByIds(biz.sharedProductIds)
-                                const ownerBizIds = Array.from(new Set(sharedProds.map(p => p.businessId).filter(Boolean)))
-                                const ownerBizs = ownerBizIds.length > 0 ? await getBusinessesByIds(ownerBizIds) : []
-                                const { isStoreOpen: isOpen } = await import('@/lib/store-utils')
-                                const avShared = sharedProds
-                                    .filter(p => {
-                                        if (!p.isAvailable) return false
-                                        const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                                        if (!ownerBiz) return false
-                                        if (ownerBiz.isActive === false) return false
-                                        return isOpen(ownerBiz)
-                                    })
-                                    .map(p => {
-                                        const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-                                        return {
-                                            ...p,
-                                            category: 'Compartidos',
-                                            isShared: true,
-                                            originalBusinessId: p.businessId,
-                                            originalBusinessName: ownerBiz?.name || 'Otra tienda',
-                                            originalBusinessImage: ownerBiz?.image || null
-                                        }
-                                    })
-                                productsData = [...productsData, ...avShared]
-                            }
-                        } catch (e) {
-                            console.error("Error loading shared products in dashboard:", e)
-                        }
-                        setProducts(productsData)
-                        setProductsLoaded(true)
-                    } catch (error) {
-                        console.error("Error fetching products", error)
-                    } finally {
-                        setProductsLoading(false)
-                    }
-                }
-                fetchProducts()
-            }, delay)
-
-            return () => clearTimeout(timer)
+        const fetchProducts = async () => {
+            setProductsLoading(true)
+            try {
+                const productsData = await getProductsByBusiness(businessId)
+                if (cancelled) return
+                productsFetchedForRef.current = businessId
+                // Conservar productos compartidos ya cargados (se gestionan en el efecto de abajo)
+                setProducts(prev => [...productsData, ...prev.filter(p => (p as any).isShared)])
+                setProductsLoaded(true)
+            } catch (error) {
+                console.error("Error fetching products", error)
+            } finally {
+                if (!cancelled) setProductsLoading(false)
+            }
         }
-    }, [businessId, productsLoaded, productsLoading, business, needsProducts, activeTab, profileSubTab, manualOrderSidebarOpen])
+        fetchProducts()
+
+        return () => { cancelled = true }
+    }, [businessId])
+
+    // Productos compartidos de otras tiendas: en segundo plano, sin bloquear los propios.
+    // Depende solo de la lista de IDs compartidos (no del objeto business completo) para no
+    // relanzar consultas cada vez que el documento del negocio cambia.
+    const sharedProductIdsKey = business?.id === businessId ? (business?.sharedProductIds || []).join(',') : ''
+    useEffect(() => {
+        if (!businessId || !productsLoaded) return
+        const sharedIds = sharedProductIdsKey ? sharedProductIdsKey.split(',') : []
+        if (sharedIds.length === 0) {
+            setProducts(prev => prev.some(p => (p as any).isShared) ? prev.filter(p => !(p as any).isShared) : prev)
+            return
+        }
+        let cancelled = false
+
+        const fetchShared = async () => {
+            try {
+                const sharedProds = await getProductsByIds(sharedIds)
+                const ownerBizIds = Array.from(new Set(sharedProds.map(p => p.businessId).filter(Boolean)))
+                const ownerBizs = ownerBizIds.length > 0 ? await getBusinessesByIds(ownerBizIds) : []
+                if (cancelled) return
+                const avShared = sharedProds
+                    .filter(p => {
+                        if (!p.isAvailable) return false
+                        const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                        if (!ownerBiz) return false
+                        if (ownerBiz.isActive === false) return false
+                        return isStoreOpen(ownerBiz)
+                    })
+                    .map(p => {
+                        const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
+                        return {
+                            ...p,
+                            category: 'Compartidos',
+                            isShared: true,
+                            originalBusinessId: p.businessId,
+                            originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                            originalBusinessImage: ownerBiz?.image || null
+                        }
+                    })
+                setProducts(prev => [...prev.filter(p => !(p as any).isShared), ...avShared])
+            } catch (e) {
+                console.error("Error loading shared products in dashboard:", e)
+            }
+        }
+        fetchShared()
+
+        return () => { cancelled = true }
+    }, [businessId, productsLoaded, sharedProductIdsKey])
 
     // Sold units per day calculation state & memo
     const [currentUnitsIndex, setCurrentUnitsIndex] = useState(0)
@@ -1037,18 +1080,41 @@ export default function TodayOrdersPage() {
         }
     }, [authLoading, isAuthenticated, router])
 
+    // Suscripción en tiempo real al negocio con hidratación inmediata (0 ms):
+    // 1. Si ya está en memoria o en la lista de negocios del usuario, mostrarlo de inmediato.
+    // 2. Suscribir con Firestore onSnapshot: emite primero desde la caché local (IndexedDB)
+    //    y luego se actualiza con el servidor. Se limpia correctamente al desmontar o cambiar businessId.
     useEffect(() => {
-        if (!businessId) return
-        const fetchBusiness = async () => {
-            try {
-                const businessData = await getBusiness(businessId)
-                setBusiness(businessData)
-            } catch (error) {
-                console.error("Error fetching business", error)
-            }
+        if (!businessId) {
+            setBusiness(null)
+            return
         }
-        fetchBusiness()
-    }, [businessId])
+
+        const cachedFromAccess = user?.uid ? getCachedUserBusinessAccess(user.uid) : null
+        const fromAccess = cachedFromAccess
+            ? ([...cachedFromAccess.ownedBusinesses, ...cachedFromAccess.adminBusinesses].find(b => b.id === businessId))
+            : null
+        const cached = getCachedBusinessById(businessId) || fromAccess || businesses.find(b => b.id === businessId)
+        if (cached) {
+            setBusiness(cached)
+        }
+
+        const unsubscribe = subscribeToBusiness(
+            businessId,
+            (businessData) => {
+                if (businessData) {
+                    setBusiness(businessData)
+                }
+            },
+            (err) => {
+                console.error("Error subscribing to business:", err)
+            }
+        )
+
+        return () => {
+            unsubscribe()
+        }
+    }, [businessId, businesses, user?.uid])
 
     // Auto-repair & cleanup effect for manual store status
     useEffect(() => {
@@ -1119,12 +1185,7 @@ export default function TodayOrdersPage() {
         }
     }, [businessId])
 
-    // Fetch products (Lazy loading)
-    useEffect(() => {
-        // Reset products state when business changes
-        setProductsLoaded(false)
-        setProducts([])
-    }, [businessId])
+
 
 
 

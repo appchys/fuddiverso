@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { db } from '@/lib/firebase'
-import { collection, query, where, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot } from 'firebase/firestore'
 import { getProductsByBusiness, getIngredientStockSummary, createStockAlertNotification, IngredientStockSummary } from '@/lib/database'
 import { evaluateProductStock, isProductEffectivelyAvailable } from '@/lib/stock-utils'
 
@@ -129,10 +129,18 @@ export function useStockAlertMonitor(businessId?: string | null) {
       }
     }
 
-    // Ejecutar verificación inicial silenciosa (para registrar estado previo)
-    void checkStockTransitions()
+    let debounceTimer: NodeJS.Timeout | null = null
 
-    // Escuchar en tiempo real cambios en la biblioteca de ingredientes (donde ahora reside currentStock directo)
+    // Ejecutar verificación inicial silenciosa (para registrar estado previo).
+    // DIFERIDA: no competir con la carga inicial del dashboard (negocio, productos y pedidos).
+    const initialTimer = setTimeout(() => {
+      void checkStockTransitions()
+    }, 4000)
+
+    // Escuchar en tiempo real cambios en la biblioteca de ingredientes (donde ahora reside currentStock directo).
+    // Cada movimiento de stock (recordStockMovement) actualiza el documento del ingrediente en la biblioteca,
+    // por lo que este listener basta para detectar ventas/entradas/ajustes. Antes se escuchaba además toda la
+    // colección ingredientStockMovements del negocio, lo que descargaba el historial completo en cada carga.
     const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
     const unsubscribeLibrary = onSnapshot(
       libraryRef,
@@ -148,31 +156,11 @@ export function useStockAlertMonitor(businessId?: string | null) {
       }
     )
 
-    // Escuchar también movimientos de stock del negocio (ventas, entradas, ajustes)
-    const movementsRef = collection(db, 'ingredientStockMovements')
-    const qMovements = query(movementsRef, where('businessId', '==', businessId))
-
-    let debounceTimer: NodeJS.Timeout | null = null
-
-    const unsubscribeMovements = onSnapshot(
-      qMovements,
-      () => {
-        if (!isInitializedRef.current) return
-        if (debounceTimer) clearTimeout(debounceTimer)
-        debounceTimer = setTimeout(() => {
-          void checkStockTransitions()
-        }, 800)
-      },
-      (error) => {
-        console.error('[useStockAlertMonitor] Error en listener de movimientos:', error)
-      }
-    )
-
     return () => {
       isMounted = false
+      clearTimeout(initialTimer)
       if (debounceTimer) clearTimeout(debounceTimer)
       unsubscribeLibrary()
-      unsubscribeMovements()
     }
   }, [businessId])
 }
