@@ -133,7 +133,7 @@ interface ManualOrderData {
   timingType: 'immediate' | 'scheduled'
   scheduledDate: string
   scheduledTime: string
-  paymentMethod: 'cash' | 'transfer' | 'mixed'
+  paymentMethod: '' | 'cash' | 'transfer' | 'mixed'
   selectedBank: string
   paymentStatus: 'pending' | 'validating' | 'paid'
   cashAmount: number
@@ -193,14 +193,14 @@ export default function ManualOrderSidebar({
     timingType: 'immediate',
     scheduledDate: '',
     scheduledTime: '',
-    paymentMethod: 'cash',
+    paymentMethod: '',
     selectedBank: '',
     paymentStatus: 'pending',
     cashAmount: 0,
     transferAmount: 0,
     total: 0,
     selectedDelivery: null,
-    orderStatus: 'pending',
+    orderStatus: 'borrador',
     notas: '',
     notaImageUrl: '',
     receiptImageUrl: '',
@@ -770,7 +770,7 @@ export default function ManualOrderSidebar({
         timingType,
         scheduledDate,
         scheduledTime,
-        paymentMethod: eo.payment?.method || 'cash',
+        paymentMethod: eo.payment?.method || '',
         selectedBank: eo.payment?.selectedBank || '',
         paymentStatus: eo.payment?.paymentStatus || 'pending',
         cashAmount: (eo.payment as any)?.cashAmount || 0,
@@ -3312,7 +3312,7 @@ export default function ManualOrderSidebar({
       timingType: 'immediate',
       scheduledDate: '',
       scheduledTime: '',
-      paymentMethod: 'cash',
+      paymentMethod: '',
       selectedBank: '',
       paymentStatus: 'pending',
       cashAmount: 0,
@@ -3350,13 +3350,43 @@ export default function ManualOrderSidebar({
       ? manualOrderData.customerName.trim() !== ''
       : (manualOrderData.customerName.trim() !== '' && manualOrderData.customerPhone.trim() !== '')
 
+    const hasProducts = manualOrderData.selectedProducts.length > 0
+
+    const hasDelivery = manualOrderData.deliveryType !== '' && (
+      manualOrderData.deliveryType === 'pickup' ||
+      (manualOrderData.deliveryType === 'delivery' && Boolean(manualOrderData.selectedLocation))
+    )
+
+    const hasTiming = manualOrderData.timingType === 'immediate' || (
+      manualOrderData.scheduledDate.trim() !== '' && manualOrderData.scheduledTime.trim() !== ''
+    )
+
+    const hasPayment = manualOrderData.paymentMethod !== '' && (
+      manualOrderData.paymentMethod !== 'mixed' ||
+      Math.abs(((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0)) - manualOrderData.total) < 0.01
+    )
+
     return (
       hasCustomer &&
-      manualOrderData.selectedProducts.length > 0 &&
-      manualOrderData.deliveryType !== '' &&
-      (manualOrderData.timingType === 'immediate' || (manualOrderData.scheduledDate !== '' && manualOrderData.scheduledTime !== ''))
+      hasProducts &&
+      hasDelivery &&
+      hasTiming &&
+      hasPayment
     );
-  }, [manualOrderData.customerName, manualOrderData.customerPhone, manualOrderData.selectedProducts, manualOrderData.deliveryType, manualOrderData.timingType, manualOrderData.scheduledDate, manualOrderData.scheduledTime]);
+  }, [
+    manualOrderData.customerName,
+    manualOrderData.customerPhone,
+    manualOrderData.selectedProducts,
+    manualOrderData.deliveryType,
+    manualOrderData.selectedLocation,
+    manualOrderData.paymentMethod,
+    manualOrderData.cashAmount,
+    manualOrderData.transferAmount,
+    manualOrderData.total,
+    manualOrderData.timingType,
+    manualOrderData.scheduledDate,
+    manualOrderData.scheduledTime
+  ]);
 
   // Estado calculado para mostrar en la UI y guardar
   const computedStatus = useMemo(() => {
@@ -4219,7 +4249,18 @@ export default function ManualOrderSidebar({
 
           {/* Método de pago - siempre visible */}
           <div className="mb-6">
-            <h3 className="text-sm font-medium text-black mb-3">Método de pago</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-black">Método de pago</h3>
+              {manualOrderData.paymentMethod && (
+                <button
+                  type="button"
+                  onClick={() => setManualOrderData(prev => ({ ...prev, paymentMethod: '', cashAmount: 0, transferAmount: 0 }))}
+                  className="text-xs text-red-500 hover:text-red-700 transition-colors font-medium"
+                >
+                  Quitar selección
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <div
                 role="button"
@@ -4712,9 +4753,13 @@ export default function ManualOrderSidebar({
                 (loadingBusinessProducts && products.length === 0) ||
                 (manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01)
               }
-              className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className={`flex-1 py-2 px-4 rounded-md text-white font-medium transition-colors ${
+                computedStatus === 'borrador'
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              {creatingOrder ? 'Guardando...' : 'Guardar Pedido'}
+              {creatingOrder ? 'Guardando...' : (computedStatus === 'borrador' ? 'Guardar como Borrador' : 'Guardar Pedido')}
             </button>
 
           </div>

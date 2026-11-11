@@ -680,7 +680,7 @@ export default function AdminPedidosPage() {
                 snapshot.docChanges().forEach((change: any) => {
                     if (change.type === 'added') {
                         const orderData = change.doc.data() as Order
-                        if (shouldShowInTodayOrders(orderData)) {
+                        if (orderData.status !== 'borrador' && shouldShowInTodayOrders(orderData)) {
                             playNotificationSound()
                         }
                     }

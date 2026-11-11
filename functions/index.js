@@ -544,6 +544,10 @@ async function linkCustomerTelegramToOrderLogic(order, orderId) {
   }
 }
 
+function sanitizeTopicName(raw) {
+  return String(raw || '').trim().replace(/[^a-zA-Z0-9-_.~%]/g, '_');
+}
+
 exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => {
   const snap = event.data;
   if (!snap) return;
@@ -551,7 +555,12 @@ exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => 
   const orderId = event.params.orderId;
 
   console.log(`🚀 [CONSOLIDADO] Procesando CREACIÓN de orden: ${orderId}`);
-  console.log(`📋 [Order Details] businessId: ${order.businessId}, customer: ${order.customer?.name}, createdByAdmin: ${order.createdByAdmin}`);
+  console.log(`📋 [Order Details] businessId: ${order.businessId}, customer: ${order.customer?.name}, createdByAdmin: ${order.createdByAdmin}, status: ${order.status}`);
+
+  if (order.status === 'borrador') {
+    console.log(`ℹ️ Orden ${orderId} es un borrador, omitiendo notificaciones, FCM push y procesamiento de creación.`);
+    return;
+  }
 
 
 function sanitizeTopicName(raw) {
@@ -587,7 +596,7 @@ async function sendStoreFcmPushOnOrderCreation(order, orderId) {
     priority: 'high',
     ttl: 3600 * 1000,
     notification: {
-      channelId: 'fuddi_tienda_orders_alert_channel',
+      channelId: 'fuddi_tienda_orders_alert_channel_v2',
       sound: 'default',
       priority: 'max',
       defaultVibrateTimings: true,
@@ -788,6 +797,99 @@ exports.onBusinessWritten = onDocumentWritten("businesses/{businessId}", async (
   }
 });
 
+async function sendStoreFcmPushOnScheduledReminder(order, orderId, scheduledTime, customerName, previewItems) {
+  const businessId = order.businessId || order.businessSnapshot?.id;
+  if (!businessId) {
+    console.warn(`[FCM Reminder] Orden ${orderId} no tiene businessId, omitiendo push.`);
+    return;
+  }
+
+  const timeStr = scheduledTime || order.timing?.scheduledTime || 'Hora programada';
+  const nameStr = customerName || order.customer?.name || 'Cliente';
+  const totalAmount = typeof order.total === 'number' ? order.total.toFixed(2) : (order.total || '0.00');
+
+  const finalTitle = '⏰ ¡Recordatorio de Pedido Programado!';
+  const finalBody = `Entrega a las ${timeStr} • ${nameStr}${previewItems ? ` (${previewItems})` : ''} • Total: $${totalAmount}`;
+
+  const dataPayload = {
+    type: 'scheduled_reminder',
+    businessId: String(businessId),
+    orderId: String(orderId || ''),
+    title: String(finalTitle),
+    body: String(finalBody),
+    message: String(finalBody),
+    scheduledTime: String(timeStr),
+    customerName: String(nameStr),
+    status: String(order.status || 'pending')
+  };
+
+  const androidConfig = {
+    priority: 'high',
+    ttl: 1800 * 1000,
+    notification: {
+      channelId: 'fuddi_tienda_reminders_channel',
+      sound: 'default',
+      priority: 'max',
+      defaultVibrateTimings: true,
+      defaultSound: true,
+      visibility: 'public',
+      tag: `reminder_${orderId}`
+    }
+  };
+
+  const messaging = admin.messaging();
+  let deliveredDirectly = false;
+
+  // 1. Enviar directamente a los tokens únicos registrados en la tienda
+  try {
+    const bizDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+    if (bizDoc.exists) {
+      const bizData = bizDoc.data() || {};
+      const rawTokens = Array.isArray(bizData.fcmTokens)
+        ? bizData.fcmTokens.filter(t => typeof t === 'string' && t.trim().length > 0).map(t => t.trim())
+        : [];
+      const tokens = [...new Set(rawTokens)];
+
+      if (tokens.length > 0) {
+        const multiRes = await messaging.sendEachForMulticast({
+          tokens,
+          notification: {
+            title: finalTitle,
+            body: finalBody
+          },
+          data: dataPayload,
+          android: androidConfig
+        });
+        if (multiRes.successCount > 0) {
+          deliveredDirectly = true;
+        }
+        console.log(`✅ [FCM Reminder] Push directo de recordatorio enviado a ${tokens.length} dispositivos para orden ${orderId} (éxitos: ${multiRes.successCount})`);
+      }
+    }
+  } catch (err) {
+    console.warn(`⚠️ [FCM Reminder] Error enviando a tokens directos para negocio ${businessId}:`, err.message);
+  }
+
+  // 2. Fallback al topic de la tienda únicamente si no se entregó por token directo
+  if (!deliveredDirectly) {
+    const topic = `store_${sanitizeTopicName(businessId)}`;
+    try {
+      const topicRes = await messaging.send({
+        topic,
+        notification: {
+          title: finalTitle,
+          body: finalBody
+        },
+        data: dataPayload,
+        android: androidConfig
+      });
+      console.log(`✅ [FCM Reminder] Push de recordatorio enviado a topic fallback ${topic} para orden ${orderId}:`, topicRes);
+    } catch (err) {
+      console.warn(`⚠️ [FCM Reminder] Error enviando a topic ${topic}:`, err.message);
+    }
+  }
+}
+
 /**
  * Cloud Function: Recordatorios programados
  */
@@ -969,6 +1071,19 @@ exports.sendScheduledOrderReminders = onSchedule({
           } catch (telError) {
             console.error(`❌ Error enviando recordatorio por Telegram para orden ${orderId}:`, telError);
           }
+        }
+
+        // Recordatorio por FCM Push a la App Android Tienda
+        try {
+          await sendStoreFcmPushOnScheduledReminder(
+            order,
+            orderId,
+            scheduledTime,
+            customerName,
+            previewItems.join(', ')
+          );
+        } catch (fcmError) {
+          console.error(`❌ Error enviando recordatorio por FCM a la tienda para orden ${orderId}:`, fcmError);
         }
 
         await orderDoc.ref.update({

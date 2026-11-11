@@ -1347,7 +1347,7 @@ export default function TodayOrdersPage() {
                     if (change.type === 'added') {
                         const orderData = change.doc.data() as Order
 
-                        if (shouldShowInTodayOrders(orderData)) {
+                        if (orderData.status !== 'borrador' && shouldShowInTodayOrders(orderData)) {
                             playNotificationSound()
                         }
                     }
