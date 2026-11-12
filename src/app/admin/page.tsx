@@ -552,18 +552,18 @@ export default function AdminBusinessesPage() {
             return (
               <div
                 key={business.id}
-                className="bg-white rounded-3xl p-4 sm:p-5 border border-gray-200/80 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-3.5 group"
+                className="bg-white rounded-3xl p-4 sm:p-5 border border-gray-200/80 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-3.5 group overflow-hidden"
               >
                 {/* Cabecera de la Tarjeta */}
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     {/* Logo con indicador en vivo */}
-                    <div className="relative w-13 h-13 sm:w-14 sm:h-14 rounded-2xl overflow-hidden bg-gray-100 border border-gray-200/70 shrink-0">
+                    <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden bg-gray-100 border border-gray-200/70 shrink-0 aspect-square">
                       {business.image ? (
                         <img
                           src={business.image}
                           alt={business.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover aspect-square"
                           loading="lazy"
                         />
                       ) : (
@@ -585,7 +585,7 @@ export default function AdminBusinessesPage() {
                       <div className="flex items-center gap-1.5">
                         <Link
                           href={`/admin/stores/${business.id}`}
-                          className="text-base sm:text-lg font-black text-gray-900 tracking-tight leading-tight hover:text-blue-600 transition-colors truncate"
+                          className="text-base sm:text-lg font-black text-gray-900 tracking-tight leading-tight hover:text-blue-600 transition-colors truncate block"
                         >
                           {business.name}
                         </Link>
@@ -597,17 +597,17 @@ export default function AdminBusinessesPage() {
                             href={`/${business.username}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-0.5"
+                            className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-0.5 truncate max-w-full"
                             title="Abrir tienda pública"
                           >
-                            fuddi.shop/{business.username}
-                            <i className="bi bi-arrow-up-right text-[9px]"></i>
+                            <span className="truncate">fuddi.shop/{business.username}</span>
+                            <i className="bi bi-arrow-up-right text-[9px] shrink-0"></i>
                           </a>
                         )}
 
-                        <span className="w-1 h-1 rounded-full bg-gray-300"></span>
+                        <span className="w-1 h-1 rounded-full bg-gray-300 shrink-0"></span>
 
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider shrink-0">
                           {cityName}
                         </span>
                       </div>
