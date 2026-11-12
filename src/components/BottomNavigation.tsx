@@ -60,6 +60,14 @@ export default function BottomNavigation() {
   const isPedidosRoute = pathname.startsWith('/pedidos')
   const isTmaRoute = pathname.startsWith('/tma')
 
+  // Rutas reservadas que NO son perfiles de tienda
+  const reservedRoutes = [
+    'checkout', 'profile', 'my-orders', 'my-locations',
+    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business', 'tiendas', 'pedidos', 'tma', 'fuddies', 'fuddiverso'
+  ]
+  const pathSegments = pathname.split('/').filter(Boolean)
+  const isStorePage = pathSegments.length === 1 && !reservedRoutes.includes(pathSegments[0])
+
   const showNav = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isAdminRoute && !isOrderRoute && !isPedidosRoute && !isTmaRoute
 
   const [activeUrl, setActiveUrl] = useState('')
@@ -340,9 +348,241 @@ export default function BottomNavigation() {
         </div>
       )}
 
-      {/* Bottom Navigation */}
+      {/* Sidebar Lateral en PC (Solo en Perfil de Tienda) */}
+      {isStorePage && (
+        <aside
+          className="hidden md:flex fixed top-0 left-0 bottom-0 md:w-20 lg:w-64 bg-white border-r border-gray-100 z-[65] flex-col justify-between py-6 px-3 shadow-[2px_0_12px_rgba(0,0,0,0.02)] select-none"
+          aria-label="Navegación principal lateral"
+        >
+          {/* Logo y Encabezado de la Barra Lateral */}
+          <div className="flex flex-col items-center lg:items-start px-2 pt-1">
+            <Link
+              href="/"
+              onClick={() => setActiveUrl('/')}
+              className="flex items-center gap-3 group transition-transform active:scale-95"
+              title="Ir a Tiendas en Fuddi"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-red-50 text-[#aa1918] flex items-center justify-center font-black shadow-xs group-hover:bg-[#aa1918] group-hover:text-white transition-all">
+                <Store size={22} strokeWidth={2.2} />
+              </div>
+              <div className="hidden lg:block leading-tight">
+                <span className="text-xl font-black text-gray-900 tracking-tight block">
+                  fuddi<span className="text-[#aa1918]">.</span>
+                </span>
+                <span className="text-[10px] font-bold text-gray-400 tracking-wider uppercase block">
+                  Delivery & Tiendas
+                </span>
+              </div>
+            </Link>
+          </div>
+
+          {/* Menú de Navegación Vertical */}
+          <nav className="flex-1 flex flex-col justify-center gap-2 py-6">
+            {/* TIENDAS */}
+            <Link
+              href="/"
+              onClick={() => setActiveUrl('/')}
+              className={`flex items-center gap-3.5 px-3 py-3 rounded-2xl transition-all group ${
+                isActive('/', true)
+                  ? 'bg-red-50 text-[#aa1918] font-black shadow-2xs'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 font-bold'
+              }`}
+              title="Tiendas"
+            >
+              <div
+                className={`p-2 rounded-xl transition-colors ${
+                  isActive('/', true)
+                    ? 'bg-red-100/70 text-[#aa1918]'
+                    : 'text-gray-400 group-hover:text-gray-900 group-hover:bg-gray-100'
+                }`}
+              >
+                <Store size={20} strokeWidth={isActive('/', true) ? 2.5 : 2} />
+              </div>
+              <div className="hidden lg:block text-left">
+                <span className="block text-sm leading-snug">Tiendas</span>
+                <span className="block text-[11px] font-normal text-gray-400">Explorar locales</span>
+              </div>
+            </Link>
+
+            {/* FUDDIVERSO */}
+            <Link
+              href="/fuddiverso"
+              onClick={() => setActiveUrl('/fuddiverso')}
+              className={`flex items-center gap-3.5 px-3 py-3 rounded-2xl transition-all group ${
+                isActive('/fuddiverso') || isActive('/fuddies')
+                  ? 'bg-red-50 text-[#aa1918] font-black shadow-2xs'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 font-bold'
+              }`}
+              title="Fuddiverso"
+            >
+              <div
+                className={`p-2 rounded-xl transition-colors ${
+                  isActive('/fuddiverso') || isActive('/fuddies')
+                    ? 'bg-red-100/70 text-[#aa1918]'
+                    : 'text-gray-400 group-hover:text-gray-900 group-hover:bg-gray-100'
+                }`}
+              >
+                <Orbit size={20} strokeWidth={isActive('/fuddiverso') || isActive('/fuddies') ? 2.5 : 2} />
+              </div>
+              <div className="hidden lg:block text-left">
+                <span className="block text-sm leading-snug">Fuddiverso</span>
+                <span className="block text-[11px] font-normal text-gray-400">Comunidad & fotos</span>
+              </div>
+            </Link>
+
+            {/* RECOMENDADOS */}
+            <button
+              type="button"
+              onMouseEnter={() => {
+                if (user) prefetchRecommendations()
+              }}
+              onClick={() => {
+                if (user) {
+                  setShowRecommendationsSidebar(true)
+                  loadRecommendations()
+                } else {
+                  window.location.href = '/'
+                }
+              }}
+              className={`flex items-center gap-3.5 px-3 py-3 rounded-2xl transition-all group w-full text-left cursor-pointer ${
+                showRecommendationsSidebar
+                  ? 'bg-red-50 text-[#aa1918] font-black shadow-2xs'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 font-bold'
+              }`}
+              title="Recomendados"
+            >
+              <div
+                className={`p-2 rounded-xl transition-colors ${
+                  showRecommendationsSidebar
+                    ? 'bg-red-100/70 text-[#aa1918]'
+                    : 'text-gray-400 group-hover:text-gray-900 group-hover:bg-gray-100'
+                }`}
+              >
+                <Flame size={20} strokeWidth={showRecommendationsSidebar ? 2.5 : 2} />
+              </div>
+              <div className="hidden lg:block text-left">
+                <span className="block text-sm leading-snug">Recomendados</span>
+                <span className="block text-[11px] font-normal text-gray-400">Gana recompensas</span>
+              </div>
+            </button>
+
+            {/* PEDIDOS */}
+            <button
+              type="button"
+              onClick={() => {
+                if (user) {
+                  setShowOrdersSheet(true)
+                  setActiveUrl('/my-orders')
+                } else {
+                  window.location.href = '/'
+                }
+              }}
+              className={`flex items-center gap-3.5 px-3 py-3 rounded-2xl transition-all group w-full text-left cursor-pointer ${
+                isActive('/my-orders') || showOrdersSheet
+                  ? 'bg-red-50 text-[#aa1918] font-black shadow-2xs'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 font-bold'
+              }`}
+              title="Pedidos"
+            >
+              {activeOrders.length > 0 ? (
+                <div className="relative p-1 rounded-xl">
+                  <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 bg-white shadow-2xs">
+                    <img
+                      src={activeOrders[0].businessImage || '/default-restaurant-og.svg'}
+                      alt="Tienda"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <span
+                    className={`absolute top-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
+                      getStatusInfo(activeOrders[0].status).dot
+                    } animate-pulse`}
+                  ></span>
+                </div>
+              ) : (
+                <div
+                  className={`p-2 rounded-xl transition-colors ${
+                    isActive('/my-orders') || showOrdersSheet
+                      ? 'bg-red-100/70 text-[#aa1918]'
+                      : 'text-gray-400 group-hover:text-gray-900 group-hover:bg-gray-100'
+                  }`}
+                >
+                  <i
+                    className={`bi bi-receipt${
+                      isActive('/my-orders') || showOrdersSheet ? '-cutoff' : ''
+                    } text-xl leading-none`}
+                  ></i>
+                </div>
+              )}
+              <div className="hidden lg:block text-left flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="block text-sm leading-snug">Pedidos</span>
+                  {activeOrders.length > 0 && (
+                    <span
+                      className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-tight ${
+                        getStatusInfo(activeOrders[0].status).color
+                      }`}
+                    >
+                      {getStatusInfo(activeOrders[0].status).text}
+                    </span>
+                  )}
+                </div>
+                <span className="block text-[11px] font-normal text-gray-400 truncate">
+                  {activeOrders.length > 0 ? activeOrders[0].businessName : 'Historial y estado'}
+                </span>
+              </div>
+            </button>
+          </nav>
+
+          {/* Pie de la Barra Lateral */}
+          <div className="px-1 pt-3 border-t border-gray-100">
+            {activeOrders.length > 0 ? (
+              <div
+                onClick={() => {
+                  setSelectedOrderId(activeOrders[0].id)
+                  setIsOrderSidebarOpen(true)
+                }}
+                className="cursor-pointer p-2.5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/60 hover:shadow-xs transition-all text-left group"
+                title="Ver pedido activo"
+              >
+                <div className="hidden lg:flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl overflow-hidden bg-white shadow-2xs shrink-0 border border-amber-200">
+                    <img
+                      src={activeOrders[0].businessImage || '/default-restaurant-og.svg'}
+                      alt={activeOrders[0].businessName}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black text-gray-900 truncate leading-tight">
+                      {activeOrders[0].businessName}
+                    </p>
+                    <p className="text-[10px] font-bold text-amber-700 flex items-center gap-1 mt-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                      {getStatusInfo(activeOrders[0].status).text}
+                    </p>
+                  </div>
+                </div>
+                <div className="lg:hidden flex justify-center">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                </div>
+              </div>
+            ) : (
+              <div className="hidden lg:block text-center py-1 text-[11px] font-semibold text-gray-400">
+                <span>fuddi.shop</span>
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
+
+      {/* Menú Inferior (En Perfil de Tienda solo se muestra en Móvil; en otras páginas sigue igual) */}
       <div 
-        className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-[65] shadow-[0_-5px_10px_rgb(0,0,0,0.02)] md:max-w-md md:mx-auto md:rounded-t-2xl md:border-x md:border-gray-100"
+        className={`fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-[65] shadow-[0_-5px_10px_rgb(0,0,0,0.02)] ${
+          isStorePage
+            ? 'md:hidden'
+            : 'md:max-w-md md:mx-auto md:rounded-t-2xl md:border-x md:border-gray-100'
+        }`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex justify-around items-center h-16 px-2">

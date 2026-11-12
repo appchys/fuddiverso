@@ -559,7 +559,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                                 placeholder="username"
                                             />
                                         </div>
-                                        <p className="text-gray-400 text-[9px] font-bold ml-1">fuddi.shop/@{formData.username || '...'}</p>
+                                        <p className="text-gray-400 text-[9px] font-bold ml-1">fuddi.shop/{formData.username || '...'}</p>
                                     </div>
                                 </div>
 

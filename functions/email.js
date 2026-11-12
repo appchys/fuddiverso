@@ -454,7 +454,7 @@ async function sendBusinessCreatedEmail(business) {
             <tr><td style="padding: 5px;"><strong>Email:</strong></td><td>${business.email}</td></tr>
             <tr><td style="padding: 5px;"><strong>Teléfono:</strong></td><td>${business.phone}</td></tr>
             <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${business.loginSource || 'No especificado'}</td></tr>
-            <tr><td style="padding: 5px;"><strong>Vínculo:</strong></td><td>fuddi.shop/@${business.username}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Vínculo:</strong></td><td><a href="https://fuddi.shop/${business.username}" target="_blank" style="color: #0066cc; text-decoration: none; font-weight: bold;">fuddi.shop/${business.username}</a></td></tr>
           </table>
         </div>
       `

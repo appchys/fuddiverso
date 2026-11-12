@@ -226,12 +226,12 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
       </button>
 
       {/* Imagen del producto */}
-      <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100 relative border border-gray-100">
+      <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100 relative border border-gray-100">
         <img
           src={product.image || businessImage}
           alt={product.name}
-          width={96}
-          height={96}
+          width={112}
+          height={112}
           className="w-full h-full object-cover transition-transform duration-500 md:group-hover:scale-110"
           style={{ 
             objectPosition: product.imagePosition || 'center',
@@ -268,7 +268,7 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
                 <span>DE: {product.originalBusinessName.toUpperCase()}</span>
               </div>
             )}
-            <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight line-clamp-2">
+            <h4 className="font-black text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight line-clamp-2 tracking-tight">
               {product.name}
               {isCombo && (
                 <span className="inline-flex items-center ml-2 px-1.5 py-0.5 bg-orange-100 text-orange-600 text-[8px] font-black uppercase tracking-widest rounded-md align-middle">
@@ -276,7 +276,7 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
                 </span>
               )}
             </h4>
-            <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+            <p className="text-gray-500 font-medium text-xs sm:text-sm mt-1 line-clamp-2 leading-relaxed">
               {product.description}
             </p>
           </div>
@@ -313,7 +313,7 @@ const ProductVariantSelector = memo(function ProductVariantSelector({ product, o
               </div>
             ) : (
               <div
-                className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform md:group-hover:scale-110 md:group-hover:bg-red-600 transition-all duration-300"
+                className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform md:group-hover:scale-110 md:group-hover:bg-red-600 transition-all duration-300"
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!hasVariants && !isCombo && !hasOptions) {
@@ -349,10 +349,10 @@ function StoreCatalogProductsSkeleton() {
             className="relative flex items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm animate-pulse"
           >
             {/* Imagen del producto skeleton */}
-            <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl bg-gray-200" />
+            <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 flex-shrink-0 rounded-xl bg-gray-200" />
 
             {/* Información del producto skeleton */}
-            <div className="flex-1 min-w-0 ml-4 pr-2 flex flex-col justify-between h-20 sm:h-24 py-0.5">
+            <div className="flex-1 min-w-0 ml-4 pr-2 flex flex-col justify-between h-20 sm:h-24 md:h-28 py-0.5">
               <div>
                 <div className="h-4 bg-gray-200 rounded-md w-3/4 mb-2" />
                 <div className="h-3 bg-gray-100 rounded-md w-full mb-1" />
@@ -376,26 +376,26 @@ function StoreProfileSkeleton(_props?: { username?: string; initialBusiness?: Bu
       {/* Hero Section Skeleton */}
       <div className="bg-white shadow-sm">
         {/* Portada Skeleton con logo superpuesto */}
-        <div className="relative w-full h-36 sm:h-48 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-pulse overflow-visible">
+        <div className="relative w-full h-36 sm:h-48 md:h-64 lg:h-72 xl:h-80 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-pulse overflow-visible">
           {/* Logo Circular Superpuesto Skeleton con icono de tienda */}
           <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
-            <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl bg-gray-100 flex items-center justify-center text-gray-300">
-              <Store size={36} className="opacity-40 animate-pulse" />
+            <div className="w-24 h-24 sm:w-32 sm:h-32 md:w-36 md:h-36 lg:w-40 lg:h-40 xl:w-44 xl:h-44 rounded-full border-[5px] md:border-[6px] lg:border-[7px] border-white shadow-2xl bg-gray-100 flex items-center justify-center text-gray-300">
+              <Store size={40} className="opacity-40 animate-pulse" />
             </div>
           </div>
         </div>
 
-        {/* Contenido debajo de la portada - pt-16 en móvil y sm:pt-20 en desktop para separación limpia con el logo */}
-        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-3 sm:pb-4 text-center relative">
+        {/* Contenido debajo de la portada - pt escalonado para separación limpia con el logo */}
+        <div className="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 pt-16 sm:pt-20 md:pt-24 lg:pt-28 pb-4 sm:pb-6 md:pb-7 text-center relative">
           {/* Botones de acción reales visibles (Favorito y Compartir) */}
-          <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
+          <div className="absolute right-4 sm:right-6 md:right-8 top-3 sm:top-4 md:top-6 z-10 flex items-center gap-2 md:gap-3">
             <button
               type="button"
-              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 shadow-xs border border-gray-100 transition-all active:scale-95"
+              className="w-8 h-8 sm:w-9 sm:h-9 md:w-11 md:h-11 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 shadow-xs border border-gray-100 transition-all active:scale-95"
               title="Guardar en favoritos"
               aria-label="Guardar en favoritos"
             >
-              <Heart size={16} />
+              <Heart size={16} className="md:w-5 md:h-5" />
             </button>
             <button
               type="button"
@@ -404,37 +404,37 @@ function StoreProfileSkeleton(_props?: { username?: string; initialBusiness?: Bu
                   navigator.clipboard?.writeText(window.location.href)
                 }
               }}
-              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 shadow-xs border border-gray-100 transition-all active:scale-95"
+              className="w-8 h-8 sm:w-9 sm:h-9 md:w-11 md:h-11 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 shadow-xs border border-gray-100 transition-all active:scale-95"
               title="Compartir tienda"
               aria-label="Compartir tienda"
             >
-              <Share2 size={16} />
+              <Share2 size={16} className="md:w-5 md:h-5" />
             </button>
           </div>
 
           <div className="flex flex-col items-center">
             <div className="w-full">
               {/* Nombre de la tienda skeleton animado */}
-              <div className="h-8 sm:h-9 bg-gray-200 rounded-2xl w-48 sm:w-64 mx-auto mb-3 animate-pulse" />
+              <div className="h-8 sm:h-9 md:h-12 lg:h-14 bg-gray-200 rounded-2xl w-48 sm:w-64 md:w-80 lg:w-96 mx-auto mb-3 animate-pulse" />
 
               {/* Descripción de la tienda skeleton */}
-              <div className="space-y-2 max-w-md mx-auto mb-3">
-                <div className="h-3.5 bg-gray-100 rounded-full w-5/6 mx-auto animate-pulse" />
-                <div className="h-3 bg-gray-100/80 rounded-full w-3/5 mx-auto animate-pulse" />
+              <div className="space-y-2 max-w-md md:max-w-xl mx-auto mb-3">
+                <div className="h-3.5 md:h-4 bg-gray-100 rounded-full w-5/6 mx-auto animate-pulse" />
+                <div className="h-3 md:h-3.5 bg-gray-100/80 rounded-full w-3/5 mx-auto animate-pulse" />
               </div>
 
               {/* Pestañas de navegación reales con iconos legibles */}
-              <div className="grid grid-cols-3 gap-1.5 mt-3.5 max-w-lg mx-auto">
-                <div className="py-2 px-1 rounded-2xl bg-gray-100 text-gray-900 text-[11px] sm:text-xs font-black flex flex-col items-center justify-center gap-1">
-                  <LayoutGrid size={17} className="text-gray-900" />
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 md:gap-3 mt-3.5 sm:mt-5 md:mt-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto">
+                <div className="py-2 sm:py-2.5 md:py-3 px-2 sm:px-3 md:px-4 rounded-2xl bg-gray-100 text-gray-900 text-[11px] sm:text-xs md:text-sm font-black flex flex-col items-center justify-center gap-1 md:gap-1.5">
+                  <LayoutGrid size={17} className="text-gray-900 md:w-5 md:h-5" />
                   <span>Catálogo</span>
                 </div>
-                <div className="py-2 px-1 rounded-2xl text-gray-400 text-[11px] sm:text-xs font-black flex flex-col items-center justify-center gap-1">
-                  <Store size={17} className="text-gray-400" />
+                <div className="py-2 sm:py-2.5 md:py-3 px-2 sm:px-3 md:px-4 rounded-2xl text-gray-400 text-[11px] sm:text-xs md:text-sm font-black flex flex-col items-center justify-center gap-1 md:gap-1.5">
+                  <Store size={17} className="text-gray-400 md:w-5 md:h-5" />
                   <span>Perfil</span>
                 </div>
-                <div className="py-2 px-1 rounded-2xl text-gray-400 text-[11px] sm:text-xs font-black flex flex-col items-center justify-center gap-1">
-                  <Star size={17} className="text-gray-400" />
+                <div className="py-2 sm:py-2.5 md:py-3 px-2 sm:px-3 md:px-4 rounded-2xl text-gray-400 text-[11px] sm:text-xs md:text-sm font-black flex flex-col items-center justify-center gap-1 md:gap-1.5">
+                  <Star size={17} className="text-gray-400 md:w-5 md:h-5" />
                   <span>Opiniones</span>
                 </div>
               </div>
@@ -1557,7 +1557,7 @@ function RestaurantContent() {
         )}
 
         {/* Portada con logo superpuesto */}
-        <div className="relative w-full h-36 sm:h-48 bg-gray-200">
+        <div className="relative w-full h-36 sm:h-48 md:h-64 lg:h-72 xl:h-80 bg-gray-200">
           {business.coverImage ? (
             <img
               src={business.coverImage}
@@ -1570,7 +1570,6 @@ function RestaurantContent() {
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200" />
           )}
-          {/* Botón compartir eliminado de aquí para estar en las pestañas */}
           {/* Logo con estilo premium */}
           <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
             {business.image && (
@@ -1579,7 +1578,7 @@ function RestaurantContent() {
                 <img
                   src={business.image}
                   alt={business.name}
-                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl object-cover relative z-10 bg-white"
+                  className="w-24 h-24 sm:w-32 sm:h-32 md:w-36 md:h-36 lg:w-40 lg:h-40 xl:w-44 xl:h-44 rounded-full border-[5px] md:border-[6px] lg:border-[7px] border-white shadow-2xl object-cover relative z-10 bg-white"
                   loading="eager"
                   fetchPriority="high"
                   decoding="async"
@@ -1590,13 +1589,13 @@ function RestaurantContent() {
         </div>
 
         {/* Contenido debajo de la portada - Diseño Premium con separación adecuada del logo */}
-        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-3 sm:pb-4 text-center relative">
+        <div className="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 pt-16 sm:pt-20 md:pt-24 lg:pt-28 pb-4 sm:pb-6 md:pb-7 text-center relative">
           {/* Botones de acción (Favorito y Compartir) sutiles debajo de la portada alineados a la derecha */}
-          <div className="absolute right-4 sm:right-6 top-3 sm:top-4 z-10 flex items-center gap-2">
+          <div className="absolute right-4 sm:right-6 md:right-8 top-3 sm:top-4 md:top-6 z-10 flex items-center gap-2 md:gap-3">
             {/* Botón Favorito */}
             <button
               onClick={handleToggleFavorite}
-              className={`w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white transition-all active:scale-95 cursor-pointer ${
+              className={`w-8 h-8 sm:w-9 sm:h-9 md:w-11 md:h-11 flex items-center justify-center rounded-full bg-white/90 hover:bg-white transition-all active:scale-95 cursor-pointer shadow-xs hover:shadow-md border border-gray-100 ${
                 isFavorite
                   ? 'text-red-600'
                   : 'text-gray-400 hover:text-gray-900'
@@ -1606,36 +1605,36 @@ function RestaurantContent() {
             >
               <Heart
                 size={16}
-                className={isFavorite ? 'fill-red-600 text-red-600' : 'text-gray-400'}
+                className={`md:w-5 md:h-5 ${isFavorite ? 'fill-red-600 text-red-600' : 'text-gray-400'}`}
               />
             </button>
 
             {/* Botón Compartir */}
             <button
               onClick={copyStoreLink}
-              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 transition-all active:scale-95 cursor-pointer"
+              className="w-8 h-8 sm:w-9 sm:h-9 md:w-11 md:h-11 flex items-center justify-center rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-900 transition-all active:scale-95 cursor-pointer shadow-xs hover:shadow-md border border-gray-100"
               title="Compartir tienda"
               aria-label="Compartir tienda"
             >
-              <Share2 size={16} />
+              <Share2 size={16} className="md:w-5 md:h-5" />
             </button>
           </div>
 
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <div className="relative inline-flex items-center justify-center mb-1">
+              <div className="relative inline-flex items-center justify-center mb-1 md:mb-2">
                 {/* Elemento invisible compensador a la izquierda con el mismo offset óptico */}
-                <div className="invisible shrink-0 pointer-events-none p-1 translate-y-[4px]" aria-hidden="true">
-                  <span className="w-3.5 h-3.5 block" />
+                <div className="invisible shrink-0 pointer-events-none p-1 translate-y-[4px] md:translate-y-[6px]" aria-hidden="true">
+                  <span className="w-3.5 h-3.5 md:w-4 md:h-4 block" />
                 </div>
 
-                <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight text-center px-1.5">
+                <h1 className="text-3xl sm:text-4xl md:text-4xl lg:text-5xl font-black text-gray-900 tracking-tight leading-tight text-center px-1.5 md:px-3">
                   {business.name}
                 </h1>
 
                 {/* Punto indicador de Estado perfectamente calibrado al centro óptico de las letras */}
                 <div
-                  className="relative inline-flex items-center shrink-0 translate-y-[4px]"
+                  className="relative inline-flex items-center shrink-0 translate-y-[4px] md:translate-y-[6px]"
                   ref={statusPopoverRef}
                 >
                   <button
@@ -1649,7 +1648,7 @@ function RestaurantContent() {
                   >
                     <span
                       suppressHydrationWarning
-                      className={`w-3.5 h-3.5 rounded-full transition-all ${
+                      className={`w-3.5 h-3.5 md:w-4 md:h-4 rounded-full transition-all ${
                         storeIsOpen
                           ? 'bg-emerald-500 ring-4 ring-emerald-100 animate-pulse'
                           : 'bg-rose-500 ring-4 ring-rose-100'
@@ -1713,10 +1712,10 @@ function RestaurantContent() {
               </div>
 
               {business.description && (
-                <div className="mt-2 max-w-2xl mx-auto text-center">
+                <div className="mt-2 md:mt-3 max-w-2xl md:max-w-3xl mx-auto text-center">
                   <p
                     onClick={() => business.description.length > 120 && setIsDescriptionExpanded(!isDescriptionExpanded)}
-                    className={`text-gray-500 text-sm sm:text-base leading-relaxed ${
+                    className={`text-gray-500 font-medium text-sm sm:text-base md:text-lg leading-relaxed ${
                       business.description.length > 120 ? 'cursor-pointer select-none hover:text-gray-700 transition-colors' : ''
                     }`}
                   >
@@ -1742,47 +1741,47 @@ function RestaurantContent() {
 
               {/* Selector de Sucursales (si tiene más de 1) */}
               {branches.length > 1 && (
-                <div className="flex justify-center mt-3">
+                <div className="flex justify-center mt-3 md:mt-4">
                   <button
                     onClick={() => setShowBranchModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 shadow-sm transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 md:gap-2 px-3.5 md:px-4 py-1 md:py-1.5 rounded-full text-xs md:text-sm font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 shadow-sm transition-all cursor-pointer"
                   >
                     <i className="bi bi-geo-alt-fill text-rose-500"></i>
                     <span>
                       {business.branchName || (business.isBranch ? 'Sucursal' : 'Matriz')}
                     </span>
-                    <i className="bi bi-chevron-down text-[10px] ml-0.5 opacity-70"></i>
+                    <i className="bi bi-chevron-down text-[10px] md:text-xs ml-0.5 opacity-70"></i>
                   </button>
                 </div>
               )}
 
               {/* Navegación por Pestañas - Icono Arriba y Texto Abajo */}
-              <div className={`grid ${isOwner ? 'grid-cols-4' : 'grid-cols-3'} gap-1.5 mt-3.5 max-w-lg mx-auto`}>
+              <div className={`grid ${isOwner ? 'grid-cols-4' : 'grid-cols-3'} gap-1.5 sm:gap-2 md:gap-3 mt-3.5 sm:mt-5 md:mt-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto`}>
                 <button
                   onClick={() => setActiveTab('catalogo')}
-                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                  className={`py-2 sm:py-2.5 md:py-3 px-2 sm:px-3 md:px-4 rounded-2xl text-[11px] sm:text-xs md:text-sm font-black transition-all flex flex-col items-center justify-center gap-1 md:gap-1.5 active:scale-95 cursor-pointer ${
                     activeTab === 'catalogo'
-                      ? 'bg-gray-100 text-gray-900'
+                      ? 'bg-gray-100 text-gray-900 shadow-2xs'
                       : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
                   <LayoutGrid
                     size={17}
-                    className={activeTab === 'catalogo' ? 'text-gray-900' : 'text-gray-400'}
+                    className={`transition-colors ${activeTab === 'catalogo' ? 'text-gray-900' : 'text-gray-400'} md:w-5 md:h-5`}
                   />
                   <span>Catálogo</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('perfil')}
-                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                  className={`py-2 sm:py-2.5 md:py-3 px-2 sm:px-3 md:px-4 rounded-2xl text-[11px] sm:text-xs md:text-sm font-black transition-all flex flex-col items-center justify-center gap-1 md:gap-1.5 active:scale-95 cursor-pointer ${
                     activeTab === 'perfil'
-                      ? 'bg-gray-100 text-gray-900'
+                      ? 'bg-gray-100 text-gray-900 shadow-2xs'
                       : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
                   <Store
                     size={17}
-                    className={activeTab === 'perfil' ? 'text-gray-900' : 'text-gray-400'}
+                    className={`transition-colors ${activeTab === 'perfil' ? 'text-gray-900' : 'text-gray-400'} md:w-5 md:h-5`}
                   />
                   <span>Perfil</span>
                 </button>
@@ -1790,19 +1789,19 @@ function RestaurantContent() {
                   onClick={() => setActiveTab('calificaciones')}
                   onPointerEnter={prefetchRatings}
                   onTouchStart={prefetchRatings}
-                  className={`py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black transition-all flex flex-col items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                  className={`py-2 sm:py-2.5 md:py-3 px-2 sm:px-3 md:px-4 rounded-2xl text-[11px] sm:text-xs md:text-sm font-black transition-all flex flex-col items-center justify-center gap-1 md:gap-1.5 active:scale-95 cursor-pointer ${
                     activeTab === 'calificaciones'
-                      ? 'bg-gray-100 text-gray-900'
+                      ? 'bg-gray-100 text-gray-900 shadow-2xs'
                       : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
                   <div className="relative flex items-center justify-center">
                     <Star
                       size={17}
-                      className={activeTab === 'calificaciones' || (business.ratingAverage || 0) > 0 ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}
+                      className={`md:w-5 md:h-5 ${activeTab === 'calificaciones' || (business.ratingAverage || 0) > 0 ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}`}
                     />
                     {(business.ratingAverage || 0) > 0 && (
-                      <span className="absolute -top-1.5 -right-3 text-[9px] text-amber-700 font-extrabold bg-amber-100 px-1 py-0.2 rounded-full leading-none">
+                      <span className="absolute -top-1.5 -right-3 text-[9px] md:text-[10px] text-amber-700 font-extrabold bg-amber-100 px-1 md:px-1.5 py-0.2 rounded-full leading-none">
                         {business.ratingAverage?.toFixed(1)}
                       </span>
                     )}
@@ -1812,11 +1811,11 @@ function RestaurantContent() {
                 {isOwner && (
                   <Link
                     href="/business/dashboard"
-                    className="py-2 px-1 rounded-2xl text-[11px] sm:text-xs font-black text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                    className="py-2 sm:py-2.5 md:py-3 px-2 sm:px-3 md:px-4 rounded-2xl text-[11px] sm:text-xs md:text-sm font-black text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all flex flex-col items-center justify-center gap-1 md:gap-1.5 active:scale-95"
                   >
                     <Settings
                       size={17}
-                      className="text-gray-400"
+                      className="text-gray-400 md:w-5 md:h-5"
                     />
                     <span>Administrar</span>
                   </Link>
@@ -1829,7 +1828,7 @@ function RestaurantContent() {
 
       {activeTab === 'perfil' ? (
         /* Vista de Perfil - Rediseño coherente con Opiniones */
-        <div className="max-w-2xl mx-auto px-4 pt-3 sm:pt-4 pb-8 sm:pb-12 space-y-4 animate-in fade-in duration-200">
+        <div className="max-w-2xl md:max-w-3xl lg:max-w-4xl mx-auto px-4 pt-4 sm:pt-6 pb-8 sm:pb-12 space-y-4 md:space-y-6 animate-in fade-in duration-200">
           {/* 1. Sobre Nosotros */}
           {business.description && (
             <div className="space-y-1.5">
@@ -1838,8 +1837,8 @@ function RestaurantContent() {
                   Sobre nosotros
                 </span>
               </div>
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-xs">
-                <p className="text-xs sm:text-sm font-medium text-gray-600 leading-relaxed">
+              <div className="bg-white rounded-2xl p-4 sm:p-5 md:p-6 border border-gray-100 shadow-xs">
+                <p className="text-xs sm:text-sm md:text-base font-medium text-gray-600 leading-relaxed">
                   {business.description}
                 </p>
               </div>
@@ -1864,8 +1863,8 @@ function RestaurantContent() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 md:p-6 border border-gray-100 shadow-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
                 {(() => {
                   const daysMap: Record<number, string> = {
                     0: 'sunday',
@@ -1893,7 +1892,7 @@ function RestaurantContent() {
                     return (
                       <div
                         key={key}
-                        className={`flex justify-between items-center text-xs py-2 px-2.5 rounded-xl transition-colors ${
+                        className={`flex justify-between items-center text-xs md:text-sm py-2 px-2.5 rounded-xl transition-colors ${
                           isToday
                             ? 'bg-amber-50/70 text-gray-900 font-bold border border-amber-200/50'
                             : 'text-gray-600 hover:bg-gray-50'
@@ -1902,7 +1901,7 @@ function RestaurantContent() {
                         <span className="flex items-center gap-1.5 font-bold">
                           {label}
                           {isToday && (
-                            <span className="text-[10px] text-amber-700 font-extrabold uppercase tracking-tight">
+                            <span className="text-[10px] md:text-xs text-amber-700 font-extrabold uppercase tracking-tight">
                               (Hoy)
                             </span>
                           )}
@@ -1933,11 +1932,11 @@ function RestaurantContent() {
                 </span>
               </div>
 
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-xs space-y-4">
+              <div className="bg-white rounded-2xl p-4 sm:p-5 md:p-6 border border-gray-100 shadow-xs space-y-4">
                 <div className="flex flex-col sm:flex-row gap-4 items-start">
                   {/* Foto del local */}
                   {(business.pickupSettings.storePhotoUrl || business.locationImage) && (
-                    <div className="w-full sm:w-28 sm:h-28 aspect-video sm:aspect-square rounded-xl overflow-hidden bg-gray-100 border border-gray-100 flex-shrink-0">
+                    <div className="w-full sm:w-28 sm:h-28 md:w-36 md:h-36 aspect-video sm:aspect-square rounded-xl overflow-hidden bg-gray-100 border border-gray-100 flex-shrink-0">
                       <img
                         src={business.pickupSettings.storePhotoUrl || business.locationImage}
                         alt={business.name}
@@ -1952,7 +1951,7 @@ function RestaurantContent() {
                         <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
                           Dirección / Referencias
                         </span>
-                        <p className="text-xs sm:text-sm text-gray-700 font-medium leading-relaxed flex items-start gap-1.5">
+                        <p className="text-xs sm:text-sm md:text-base text-gray-700 font-medium leading-relaxed flex items-start gap-1.5">
                           <i className="bi bi-geo-alt-fill text-red-500 mt-0.5 flex-shrink-0 text-sm"></i>
                           <span>{business.pickupSettings.references}</span>
                         </p>
@@ -1967,11 +1966,11 @@ function RestaurantContent() {
                     href={`https://www.google.com/maps/search/?api=1&query=${business.pickupSettings.latlong}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block relative group rounded-xl overflow-hidden border border-gray-100 shadow-inner h-44 sm:h-48 cursor-pointer"
+                    className="block relative group rounded-xl overflow-hidden border border-gray-100 shadow-inner h-44 sm:h-48 md:h-64 cursor-pointer"
                     title="Abrir ubicación en Google Maps"
                   >
                     <LocationMap latlong={business.pickupSettings.latlong} height="100%" />
-                    <div className="absolute bottom-2.5 right-2.5 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/90 group-hover:bg-white text-gray-800 text-xs font-bold rounded-xl shadow-md backdrop-blur-xs transition-all group-hover:scale-105">
+                    <div className="absolute bottom-2.5 right-2.5 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/90 group-hover:bg-white text-gray-800 text-xs md:text-sm font-bold rounded-xl shadow-md backdrop-blur-xs transition-all group-hover:scale-105">
                       <i className="bi bi-geo-alt-fill text-red-500"></i>
                       <span>Ver en Google Maps</span>
                       <i className="bi bi-arrow-up-right text-[10px] text-gray-400"></i>
@@ -1984,7 +1983,7 @@ function RestaurantContent() {
         </div>
       ) : activeTab === 'calificaciones' ? (
         /* Vista de Calificaciones de la Tienda */
-        <div className="max-w-2xl mx-auto px-4 py-8 sm:py-10">
+        <div className="max-w-2xl md:max-w-3xl lg:max-w-4xl mx-auto px-4 py-8 sm:py-10 md:py-12">
           <StoreRatingsView
             business={business}
             clientPhone={clientPhone}
@@ -1997,7 +1996,7 @@ function RestaurantContent() {
         </div>
       ) : (
         /* Vista de Catálogo (actual) */
-        <div className="max-w-7xl mx-auto px-4 pt-3 sm:pt-4 pb-8 sm:pb-12">
+        <div className="max-w-7xl mx-auto px-4 pt-4 sm:pt-6 pb-12 sm:pb-16">
 
           {loading ? (
             <StoreCatalogProductsSkeleton />
@@ -2039,8 +2038,8 @@ function RestaurantContent() {
             Object.entries(productsByCategory).map(([category, categoryProducts], catIdx) => (
               <div key={category} className="mb-12">
                 {category.toLowerCase() !== 'sin categoría' && category.toLowerCase() !== 'sin categoria' && (
-                  <div className="flex items-center gap-3 mb-3.5 sm:mb-4">
-                    <h3 className="text-lg sm:text-xl font-bold text-gray-800 tracking-wide uppercase">{category}</h3>
+                  <div className="flex items-center gap-3 mb-3.5 sm:mb-4 md:mb-5">
+                    <h3 className="text-lg sm:text-xl md:text-2xl font-black text-gray-900 tracking-tight uppercase">{category}</h3>
                   </div>
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">

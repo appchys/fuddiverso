@@ -261,7 +261,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
 
   return (
     <>
-      <header className={`bg-white/95 backdrop-blur-md shadow-sm border-b fixed top-0 left-0 right-0 z-40 transition-transform duration-300 ${isStorePage && !isHeaderVisible ? '-translate-y-full' : 'translate-y-0'}`}>
+      <header className={`bg-white/95 backdrop-blur-md shadow-sm border-b fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${isStorePage ? 'md:left-20 lg:left-64' : ''} ${isStorePage && !isHeaderVisible ? '-translate-y-full' : 'translate-y-0'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}

@@ -54,12 +54,14 @@ import {
   Delivery,
   QRCode,
   UserQRProgress,
-  Settlement
+  Settlement,
+  CommissionType
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
 import { logDebug } from './debug-log'
 import { resolveItemIngredients, extractBaseVariantName, evaluateProductStock } from './stock-utils'
 import { optimizeImage } from './image-utils'
+import { calculateCommissionPricing, normalizeCommissionRate } from './price-utils'
 
 const NEW_BUSINESS_DEFAULT_COMMISSION_RATE = 10
 const NEW_BUSINESS_DEFAULT_COMMISSION_TYPE = 'fuddi_assumed_by_customer' as const
@@ -1485,6 +1487,132 @@ export async function deleteProduct(productId: string) {
     }
   } catch (error) {
     console.error('Error deleting product:', error)
+    throw error
+  }
+}
+
+/**
+ * Extrae de forma segura el precio base original de un producto o variante antes de comisiones.
+ */
+function extractOriginalStorePrice(item: { price?: number; basePrice?: number; commission?: number; commissionType?: CommissionType }): number {
+  if (typeof item.basePrice === 'number' && !Number.isNaN(item.basePrice) && item.basePrice > 0) {
+    return item.basePrice
+  }
+  const rawPrice = typeof item.price === 'number' && !Number.isNaN(item.price) ? item.price : 0
+  if (
+    (item.commissionType === 'fuddi_assumed_by_customer' || item.commissionType === 'fixed_commission') &&
+    typeof item.commission === 'number' &&
+    item.commission > 0 &&
+    item.commission < rawPrice
+  ) {
+    return rawPrice - item.commission
+  }
+  return rawPrice
+}
+
+/**
+ * Aplica el tipo de comisión y porcentaje a todos los productos (y variantes) de una tienda en Firebase.
+ */
+export async function applyCommissionTypeToBusinessProducts(
+  businessId: string,
+  commissionType: CommissionType,
+  commissionRate?: number,
+  updateBusinessDoc: boolean = true
+): Promise<{ updatedCount: number; products: Product[] }> {
+  try {
+    const normalizedRate = commissionType === 'subscription' ? 0 : normalizeCommissionRate(commissionRate)
+
+    if (updateBusinessDoc) {
+      await updateBusiness(businessId, {
+        defaultCommissionType: commissionType,
+        commissionRate: normalizedRate,
+        updatedAt: new Date()
+      })
+    }
+
+    const products = await getProductsByBusiness(businessId, true)
+    if (products.length === 0) {
+      return { updatedCount: 0, products: [] }
+    }
+
+    const batchSize = 400
+    const updatedProducts: Product[] = []
+    let currentBatch = writeBatch(db)
+    let opCount = 0
+
+    for (const product of products) {
+      const pStorePrice = extractOriginalStorePrice(product)
+      const pPricing = calculateCommissionPricing(
+        pStorePrice,
+        commissionType,
+        normalizedRate,
+        product.commission
+      )
+
+      let updatedVariants: ProductVariant[] | undefined = undefined
+      if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
+        updatedVariants = product.variants.map(v => {
+          const vStorePrice = extractOriginalStorePrice(v)
+          const vPricing = calculateCommissionPricing(
+            vStorePrice,
+            commissionType,
+            normalizedRate,
+            v.commission
+          )
+          return cleanObject({
+            ...v,
+            price: vPricing.publicPrice,
+            basePrice: vPricing.storePrice,
+            commission: vPricing.commission,
+            commissionType: vPricing.commissionType
+          })
+        })
+      }
+
+      const docRef = doc(db, 'products', product.id)
+      const updatePayload: Record<string, any> = {
+        price: pPricing.publicPrice,
+        basePrice: pPricing.storePrice,
+        commission: pPricing.commission,
+        commissionType: pPricing.commissionType,
+        updatedAt: serverTimestamp()
+      }
+      if (updatedVariants !== undefined) {
+        updatePayload.variants = updatedVariants
+      }
+
+      currentBatch.update(docRef, cleanObject(updatePayload))
+      opCount++
+
+      updatedProducts.push({
+        ...product,
+        price: pPricing.publicPrice,
+        basePrice: pPricing.storePrice,
+        commission: pPricing.commission,
+        commissionType: pPricing.commissionType,
+        variants: updatedVariants || product.variants,
+        updatedAt: new Date()
+      })
+
+      if (opCount >= batchSize) {
+        await currentBatch.commit()
+        currentBatch = writeBatch(db)
+        opCount = 0
+      }
+    }
+
+    if (opCount > 0) {
+      await currentBatch.commit()
+    }
+
+    invalidateProductsCache(businessId)
+
+    return {
+      updatedCount: products.length,
+      products: updatedProducts
+    }
+  } catch (error) {
+    console.error('Error applying commission type to all products:', error)
     throw error
   }
 }
