@@ -33,6 +33,11 @@ service cloud.firestore {
         // Eliminación no permitida (mantener historial)
         allow delete: if false;
       }
+
+      // Conversaciones pendientes de WhatsApp Business sincronizadas desde Fuddi Tienda Android
+      match /whatsappPending/{conversationId} {
+        allow read, write: if true;
+      }
       
       // Subcolección de biblioteca de ingredientes
       match /ingredientLibrary/{ingredientId} {

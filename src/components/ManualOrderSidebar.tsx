@@ -163,6 +163,9 @@ interface ManualOrderSidebarProps {
   // Navegación - para que funcione como el DashboardSidebar
   setActiveTab?: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses') => void
   setProfileSubTab?: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
+  initialCustomerPhone?: string | null
+  initialCustomerName?: string | null
+  initialLocationInput?: string | null
 }
 
 export default function ManualOrderSidebar({
@@ -178,7 +181,10 @@ export default function ManualOrderSidebar({
   editOrder,
   onOrderUpdated,
   setActiveTab,
-  setProfileSubTab
+  setProfileSubTab,
+  initialCustomerPhone,
+  initialCustomerName,
+  initialLocationInput
 }: ManualOrderSidebarProps) {
   const [manualOrderData, setManualOrderData] = useState<ManualOrderData>({
     customerId: '',
@@ -827,6 +833,27 @@ export default function ManualOrderSidebar({
       console.error('Error pre-filling edit order:', e)
     }
   }, [isOpen, mode, editOrder, availableDeliveries])
+
+  useEffect(() => {
+    if (!isOpen || mode !== 'create') return
+    const phone = (initialCustomerPhone || '').trim()
+    const name = (initialCustomerName || '').trim()
+    const loc = (initialLocationInput || '').trim()
+    if (!phone && !name && !loc) return
+
+    setManualOrderData(prev => ({
+      ...prev,
+      customerPhone: phone || prev.customerPhone,
+      customerName: name || prev.customerName
+    }))
+
+    if (phone.replace(/\D/g, '').length >= 9) {
+      void executePhoneSearch(phone)
+    }
+    if (loc) {
+      handleLocationInputChange(loc)
+    }
+  }, [isOpen, mode, initialCustomerPhone, initialCustomerName, initialLocationInput])
 
   // Obtener categorías en el orden definido en el negocio
   const getBusinessCategories = (): string[] => {

@@ -98,6 +98,8 @@ const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: f
 import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
 const PaymentManagementModals = dynamic(() => import('@/components/PaymentManagementModals'), { ssr: false })
 const ManualOrderSidebar = dynamic(() => import('@/components/ManualOrderSidebar'), { ssr: false })
+const WhatsAppPendingModal = dynamic(() => import('@/components/WhatsAppPendingModal'), { ssr: false })
+import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal'
 const LiveCheckoutsPanel = dynamic(() => import('@/components/LiveCheckoutsPanel').then(m => m.LiveCheckoutsPanel), { ssr: false })
 
 // Helper to get the display time for an order
@@ -127,6 +129,7 @@ export default function TodayOrdersPage() {
     const [businessesLoaded, setBusinessesLoaded] = useState(false)
     const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
     const [showTimeDropdown, setShowTimeDropdown] = useState(false)
+    const [showMoreMenu, setShowMoreMenu] = useState(false)
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
@@ -172,6 +175,7 @@ export default function TodayOrdersPage() {
     const businessDropdownRef = useRef<HTMLDivElement>(null)
     // Ref for time dropdown container
     const timeDropdownRef = useRef<HTMLDivElement>(null)
+    const moreMenuRef = useRef<HTMLDivElement>(null)
     const printerContainerRef = useRef<HTMLDivElement>(null)
     const processingPrintJobsRef = useRef(new Set<string>())
     const printBridgeIdRef = useRef<string | null>(null)
@@ -385,6 +389,9 @@ export default function TodayOrdersPage() {
     const [selectedOrderForStatusModal, setSelectedOrderForStatusModal] = useState<Order | null>(null)
 
     const [manualOrderSidebarOpen, setManualOrderSidebarOpen] = useState(false)
+    const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
+    const [whatsappPendingConversations, setWhatsappPendingConversations] = useState<PendingWhatsAppConversation[]>([])
+    const [selectedWhatsAppConversation, setSelectedWhatsAppConversation] = useState<PendingWhatsAppConversation | null>(null)
     const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
     const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null)
 
@@ -1675,6 +1682,24 @@ export default function TodayOrdersPage() {
         }
     }, [showBusinessDropdown])
 
+    // Close more menu popover when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+                setShowMoreMenu(false)
+                setShowTimeDropdown(false)
+            }
+        }
+
+        if (showMoreMenu) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [showMoreMenu])
+
     // Close time dropdown when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -1948,6 +1973,67 @@ export default function TodayOrdersPage() {
         setManualSidebarMode('edit')
         setManualOrderSidebarOpen(true)
     }, [])
+
+    useEffect(() => {
+        const bizId = business?.id
+        if (!bizId) {
+            setWhatsappPendingConversations([])
+            return
+        }
+        const q = query(
+            collection(db, 'businesses', bizId, 'whatsappPending'),
+            orderBy('timestampMillis', 'desc')
+        )
+        const unsub = onSnapshot(q, (snap) => {
+            const list: PendingWhatsAppConversation[] = snap.docs.map((d) => {
+                const data = d.data() || {}
+                return {
+                    docId: d.id,
+                    id: data.id || d.id,
+                    phone: data.phone || '',
+                    rawPhone: data.rawPhone || '',
+                    displayName: data.displayName || '',
+                    effectiveName: data.effectiveName || '',
+                    fuddiClientName: data.fuddiClientName || '',
+                    fuddiClientId: data.fuddiClientId || '',
+                    fuddiClientEmail: data.fuddiClientEmail || '',
+                    fuddiClientNotes: data.fuddiClientNotes || '',
+                    isRegisteredClient: Boolean(data.isRegisteredClient),
+                    lastMessage: data.lastMessage || '',
+                    recentMessages: Array.isArray(data.recentMessages) ? data.recentMessages : [],
+                    detectedLocationLink: data.detectedLocationLink || null,
+                    timestampMillis: typeof data.timestampMillis === 'number' ? data.timestampMillis : Date.now(),
+                    unreadCount: typeof data.unreadCount === 'number' ? data.unreadCount : 1
+                }
+            })
+            setWhatsappPendingConversations(list)
+        }, (err) => {
+            console.error('Error listening to whatsappPending:', err)
+        })
+        return () => unsub()
+    }, [business?.id])
+
+    const handleRemoveWhatsAppConversation = useCallback(async (docId: string) => {
+        if (!business?.id || !docId) return
+        try {
+            await deleteDoc(doc(db, 'businesses', business.id, 'whatsappPending', docId))
+        } catch (err) {
+            console.error('Error removing WhatsApp pending conversation:', err)
+        }
+    }, [business?.id])
+
+    const handleClearAllWhatsAppConversations = useCallback(async () => {
+        if (!business?.id || whatsappPendingConversations.length === 0) return
+        try {
+            await Promise.all(
+                whatsappPendingConversations.map((c) =>
+                    deleteDoc(doc(db, 'businesses', business.id, 'whatsappPending', c.docId))
+                )
+            )
+        } catch (err) {
+            console.error('Error clearing WhatsApp pending conversations:', err)
+        }
+    }, [business?.id, whatsappPendingConversations])
 
     const handleCustomerClick = useCallback((order: Order) => {
         setSelectedOrderForCustomerContact(order)
@@ -2613,55 +2699,7 @@ export default function TodayOrdersPage() {
                                         )
                                     })()}
 
-                                    {/* Control del Tiempo de Entrega (Tiempo Añadido) */}
-                                    {business && (
-                                        <div className="relative" ref={timeDropdownRef}>
-                                            <button
-                                                onClick={() => setShowTimeDropdown(!showTimeDropdown)}
-                                                className={`h-9 min-w-[36px] px-2 flex items-center justify-center rounded-lg transition-colors font-black text-xs tracking-tight ${
-                                                    isDeliveryTimeExtended
-                                                        ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 ring-1 ring-amber-300'
-                                                        : 'text-gray-600 bg-gray-100 hover:bg-gray-200 hover:text-gray-900'
-                                                }`}
-                                                title={`Tiempo de preparación: ${currentDeliveryTime} min ${isDeliveryTimeExtended ? '(Tiempo extendido)' : ''} - Clic para ajustar`}
-                                                aria-label="Ajustar tiempo de preparación"
-                                            >
-                                                <span>{currentDeliveryTime}m</span>
-                                            </button>
-
-                                            {showTimeDropdown && (
-                                                <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
-                                                    <div className="px-3.5 py-2 border-b border-gray-100 mb-1">
-                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Tiempo de preparación</p>
-                                                        <p className="text-xs font-bold text-gray-800">Actual: {currentDeliveryTime} min</p>
-                                                    </div>
-                                                    {[5, 10, 30].map((mins) => (
-                                                        <button
-                                                            key={mins}
-                                                            onClick={() => { handleUpdateDeliveryTime(mins); setShowTimeDropdown(false); }}
-                                                            disabled={updatingDeliveryTime}
-                                                            className="w-full px-3.5 py-2 text-left hover:bg-amber-50 hover:text-amber-700 text-xs font-bold flex items-center justify-between transition-colors"
-                                                        >
-                                                            <span>Añadir +{mins} minutos</span>
-                                                            <span className="text-[10px] text-gray-400 font-medium">({configuredDeliveryTime + mins} min)</span>
-                                                        </button>
-                                                    ))}
-                                                    <div className="border-t border-gray-100 mt-1 pt-1">
-                                                        <button
-                                                            onClick={() => { handleUpdateDeliveryTime(0); setShowTimeDropdown(false); }}
-                                                            disabled={updatingDeliveryTime}
-                                                            className="w-full px-3.5 py-2 text-left hover:bg-gray-50 text-xs text-gray-500 font-medium transition-colors"
-                                                        >
-                                                            Restablecer a {configuredDeliveryTime} min
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-
-                                     {/* Conexión de impresora térmica y cola de impresión */}
+                                    {/* Conexión de impresora térmica y cola de impresión */}
                                     <div className="relative" ref={printerContainerRef}>
                                         <button
                                             onClick={() => { setShowPrinterPopover(!showPrinterPopover); setPrinterError('') }}
@@ -2703,69 +2741,187 @@ export default function TodayOrdersPage() {
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
 
-                                    {/* Sincronizar Pedidos y Cola de Impresión */}
-                                    <button
-                                        onClick={handleSyncOrders}
-                                        disabled={isCurrentlySyncing}
-                                        className={`relative p-2 rounded-lg transition-all duration-300 group ${
-                                            isCurrentlySyncing
-                                                ? 'text-blue-600 bg-blue-50/70 hover:bg-blue-100/70'
-                                                : !online
-                                                ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/80'
-                                                : totalPendingChanges > 0
-                                                ? 'text-amber-700 bg-amber-50/80 hover:bg-amber-100 border border-amber-200/60'
-                                                : showSyncedNotice
-                                                ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-                                                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
-                                        }`}
-                                        title={
-                                            isCurrentlySyncing
-                                                ? 'Sincronizando cambios con el servidor...'
-                                                : !online
-                                                ? `Modo sin conexión${totalPendingChanges > 0 ? ` (${totalPendingChanges} cambio${totalPendingChanges !== 1 ? 's' : ''} pendiente${totalPendingChanges !== 1 ? 's' : ''})` : ''}. Clic para reintentar sincronización.`
-                                                : totalPendingChanges > 0
-                                                ? `${totalPendingChanges} cambio${totalPendingChanges !== 1 ? 's' : ''} pendiente${totalPendingChanges !== 1 ? 's' : ''} por subir. Clic para sincronizar ahora.`
-                                                : showSyncedNotice
-                                                ? 'Todo sincronizado con el servidor'
-                                                : 'Sincronizar pedidos y cola de impresión'
-                                        }
-                                        aria-label="Sincronizar pedidos y cola de impresión"
-                                    >
-                                        {/* Ícono dinámico */}
-                                        {showSyncedNotice && !isCurrentlySyncing && totalPendingChanges === 0 ? (
-                                            <i className="bi bi-check2-circle text-xl block text-emerald-600 animate-in fade-in zoom-in-75 duration-300"></i>
-                                        ) : !online && totalPendingChanges === 0 ? (
-                                            <i className="bi bi-wifi-off text-xl block text-amber-600"></i>
-                                        ) : (
-                                            <i
-                                                className={`bi bi-arrow-repeat text-xl block transition-transform ${
-                                                    isCurrentlySyncing
-                                                        ? 'animate-spin text-blue-600'
-                                                        : totalPendingChanges > 0
-                                                        ? 'text-amber-600 group-hover:rotate-180 duration-500'
-                                                        : 'group-hover:rotate-180 duration-500'
-                                                }`}
-                                            ></i>
-                                        )}
+                                    {/* Menú de más acciones (3 puntos) */}
+                                    <div className="relative" ref={moreMenuRef}>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowMoreMenu(!showMoreMenu)
+                                                if (showMoreMenu) setShowTimeDropdown(false)
+                                            }}
+                                            className={`relative p-2 rounded-lg transition-colors ${
+                                                showMoreMenu
+                                                    ? 'bg-gray-200 text-gray-900'
+                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                                            }`}
+                                            title="Más opciones"
+                                            aria-label="Más opciones"
+                                            aria-expanded={showMoreMenu}
+                                        >
+                                            <i className="bi bi-three-dots-vertical text-xl block"></i>
+                                            {(whatsappPendingConversations.length > 0 || totalPendingChanges > 0 || !online) && (
+                                                <span
+                                                    className={`absolute top-1 right-1 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
+                                                        !online || totalPendingChanges > 0 ? 'bg-amber-500' : 'bg-green-600'
+                                                    }`}
+                                                />
+                                            )}
+                                        </button>
 
-                                        {/* Insignia / Badge de cambios pendientes o estado */}
-                                        {totalPendingChanges > 0 ? (
-                                            <span
-                                                className={`absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full text-[10px] font-black text-white shadow-sm ring-2 ring-white ${
-                                                    !online ? 'bg-amber-600' : 'bg-blue-600 animate-pulse'
-                                                }`}
-                                            >
-                                                {totalPendingChanges > 99 ? '99+' : totalPendingChanges}
-                                            </span>
-                                        ) : !online ? (
-                                            <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center">
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 ring-2 ring-white"></span>
-                                            </span>
-                                        ) : showSyncedNotice ? (
-                                            <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse"></span>
-                                        ) : null}
-                                    </button>
+                                        {showMoreMenu && (
+                                            <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
+                                                {/* Mensajes de WhatsApp */}
+                                                {business && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setWhatsappModalOpen(true)
+                                                            setShowMoreMenu(false)
+                                                        }}
+                                                        className="w-full px-3.5 py-2.5 text-left hover:bg-gray-50 flex items-center justify-between transition-colors"
+                                                    >
+                                                        <div className="flex items-center space-x-3">
+                                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                                                whatsappPendingConversations.length > 0
+                                                                    ? 'bg-green-50 text-green-700'
+                                                                    : 'bg-gray-100 text-gray-600'
+                                                            }`}>
+                                                                <i className="bi bi-whatsapp text-base"></i>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-bold text-gray-900">Mensajes de WhatsApp</p>
+                                                                <p className="text-[11px] text-gray-500">
+                                                                    {whatsappPendingConversations.length > 0
+                                                                        ? `${whatsappPendingConversations.length} pendiente${whatsappPendingConversations.length !== 1 ? 's' : ''}`
+                                                                        : 'Sin mensajes pendientes'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        {whatsappPendingConversations.length > 0 && (
+                                                            <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-green-600 text-white text-[10px] font-extrabold flex items-center justify-center">
+                                                                {whatsappPendingConversations.length > 9 ? '9+' : whatsappPendingConversations.length}
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                )}
+
+                                                {/* Tiempo de preparación */}
+                                                {business && (
+                                                    <div className="border-t border-gray-100 mt-1 pt-1" ref={timeDropdownRef}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowTimeDropdown(!showTimeDropdown)}
+                                                            className="w-full px-3.5 py-2.5 text-left hover:bg-gray-50 flex items-center justify-between transition-colors"
+                                                        >
+                                                            <div className="flex items-center space-x-3">
+                                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${
+                                                                    isDeliveryTimeExtended
+                                                                        ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-300'
+                                                                        : 'bg-gray-100 text-gray-600'
+                                                                }`}>
+                                                                    {currentDeliveryTime}m
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-xs font-bold text-gray-900">Tiempo de preparación</p>
+                                                                    <p className="text-[11px] text-gray-500">
+                                                                        Actual: {currentDeliveryTime} min {isDeliveryTimeExtended ? '(Extendido)' : ''}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                            <i className={`bi bi-chevron-${showTimeDropdown ? 'up' : 'down'} text-xs text-gray-400`}></i>
+                                                        </button>
+
+                                                        {showTimeDropdown && (
+                                                            <div className="bg-gray-50/70 px-2 py-1.5 space-y-0.5">
+                                                                {[5, 10, 30].map((mins) => (
+                                                                    <button
+                                                                        key={mins}
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            handleUpdateDeliveryTime(mins)
+                                                                            setShowTimeDropdown(false)
+                                                                            setShowMoreMenu(false)
+                                                                        }}
+                                                                        disabled={updatingDeliveryTime}
+                                                                        className="w-full px-3 py-1.5 rounded-lg text-left hover:bg-amber-50 hover:text-amber-700 text-xs font-bold flex items-center justify-between transition-colors"
+                                                                    >
+                                                                        <span>Añadir +{mins} minutos</span>
+                                                                        <span className="text-[10px] text-gray-400 font-medium">({configuredDeliveryTime + mins} min)</span>
+                                                                    </button>
+                                                                ))}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        handleUpdateDeliveryTime(0)
+                                                                        setShowTimeDropdown(false)
+                                                                        setShowMoreMenu(false)
+                                                                    }}
+                                                                    disabled={updatingDeliveryTime}
+                                                                    className="w-full px-3 py-1.5 rounded-lg text-left hover:bg-gray-100 text-xs text-gray-500 font-medium transition-colors"
+                                                                >
+                                                                    Restablecer a {configuredDeliveryTime} min
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Sincronizar Pedidos y Cola de Impresión */}
+                                                <div className="border-t border-gray-100 mt-1 pt-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            handleSyncOrders()
+                                                            setShowMoreMenu(false)
+                                                        }}
+                                                        disabled={isCurrentlySyncing}
+                                                        className="w-full px-3.5 py-2.5 text-left hover:bg-gray-50 flex items-center justify-between transition-colors disabled:opacity-60"
+                                                    >
+                                                        <div className="flex items-center space-x-3">
+                                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                                                isCurrentlySyncing
+                                                                    ? 'bg-blue-50 text-blue-600'
+                                                                    : !online || totalPendingChanges > 0
+                                                                    ? 'bg-amber-50 text-amber-700'
+                                                                    : showSyncedNotice
+                                                                    ? 'bg-emerald-50 text-emerald-700'
+                                                                    : 'bg-gray-100 text-gray-600'
+                                                            }`}>
+                                                                {showSyncedNotice && !isCurrentlySyncing && totalPendingChanges === 0 ? (
+                                                                    <i className="bi bi-check2-circle text-base"></i>
+                                                                ) : !online && totalPendingChanges === 0 ? (
+                                                                    <i className="bi bi-wifi-off text-base"></i>
+                                                                ) : (
+                                                                    <i className={`bi bi-arrow-repeat text-base ${isCurrentlySyncing ? 'animate-spin' : ''}`}></i>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-bold text-gray-900">Sincronizar</p>
+                                                                <p className="text-[11px] text-gray-500">
+                                                                    {isCurrentlySyncing
+                                                                        ? 'Sincronizando...'
+                                                                        : !online
+                                                                        ? 'Sin conexión'
+                                                                        : totalPendingChanges > 0
+                                                                        ? `${totalPendingChanges} cambio${totalPendingChanges !== 1 ? 's' : ''} pendiente${totalPendingChanges !== 1 ? 's' : ''}`
+                                                                        : showSyncedNotice
+                                                                        ? 'Todo sincronizado'
+                                                                        : 'Pedidos y cola de impresión'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        {totalPendingChanges > 0 && (
+                                                            <span className={`min-w-[20px] h-5 px-1.5 rounded-full text-white text-[10px] font-black flex items-center justify-center ${
+                                                                !online ? 'bg-amber-600' : 'bg-blue-600'
+                                                            }`}>
+                                                                {totalPendingChanges > 99 ? '99+' : totalPendingChanges}
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
 
                                     {/* Business Selector */}
                                     <div className="relative business-dropdown-container" ref={businessDropdownRef}>
@@ -3522,11 +3678,27 @@ export default function TodayOrdersPage() {
                                 }}
                             />
 
+                            <WhatsAppPendingModal
+                                isOpen={whatsappModalOpen}
+                                conversations={whatsappPendingConversations}
+                                onClose={() => setWhatsappModalOpen(false)}
+                                onSelectConversation={(conv) => {
+                                    setSelectedWhatsAppConversation(conv)
+                                    setSelectedOrderForEdit(null)
+                                    setManualSidebarMode('create')
+                                    setWhatsappModalOpen(false)
+                                    setManualOrderSidebarOpen(true)
+                                }}
+                                onRemoveConversation={handleRemoveWhatsAppConversation}
+                                onClearAll={handleClearAllWhatsAppConversations}
+                            />
+
                             <ManualOrderSidebar
                                 isOpen={manualOrderSidebarOpen}
                                 onClose={() => {
                                     setManualOrderSidebarOpen(false)
                                     setSelectedOrderForEdit(null)
+                                    setSelectedWhatsAppConversation(null)
                                     setManualSidebarMode('create')
                                 }}
                                 business={business}
@@ -3534,10 +3706,21 @@ export default function TodayOrdersPage() {
                                 onBusinessChange={handleBusinessChange}
                                 loadingBusinessProducts={productsLoading}
                                 products={products}
+                                initialCustomerPhone={selectedWhatsAppConversation?.phone || null}
+                                initialCustomerName={
+                                    selectedWhatsAppConversation?.fuddiClientName ||
+                                    selectedWhatsAppConversation?.displayName ||
+                                    null
+                                }
+                                initialLocationInput={selectedWhatsAppConversation?.detectedLocationLink || null}
                                 onOrderCreated={(optimisticOrder) => {
                                     if (optimisticOrder) {
                                         setOrders(prev => [optimisticOrder as Order, ...prev])
                                     }
+                                    if (selectedWhatsAppConversation?.docId) {
+                                        void handleRemoveWhatsAppConversation(selectedWhatsAppConversation.docId)
+                                    }
+                                    setSelectedWhatsAppConversation(null)
                                     setManualOrderSidebarOpen(false)
                                 }}
                                 mode={manualSidebarMode}
