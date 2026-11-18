@@ -219,12 +219,12 @@ function HomePageContent() {
       const eligibleForHighlights: Product[] = []
 
       for (const product of rawProducts) {
-        if (!product.image || !product.isAvailable) continue
+        if (!product.isAvailable) continue
         const biz = bizMap.get(product.businessId)
         if (grouped[product.businessId]) {
           grouped[product.businessId].push(product)
         }
-        if (biz && !biz.isHidden && biz.businessType !== 'distributor') {
+        if (biz && !biz.isHidden && biz.businessType !== 'distributor' && product.image) {
           eligibleForHighlights.push({
             ...product,
             businessName: product.businessName || biz.name,
@@ -300,7 +300,7 @@ function HomePageContent() {
         })
 
         const priorityBiz = prioritizedBiz.slice(0, 8)
-        const secondaryBiz = prioritizedBiz.slice(8, 24)
+        const secondaryBiz = prioritizedBiz.slice(8)
 
         const priorityProducts = await getProductsByBusinessesBatch(priorityBiz.map(b => b.id))
         if (!isMounted) return
@@ -392,11 +392,7 @@ function HomePageContent() {
 
   const storyBusinesses = React.useMemo(() => {
     return filteredBusinesses
-      .filter(b => b.businessType !== 'distributor' && !!b.image)
-      .filter(b => {
-        const products = productsByBusiness[b.id]
-        return products !== undefined ? products.length > 0 : true
-      })
+      .filter(b => b.businessType !== 'distributor')
       .sort((a, b) => {
         const aOpen = isStoreOpen(a)
         const bOpen = isStoreOpen(b)
@@ -410,10 +406,6 @@ function HomePageContent() {
   const sortedRestaurants = React.useMemo(() => {
     const filtered = filteredBusinesses
       .filter(b => b.businessType !== 'distributor')
-      .filter(b => {
-        const products = productsByBusiness[b.id]
-        return products && products.length > 0
-      })
 
     const open = filtered.filter(b => isStoreOpen(b))
     const closed = filtered.filter(b => !isStoreOpen(b))
@@ -433,10 +425,6 @@ function HomePageContent() {
   const sortedDistributors = React.useMemo(() => {
     return filteredBusinesses
       .filter(b => b.businessType === 'distributor')
-      .filter(b => {
-        const products = productsByBusiness[b.id]
-        return products && products.length > 0
-      })
       .sort((a, b) => {
         const aLastEdit = getSafeTime(productsByBusiness[a.id]?.[0]?.updatedAt)
         const bLastEdit = getSafeTime(productsByBusiness[b.id]?.[0]?.updatedAt)
@@ -765,7 +753,7 @@ function HomePageContent() {
         if (!pMatch && !bMatch) return false
       }
       const business = businesses.find(b => b.id === product.businessId)
-      if (business && business.isHidden) return false
+      if ((businesses.length > 0 && !business) || business?.isHidden) return false
       const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
       if (!isEligible) return false
 
@@ -799,7 +787,7 @@ function HomePageContent() {
         if (!pMatch && !bMatch) return false
       }
       const business = businesses.find(b => b.id === product.businessId)
-      if (business && business.isHidden) return false
+      if ((businesses.length > 0 && !business) || business?.isHidden) return false
       const isEligible = business ? (business.businessType !== 'distributor' && !!product.image) : !!product.image
       if (!isEligible) return false
 

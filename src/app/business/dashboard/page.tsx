@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product, BusinessAdministrator } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
-import { addDoc, collection, query, where, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDocs, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { addDoc, collection, query, where, orderBy, onSnapshot, doc, setDoc, updateDoc, deleteDoc, getDocs, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
 import {
     getBusiness,
     getProductsByBusiness,
@@ -29,7 +29,8 @@ import {
     getProductsByIds,
     subscribeToBusiness,
     getCachedBusinessById,
-    getProductsByBusinessFromLocalCache
+    getProductsByBusinessFromLocalCache,
+    normalizeWhatsAppConversationPhone
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -99,7 +100,7 @@ import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
 const PaymentManagementModals = dynamic(() => import('@/components/PaymentManagementModals'), { ssr: false })
 const ManualOrderSidebar = dynamic(() => import('@/components/ManualOrderSidebar'), { ssr: false })
 const WhatsAppPendingModal = dynamic(() => import('@/components/WhatsAppPendingModal'), { ssr: false })
-import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal'
+import type { PendingWhatsAppConversation, ExcludedWhatsAppContact } from '@/components/WhatsAppPendingModal'
 const LiveCheckoutsPanel = dynamic(() => import('@/components/LiveCheckoutsPanel').then(m => m.LiveCheckoutsPanel), { ssr: false })
 
 // Helper to get the display time for an order
@@ -391,6 +392,7 @@ export default function TodayOrdersPage() {
     const [manualOrderSidebarOpen, setManualOrderSidebarOpen] = useState(false)
     const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
     const [whatsappPendingConversations, setWhatsappPendingConversations] = useState<PendingWhatsAppConversation[]>([])
+    const [whatsappExcludedContacts, setWhatsappExcludedContacts] = useState<ExcludedWhatsAppContact[]>([])
     const [selectedWhatsAppConversation, setSelectedWhatsAppConversation] = useState<PendingWhatsAppConversation | null>(null)
     const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
     const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null)
@@ -2003,7 +2005,16 @@ export default function TodayOrdersPage() {
                     recentMessages: Array.isArray(data.recentMessages) ? data.recentMessages : [],
                     detectedLocationLink: data.detectedLocationLink || null,
                     timestampMillis: typeof data.timestampMillis === 'number' ? data.timestampMillis : Date.now(),
-                    unreadCount: typeof data.unreadCount === 'number' ? data.unreadCount : 1
+                    unreadCount: typeof data.unreadCount === 'number' ? data.unreadCount : 1,
+                    status: data.status === 'confirmed' || data.status === 'closed' ? data.status : 'pending',
+                    confirmedOrderId: data.confirmedOrderId || '',
+                    confirmedOrderSource: data.confirmedOrderSource || '',
+                    confirmedOrderTotal: typeof data.confirmedOrderTotal === 'number' ? data.confirmedOrderTotal : null,
+                    confirmedOrderSummary: data.confirmedOrderSummary || '',
+                    confirmedAtMillis: typeof data.confirmedAtMillis === 'number' ? data.confirmedAtMillis : null,
+                    closedAtMillis: typeof data.closedAtMillis === 'number' ? data.closedAtMillis : null,
+                    resolvedAtMillis: typeof data.resolvedAtMillis === 'number' ? data.resolvedAtMillis : null,
+                    reopenedAtMillis: typeof data.reopenedAtMillis === 'number' ? data.reopenedAtMillis : null
                 }
             })
             setWhatsappPendingConversations(list)
@@ -2011,6 +2022,65 @@ export default function TodayOrdersPage() {
             console.error('Error listening to whatsappPending:', err)
         })
         return () => unsub()
+    }, [business?.id])
+
+    const whatsappActivePendingCount = useMemo(
+        () => whatsappPendingConversations.filter((c) => (c.status || 'pending') === 'pending').length,
+        [whatsappPendingConversations]
+    )
+
+    const handleCloseWhatsAppConversation = useCallback(async (docId: string) => {
+        if (!business?.id || !docId) return
+        try {
+            const nowMillis = Date.now()
+            await updateDoc(doc(db, 'businesses', business.id, 'whatsappPending', docId), {
+                status: 'closed',
+                closedAtMillis: nowMillis,
+                resolvedAtMillis: nowMillis,
+                unreadCount: 0
+            })
+        } catch (err) {
+            console.error('Error closing WhatsApp conversation:', err)
+        }
+    }, [business?.id])
+
+    const handleReopenWhatsAppConversation = useCallback(async (docId: string) => {
+        if (!business?.id || !docId) return
+        try {
+            await updateDoc(doc(db, 'businesses', business.id, 'whatsappPending', docId), {
+                status: 'pending',
+                reopenedAtMillis: Date.now(),
+                closedAtMillis: null,
+                resolvedAtMillis: null
+            })
+        } catch (err) {
+            console.error('Error reopening WhatsApp conversation:', err)
+        }
+    }, [business?.id])
+
+    const handleConfirmWhatsAppConversation = useCallback(async (docId: string, orderObj?: any) => {
+        if (!business?.id || !docId) return
+        try {
+            const nowMillis = Date.now()
+            const itemsSummary = Array.isArray(orderObj?.items)
+                ? orderObj.items
+                    .map((it: any) => `${it?.quantity || 1}x ${it?.productName || it?.name || 'Producto'}`)
+                    .join(', ')
+                : ''
+            await updateDoc(doc(db, 'businesses', business.id, 'whatsappPending', docId), {
+                status: 'confirmed',
+                confirmedOrderId: orderObj?.id ? String(orderObj.id) : '',
+                confirmedOrderSource: orderObj?.createdByAdmin === false ? 'checkout' : 'manual',
+                confirmedOrderTotal: typeof orderObj?.total === 'number' ? orderObj.total : null,
+                confirmedOrderSummary: itemsSummary,
+                confirmedAtMillis: nowMillis,
+                resolvedAtMillis: nowMillis,
+                reopenedAtMillis: null,
+                unreadCount: 0
+            })
+        } catch (err) {
+            console.error('Error confirming WhatsApp conversation:', err)
+        }
     }, [business?.id])
 
     const handleRemoveWhatsAppConversation = useCallback(async (docId: string) => {
@@ -2022,18 +2092,129 @@ export default function TodayOrdersPage() {
         }
     }, [business?.id])
 
-    const handleClearAllWhatsAppConversations = useCallback(async () => {
-        if (!business?.id || whatsappPendingConversations.length === 0) return
+    useEffect(() => {
+        const bizId = business?.id
+        if (!bizId) {
+            setWhatsappExcludedContacts([])
+            return
+        }
+        const q = query(
+            collection(db, 'businesses', bizId, 'whatsappExcluded'),
+            orderBy('excludedAtMillis', 'desc')
+        )
+        const unsub = onSnapshot(q, (snap) => {
+            const list: ExcludedWhatsAppContact[] = snap.docs.map((d) => {
+                const data = d.data() || {}
+                return {
+                    docId: d.id,
+                    id: data.id || d.id,
+                    phone: data.phone || '',
+                    displayName: data.displayName || '',
+                    excludedAtMillis: typeof data.excludedAtMillis === 'number' ? data.excludedAtMillis : Date.now()
+                }
+            })
+            setWhatsappExcludedContacts(list)
+        }, (err) => {
+            console.error('Error listening to whatsappExcluded:', err)
+        })
+        return () => unsub()
+    }, [business?.id])
+
+    const handleExcludeWhatsAppConversation = useCallback(async (conv: PendingWhatsAppConversation) => {
+        if (!business?.id || !conv) return
         try {
+            const normPhone = normalizeWhatsAppConversationPhone(conv.phone || conv.rawPhone)
+            const excludedId = normPhone.length >= 9 ? `phone:${normPhone}` : conv.id
+            const docId = excludedId.replace(/[^a-zA-Z0-9_:-]/g, '_')
+            await setDoc(doc(db, 'businesses', business.id, 'whatsappExcluded', docId), {
+                id: excludedId,
+                phone: normPhone || conv.phone || '',
+                displayName: conv.effectiveName || conv.fuddiClientName || conv.displayName || '',
+                excludedAtMillis: Date.now()
+            })
+            if (conv.docId) {
+                await deleteDoc(doc(db, 'businesses', business.id, 'whatsappPending', conv.docId))
+            }
+        } catch (err) {
+            console.error('Error excluding WhatsApp contact:', err)
+        }
+    }, [business?.id])
+
+    const handleUnexcludeWhatsAppContact = useCallback(async (docId: string) => {
+        if (!business?.id || !docId) return
+        try {
+            await deleteDoc(doc(db, 'businesses', business.id, 'whatsappExcluded', docId))
+        } catch (err) {
+            console.error('Error unexcluding WhatsApp contact:', err)
+        }
+    }, [business?.id])
+
+    const handleClearAllWhatsAppConversations = useCallback(async () => {
+        const pendingOnes = whatsappPendingConversations.filter((c) => (c.status || 'pending') === 'pending')
+        if (!business?.id || pendingOnes.length === 0) return
+        try {
+            const nowMillis = Date.now()
             await Promise.all(
-                whatsappPendingConversations.map((c) =>
-                    deleteDoc(doc(db, 'businesses', business.id, 'whatsappPending', c.docId))
+                pendingOnes.map((c) =>
+                    updateDoc(doc(db, 'businesses', business.id, 'whatsappPending', c.docId), {
+                        status: 'closed',
+                        closedAtMillis: nowMillis,
+                        resolvedAtMillis: nowMillis,
+                        unreadCount: 0
+                    })
                 )
             )
         } catch (err) {
-            console.error('Error clearing WhatsApp pending conversations:', err)
+            console.error('Error closing WhatsApp pending conversations:', err)
         }
     }, [business?.id, whatsappPendingConversations])
+
+    // Auto-reconciliar conversaciones de WhatsApp con ventas de hoy (manuales o desde checkout)
+    useEffect(() => {
+        if (!business?.id || whatsappPendingConversations.length === 0 || todayOrders.length === 0) return
+        const validTodayOrders = todayOrders.filter(
+            (o: any) => o && o.id && !String(o.id).startsWith('temp-') && o.status !== 'cancelled' && o.status !== 'borrador'
+        )
+        if (validTodayOrders.length === 0) return
+
+        whatsappPendingConversations.forEach((conv) => {
+            const st = conv.status || 'pending'
+            const needsOrderSync =
+                st === 'pending' ||
+                (st === 'confirmed' && (!conv.confirmedOrderId || String(conv.confirmedOrderId).startsWith('temp-')))
+            if (!needsOrderSync) return
+
+            const convPhone = normalizeWhatsAppConversationPhone(conv.phone || conv.rawPhone)
+            const convClientId = (conv.fuddiClientId || '').trim()
+
+            const matchedOrder = validTodayOrders.find((o: any) => {
+                const orderPhone = normalizeWhatsAppConversationPhone(o.customer?.phone)
+                const orderClientId = String(o.customer?.id || (o as any).clientId || '').trim()
+                const phoneMatch = convPhone.length >= 9 && orderPhone === convPhone
+                const clientMatch = Boolean(convClientId && orderClientId && convClientId === orderClientId)
+                if (!phoneMatch && !clientMatch) return false
+
+                if (conv.reopenedAtMillis) {
+                    const rawCreated = o.createdAt as any
+                    const orderMillis = rawCreated?.toDate
+                        ? rawCreated.toDate().getTime()
+                        : rawCreated instanceof Date
+                            ? rawCreated.getTime()
+                            : typeof rawCreated === 'number'
+                                ? rawCreated
+                                : 0
+                    if (orderMillis > 0 && orderMillis <= conv.reopenedAtMillis) {
+                        return false
+                    }
+                }
+                return true
+            })
+
+            if (matchedOrder && conv.confirmedOrderId !== matchedOrder.id) {
+                void handleConfirmWhatsAppConversation(conv.docId, matchedOrder)
+            }
+        })
+    }, [business?.id, whatsappPendingConversations, todayOrders, handleConfirmWhatsAppConversation])
 
     const handleCustomerClick = useCallback((order: Order) => {
         setSelectedOrderForCustomerContact(order)
@@ -2759,7 +2940,7 @@ export default function TodayOrdersPage() {
                                             aria-expanded={showMoreMenu}
                                         >
                                             <i className="bi bi-three-dots-vertical text-xl block"></i>
-                                            {(whatsappPendingConversations.length > 0 || totalPendingChanges > 0 || !online) && (
+                                            {(whatsappActivePendingCount > 0 || totalPendingChanges > 0 || !online) && (
                                                 <span
                                                     className={`absolute top-1 right-1 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
                                                         !online || totalPendingChanges > 0 ? 'bg-amber-500' : 'bg-green-600'
@@ -2782,7 +2963,7 @@ export default function TodayOrdersPage() {
                                                     >
                                                         <div className="flex items-center space-x-3">
                                                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                                                whatsappPendingConversations.length > 0
+                                                                whatsappActivePendingCount > 0
                                                                     ? 'bg-green-50 text-green-700'
                                                                     : 'bg-gray-100 text-gray-600'
                                                             }`}>
@@ -2791,15 +2972,15 @@ export default function TodayOrdersPage() {
                                                             <div>
                                                                 <p className="text-xs font-bold text-gray-900">Mensajes de WhatsApp</p>
                                                                 <p className="text-[11px] text-gray-500">
-                                                                    {whatsappPendingConversations.length > 0
-                                                                        ? `${whatsappPendingConversations.length} pendiente${whatsappPendingConversations.length !== 1 ? 's' : ''}`
+                                                                    {whatsappActivePendingCount > 0
+                                                                        ? `${whatsappActivePendingCount} pendiente${whatsappActivePendingCount !== 1 ? 's' : ''}`
                                                                         : 'Sin mensajes pendientes'}
                                                                 </p>
                                                             </div>
                                                         </div>
-                                                        {whatsappPendingConversations.length > 0 && (
+                                                        {whatsappActivePendingCount > 0 && (
                                                             <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-green-600 text-white text-[10px] font-extrabold flex items-center justify-center">
-                                                                {whatsappPendingConversations.length > 9 ? '9+' : whatsappPendingConversations.length}
+                                                                {whatsappActivePendingCount > 9 ? '9+' : whatsappActivePendingCount}
                                                             </span>
                                                         )}
                                                     </button>
@@ -3681,6 +3862,8 @@ export default function TodayOrdersPage() {
                             <WhatsAppPendingModal
                                 isOpen={whatsappModalOpen}
                                 conversations={whatsappPendingConversations}
+                                excludedContacts={whatsappExcludedContacts}
+                                orders={[...todayOrders, ...orders, ...historicalOrders]}
                                 onClose={() => setWhatsappModalOpen(false)}
                                 onSelectConversation={(conv) => {
                                     setSelectedWhatsAppConversation(conv)
@@ -3689,8 +3872,25 @@ export default function TodayOrdersPage() {
                                     setWhatsappModalOpen(false)
                                     setManualOrderSidebarOpen(true)
                                 }}
+                                onCloseConversation={handleCloseWhatsAppConversation}
+                                onExcludeConversation={handleExcludeWhatsAppConversation}
+                                onUnexcludeContact={handleUnexcludeWhatsAppContact}
+                                onReopenConversation={handleReopenWhatsAppConversation}
                                 onRemoveConversation={handleRemoveWhatsAppConversation}
                                 onClearAll={handleClearAllWhatsAppConversations}
+                                onInspectOrder={(orderId, orderObj) => {
+                                    const found =
+                                        orderObj ||
+                                        orders.find((o) => o.id === orderId) ||
+                                        todayOrders.find((o) => o.id === orderId) ||
+                                        historicalOrders.find((o) => o.id === orderId)
+                                    if (found) {
+                                        setWhatsappModalOpen(false)
+                                        setSelectedOrderForEdit(found as Order)
+                                        setManualSidebarMode('edit')
+                                        setManualOrderSidebarOpen(true)
+                                    }
+                                }}
                             />
 
                             <ManualOrderSidebar
@@ -3718,7 +3918,7 @@ export default function TodayOrdersPage() {
                                         setOrders(prev => [optimisticOrder as Order, ...prev])
                                     }
                                     if (selectedWhatsAppConversation?.docId) {
-                                        void handleRemoveWhatsAppConversation(selectedWhatsAppConversation.docId)
+                                        void handleConfirmWhatsAppConversation(selectedWhatsAppConversation.docId, optimisticOrder)
                                     }
                                     setSelectedWhatsAppConversation(null)
                                     setManualOrderSidebarOpen(false)

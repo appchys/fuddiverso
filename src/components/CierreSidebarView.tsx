@@ -293,7 +293,7 @@ function calculateStoreAccounts(
         if (!acc) {
             acc = {
                 businessId: o.businessId,
-                name: businessesList.find(b => b.id === o.businessId)?.name || (o as any).businessName || `Restaurante ${o.businessId.substring(0, 6)}...`,
+                name: o.businessSnapshot?.name || businessesList.find(b => b.id === o.businessId)?.name || (o as any).businessName || `Restaurante ${o.businessId.substring(0, 6)}...`,
                 orderCount: 0,
                 pendingOrderCount: 0,
                 settledOrderCount: 0,

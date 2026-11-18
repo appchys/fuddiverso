@@ -55,7 +55,7 @@ function prepareInitialStoreProducts(
       if (p.isAvailable === false) return false
       if (p.autoHideByStock && p.isStockAvailable === false) return false
       const ownerBiz = ownerBizs.find(b => b.id === p.businessId)
-      if (!ownerBiz || ownerBiz.isActive === false) return false
+      if (!ownerBiz || ownerBiz.isHidden) return false
       return isStoreOpen(ownerBiz)
     })
     .map(p => {

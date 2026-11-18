@@ -432,8 +432,30 @@ export async function createBusinessFromForm(formData: {
 // Caché en memoria para negocios (evita consultas repetidas en cálculos de cobertura)
 const businessCache = new Map<string, { business: Business; timestamp: number }>()
 export const invalidateBusinessCache = (businessId?: string) => {
-  if (businessId) businessCache.delete(businessId)
-  else businessCache.clear()
+  if (businessId) {
+    const existing = businessCache.get(businessId)?.business || businessByIdCache.get(businessId)?.business
+    businessCache.delete(businessId)
+    businessByIdCache.delete(businessId)
+    if (existing?.username) {
+      businessByUsernameCache.delete(existing.username.toLowerCase())
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.removeItem(`fuddi_biz_${existing.username.toLowerCase()}`)
+        } catch { /* ignore */ }
+      }
+    }
+  } else {
+    businessCache.clear()
+    businessByIdCache.clear()
+    businessByUsernameCache.clear()
+  }
+  cachedBusinesses = null
+  cachedBusinessesTime = 0
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem('home_businesses_v2')
+    } catch { /* ignore */ }
+  }
 }
 
 export async function getBusiness(businessId: string, bypassCache = false): Promise<Business | null> {
@@ -1982,10 +2004,126 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       console.warn('⚠️ Excepción silenciada al actualizar salesCount:', salesError)
     }
 
+    // 5. MARCAR CONVERSACIÓN DE WHATSAPP BUSINESS COMO CONFIRMADA Y VINCULAR ORDEN
+    try {
+      const targetBizIds = Array.from(new Set([
+        standardizedOrder.businessId,
+        ...(Array.isArray(standardizedOrder.businessIds) ? standardizedOrder.businessIds : [])
+      ].filter(Boolean)))
+      if (targetBizIds.length > 0 && standardizedOrder.status !== 'cancelled' && standardizedOrder.status !== 'borrador') {
+        void confirmWhatsAppConversationsForOrder({
+          businessIds: targetBizIds,
+          orderId: docRef.id,
+          customerPhone: standardizedOrder.customer?.phone,
+          customerId: (standardizedOrder.customer as any)?.id || (standardizedOrder as any).clientId,
+          customerName: standardizedOrder.customer?.name,
+          orderSource: standardizedOrder.createdByAdmin ? 'manual' : 'checkout',
+          orderTotal: typeof standardizedOrder.total === 'number' ? standardizedOrder.total : null,
+          items: Array.isArray(standardizedOrder.items) ? standardizedOrder.items : []
+        })
+      }
+    } catch (waErr) {
+      console.warn('⚠️ Excepción silenciada al confirmar conversación de WhatsApp:', waErr)
+    }
+
     return docRef.id
   } catch (error) {
     console.error('Error creating order:', error)
     throw error
+  }
+}
+
+export function normalizeWhatsAppConversationPhone(raw?: string | null): string {
+  if (!raw) return ''
+  let digits = String(raw).replace(/\D/g, '')
+  if (digits.startsWith('00593')) {
+    digits = digits.slice(5)
+  } else if (digits.startsWith('593') && digits.length >= 11) {
+    digits = digits.slice(3)
+  }
+  if (digits.length === 11 && digits.startsWith('009')) {
+    digits = digits.slice(1)
+  } else if (digits.length > 0 && !digits.startsWith('0')) {
+    digits = `0${digits}`
+  }
+  return digits
+}
+
+export async function confirmWhatsAppConversationsForOrder(params: {
+  businessIds: string[]
+  orderId: string
+  customerPhone?: string | null
+  customerId?: string | null
+  customerName?: string | null
+  orderSource?: 'manual' | 'checkout'
+  orderTotal?: number | null
+  items?: any[]
+  explicitDocId?: string | null
+}) {
+  try {
+    const normPhone = normalizeWhatsAppConversationPhone(params.customerPhone)
+    const cleanClientId = (params.customerId || '').trim()
+    const cleanName = (params.customerName || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (!params.orderId || (normPhone.length < 9 && !cleanClientId && !params.explicitDocId && cleanName.length < 3)) {
+      return
+    }
+
+    const itemsSummary = Array.isArray(params.items)
+      ? params.items
+          .map((it: any) => {
+            const qty = it?.quantity || 1
+            const name = it?.productName || it?.name || it?.product?.name || 'Producto'
+            const variant = it?.variant || it?.variantName
+            return `${qty}x ${name}${variant && variant !== name ? ` (${variant})` : ''}`
+          })
+          .join(', ')
+      : ''
+
+    const nowMillis = Date.now()
+    const payload: Record<string, any> = {
+      status: 'confirmed',
+      confirmedOrderId: params.orderId,
+      confirmedOrderSource: params.orderSource || 'manual',
+      confirmedOrderTotal: typeof params.orderTotal === 'number' ? params.orderTotal : null,
+      confirmedOrderSummary: itemsSummary,
+      confirmedAtMillis: nowMillis,
+      resolvedAtMillis: nowMillis,
+      reopenedAtMillis: null,
+      unreadCount: 0
+    }
+
+    for (const bizId of params.businessIds) {
+      if (!bizId) continue
+      const colRef = collection(db, 'businesses', bizId, 'whatsappPending')
+      const snap = await getDocs(colRef)
+      const updates: Promise<any>[] = []
+
+      snap.docs.forEach((docSnap) => {
+        const data = docSnap.data() || {}
+        const docPhone = normalizeWhatsAppConversationPhone(data.phone || data.rawPhone)
+        const docClientId = String(data.fuddiClientId || '').trim()
+        const docName = String(data.effectiveName || data.fuddiClientName || data.displayName || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+
+        const isExplicitMatch = Boolean(params.explicitDocId && docSnap.id === params.explicitDocId)
+        const isPhoneMatch = normPhone.length >= 9 && (docPhone === normPhone || docSnap.id === `phone_${normPhone}` || data.id === `phone:${normPhone}`)
+        const isClientMatch = Boolean(cleanClientId && docClientId && cleanClientId === docClientId)
+        const isNameFallbackMatch = normPhone.length < 9 && !docPhone && cleanName.length >= 4 && cleanName.includes(' ') && docName === cleanName
+
+        if (isExplicitMatch || isPhoneMatch || isClientMatch || isNameFallbackMatch) {
+          updates.push(updateDoc(doc(db, 'businesses', bizId, 'whatsappPending', docSnap.id), payload))
+        }
+      })
+
+      if (updates.length > 0) {
+        await Promise.allSettled(updates)
+      }
+    }
+  } catch (err) {
+    console.warn('[confirmWhatsAppConversationsForOrder] Error:', err)
   }
 }
 
@@ -2971,7 +3109,7 @@ export async function getClientLocations(clientId: string, createdBy?: 'client' 
       q = query(q, where('createdBy', '==', createdBy));
     }
 
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await getDocsSmart(q);
     const locations: ClientLocation[] = [];
 
     querySnapshot.forEach((doc) => {
@@ -2989,7 +3127,10 @@ export async function getClientLocations(clientId: string, createdBy?: 'client' 
       });
     });
 
-    clientLocationsCache.set(cacheKey, { locations, timestamp: Date.now() })
+    // No cachear resultados vacíos provenientes solo de la caché offline (podrían estar incompletos)
+    if (!(querySnapshot.metadata.fromCache && locations.length === 0)) {
+      clientLocationsCache.set(cacheKey, { locations, timestamp: Date.now() })
+    }
     return locations;
   } catch (error) {
     // Si hay un error de permisos u otro, devolver un array vacío para
@@ -3226,10 +3367,12 @@ export async function createClient(clientData: { celular: string; nombres: strin
       payload.notas = clientData.notas
     }
 
-    const clientRef = await addDoc(collection(db, 'clients'), payload);
+    // Generar ID localmente y escribir en una sola operación no bloqueante (commitWrite)
+    // en lugar de addDoc + updateDoc secuenciales que podían colgarse en redes móviles lentas.
+    const clientRef = clientData.id ? doc(db, 'clients', clientData.id) : doc(collection(db, 'clients'));
+    payload.id = clientRef.id;
 
-    // Ensure the document has the correct id field
-    await updateDoc(doc(db, 'clients', clientRef.id), { id: clientRef.id });
+    await commitWrite(setDoc(clientRef, payload), { label: `createClient:${clientRef.id}`, timeoutMs: 8000 });
 
     // Invalidar caché de teléfono
     invalidatePhoneClientCache(clientData.celular);
@@ -3286,7 +3429,7 @@ export async function updateClient(clientId: string, clientData: { celular?: str
     if (clientData.googleUid !== undefined) updateData.googleUid = clientData.googleUid;
     if (clientData.notas !== undefined) updateData.notas = clientData.notas;
 
-    await updateDoc(clientRef, updateData);
+    await commitWrite(updateDoc(clientRef, updateData), { label: `updateClient:${clientId}`, timeoutMs: 8000 });
     if (clientData.celular) {
       invalidatePhoneClientCache(clientData.celular);
     } else {
@@ -3359,7 +3502,8 @@ export async function getLocationsByClient(clientPhone: string): Promise<ClientL
 
 export async function deleteLocation(locationId: string): Promise<void> {
   try {
-    await deleteDoc(doc(db, 'ubicaciones', locationId));
+    // No bloquear la UI esperando al servidor (la escritura queda en cola offline)
+    await commitWrite(deleteDoc(doc(db, 'ubicaciones', locationId)), { label: `deleteLocation:${locationId}`, timeoutMs: 8000 });
     invalidateClientLocationsCache();
   } catch (error) {
     console.error('❌ Error deleting location:', error);
@@ -3370,7 +3514,7 @@ export async function deleteLocation(locationId: string): Promise<void> {
 export async function updateLocation(locationId: string, locationData: Partial<ClientLocation>): Promise<void> {
   try {
     const locationRef = doc(db, 'ubicaciones', locationId);
-    await updateDoc(locationRef, locationData);
+    await commitWrite(updateDoc(locationRef, locationData), { label: `updateLocation:${locationId}`, timeoutMs: 8000 });
     invalidateClientLocationsCache();
   } catch (error) {
     console.error('❌ Error updating location:', error);
@@ -3399,11 +3543,11 @@ export async function createClientLocation(locationData: {
         where('celular', '==', locationData.id_cliente)
       );
 
-      const clientSnapshot = await getDocs(clientQuery);
+      const clientSnapshot = await getDocsSmart(clientQuery);
 
       if (!clientSnapshot.empty) {
         const clientDoc = clientSnapshot.docs[0];
-        clientId = clientDoc.data().id;
+        clientId = clientDoc.data().id || clientDoc.id;
       } else {
         throw new Error('Cliente no encontrado');
       }
@@ -3421,7 +3565,11 @@ export async function createClientLocation(locationData: {
       updatedAt: serverTimestamp()
     });
 
-    const docRef = await addDoc(collection(db, 'ubicaciones'), cleanedData);
+    // Generar el ID localmente y no bloquear esperando la confirmación del servidor:
+    // con persistentLocalCache, addDoc solo resuelve cuando el servidor confirma, lo que
+    // en redes móviles lentas dejaba el botón "Guardando..." colgado indefinidamente.
+    const docRef = doc(collection(db, 'ubicaciones'));
+    await commitWrite(setDoc(docRef, cleanedData), { label: `createClientLocation:${docRef.id}`, timeoutMs: 8000 });
     invalidateClientLocationsCache(clientId);
     return docRef.id;
   } catch (error) {
@@ -4403,7 +4551,14 @@ export function calculateHaversineDistance(
 
 // Caché de detalles de entrega por ubicación (tarifa y zona)
 const deliveryDetailsCache = new Map<string, { data: any; timestamp: number }>()
-export const invalidateDeliveryDetailsCache = () => deliveryDetailsCache.clear()
+// Peticiones en curso: evita que varios efectos del checkout disparen la misma consulta en paralelo
+const deliveryDetailsInFlight = new Map<string, Promise<any>>()
+export const invalidateDeliveryDetailsCache = () => {
+  deliveryDetailsCache.clear()
+  deliveryDetailsInFlight.clear()
+}
+
+type DeliveryDetailsResult = { fee: number; distance?: number; zoneId?: string; zoneName?: string; isOutOfCoverage?: boolean; isInactiveZone?: boolean }
 
 // Función ultra rápida para obtener los detalles de entrega (tarifa y distancia) basada en la ubicación
 export async function getDeliveryDetailsForLocation(
@@ -4411,7 +4566,27 @@ export async function getDeliveryDetailsForLocation(
   businessId?: string,
   preloadedBusiness?: Business | null,
   preloadedZones?: CoverageZone[] | null
-): Promise<{ fee: number; distance?: number; zoneId?: string; zoneName?: string; isOutOfCoverage?: boolean; isInactiveZone?: boolean }> {
+): Promise<DeliveryDetailsResult> {
+  const cacheKey = `${businessId || 'all'}_${location.lat.toFixed(5)}_${location.lng.toFixed(5)}`
+  const cached = deliveryDetailsCache.get(cacheKey)
+  if (cached && (Date.now() - cached.timestamp < 300000)) {
+    return cached.data
+  }
+  const pending = deliveryDetailsInFlight.get(cacheKey)
+  if (pending) return pending
+
+  const promise = computeDeliveryDetailsForLocation(location, businessId, preloadedBusiness, preloadedZones)
+    .finally(() => deliveryDetailsInFlight.delete(cacheKey))
+  deliveryDetailsInFlight.set(cacheKey, promise)
+  return promise
+}
+
+async function computeDeliveryDetailsForLocation(
+  location: { lat: number; lng: number },
+  businessId?: string,
+  preloadedBusiness?: Business | null,
+  preloadedZones?: CoverageZone[] | null
+): Promise<DeliveryDetailsResult> {
   try {
     const cacheKey = `${businessId || 'all'}_${location.lat.toFixed(5)}_${location.lng.toFixed(5)}`
     const cached = deliveryDetailsCache.get(cacheKey)

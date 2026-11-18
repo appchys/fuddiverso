@@ -44,6 +44,10 @@ export interface Business {
     email?: string
   }
   bankAccounts?: BankAccount[]
+  paymentMethods?: {
+    cash: boolean // Efectivo (por defecto true)
+    transfer: boolean // Transferencia (por defecto true)
+  }
   bankAccountMode?: 'fuddi' | 'custom' // Modo de cuentas para transferencia: 'fuddi' (por defecto) o 'custom' (propias de la tienda)
   schedule: {
     [key: string]: {

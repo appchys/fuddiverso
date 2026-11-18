@@ -107,6 +107,7 @@ function AdminLayoutContent({
 
   const navLinks = [
     { href: '/admin', label: 'Negocios', icon: 'bi-shop' },
+    { href: '/admin?tab=map', label: 'Mapa de Tiendas', icon: 'bi-pin-map-fill' },
     { href: '/admin/dashboard', label: 'Métricas y Dashboard', icon: 'bi-bar-chart-fill' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
     { href: '/admin/stores', label: 'Config. Repartos Tiendas', icon: 'bi-sliders' },
@@ -120,6 +121,7 @@ function AdminLayoutContent({
 
   // Rutas secundarias para el menú "Más" en celular
   const secondaryLinks = [
+    { href: '/admin?tab=map', label: 'Mapa de Tiendas', desc: 'Ubicaciones GPS y tiendas sin pin', icon: 'bi-pin-map-fill' },
     { href: '/admin/stores', label: 'Config. Repartos', desc: 'Tarifas, check-in y empaque', icon: 'bi-sliders' },
     { href: '/admin/credits', label: 'Gestión de Saldo', desc: 'Billetera y comisiones', icon: 'bi-wallet2' },
     { href: '/admin/clients', label: 'Clientes por Referencia', desc: 'Directorio y contactos', icon: 'bi-people-fill' },
@@ -240,7 +242,7 @@ function AdminLayoutContent({
               const currentPath = pathname ?? ''
               const currentTab = searchParams?.get('tab')
               const isActive = link.href === '/admin'
-                ? currentPath === '/admin'
+                ? currentPath === '/admin' && !currentTab
                 : link.href.includes('?')
                   ? `${currentPath}?tab=${currentTab || ''}` === link.href
                   : currentPath === link.href && !currentTab

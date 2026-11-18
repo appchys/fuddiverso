@@ -217,7 +217,10 @@ export default function AdminPedidosPage() {
 
     // Store Picker State
     const [businesses, setBusinesses] = useState<Business[]>([])
-    const [businessesLoading, setBusinessesLoading] = useState(true)
+    const [businessesLoading, setBusinessesLoading] = useState(false)
+    const businessesRef = useRef<Business[]>([])
+    const businessesLoadedRef = useRef(false)
+    const businessesInFlightRef = useRef<Promise<Business[]> | null>(null)
     const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>('all')
     const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
@@ -438,29 +441,63 @@ export default function AdminPedidosPage() {
         checkAdminAuth()
     }, [router])
 
-    // 2. Load all businesses once authenticated
-    useEffect(() => {
-        if (!isAuthenticated) return
-        const loadAllStores = async () => {
+    // 2. Restore selected business and load all businesses only on demand
+    const ensureBusinessesLoaded = useCallback(async (): Promise<Business[]> => {
+        if (businessesLoadedRef.current && businessesRef.current.length > 0) {
+            return businessesRef.current
+        }
+        if (businessesInFlightRef.current) {
+            return businessesInFlightRef.current
+        }
+
+        businessesInFlightRef.current = (async () => {
             setBusinessesLoading(true)
             try {
                 const all = await getAllBusinesses()
                 const active = all.filter(b => !b.isHidden)
                 active.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                businessesRef.current = active
+                businessesLoadedRef.current = true
                 setBusinesses(active)
-
-                // Select default
-                const savedId = localStorage.getItem('adminSelectedBusinessId')
-                const currentId = (savedId === 'all' || !savedId) ? 'all' : (active.find(b => b.id === savedId)?.id || 'all')
-                setSelectedBusinessId(currentId)
+                return active
             } catch (err) {
                 console.error("Error fetching businesses", err)
+                return businessesRef.current
             } finally {
                 setBusinessesLoading(false)
+                businessesInFlightRef.current = null
             }
-        }
-        loadAllStores()
+        })()
+
+        return businessesInFlightRef.current
+    }, [])
+
+    useEffect(() => {
+        if (!isAuthenticated) return
+        const savedId = localStorage.getItem('adminSelectedBusinessId')
+        setSelectedBusinessId(savedId || 'all')
     }, [isAuthenticated])
+
+    useEffect(() => {
+        if (!isAuthenticated) return
+        const needsBusinessesList =
+            showBusinessDropdown ||
+            ordersSubTab === 'cierre' ||
+            manualOrderSidebarOpen ||
+            (isMenuSidebarOpen && ['cierre', 'reportes', 'transferencias'].includes(activeSidebarTab))
+
+        if (needsBusinessesList) {
+            ensureBusinessesLoaded()
+        }
+    }, [
+        isAuthenticated,
+        showBusinessDropdown,
+        ordersSubTab,
+        manualOrderSidebarOpen,
+        isMenuSidebarOpen,
+        activeSidebarTab,
+        ensureBusinessesLoaded
+    ])
 
     const handleBusinessChange = (id: string) => {
         setSelectedBusinessId(id)
@@ -485,6 +522,10 @@ export default function AdminPedidosPage() {
         const unsub = onSnapshot(doc(db, 'businesses', selectedBusinessId), (docSnap) => {
             if (docSnap.exists()) {
                 setBusiness({ id: docSnap.id, ...docSnap.data() } as Business)
+            } else {
+                setBusiness(null)
+                setSelectedBusinessId('all')
+                localStorage.setItem('adminSelectedBusinessId', 'all')
             }
         }, (err) => {
             console.error("Error listening to business:", err)
@@ -535,13 +576,15 @@ export default function AdminPedidosPage() {
                 let productsData = await getProductsByBusiness(selectedBusinessId)
                 if (isCancelled) return
                 
-                // Cargar también productos compartidos (usa cache de businesses ya cargados)
+                // Cargar también productos compartidos (usa business ya cargado o businesses en memoria)
                 try {
-                    const biz = await getBusiness(selectedBusinessId)
+                    const biz = (business?.id === selectedBusinessId ? business : null)
+                        || businessesRef.current.find(b => b.id === selectedBusinessId)
+                        || await getBusiness(selectedBusinessId)
                     if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
                         const sharedProducts = await getProductsByIds(biz.sharedProductIds)
-                        // Reusar el array de businesses del estado en lugar de llamar getAllBusinesses() de nuevo
-                        const allBizs = businesses.length > 0 ? businesses : await getAllBusinesses()
+                        // Reusar el array de businesses en memoria antes de consultar Firestore
+                        const allBizs = businessesRef.current.length > 0 ? businessesRef.current : await ensureBusinessesLoaded()
                         const availableShared = sharedProducts
                             .filter(p => {
                                 if (!p.isAvailable) return false
@@ -576,7 +619,7 @@ export default function AdminPedidosPage() {
         }
         fetchProducts()
         return () => { isCancelled = true }
-    }, [selectedBusinessId, shouldLoadProducts, businesses])
+    }, [selectedBusinessId, shouldLoadProducts, business?.id, ensureBusinessesLoaded])
 
     // 6. Real-time orders listener for the selected business
     const isFirstOrdersLoad = useRef(true)
@@ -1207,8 +1250,13 @@ export default function AdminPedidosPage() {
             const isScheduled = previousOrder.timing?.type === 'scheduled';
             const isDelivery = previousOrder.delivery?.type === 'delivery';
             const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
-            // Usar la tienda dueña de la orden (en vista "todas" `business` puede ser otra o null)
-            const orderBusiness = (business?.id === previousOrder.businessId ? business : businesses.find(b => b.id === previousOrder.businessId)) || undefined;
+            // Usar la tienda dueña de la orden (primero business activo o businesses en memoria;
+            // solo consultar Firestore si es delivery sin repartidor asignado)
+            let orderBusiness: Business | undefined =
+                (business?.id === previousOrder.businessId ? business : businessesRef.current.find(b => b.id === previousOrder.businessId)) || undefined;
+            if (!orderBusiness && isDelivery && hasNoDeliveryAssigned && previousOrder.businessId) {
+                orderBusiness = (await getBusiness(previousOrder.businessId)) || undefined;
+            }
             const isAutoAssignMode = orderBusiness?.deliveryAssignmentMode !== 'manual';
 
             if (isDelivery && hasNoDeliveryAssigned && isAutoAssignMode) {
@@ -1339,9 +1387,39 @@ export default function AdminPedidosPage() {
         setPaymentModalOpen(true)
     }
 
+    const buildBusinessFromOrderSnapshot = (order: Order): Business | null => {
+        const snap = order.businessSnapshot
+        if (!snap) return null
+        return {
+            id: snap.id || order.businessId,
+            name: snap.name,
+            phone: snap.phone || '',
+            image: snap.logo,
+            username: snap.username,
+            latlong: snap.latlong,
+            references: snap.references,
+            storePhotoUrl: snap.storePhotoUrl,
+            pickupSettings: snap.pickupSettings
+        } as unknown as Business
+    }
+
+    const resolveOrderBusiness = async (order: Order): Promise<Business | null> => {
+        if (business?.id === order.businessId) return business
+        const inMemory = businessesRef.current.find(b => b.id === order.businessId)
+        if (inMemory) return inMemory
+        const fromSnapshot = buildBusinessFromOrderSnapshot(order)
+        if (fromSnapshot) return fromSnapshot
+        if (!order.businessId) return business
+        try {
+            return (await getBusiness(order.businessId)) || business
+        } catch {
+            return business
+        }
+    }
+
     const handleSendWhatsAppToDelivery = async (order: Order) => {
         try {
-            const orderBusiness = businesses.find(b => b.id === order.businessId) || business
+            const orderBusiness = await resolveOrderBusiness(order)
             await sendWhatsAppToDelivery(order, availableDeliveries, orderBusiness)
         } catch (e) {
             console.error("Error sending WhatsApp", e)
@@ -1351,7 +1429,7 @@ export default function AdminPedidosPage() {
 
     const handleSendWhatsAppToStore = async (order: Order) => {
         try {
-            const orderBusiness = businesses.find(b => b.id === order.businessId) || business
+            const orderBusiness = await resolveOrderBusiness(order)
             if (!orderBusiness) {
                 alert("No se encontró la información de la tienda")
                 return
@@ -1380,7 +1458,7 @@ export default function AdminPedidosPage() {
             showToastMessage('Imprimiendo...', 'bi-printer')
         }
         try {
-            const orderBusiness = businesses.find(b => b.id === order.businessId) || business
+            const orderBusiness = await resolveOrderBusiness(order)
             if (printMode === 'bluetooth') {
                 const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
                 await printOrderBluetooth({

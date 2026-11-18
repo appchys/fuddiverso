@@ -274,7 +274,7 @@ export default function OrderStatusColumn({
                                     <div className="space-y-3">
                                         {group.orders.map((order: any) => {
                                             const bizName = selectedBusinessId === 'all'
-                                                ? businesses?.find((b: any) => b.id === order.businessId)?.name
+                                                ? (order.businessSnapshot?.name || businesses?.find((b: any) => b.id === order.businessId)?.name)
                                                 : undefined
                                             return (
                                                 <OrderCard

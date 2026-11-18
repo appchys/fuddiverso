@@ -177,7 +177,7 @@ export default function ReportesSidebarView({
 
             if (o.businessId) {
                 if (!g.businessBreakdown[o.businessId]) {
-                    const bizName = businesses.find(b => b.id === o.businessId)?.name || (o as any).businessName || `Restaurante ${o.businessId.substring(0, 6)}...`
+                    const bizName = o.businessSnapshot?.name || businesses.find(b => b.id === o.businessId)?.name || (o as any).businessName || `Restaurante ${o.businessId.substring(0, 6)}...`
                     g.businessBreakdown[o.businessId] = {
                         name: bizName,
                         sales: 0,
@@ -243,7 +243,7 @@ export default function ReportesSidebarView({
             }
 
             if (!commissionByBiz[o.businessId]) {
-                const bizName = businesses.find(b => b.id === o.businessId)?.name || (o as any).businessName || `Restaurante ${o.businessId.substring(0, 6)}...`
+                const bizName = o.businessSnapshot?.name || businesses.find(b => b.id === o.businessId)?.name || (o as any).businessName || `Restaurante ${o.businessId.substring(0, 6)}...`
                 commissionByBiz[o.businessId] = {
                     name: bizName,
                     commission: 0

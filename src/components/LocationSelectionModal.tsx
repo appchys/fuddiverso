@@ -1,9 +1,9 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
-import { ClientLocation, createClientLocation, getDeliveryFeeForLocation, getDeliveryDetailsForLocation, deleteLocation, updateLocation, uploadImage } from '@/lib/database'
-import { storage } from '@/lib/firebase'
+import { ClientLocation, createClientLocation, getDeliveryDetailsForLocation, deleteLocation, updateLocation, uploadImage } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
+import type { Business } from '@/types'
 
 interface NewLocationData {
     latlong: string
@@ -24,11 +24,54 @@ interface LocationSelectionModalProps {
     selectedLocationId?: string
     onLocationDeleted?: (locationId: string) => void
     onLocationUpdated?: (location: ClientLocation) => void
+    /** Negocio precargado: evita volver a descargarlo en cada cálculo de tarifa */
+    business?: Business | null
 }
 
 const DEFAULT_MANUAL_LAT = -1.861971
 const DEFAULT_MANUAL_LNG = -79.978529
 const DEFAULT_MANUAL_LATLONG = `${DEFAULT_MANUAL_LAT}, ${DEFAULT_MANUAL_LNG}`
+
+// Tiempos máximos para no dejar al cliente esperando indefinidamente
+const GPS_TIMEOUT_MS = 15000
+const FEE_TIMEOUT_MS = 8000
+const PHOTO_UPLOAD_TIMEOUT_MS = 25000
+
+class TimeoutError extends Error {
+    constructor(label: string) {
+        super(`Timeout: ${label}`)
+        this.name = 'TimeoutError'
+    }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new TimeoutError(label)), ms)
+    })
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timer) clearTimeout(timer)
+    })
+}
+
+/** Optimiza y sube la foto de referencia. Lanza error si falla (el llamador decide si continuar sin foto). */
+async function uploadLocationPhoto(file: File, clientId: string): Promise<string> {
+    const timestamp = Date.now()
+    const safeName = file.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()
+    const fileName = `locations/${clientId}_${timestamp}_${safeName}.jpg`
+
+    let blob: Blob = file
+    try {
+        // Max 1000px, 0.8 calidad, JPEG para compatibilidad
+        blob = await optimizeImage(file, 1000, 0.8, 'image/jpeg')
+    } catch (error) {
+        // p. ej. HEIC en navegadores que no lo decodifican: subir el original
+        console.warn('No se pudo optimizar la foto de ubicación, se sube el original:', error)
+    }
+
+    // Se pasa el Blob (no File) para que uploadImage no vuelva a comprimir la imagen
+    return withTimeout(uploadImage(blob, fileName), PHOTO_UPLOAD_TIMEOUT_MS, 'photo-upload')
+}
 
 export default function LocationSelectionModal({
     isOpen,
@@ -41,7 +84,8 @@ export default function LocationSelectionModal({
     initialAddingState = false,
     selectedLocationId,
     onLocationDeleted,
-    onLocationUpdated
+    onLocationUpdated,
+    business
 }: LocationSelectionModalProps) {
     // Estado local para controlar si estamos seleccionando o agregando
     const [isAddingNewLocation, setIsAddingNewLocation] = useState(initialAddingState)
@@ -58,9 +102,16 @@ export default function LocationSelectionModal({
     const [locationImagePreview, setLocationImagePreview] = useState<string>('')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [isResolvingDeliveryFee, setIsResolvingDeliveryFee] = useState(false)
+    const [feeResolutionFailed, setFeeResolutionFailed] = useState(false)
     const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
     const [isInsideCoverage, setIsInsideCoverage] = useState<boolean>(false)
     const [selectingLocationId, setSelectingLocationId] = useState<string | null>(null)
+
+    // Identificadores de petición: descartan respuestas tardías (GPS / tarifa) que ya no aplican
+    const feeRequestIdRef = useRef(0)
+    const geoRequestIdRef = useRef(0)
+    // Evita doble envío por doble toque antes de que React re-renderice el botón deshabilitado
+    const submittingRef = useRef(false)
 
     useEffect(() => {
         if (typeof window !== 'undefined' && window.innerWidth >= 768) {
@@ -69,6 +120,10 @@ export default function LocationSelectionModal({
     }, [])
 
     const resetLocationForm = useCallback(() => {
+        // Invalidar cualquier GPS / cálculo de tarifa en curso
+        feeRequestIdRef.current++
+        geoRequestIdRef.current++
+        setIsRequestingLocation(false)
         setIsManualMode(false)
         setHasMovedPin(false)
         setGpsAttempts(0)
@@ -77,7 +132,9 @@ export default function LocationSelectionModal({
         setLocationImageFile(null)
         setLocationImagePreview('')
         setIsSubmitting(false)
+        submittingRef.current = false
         setIsResolvingDeliveryFee(false)
+        setFeeResolutionFailed(false)
         setCalculatedDistance(null)
         setIsInsideCoverage(false)
     }, [])
@@ -88,20 +145,25 @@ export default function LocationSelectionModal({
         resetLocationForm()
     }, [resetLocationForm])
 
-
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden'
             setSelectingLocationId(null)
+            // Si el cliente no tiene direcciones guardadas, ir directo al formulario (un toque menos)
+            setIsAddingNewLocation(initialAddingState || clientLocations.length === 0)
         } else {
             document.body.style.overflow = ''
             setEditingLocation(null)
             setSelectingLocationId(null)
+            setOpenMenuId(null)
+            setIsAddingNewLocation(false)
             resetLocationForm()
         }
         return () => {
             document.body.style.overflow = ''
         }
+        // Solo reaccionar a la apertura/cierre del modal
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, resetLocationForm])
 
     useEffect(() => {
@@ -111,80 +173,88 @@ export default function LocationSelectionModal({
         }
     }, [isAddingNewLocation, resetLocationForm])
 
-    // Helper para calcular tarifa
-    const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
+    // Helper puro para calcular tarifa (con tiempo límite para no bloquear el guardado)
+    const calculateDeliveryFee = useCallback(async ({ lat, lng }: { lat: number; lng: number }) => {
+        if (!businessId) {
+            return { fee: 0, zoneName: 'Sin especificar', isOutOfCoverage: false, distance: undefined as number | undefined, failed: false }
+        }
         try {
-            if (!businessId) {
-                setIsInsideCoverage(true);
-                return { fee: 0, zoneName: 'Sin especificar', isOutOfCoverage: false }
-            }
-            const details = await getDeliveryDetailsForLocation({ lat, lng }, businessId)
+            const details = await withTimeout(
+                getDeliveryDetailsForLocation({ lat, lng }, businessId, business ?? undefined),
+                FEE_TIMEOUT_MS,
+                'delivery-fee'
+            )
             const { fee, distance, zoneName, isOutOfCoverage } = details
-            
-            // Si no está fuera de cobertura, está dentro
-            setIsInsideCoverage(!isOutOfCoverage);
-            
-            if (distance !== undefined) {
-                setCalculatedDistance(distance);
-            } else {
-                setCalculatedDistance(null);
-            }
             return {
                 fee: typeof fee === 'number' ? fee : 0,
                 zoneName: zoneName || (isOutOfCoverage ? 'Sin cobertura' : 'Zona de cobertura'),
-                isOutOfCoverage: !!isOutOfCoverage
+                isOutOfCoverage: !!isOutOfCoverage,
+                distance,
+                failed: false
             }
         } catch (error) {
             console.error('Error calculating delivery fee:', error)
-            setIsInsideCoverage(false);
-            return { fee: 0, zoneName: 'Error', isOutOfCoverage: true }
+            return { fee: 0, zoneName: '', isOutOfCoverage: true, distance: undefined as number | undefined, failed: true }
         }
-    }
+    }, [businessId, business])
+
+    const resolveDeliveryFeeValue = useCallback(async (lat: number, lng: number) => {
+        const requestId = ++feeRequestIdRef.current
+        setIsResolvingDeliveryFee(true)
+        try {
+            let tarifa = '1.25'
+            let sector = 'Sin especificar'
+            let insideCoverage = true
+            let distance: number | undefined
+            let failed = false
+            if (businessId) {
+                const result = await calculateDeliveryFee({ lat, lng })
+                tarifa = result.fee.toFixed(2)
+                sector = result.zoneName
+                insideCoverage = !result.isOutOfCoverage
+                distance = result.distance
+                failed = result.failed
+            }
+
+            // Respuesta tardía de una posición anterior: descartar
+            if (requestId !== feeRequestIdRef.current) return null
+
+            setIsInsideCoverage(insideCoverage)
+            setCalculatedDistance(distance !== undefined ? distance : null)
+            setFeeResolutionFailed(failed)
+            return { tarifa, sector }
+        } finally {
+            if (requestId === feeRequestIdRef.current) {
+                setIsResolvingDeliveryFee(false)
+            }
+        }
+    }, [businessId, calculateDeliveryFee])
+
+    // Función para manejar cambio de ubicación en el mapa / GPS
+    const handleLocationChange = useCallback(async (lat: number, lng: number) => {
+        const isDefaultLocation = Math.abs(lat - DEFAULT_MANUAL_LAT) < 0.0001 && Math.abs(lng - DEFAULT_MANUAL_LNG) < 0.0001
+        if (!isDefaultLocation) {
+            setHasMovedPin(true)
+        }
+
+        const latlong = `${lat}, ${lng}`
+        // Actualizar las coordenadas de inmediato (no esperar a la tarifa) para que el
+        // mapa no "salte" a la posición anterior mientras se calcula
+        setNewLocationData(prev => ({ ...prev, latlong }))
+
+        const result = await resolveDeliveryFeeValue(lat, lng)
+        if (!result) return
+
+        setNewLocationData(prev => prev.latlong === latlong
+            ? { ...prev, tarifa: result.tarifa, sector: result.sector }
+            : prev
+        )
+    }, [resolveDeliveryFeeValue])
 
     // Función para obtener ubicación actual
     const getCurrentLocation = () => {
         setLocationPermissionError(null)
-        if (navigator.geolocation) {
-            setIsRequestingLocation(true)
-            navigator.geolocation.getCurrentPosition(
-                async (position) => {
-                    const { latitude, longitude } = position.coords;
-                    const latlong = `${latitude}, ${longitude}`
-
-                    let tarifa = '1.25'
-                    let sector = 'Sin especificar'
-                    // Calcular tarifa inicial
-                    if (businessId) {
-                        const { fee, zoneName } = await calculateDeliveryFee({ lat: latitude, lng: longitude })
-                        tarifa = (typeof fee === 'number' ? fee : 0).toFixed(2)
-                        sector = zoneName
-                    }
-
-                    setNewLocationData(prev => ({
-                        ...prev,
-                        latlong,
-                        tarifa,
-                        sector
-                    }));
-                    setHasMovedPin(true)
-                    setIsRequestingLocation(false)
-                },
-                (error) => {
-                    console.error('Error getting location:', error);
-                    setIsRequestingLocation(false)
-                    setGpsAttempts(prev => prev + 1)
-                    if (error.code === error.PERMISSION_DENIED) {
-                        setLocationPermissionError('Permiso de ubicación denegado.')
-                    } else if (error.code === error.POSITION_UNAVAILABLE) {
-                        setLocationPermissionError('Ubicación no disponible.')
-                    } else if (error.code === error.TIMEOUT) {
-                        setLocationPermissionError('Tiempo de espera agotado.')
-                    } else {
-                        setLocationPermissionError('Error al obtener ubicación.')
-                    }
-                }
-            );
-        } else {
+        if (typeof navigator === 'undefined' || !navigator.geolocation) {
             // Coordenadas por defecto si no hay geolocalización
             setIsManualMode(true)
             setHasMovedPin(false)
@@ -195,10 +265,54 @@ export default function LocationSelectionModal({
                 sector: ''
             }));
             setLocationPermissionError('Geolocalización no soportada por el navegador.')
+            return
         }
+
+        if (isRequestingLocation) return
+
+        const geoId = ++geoRequestIdRef.current
+        setIsRequestingLocation(true)
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                // El modal se cerró o el cliente eligió modo manual mientras esperábamos
+                if (geoId !== geoRequestIdRef.current) return
+                setIsRequestingLocation(false)
+                const { latitude, longitude } = position.coords
+                setHasMovedPin(true)
+                void handleLocationChange(latitude, longitude)
+            },
+            (error) => {
+                if (geoId !== geoRequestIdRef.current) return
+                console.error('Error getting location:', error);
+                setIsRequestingLocation(false)
+                setGpsAttempts(prev => prev + 1)
+                if (error.code === error.PERMISSION_DENIED) {
+                    setLocationPermissionError('Permiso de ubicación denegado.')
+                } else if (error.code === error.POSITION_UNAVAILABLE) {
+                    setLocationPermissionError('Ubicación no disponible. Verifica que el GPS esté activado.')
+                } else if (error.code === error.TIMEOUT) {
+                    setLocationPermissionError('Tiempo de espera agotado al obtener tu ubicación.')
+                } else {
+                    setLocationPermissionError('Error al obtener ubicación.')
+                }
+            },
+            {
+                // Sin timeout, algunos navegadores (WebViews de Instagram/Facebook, iOS) se quedan
+                // esperando para siempre y el cliente nunca veía la opción manual
+                enableHighAccuracy: true,
+                timeout: GPS_TIMEOUT_MS,
+                maximumAge: 30000
+            }
+        );
     }
 
     const handleManualLocation = () => {
+        // Ignorar una respuesta de GPS que llegue después de elegir modo manual
+        geoRequestIdRef.current++
+        feeRequestIdRef.current++
+        setIsRequestingLocation(false)
+        setIsResolvingDeliveryFee(false)
+        setFeeResolutionFailed(false)
         setIsManualMode(true)
         setHasMovedPin(false)
         setNewLocationData(prev => ({
@@ -209,39 +323,6 @@ export default function LocationSelectionModal({
         }))
         setLocationPermissionError(null)
     }
-
-    const resolveDeliveryFeeValue = useCallback(async (lat: number, lng: number) => {
-        setIsResolvingDeliveryFee(true)
-        let tarifa = '1.25'
-        let sector = 'Sin especificar'
-        try {
-            if (businessId) {
-                const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
-                tarifa = (typeof fee === 'number' ? fee : 0).toFixed(2)
-                sector = zoneName
-            }
-        } finally {
-            setIsResolvingDeliveryFee(false)
-        }
-        return { tarifa, sector }
-    }, [businessId])
-
-    // Función para manejar cambio de ubicación en el mapa
-    const handleLocationChange = useCallback(async (lat: number, lng: number) => {
-        const isDefaultLocation = Math.abs(lat - DEFAULT_MANUAL_LAT) < 0.0001 && Math.abs(lng - DEFAULT_MANUAL_LNG) < 0.0001
-        if (!isDefaultLocation) {
-            setHasMovedPin(true)
-        }
-
-        const { tarifa, sector } = await resolveDeliveryFeeValue(lat, lng)
-
-        setNewLocationData(prev => ({
-            ...prev,
-            latlong: `${lat}, ${lng}`,
-            tarifa,
-            sector
-        }));
-    }, [resolveDeliveryFeeValue]);
 
     // Memorizar las coordenadas del mapa
     const mapCoordinates = useMemo(() => {
@@ -282,12 +363,12 @@ export default function LocationSelectionModal({
             try {
                 const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()));
                 if (!isNaN(lat) && !isNaN(lng)) {
-                    const { tarifa, sector } = await resolveDeliveryFeeValue(lat, lng);
-                    setNewLocationData(prev => ({
-                        ...prev,
-                        tarifa,
-                        sector
-                    }));
+                    const result = await resolveDeliveryFeeValue(lat, lng);
+                    if (!result) return;
+                    setNewLocationData(prev => prev.latlong === location.latlong
+                        ? { ...prev, tarifa: result.tarifa, sector: result.sector }
+                        : prev
+                    );
                 }
             } catch (error) {
                 console.error('Error loading location details for edit:', error);
@@ -296,34 +377,37 @@ export default function LocationSelectionModal({
     }
 
     const handleSaveNewLocation = async () => {
+        if (submittingRef.current) return;
+
         if (isManualMode && !hasMovedPin) {
             alert('Por favor mueve el pin en el mapa para ubicar tu dirección.');
             return;
         }
 
-        if (!clientId || !newLocationData.latlong || !newLocationData.referencia) {
-            alert('Por favor completa todos los campos requeridos');
+        if (!clientId) {
+            alert('No pudimos identificar tu cuenta. Completa tus datos (nombre y teléfono) y vuelve a intentarlo.');
             return;
         }
 
+        const referencia = newLocationData.referencia.trim();
+        if (!newLocationData.latlong || !referencia) {
+            alert('Por favor ubica tu dirección en el mapa y escribe una referencia.');
+            return;
+        }
+
+        submittingRef.current = true;
         setIsSubmitting(true);
-        let photoUrl = '';
         try {
+            // La foto es opcional: si falla o tarda demasiado, guardar la ubicación sin foto
+            let photoUrl = '';
+            let photoFailed = false;
             if (locationImageFile) {
-                const timestamp = Date.now();
-                const safeName = locationImageFile.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-                const extension = 'jpg';
-                const fileName = `locations/${clientId}_${timestamp}_${safeName}.${extension}`;
-
-                // Optimizar imagen antes de subir (Max 1000px, 0.8 calidad, formato JPEG para compatibilidad)
-                const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
-                const optimizedFile = new File(
-                    [optimizedBlob],
-                    `${timestamp}_${safeName}.${extension}`,
-                    { type: 'image/jpeg' }
-                );
-
-                photoUrl = await uploadImage(optimizedFile, fileName);
+                try {
+                    photoUrl = await uploadLocationPhoto(locationImageFile, clientId);
+                } catch (photoError) {
+                    console.warn('No se pudo subir la foto de referencia, se guarda sin foto:', photoError);
+                    photoFailed = true;
+                }
             }
 
             const sectorToSave = newLocationData.sector || 'Sin especificar';
@@ -331,7 +415,7 @@ export default function LocationSelectionModal({
             const locationId = await createClientLocation({
                 id_cliente: clientId,
                 latlong: newLocationData.latlong,
-                referencia: newLocationData.referencia,
+                referencia,
                 tarifa: newLocationData.tarifa,
                 sector: sectorToSave,
                 createdBy: 'client',
@@ -342,56 +426,59 @@ export default function LocationSelectionModal({
                 id: locationId,
                 id_cliente: clientId,
                 latlong: newLocationData.latlong,
-                referencia: newLocationData.referencia,
+                referencia,
                 sector: sectorToSave,
                 tarifa: newLocationData.tarifa,
                 ...(photoUrl && { photo: photoUrl })
             };
 
             onLocationCreated(newLocation);
-            setNewLocationData({ latlong: '', referencia: '', tarifa: '1.25', sector: '' }); // Reset
-            setLocationImageFile(null);
-            setLocationImagePreview('');
             setIsAddingNewLocation(false);
+
+            if (photoFailed) {
+                alert('Tu ubicación se guardó, pero no pudimos subir la foto por la conexión. Puedes agregarla luego editando la dirección.');
+            }
         } catch (error) {
             console.error('❌ Error saving location:', error);
-            alert('Error al guardar la ubicación. Por favor intenta de nuevo.');
+            alert('Error al guardar la ubicación. Revisa tu conexión e intenta de nuevo.');
         } finally {
+            submittingRef.current = false;
             setIsSubmitting(false);
         }
     }
 
     const handleUpdateExistingLocation = async () => {
-        if (!editingLocation || !newLocationData.latlong || !newLocationData.referencia) {
-            alert('Por favor completa todos los campos requeridos');
+        if (submittingRef.current) return;
+
+        const referencia = newLocationData.referencia.trim();
+        if (!editingLocation || !newLocationData.latlong || !referencia) {
+            alert('Por favor ubica tu dirección en el mapa y escribe una referencia.');
             return;
         }
 
+        submittingRef.current = true;
         setIsSubmitting(true);
-        let photoUrl = locationImagePreview ? editingLocation.photo || locationImagePreview : '';
+        // Si el usuario quitó la vista previa, se elimina la foto; si no, se conserva la anterior
+        let photoUrl = locationImagePreview ? (editingLocation.photo || '') : '';
+        let photoFailed = false;
 
         try {
             if (locationImageFile) {
-                const timestamp = Date.now();
-                const safeName = locationImageFile.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-                const extension = 'jpg';
-                const fileName = `locations/${clientId}_${timestamp}_${safeName}.${extension}`;
-
-                const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
-                const optimizedFile = new File(
-                    [optimizedBlob],
-                    `${timestamp}_${safeName}.${extension}`,
-                    { type: 'image/jpeg' }
-                );
-
-                photoUrl = await uploadImage(optimizedFile, fileName);
+                try {
+                    photoUrl = await uploadLocationPhoto(locationImageFile, clientId);
+                } catch (photoError) {
+                    console.warn('No se pudo subir la nueva foto, se conserva la anterior:', photoError);
+                    photoFailed = true;
+                    // Nunca guardar la vista previa base64 en Firestore
+                    photoUrl = editingLocation.photo || '';
+                }
             }
 
             const sectorToSave = newLocationData.sector || editingLocation.sector || 'Sin especificar';
 
             await updateLocation(editingLocation.id, {
                 latlong: newLocationData.latlong,
-                referencia: newLocationData.referencia,
+                referencia,
                 tarifa: newLocationData.tarifa,
                 sector: sectorToSave,
                 photo: photoUrl
@@ -400,7 +487,7 @@ export default function LocationSelectionModal({
             const updatedLocation: ClientLocation = {
                 ...editingLocation,
                 latlong: newLocationData.latlong,
-                referencia: newLocationData.referencia,
+                referencia,
                 tarifa: newLocationData.tarifa,
                 sector: sectorToSave,
                 ...(photoUrl ? { photo: photoUrl } : {})
@@ -415,10 +502,15 @@ export default function LocationSelectionModal({
             }
 
             exitLocationForm();
+
+            if (photoFailed) {
+                alert('Los cambios se guardaron, pero no pudimos subir la nueva foto por la conexión.');
+            }
         } catch (error) {
             console.error('Error updating location:', error);
-            alert('Error al actualizar la ubicación. Por favor intenta de nuevo.');
+            alert('Error al actualizar la ubicación. Revisa tu conexión e intenta de nuevo.');
         } finally {
+            submittingRef.current = false;
             setIsSubmitting(false);
         }
     }
@@ -497,10 +589,10 @@ export default function LocationSelectionModal({
                 <div className="px-6 pt-6 pb-4 bg-white border-b border-gray-100 shrink-0 flex items-center justify-between z-10">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => isAddingNewLocation ? exitLocationForm() : onClose()}
+                            onClick={() => (isAddingNewLocation && sortedLocations.length > 0) ? exitLocationForm() : onClose()}
                             className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
                         >
-                            {isAddingNewLocation ? (
+                            {isAddingNewLocation && sortedLocations.length > 0 ? (
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                                 </svg>
@@ -694,13 +786,20 @@ export default function LocationSelectionModal({
                                             )}
                                         </>
                                     ) : (
-                                        <button
-                                            type="button"
+                                        <div
+                                            role="button"
+                                            tabIndex={0}
                                             onClick={(e) => {
                                                 e.preventDefault()
                                                 getCurrentLocation()
                                             }}
-                                            className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 text-center hover:bg-gray-100 transition-colors"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault()
+                                                    getCurrentLocation()
+                                                }
+                                            }}
+                                            className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 text-center hover:bg-gray-100 transition-colors cursor-pointer"
                                         >
                                             <div className="w-12 h-12 bg-white rounded-full shadow-sm flex items-center justify-center mb-3 text-gray-400">
                                                 <i className="bi bi-crosshair text-xl"></i>
@@ -715,21 +814,23 @@ export default function LocationSelectionModal({
                                                     Obteniendo ubicación...
                                                 </span>
                                             )}
-                                            {(gpsAttempts >= 1 || locationPermissionError) && !isRequestingLocation && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        e.preventDefault();
-                                                        handleManualLocation()
-                                                    }}
-                                                    className="mt-6 font-bold text-sm bg-gray-900 text-white py-3 px-6 rounded-xl shadow hover:bg-black transition-all shadow-black/20 transform active:scale-95"
-                                                >
-                                                    <i className="bi bi-map mr-2"></i>
-                                                    Buscar manualmente
-                                                </button>
-                                            )}
-                                        </button>
+                                            {/* Siempre disponible: si el GPS no responde (permiso ignorado, WebView sin GPS) el cliente no queda atrapado */}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    e.preventDefault();
+                                                    handleManualLocation()
+                                                }}
+                                                className={`mt-4 font-bold text-sm py-2.5 px-5 rounded-xl transition-all transform active:scale-95 ${(gpsAttempts >= 1 || locationPermissionError)
+                                                    ? 'bg-gray-900 text-white shadow shadow-black/20 hover:bg-black'
+                                                    : 'bg-white text-gray-800 border border-gray-200 hover:bg-gray-50'
+                                                    }`}
+                                            >
+                                                <i className="bi bi-map mr-2"></i>
+                                                Buscar manualmente
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
                                 {locationPermissionError && !isManualMode && (
@@ -788,7 +889,9 @@ export default function LocationSelectionModal({
                                         </div>
                                         {!isInsideCoverage && !isResolvingDeliveryFee && (
                                             <p className="text-xs text-amber-700 mt-1">
-                                                Tu ubicación parece estar fuera de nuestra zona principal. Revisaremos la tarifa al confirmar.
+                                                {feeResolutionFailed
+                                                    ? 'No pudimos calcular la tarifa por la conexión. Puedes guardar la dirección; la tarifa se recalculará al confirmar.'
+                                                    : 'Tu ubicación parece estar fuera de nuestra zona principal. Revisaremos la tarifa al confirmar.'}
                                             </p>
                                         )}
                                     </div>
@@ -881,7 +984,7 @@ export default function LocationSelectionModal({
                         <div className="flex gap-3">
                             <button
                                 className="flex-1 bg-white border border-gray-200 text-gray-700 py-3.5 rounded-xl hover:bg-gray-50 transition-all font-bold text-sm shadow-sm"
-                                onClick={exitLocationForm}
+                                onClick={() => sortedLocations.length > 0 ? exitLocationForm() : onClose()}
                             >
                                 Cancelar
                             </button>

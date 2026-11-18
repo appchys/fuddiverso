@@ -557,7 +557,7 @@ export default function TransferenciasSidebarView({
                                                 const refDate = getOrderReferenceDate(order)
                                                 const timeFormatted = refDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })
                                                 const isMixed = order.payment?.method === 'mixed'
-                                                const businessName = businesses.find(b => b.id === order.businessId)?.name
+                                                const businessName = order.businessSnapshot?.name || businesses.find(b => b.id === order.businessId)?.name
 
                                                 return (
                                                     <div key={order.id} className="bg-white rounded-xl border border-slate-200/80 p-3.5 space-y-3 shadow-2xs hover:border-slate-300 transition-colors">

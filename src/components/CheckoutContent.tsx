@@ -453,6 +453,7 @@ export function CheckoutContent({
 
   // Verificar disponibilidad de delivery y repartidores por zona para la ubicación seleccionada
   useEffect(() => {
+    let cancelled = false
     const checkLocationDelivery = async () => {
       if (deliveryData.type !== 'delivery' || !selectedLocation?.latlong) {
         setIsLocationDeliveryAvailable(true)
@@ -469,10 +470,12 @@ export function CheckoutContent({
         }
 
         const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id, business)
+        if (cancelled) return
 
         // Si la tienda usa servicio Fuddi y no está fuera de cobertura, verificar si hay repartidores activos asignados
         if (business?.deliveryServiceType === 'fuddi' && !details.isOutOfCoverage) {
           const assignedDeliveryId = await getDeliveryForLocation({ lat, lng }, business?.id)
+          if (cancelled) return
           if (!assignedDeliveryId) {
             setIsLocationDeliveryAvailable(false)
             setLocationDeliveryUnavailableReason('no_deliveries_in_zone')
@@ -483,6 +486,7 @@ export function CheckoutContent({
         setIsLocationDeliveryAvailable(true)
         setLocationDeliveryUnavailableReason(null)
       } catch (error) {
+        if (cancelled) return
         console.error('Error checking location delivery availability:', error)
         setIsLocationDeliveryAvailable(true)
         setLocationDeliveryUnavailableReason(null)
@@ -490,6 +494,8 @@ export function CheckoutContent({
     }
 
     void checkLocationDelivery()
+    // Descartar respuestas de una ubicación anterior si el cliente cambió de dirección
+    return () => { cancelled = true }
   }, [
     selectedLocation?.latlong,
     selectedLocation?.tarifa,
@@ -499,17 +505,25 @@ export function CheckoutContent({
     business?.deliveryZoneSettings
   ])
 
-  // Deshabilitar/resetear transferencia si el delivery no está disponible para la ubicación seleccionada
+  const acceptsCash = business?.paymentMethods?.cash ?? true
+  const acceptsTransfer = business?.paymentMethods?.transfer ?? true
+
+  // Deshabilitar/resetear método de pago si no está habilitado o si el delivery no está disponible para la ubicación seleccionada
   useEffect(() => {
-    if (deliveryData.type === 'delivery' && !isLocationDeliveryAvailable && paymentData.method === 'transfer') {
+    if (paymentData.method === 'transfer' && (!acceptsTransfer || (deliveryData.type === 'delivery' && !isLocationDeliveryAvailable))) {
       setPaymentData(prev => ({
         ...prev,
-        method: 'cash',
+        method: acceptsCash ? 'cash' : '',
         selectedBank: '',
         receiptImageUrl: ''
       }))
+    } else if (paymentData.method === 'cash' && !acceptsCash) {
+      setPaymentData(prev => ({
+        ...prev,
+        method: ''
+      }))
     }
-  }, [deliveryData.type, isLocationDeliveryAvailable, paymentData.method])
+  }, [acceptsCash, acceptsTransfer, deliveryData.type, isLocationDeliveryAvailable, paymentData.method])
 
   // Cuentas de Fuddi por defecto
   const FUDDI_BANK_ACCOUNTS: BankAccount[] = useMemo(() => [
@@ -907,6 +921,7 @@ export function CheckoutContent({
 
   // Verificar zona al seleccionar ubicación
   useEffect(() => {
+    let cancelled = false
     const checkZone = async () => {
       if (!selectedLocation?.latlong || deliveryData.type !== 'delivery') {
         setSelectedZoneId(null)
@@ -915,13 +930,15 @@ export function CheckoutContent({
       try {
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) { setSelectedZoneId(null); return }
+        // Comparte la petición en curso / caché con el resto de cálculos (dedupe en lib/database)
         const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id, business)
-        setSelectedZoneId(details.zoneId || null)
+        if (!cancelled) setSelectedZoneId(details.zoneId || null)
       } catch (e) {
-        setSelectedZoneId(null)
+        if (!cancelled) setSelectedZoneId(null)
       }
     }
     void checkZone()
+    return () => { cancelled = true }
   }, [selectedLocation?.latlong, deliveryData.type, business?.id])
 
   // Campaña activa final (con verificación de zona)
@@ -1064,7 +1081,7 @@ export function CheckoutContent({
 
   // Cargar ubicaciones guardadas del cliente loggeado (funciona tanto embebido como /checkout)
   useEffect(() => {
-    if (!user?.id) {
+    if (!effectiveClientId) {
       setClientLocations([])
       setSelectedLocation(null)
       return
@@ -1079,7 +1096,7 @@ export function CheckoutContent({
     const loadUserLocations = async () => {
       setLoadingLocations(true)
       try {
-        const rawLocations = await getClientLocations(user.id)
+        const rawLocations = await getClientLocations(effectiveClientId)
         // Filtrar estrictamente solo ubicaciones con coordenadas válidas para el cliente
         const locations = (rawLocations || []).filter(l => isValidLatLong(l?.latlong))
         setClientLocations(locations)
@@ -1146,14 +1163,14 @@ export function CheckoutContent({
     }
 
     void loadUserLocations()
-  }, [user?.id])
+  }, [effectiveClientId])
 
   // Escuchar cambios de ubicación globales (ej. desde UserSidebar)
   useEffect(() => {
     const handleLocationChanged = async () => {
-      if (!user?.id) return
+      if (!effectiveClientId) return
       try {
-        const rawLocations = await getClientLocations(user.id)
+        const rawLocations = await getClientLocations(effectiveClientId)
         const locations = (rawLocations || []).filter(l => {
           if (!l?.latlong || typeof l.latlong !== 'string' || l.latlong.startsWith('pluscode:')) return false;
           const parts = l.latlong.split(',').map(n => parseFloat(n.trim()));
@@ -1173,7 +1190,7 @@ export function CheckoutContent({
 
     window.addEventListener('location-changed', handleLocationChanged)
     return () => window.removeEventListener('location-changed', handleLocationChanged)
-  }, [user?.id])
+  }, [effectiveClientId])
 
   // Helper para calcular tarifa usando la función compartida en lib/database
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
@@ -1387,13 +1404,13 @@ export function CheckoutContent({
 
   // Función para abrir el modal
   const openLocationModal = async () => {
+    let resolvedClientId = effectiveClientId;
+
     // Si no hay cliente pero ya escribió nombre y teléfono, crearlo automáticamente
-    if (!effectiveClientId && customerData.name && customerData.phone && showNameField) {
+    if (!resolvedClientId && customerData.name.trim() && customerData.phone.trim()) {
       setLoadingLocations(true);
       try {
-        await handleCreateClient();
-        // Esperamos un momento para que el estado se actualice
-        await new Promise(resolve => setTimeout(resolve, 300));
+        resolvedClientId = (await handleCreateClient()) || '';
       } catch (error) {
         console.error('Error creating client before opening location modal:', error);
       } finally {
@@ -1401,7 +1418,7 @@ export function CheckoutContent({
       }
     }
 
-    if (!effectiveClientId && !user && !clientFound) {
+    if (!resolvedClientId && !user && !clientFound) {
       alert('Por favor, completa el Paso 1 (Tus Datos) para poder agregar una dirección.');
       const step1 = document.getElementById('step-1');
       if (step1) step1.scrollIntoView({ behavior: 'smooth' });
@@ -1565,11 +1582,11 @@ export function CheckoutContent({
     }
   };
 
-  // Función para crear nuevo cliente
-  async function handleCreateClient() {
+  // Función para crear nuevo cliente (retorna el clientId resuelto)
+  async function handleCreateClient(): Promise<string | null> {
     if (!customerData.phone || !customerData.name) {
       setNameError('El nombre es requerido');
-      return;
+      return null;
     }
 
     // Normalizar el número antes de crear el cliente
@@ -1597,7 +1614,7 @@ export function CheckoutContent({
 
         // Auto-login del cliente actualizado
         login(updatedClient as any);
-        return;
+        return clientFound.id;
       }
 
       const newClient = await createClient({
@@ -1606,12 +1623,14 @@ export function CheckoutContent({
         fecha_de_registro: new Date().toISOString()
       });
 
-      // Registrar login desde Checkout
+      // Registrar login desde Checkout en segundo plano (no bloquear al usuario)
       if (newClient && newClient.id) {
-        await updateClient(newClient.id, {
+        updateClient(newClient.id, {
           lastRegistrationAt: serverTimestamp(),
           lastLoginAt: serverTimestamp(),
           loginSource: 'checkout'
+        }).catch(err => {
+          console.warn('Advertencia no crítica al registrar login en checkout:', err);
         });
       }
 
@@ -1632,12 +1651,16 @@ export function CheckoutContent({
 
       // Auto-login del nuevo cliente
       login(clientData as any);
+      return newClient.id;
     } catch (error) {
       console.error('Error creating/updating client:', error);
       setNameError('Error al crear el cliente. Intenta nuevamente.');
+      return null;
     }
   }
 
+
+  const tariffRequestIdRef = useRef(0)
 
   // Función unificada para seleccionar una ubicación del cliente
   const handleLocationSelect = async (location: ClientLocation) => {
@@ -1674,10 +1697,13 @@ export function CheckoutContent({
 
     // Si hay coordenadas, calcular la tarifa automáticamente en segundo plano para asegurar que sea fresca
     if (location.latlong) {
+      const requestId = ++tariffRequestIdRef.current
       setCalculatingTariff(true)
       try {
         const [lat, lng] = [latCheck, lngCheck]
         const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+        if (requestId !== tariffRequestIdRef.current) return
+
         const feeStr = (typeof fee === 'number' ? fee : 0).toString()
         const sectorName = zoneName || location.sector || 'Sin especificar'
 
@@ -1699,7 +1725,9 @@ export function CheckoutContent({
       } catch (error) {
         console.error('Error calculating automatic delivery fee:', error)
       } finally {
-        setCalculatingTariff(false)
+        if (requestId === tariffRequestIdRef.current) {
+          setCalculatingTariff(false)
+        }
       }
     }
   }
@@ -2045,8 +2073,8 @@ export function CheckoutContent({
 
   const step4Complete = (() => {
     if (!paymentData.method) return false;
-    if (paymentData.method === 'cash') return true;
-    if (paymentData.method === 'transfer') return Boolean((selectedStoreAccount || paymentData.selectedBank) && paymentData.receiptImageUrl);
+    if (paymentData.method === 'cash') return acceptsCash;
+    if (paymentData.method === 'transfer') return acceptsTransfer && Boolean((selectedStoreAccount || paymentData.selectedBank) && paymentData.receiptImageUrl);
     if (paymentData.method === 'mixed') return true;
     return false;
   })();
@@ -2069,7 +2097,7 @@ export function CheckoutContent({
     if (showNameField && !clientFound) {
       if (!phoneConfirmation.trim() || phoneConfirmation !== customerData.phone) return false;
     }
-    if (!user) return false;
+    if (!user && !clientFound && !(customerData.name.trim() && validateEcuadorianPhone(normalizedPhone))) return false;
 
     // Paso 2: timing
     if (!timingData.type) return false; // requiere seleccionar inmediato o programado
@@ -2093,8 +2121,9 @@ export function CheckoutContent({
     // Paso 4: pago
     if (total > 0) {
       if (!paymentData.method) return false;
+      if (paymentData.method === 'cash' && !acceptsCash) return false;
       if (paymentData.method === 'transfer') {
-        if ((!selectedStoreAccount && !paymentData.selectedBank) || !paymentData.receiptImageUrl) return false;
+        if (!acceptsTransfer || (!selectedStoreAccount && !paymentData.selectedBank) || !paymentData.receiptImageUrl) return false;
       }
     }
 
@@ -2106,7 +2135,7 @@ export function CheckoutContent({
     // Paso 1: cliente
     const phone = customerData.phone?.trim();
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
-    if (!phone || !validateEcuadorianPhone(normalizedPhone) || !user || (showNameField && !customerData.name.trim()) || (showNameField && !clientFound && (!phoneConfirmation.trim() || phoneConfirmation !== customerData.phone))) {
+    if (!phone || !validateEcuadorianPhone(normalizedPhone) || (!user && !clientFound && !customerData.name.trim()) || (showNameField && !customerData.name.trim()) || (showNameField && !clientFound && (!phoneConfirmation.trim() || phoneConfirmation !== customerData.phone))) {
       return 'step-1';
     }
 
@@ -2237,6 +2266,20 @@ export function CheckoutContent({
           setIsProcessingOrder(false)
           return
         }
+      }
+
+      // Bloquear métodos de pago desactivados por la tienda
+      if (paymentData.method === 'cash' && !acceptsCash) {
+        alert('Esta tienda no acepta pagos en efectivo en este momento.')
+        setLoading(false)
+        setIsProcessingOrder(false)
+        return
+      }
+      if (paymentData.method === 'transfer' && !acceptsTransfer) {
+        alert('Esta tienda no acepta pagos por transferencia en este momento.')
+        setLoading(false)
+        setIsProcessingOrder(false)
+        return
       }
 
       // Bloquear pago por transferencia si la ubicación no tiene delivery disponible
@@ -3134,9 +3177,14 @@ export function CheckoutContent({
                     const isFuddiDelivery = business?.deliveryServiceType === 'fuddi'
                     const isScheduledOrder = timingData.type === 'scheduled'
                     const deliveryDisabledBySchedule = isFuddiDelivery && !isDeliveryAvailableNow && !isScheduledOrder
-                    const deliveryDisabled = !user || deliveryDisabledBySchedule
+                    const hasClientIdentity = Boolean(
+                      user ||
+                      clientFound ||
+                      (customerData.name.trim() && validateEcuadorianPhone(normalizeEcuadorianPhone(customerData.phone)))
+                    )
+                    const deliveryDisabled = !hasClientIdentity || deliveryDisabledBySchedule
                     
-                    let deliveryStatusLabel = user ? 'Envío a tu casa' : 'Inicia sesión'
+                    let deliveryStatusLabel = hasClientIdentity ? 'Envío a tu casa' : 'Inicia sesión'
                     if (deliveryDisabledBySchedule) {
                       deliveryStatusLabel = 'No disponible ahora'
                     }
@@ -3146,7 +3194,7 @@ export function CheckoutContent({
                     type="button"
                     onClick={() => {
                       if (deliveryDisabled) {
-                        if (!user) {
+                        if (!hasClientIdentity) {
                           alert('Por favor, completa tus datos en el Paso 1 para continuar con el pedido a domicilio.');
                         }
                         return;
@@ -3194,7 +3242,7 @@ export function CheckoutContent({
                     <span className={`text-xs mt-1 ${deliveryData.type === 'delivery' ? 'text-white/80' : 'text-gray-500'}`}>
                       {deliveryStatusLabel}
                     </span>
-                    {deliveryData.type === 'delivery' && user && (
+                    {deliveryData.type === 'delivery' && hasClientIdentity && (
                       <div className="absolute top-2 right-2 text-white text-xs">
                         <i className="bi bi-check-circle-fill"></i>
                       </div>
@@ -3751,17 +3799,36 @@ export function CheckoutContent({
                     {/* Efectivo */}
                     <button
                     type="button"
-                    onClick={() => setPaymentData({ ...paymentData, method: 'cash' })}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'cash'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                    disabled={!acceptsCash}
+                    onClick={() => {
+                      if (!acceptsCash) return;
+                      setPaymentData({ ...paymentData, method: 'cash' });
+                    }}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${
+                      !acceptsCash
+                        ? 'opacity-50 cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400'
+                        : paymentData.method === 'cash'
+                          ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                          : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
+                    title={!acceptsCash ? 'Esta tienda no acepta pagos en efectivo' : undefined}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'cash' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${
+                      !acceptsCash
+                        ? 'bg-gray-200 text-gray-400'
+                        : paymentData.method === 'cash'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-white text-gray-400'
+                    }`}>
                       <i className="bi bi-cash-coin"></i>
                     </div>
-                    <span className="font-bold">Efectivo</span>
-                    {paymentData.method === 'cash' && (
+                    <div className="flex flex-col items-center">
+                      <span className="font-bold">Efectivo</span>
+                      {!acceptsCash && (
+                        <span className="text-[10px] text-gray-400 font-medium mt-0.5">No disponible</span>
+                      )}
+                    </div>
+                    {paymentData.method === 'cash' && acceptsCash && (
                       <div className="absolute top-2 right-2 text-white text-xs">
                         <i className="bi bi-check-circle-fill"></i>
                       </div>
@@ -3771,7 +3838,7 @@ export function CheckoutContent({
                   {(() => {
                     const hasStoreAccounts = storeBankAccounts.length > 0;
                     const isLocationBlocked = deliveryData.type === 'delivery' && !isLocationDeliveryAvailable;
-                    const isTransferDisabled = isLocationBlocked || !hasStoreAccounts;
+                    const isTransferDisabled = !acceptsTransfer || isLocationBlocked || !hasStoreAccounts;
                     return (
                       <>
                         <button
@@ -3779,7 +3846,7 @@ export function CheckoutContent({
                           disabled={isTransferDisabled}
                           onClick={() => {
                             if (isTransferDisabled) {
-                              if (!hasStoreAccounts) {
+                              if (acceptsTransfer && !hasStoreAccounts) {
                                 alert('Esta tienda aún no tiene cuentas bancarias configuradas para recibir transferencias. Por favor selecciona efectivo.');
                               }
                               return;
@@ -3799,11 +3866,13 @@ export function CheckoutContent({
                                 : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                           }`}
                           title={
-                            isLocationBlocked 
-                              ? 'No disponible para esta ubicación' 
-                              : !hasStoreAccounts 
-                                ? 'Esta tienda no tiene cuentas registradas para transferencia' 
-                                : undefined
+                            !acceptsTransfer
+                              ? 'Esta tienda no acepta pagos por transferencia'
+                              : isLocationBlocked 
+                                ? 'No disponible para esta ubicación' 
+                                : !hasStoreAccounts 
+                                  ? 'Esta tienda no tiene cuentas registradas para transferencia' 
+                                  : undefined
                           }
                         >
                           <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${
@@ -3817,7 +3886,9 @@ export function CheckoutContent({
                           </div>
                           <div className="flex flex-col items-center">
                             <span className="font-bold">Transferencia</span>
-                            {isLocationBlocked ? (
+                            {!acceptsTransfer ? (
+                              <span className="text-[10px] text-gray-400 font-medium mt-0.5">No disponible</span>
+                            ) : isLocationBlocked ? (
                               <span className="text-[10px] text-amber-600 font-medium mt-0.5">No disponible</span>
                             ) : !hasStoreAccounts ? (
                               <span className="text-[10px] text-gray-400 font-medium mt-0.5">Sin cuentas</span>
@@ -3854,7 +3925,7 @@ export function CheckoutContent({
                   </p>
                 )}
 
-                {paymentData.method === 'transfer' && (
+                {paymentData.method === 'transfer' && acceptsTransfer && (
                   <div className="mt-6 bg-gray-50 p-4 sm:p-5 rounded-2xl animate-fadeIn border border-gray-100">
                     {/* Si la tienda no tiene cuentas registradas */}
                     {storeBankAccounts.length === 0 ? (
@@ -4115,6 +4186,7 @@ export function CheckoutContent({
           }}
           clientId={effectiveClientId}
           businessId={business?.id}
+          business={business}
           initialAddingState={isAddingNewLocation}
           selectedLocationId={selectedLocation?.id}
           onLocationDeleted={(id) => {

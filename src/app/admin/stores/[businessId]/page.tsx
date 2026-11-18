@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Business, Product, Delivery, BusinessAdministrator, CommissionType } from '@/types'
+import { Business, Product, Delivery, BusinessAdministrator, CommissionType, BankAccount } from '@/types'
 import {
   getBusiness,
   updateBusiness,
@@ -19,6 +19,7 @@ import { optimizeImage } from '@/lib/image-utils'
 import { isStoreOpen } from '@/lib/store-utils'
 import dynamic from 'next/dynamic'
 import { useCurrentLocation } from '@/components/GoogleMap'
+import { PaymentMethodsConfig } from '@/components/PaymentMethodsConfig'
 
 const ProductList = dynamic(() => import('@/components/ProductList'), { ssr: false })
 const NotificationSettings = dynamic(() => import('@/components/NotificationSettings'), { ssr: false })
@@ -43,7 +44,7 @@ const DAYS_ES: Record<string, string> = {
 }
 const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
-type Tab = 'info' | 'schedule' | 'products' | 'delivery' | 'notifications' | 'danger' | 'admins'
+type Tab = 'info' | 'schedule' | 'products' | 'delivery' | 'payments' | 'notifications' | 'danger' | 'admins'
 
 export default function AdminStorePage({ params }: { params: Promise<{ businessId: string }> }) {
   const { businessId } = use(params)
@@ -72,6 +73,8 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
   const [loadingDeliveries, setLoadingDeliveries] = useState(false)
   const [savingDelivery, setSavingDelivery] = useState(false)
   const [deliverySaved, setDeliverySaved] = useState(false)
+  const [savingPayments, setSavingPayments] = useState(false)
+  const [paymentsSaved, setPaymentsSaved] = useState(false)
   const [isApplyingCommission, setIsApplyingCommission] = useState(false)
   const [commissionFeedback, setCommissionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -394,6 +397,66 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     finally { setSavingDelivery(false) }
   }
 
+  const getEditedBankAccounts = (b: Business): BankAccount[] => {
+    if (Array.isArray(b.bankAccounts) && b.bankAccounts.length > 0) {
+      return b.bankAccounts
+    }
+    if (b.bankAccount && b.bankAccount.accountNumber) {
+      return [{
+        id: 'acc_1',
+        bankName: b.bankAccount.bankName || 'Banco Pichincha',
+        accountType: b.bankAccount.accountType || 'Ahorros',
+        accountNumber: b.bankAccount.accountNumber || '',
+        accountHolder: b.bankAccount.accountHolder || '',
+        idNumber: (b.bankAccount as any).idNumber || '',
+        notes: ''
+      }]
+    }
+    return []
+  }
+
+  const handleSavePayments = async () => {
+    if (!edited) return
+    setSavingPayments(true)
+    try {
+      const paymentMethods = {
+        cash: edited.paymentMethods?.cash ?? true,
+        transfer: edited.paymentMethods?.transfer ?? true
+      }
+      const bankAccountMode = edited.bankAccountMode || 'fuddi'
+      const bankAccounts = getEditedBankAccounts(edited)
+      const firstAcc = bankAccounts[0]
+      const bankAccount = firstAcc ? {
+        bankName: firstAcc.bankName,
+        accountType: firstAcc.accountType,
+        accountNumber: firstAcc.accountNumber,
+        accountHolder: firstAcc.accountHolder,
+        idNumber: firstAcc.idNumber
+      } : undefined
+
+      await updateBusiness(businessId, {
+        paymentMethods,
+        bankAccountMode,
+        bankAccounts,
+        bankAccount,
+        updatedAt: new Date()
+      })
+      setBusiness(prev => prev ? {
+        ...prev,
+        paymentMethods,
+        bankAccountMode,
+        bankAccounts,
+        bankAccount
+      } : null)
+      setPaymentsSaved(true)
+      setTimeout(() => setPaymentsSaved(false), 2500)
+    } catch {
+      alert('Error al guardar métodos de pago')
+    } finally {
+      setSavingPayments(false)
+    }
+  }
+
   const handleSave = async () => {
     if (!edited) return
     setSaving(true)
@@ -538,17 +601,6 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     finally { setUploadingProfile(false) }
   }
 
-  const handleToggleActive = async () => {
-    if (!business) return
-    const newVal = !business.isActive
-    if (!confirm(`¿${newVal ? 'Activar' : 'Desactivar'} la tienda "${business.name}"?`)) return
-    try {
-      await updateBusiness(businessId, { isActive: newVal })
-      setBusiness(prev => prev ? { ...prev, isActive: newVal } : null)
-      setEdited(prev => prev ? { ...prev, isActive: newVal } : null)
-    } catch { alert('Error al cambiar estado') }
-  }
-
   const handleToggleHidden = async () => {
     if (!business) return
     const newVal = !business.isHidden
@@ -617,6 +669,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     { id: 'schedule', label: 'Horarios', icon: 'bi-clock' },
     { id: 'products', label: 'Productos', icon: 'bi-box-seam' },
     { id: 'delivery', label: 'Delivery', icon: 'bi-scooter' },
+    { id: 'payments', label: 'Métodos de pago', icon: 'bi-wallet2' },
     { id: 'notifications', label: 'Notificaciones', icon: 'bi-bell' },
     { id: 'admins', label: 'Administradores', icon: 'bi-people' },
     { id: 'danger', label: 'Configuración', icon: 'bi-gear' },
@@ -659,15 +712,13 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
                 {business.isOpen ? 'Abierto' : 'Cerrado'}
               </span>
 
-              {!business.isActive && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200/60">
-                  Inactivo
-                </span>
-              )}
-
-              {business.isHidden && (
+              {business.isHidden ? (
                 <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200/60">
-                  <i className="bi bi-eye-slash text-[9px]" /> Oculto
+                  <i className="bi bi-eye-slash text-[9px]" /> Oculta
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60">
+                  <i className="bi bi-eye text-[9px]" /> Visible
                 </span>
               )}
 
@@ -1560,6 +1611,66 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
         </div>
       )}
 
+      {/* ── TAB: PAYMENTS ── */}
+      {tab === 'payments' && edited && (
+        <div className="space-y-4 sm:space-y-6">
+          <div className="bg-white rounded-3xl border border-gray-200/80 shadow-xs p-4 sm:p-6">
+            <PaymentMethodsConfig
+              acceptsCash={edited.paymentMethods?.cash ?? true}
+              onToggleCash={() => {
+                const currentCash = edited.paymentMethods?.cash ?? true
+                const currentTransfer = edited.paymentMethods?.transfer ?? true
+                handleField('paymentMethods', {
+                  cash: !currentCash,
+                  transfer: currentTransfer
+                })
+              }}
+              acceptsTransfer={edited.paymentMethods?.transfer ?? true}
+              onToggleTransfer={() => {
+                const currentCash = edited.paymentMethods?.cash ?? true
+                const currentTransfer = edited.paymentMethods?.transfer ?? true
+                handleField('paymentMethods', {
+                  cash: currentCash,
+                  transfer: !currentTransfer
+                })
+              }}
+              bankAccountMode={edited.bankAccountMode || 'fuddi'}
+              onChangeBankAccountMode={(mode) => handleField('bankAccountMode', mode)}
+              bankAccounts={getEditedBankAccounts(edited)}
+              onChangeBankAccounts={(accounts) => {
+                const first = accounts[0]
+                setEdited(prev => prev ? {
+                  ...prev,
+                  bankAccounts: accounts,
+                  bankAccount: first ? {
+                    bankName: first.bankName,
+                    accountType: first.accountType,
+                    accountNumber: first.accountNumber,
+                    accountHolder: first.accountHolder,
+                    idNumber: first.idNumber
+                  } : undefined
+                } : null)
+              }}
+              storeAccountsLabel="Cuentas de la Tienda"
+            />
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={handleSavePayments}
+              disabled={savingPayments}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-2xl text-xs font-black tracking-wide transition-all shadow-sm active:scale-95"
+            >
+              {savingPayments
+                ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />Guardando...</>
+                : paymentsSaved
+                  ? <><i className="bi bi-check2 text-base text-emerald-300" />¡Métodos de pago guardados!</>
+                  : <><i className="bi bi-floppy" />Guardar métodos de pago</>}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── TAB: NOTIFICATIONS ── */}
       {tab === 'notifications' && (
         <div className="bg-white rounded-3xl border border-gray-200/80 shadow-xs p-4 sm:p-6">
@@ -1576,35 +1687,28 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
           {/* Visibility */}
           <div className="bg-white rounded-3xl border border-gray-200/80 shadow-xs p-4 sm:p-6">
             <h3 className="text-xs font-black text-gray-900 uppercase tracking-wider mb-1">Visibilidad de la Tienda</h3>
-            <p className="text-xs text-gray-500 mb-4 font-medium">Controla si la tienda aparece en el catálogo público y buscadores.</p>
+            <p className="text-xs text-gray-500 mb-4 font-medium">Criterio único para filtrar las tiendas que están en funcionamiento en el catálogo público.</p>
             <div className="flex items-center justify-between p-4 bg-gray-50/80 rounded-2xl border border-gray-200/60">
               <div className="min-w-0 pr-3">
-                <p className="font-bold text-gray-900 text-xs sm:text-sm">Tienda oculta</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{business.isHidden ? 'Los clientes no pueden ver esta tienda' : 'La tienda es visible en el catálogo'}</p>
+                <p className="font-bold text-gray-900 text-xs sm:text-sm">
+                  {business.isHidden ? 'Tienda oculta' : 'Tienda visible (en funcionamiento)'}
+                </p>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  {business.isHidden
+                    ? 'Los clientes no pueden ver esta tienda en el inicio'
+                    : 'La tienda aparece normalmente en la página de inicio y buscadores'}
+                </p>
               </div>
               <button
                 onClick={handleToggleHidden}
-                className={`relative w-12 h-6.5 rounded-full transition-colors flex-shrink-0 ${business.isHidden ? 'bg-amber-500' : 'bg-gray-300'}`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all active:scale-95 shrink-0 flex items-center gap-1.5 ${
+                  business.isHidden
+                    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                    : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                }`}
               >
-                <span className={`absolute top-1 left-1 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${business.isHidden ? 'translate-x-5.5' : ''}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Active status */}
-          <div className={`bg-white rounded-3xl border shadow-xs p-4 sm:p-6 ${business.isActive ? 'border-gray-200/80' : 'border-rose-200 bg-rose-50/20'}`}>
-            <h3 className="text-xs font-black text-gray-900 uppercase tracking-wider mb-1">Estado de Activación</h3>
-            <p className="text-xs text-gray-500 mb-4 font-medium">Desactivar impide el acceso al dashboard de la tienda y detiene la recepción de pedidos.</p>
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-gray-50/80 border border-gray-200/60">
-              <div className="min-w-0 pr-3">
-                <p className="font-bold text-xs sm:text-sm text-gray-900">{business.isActive ? 'Tienda activa' : 'Tienda inactiva'}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{business.isActive ? 'El negocio puede operar normalmente' : 'El negocio está desactivado'}</p>
-              </div>
-              <button
-                onClick={handleToggleActive}
-                className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all active:scale-95 shrink-0 ${business.isActive ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
-              >
-                {business.isActive ? 'Desactivar' : 'Activar'}
+                <i className={`bi ${business.isHidden ? 'bi-eye-fill' : 'bi-eye-slash-fill'}`} />
+                <span>{business.isHidden ? 'Mostrar tienda' : 'Ocultar tienda'}</span>
               </button>
             </div>
           </div>

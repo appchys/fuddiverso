@@ -28,43 +28,56 @@ declare global {
 // Global state para controlar la carga de Google Maps
 let isGoogleMapsLoading = false
 let isGoogleMapsLoaded = false
-const loadingCallbacks: (() => void)[] = []
+const loadingCallbacks: ((ok: boolean) => void)[] = []
+const GOOGLE_MAPS_LOAD_TIMEOUT_MS = 15000
 
-// Función para cargar Google Maps API una sola vez
-export const loadGoogleMapsAPI = (): Promise<void> => {
+const flushLoadingCallbacks = (ok: boolean) => {
+  isGoogleMapsLoading = false
+  isGoogleMapsLoaded = ok
+  const callbacks = loadingCallbacks.splice(0, loadingCallbacks.length)
+  callbacks.forEach(callback => callback(ok))
+}
+
+// Función para cargar Google Maps API una sola vez.
+// Resuelve `true` si cargó correctamente o `false` si falló / excedió el tiempo límite
+// (antes, ante un error, los componentes en espera quedaban en "Cargando mapa..." para siempre).
+export const loadGoogleMapsAPI = (): Promise<boolean> => {
   return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(false)
+      return
+    }
+
     // Si ya está cargado, resolver inmediatamente
     if (window.google && window.google.maps) {
       isGoogleMapsLoaded = true
-      resolve()
+      resolve(true)
       return
     }
 
-    // Si ya se está cargando, agregar callback y esperar
-    if (isGoogleMapsLoading) {
-      loadingCallbacks.push(resolve)
-      return
-    }
+    loadingCallbacks.push(resolve)
 
-    // Marcar como cargando
+    // Si ya se está cargando, esperar al resultado de la carga en curso
+    if (isGoogleMapsLoading) return
+
     isGoogleMapsLoading = true
 
-    // Verificar si el script ya existe
-    const existingScript = document.querySelector(`script[src*="maps.googleapis.com"]`)
-    if (existingScript) {
-      // Si el script ya existe, esperar a que cargue
-      const checkLoaded = () => {
-        if (window.google && window.google.maps) {
-          isGoogleMapsLoaded = true
-          isGoogleMapsLoading = false
-          resolve()
-          loadingCallbacks.forEach(callback => callback())
-          loadingCallbacks.length = 0
-        } else {
-          setTimeout(checkLoaded, 100)
-        }
+    const startedAt = Date.now()
+    const waitForGoogle = () => {
+      if (window.google && window.google.maps) {
+        flushLoadingCallbacks(true)
+      } else if (Date.now() - startedAt > GOOGLE_MAPS_LOAD_TIMEOUT_MS) {
+        console.error('Timeout loading Google Maps API')
+        flushLoadingCallbacks(false)
+      } else {
+        setTimeout(waitForGoogle, 100)
       }
-      checkLoaded()
+    }
+
+    // Verificar si el script ya existe (p. ej. cargado por otro componente)
+    const existingScript = document.querySelector(`script[src*="maps.googleapis.com/maps/api/js"]`)
+    if (existingScript) {
+      waitForGoogle()
       return
     }
 
@@ -74,18 +87,13 @@ export const loadGoogleMapsAPI = (): Promise<void> => {
     script.async = true
     script.defer = true
 
-    script.onload = () => {
-      isGoogleMapsLoaded = true
-      isGoogleMapsLoading = false
-      resolve()
-      loadingCallbacks.forEach(callback => callback())
-      loadingCallbacks.length = 0
-    }
+    script.onload = () => waitForGoogle()
 
     script.onerror = () => {
-      isGoogleMapsLoading = false
       console.error('Error loading Google Maps API')
-      resolve() // Resolver de todas formas para evitar bloqueos
+      // Quitar el script fallido para que un reintento posterior pueda volver a cargarlo
+      script.remove()
+      flushLoadingCallbacks(false)
     }
 
     document.head.appendChild(script)
@@ -107,13 +115,23 @@ export function GoogleMap({
   const [map, setMap] = useState<any>(null)
   const [markerInstance, setMarkerInstance] = useState<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
-  // Cargar Google Maps API una sola vez
+  // Cargar Google Maps API una sola vez (con reintento manual si falla)
   useEffect(() => {
-    loadGoogleMapsAPI().then(() => {
-      setIsLoaded(true)
+    let cancelled = false
+    setLoadFailed(false)
+    loadGoogleMapsAPI().then((ok) => {
+      if (cancelled) return
+      if (ok) {
+        setIsLoaded(true)
+      } else {
+        setLoadFailed(true)
+      }
     })
-  }, [])
+    return () => { cancelled = true }
+  }, [loadAttempt])
 
   const onLocationChangeRef = useRef(onLocationChange)
   useEffect(() => {
@@ -245,6 +263,26 @@ export function GoogleMap({
       }
     }
   }, [latitude, longitude, map, markerInstance, fixedCenterMarker])
+
+  if (loadFailed) {
+    return (
+      <div
+        style={{ height, width }}
+        className="bg-gray-100 rounded-lg flex items-center justify-center p-4"
+      >
+        <div className="text-center">
+          <p className="text-sm font-medium text-gray-700 mb-2">No se pudo cargar el mapa</p>
+          <button
+            type="button"
+            onClick={() => setLoadAttempt(prev => prev + 1)}
+            className="text-xs font-bold bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-black transition-colors"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (!isLoaded) {
     return (
