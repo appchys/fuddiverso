@@ -31,6 +31,31 @@ interface LocationSelectionModalProps {
 const DEFAULT_MANUAL_LAT = -1.861971
 const DEFAULT_MANUAL_LNG = -79.978529
 const DEFAULT_MANUAL_LATLONG = `${DEFAULT_MANUAL_LAT}, ${DEFAULT_MANUAL_LNG}`
+// Distancia mínima en metros que el cliente debe mover el pin desde el punto inicial por defecto
+const MIN_MANUAL_MOVE_DISTANCE_METERS = 5
+
+function parseLatLong(latlong?: string | null): { lat: number; lng: number } | null {
+    if (!latlong) return null
+    const parts = latlong.split(',').map(coord => parseFloat(coord.trim()))
+    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return null
+    return { lat: parts[0], lng: parts[1] }
+}
+
+function getDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180
+    const R = 6371000
+    const dLat = toRad(lat2 - lat1)
+    const dLng = toRad(lng2 - lng1)
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2)
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function isNearDefaultManualLocation(lat: number, lng: number): boolean {
+    return getDistanceMeters(lat, lng, DEFAULT_MANUAL_LAT, DEFAULT_MANUAL_LNG) < MIN_MANUAL_MOVE_DISTANCE_METERS
+}
 
 // Tiempos máximos para no dejar al cliente esperando indefinidamente
 const GPS_TIMEOUT_MS = 15000
@@ -231,13 +256,23 @@ export default function LocationSelectionModal({
     }, [businessId, calculateDeliveryFee])
 
     // Función para manejar cambio de ubicación en el mapa / GPS
-    const handleLocationChange = useCallback(async (lat: number, lng: number) => {
-        const isDefaultLocation = Math.abs(lat - DEFAULT_MANUAL_LAT) < 0.0001 && Math.abs(lng - DEFAULT_MANUAL_LNG) < 0.0001
-        if (!isDefaultLocation) {
-            setHasMovedPin(true)
+    const handleLocationChange = useCallback(async (lat: number, lng: number, options?: { fromGps?: boolean }) => {
+        const manualActive = options?.fromGps ? false : isManualMode
+        const latlong = `${lat}, ${lng}`
+
+        if (manualActive && isNearDefaultManualLocation(lat, lng)) {
+            // Si el pin sigue en (o vuelve al) punto inicial por defecto, bloquear guardado y no calcular tarifa
+            feeRequestIdRef.current++
+            setIsResolvingDeliveryFee(false)
+            setFeeResolutionFailed(false)
+            setIsInsideCoverage(false)
+            setHasMovedPin(false)
+            setNewLocationData(prev => ({ ...prev, latlong, tarifa: '0.00', sector: '' }))
+            return
         }
 
-        const latlong = `${lat}, ${lng}`
+        setHasMovedPin(true)
+
         // Actualizar las coordenadas de inmediato (no esperar a la tarifa) para que el
         // mapa no "salte" a la posición anterior mientras se calcula
         setNewLocationData(prev => ({ ...prev, latlong }))
@@ -249,7 +284,7 @@ export default function LocationSelectionModal({
             ? { ...prev, tarifa: result.tarifa, sector: result.sector }
             : prev
         )
-    }, [resolveDeliveryFeeValue])
+    }, [isManualMode, resolveDeliveryFeeValue])
 
     // Función para obtener ubicación actual
     const getCurrentLocation = () => {
@@ -277,9 +312,10 @@ export default function LocationSelectionModal({
                 // El modal se cerró o el cliente eligió modo manual mientras esperábamos
                 if (geoId !== geoRequestIdRef.current) return
                 setIsRequestingLocation(false)
+                setIsManualMode(false)
                 const { latitude, longitude } = position.coords
                 setHasMovedPin(true)
-                void handleLocationChange(latitude, longitude)
+                void handleLocationChange(latitude, longitude, { fromGps: true })
             },
             (error) => {
                 if (geoId !== geoRequestIdRef.current) return
@@ -325,16 +361,12 @@ export default function LocationSelectionModal({
     }
 
     // Memorizar las coordenadas del mapa
-    const mapCoordinates = useMemo(() => {
-        if (!newLocationData.latlong) return null;
-        try {
-            const [lat, lng] = newLocationData.latlong.split(',').map(coord => parseFloat(coord.trim()));
-            if (isNaN(lat) || isNaN(lng)) return null;
-            return { lat, lng };
-        } catch {
-            return null;
-        }
-    }, [newLocationData.latlong]);
+    const mapCoordinates = useMemo(() => parseLatLong(newLocationData.latlong), [newLocationData.latlong]);
+
+    const isAtDefaultManualPoint = Boolean(
+        mapCoordinates && isNearDefaultManualLocation(mapCoordinates.lat, mapCoordinates.lng)
+    )
+    const isManualPinPending = isManualMode && !editingLocation && (!hasMovedPin || isAtDefaultManualPoint)
 
     const handleReferenciaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setNewLocationData(prev => ({ ...prev, referencia: e.target.value }));
@@ -379,8 +411,12 @@ export default function LocationSelectionModal({
     const handleSaveNewLocation = async () => {
         if (submittingRef.current) return;
 
-        if (isManualMode && !hasMovedPin) {
-            alert('Por favor mueve el pin en el mapa para ubicar tu dirección.');
+        const parsedCoords = parseLatLong(newLocationData.latlong);
+        if (
+            isManualMode &&
+            (!hasMovedPin || !parsedCoords || isNearDefaultManualLocation(parsedCoords.lat, parsedCoords.lng))
+        ) {
+            alert('Por favor mueve el pin en el mapa hasta tu dirección real. No puedes guardar la ubicación inicial por defecto.');
             return;
         }
 
@@ -728,7 +764,13 @@ export default function LocationSelectionModal({
                                 <label className="block text-sm font-bold text-gray-900 mb-2">
                                     Ubicación en el mapa
                                 </label>
-                                <div className="rounded-2xl overflow-hidden shadow-sm border border-gray-200 bg-gray-50 h-[220px] relative">
+                                <div className={`rounded-2xl overflow-hidden shadow-sm border bg-gray-50 h-[220px] relative transition-all ${
+                                    isManualPinPending
+                                        ? 'border-amber-400 ring-2 ring-amber-200/70'
+                                        : (isManualMode && !editingLocation && !isManualPinPending)
+                                            ? 'border-emerald-400'
+                                            : 'border-gray-200'
+                                }`}>
 
                                     {mapCoordinates ? (
                                         <>
@@ -741,6 +783,7 @@ export default function LocationSelectionModal({
                                                 marker={isManualMode ? (pinMovementMode === 'pin') : true}
                                                 draggable={isManualMode ? (pinMovementMode === 'pin') : false}
                                                 fixedCenterMarker={isManualMode && pinMovementMode === 'map'}
+                                                pinNeedsMove={isManualPinPending}
                                                 onLocationChange={handleLocationChange}
                                             />
                                             {/* Selector de modo para mover el pin / mover el mapa */}
@@ -766,17 +809,17 @@ export default function LocationSelectionModal({
                                                     )}
                                                 </button>
                                             )}
-                                            {isManualMode && !editingLocation && !hasMovedPin && (
+                                            {isManualPinPending && (
                                                 <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none max-w-[62%]">
-                                                    <div className="bg-gray-900/90 backdrop-blur-sm text-white text-[11px] font-semibold py-1.5 px-2.5 rounded-xl shadow-lg flex items-center gap-1.5 border border-white/10 animate-pulse">
-                                                        <i className={`bi ${pinMovementMode === 'pin' ? 'bi-hand-index-thumb text-amber-400' : 'bi-arrows-move text-amber-400'} text-xs shrink-0`}></i>
+                                                    <div className="bg-amber-600/95 backdrop-blur-sm text-white text-[11px] font-bold py-1.5 px-2.5 rounded-xl shadow-lg flex items-center gap-1.5 border border-white/20 animate-pulse">
+                                                        <i className={`bi ${pinMovementMode === 'pin' ? 'bi-hand-index-thumb' : 'bi-arrows-move'} text-xs shrink-0`}></i>
                                                         <span className="truncate">
-                                                            {pinMovementMode === 'pin' ? 'Mueve el pin o toca el mapa' : 'Mueve el mapa'}
+                                                            {pinMovementMode === 'pin' ? 'Mueve el pin a tu dirección' : 'Mueve el mapa a tu dirección'}
                                                         </span>
                                                     </div>
                                                 </div>
                                             )}
-                                            {isManualMode && !editingLocation && hasMovedPin && (
+                                            {isManualMode && !editingLocation && !isManualPinPending && (
                                                 <div className="absolute top-2.5 right-2.5 z-10 pointer-events-none">
                                                     <div className="bg-emerald-600/90 backdrop-blur-sm text-white text-[11px] font-semibold py-1 px-2.5 rounded-lg shadow flex items-center gap-1.5 border border-white/20">
                                                         <i className="bi bi-check-circle-fill"></i>
@@ -846,18 +889,18 @@ export default function LocationSelectionModal({
 
                             {/* Delivery Fee Status */}
                             {newLocationData.latlong && (
-                                isManualMode && !editingLocation && !hasMovedPin ? (
+                                isManualPinPending ? (
                                     <div className="p-3.5 rounded-xl border bg-amber-50 border-amber-200">
                                         <div className="flex items-center gap-2">
                                             <i className="bi bi-geo-alt-fill text-amber-600 text-sm"></i>
                                             <span className="text-sm font-bold text-amber-900">
-                                                Ubica tu dirección en el mapa
+                                                Mueve el pin a tu dirección real
                                             </span>
                                         </div>
-                                        <p className="text-xs text-amber-700 mt-1">
+                                        <p className="text-xs text-amber-800 mt-1 leading-relaxed">
                                             {pinMovementMode === 'pin'
-                                                ? 'Arrastra el pin o toca el mapa en tu dirección exacta para calcular la tarifa de envío.'
-                                                : 'Arrastra el mapa hasta tu dirección exacta para fijar el pin y calcular la tarifa de envío.'}
+                                                ? 'El mapa inicia en un punto de referencia y no se puede guardar ahí. Arrastra el pin o toca el mapa en tu dirección exacta.'
+                                                : 'El mapa inicia en un punto de referencia y no se puede guardar ahí. Arrastra el mapa hasta ubicar el pin en tu dirección exacta.'}
                                         </p>
                                     </div>
                                 ) : (
@@ -989,12 +1032,11 @@ export default function LocationSelectionModal({
                                 Cancelar
                             </button>
                             {(() => {
-                                const isManualAndNotMoved = isManualMode && !editingLocation && !hasMovedPin;
                                 const canSave = Boolean(
                                     mapCoordinates &&
                                     !isSubmitting &&
                                     !isResolvingDeliveryFee &&
-                                    !isManualAndNotMoved &&
+                                    !isManualPinPending &&
                                     newLocationData.referencia.trim().length > 0
                                 );
 
@@ -1012,7 +1054,7 @@ export default function LocationSelectionModal({
                                                 <span className="w-5 h-5 rounded-full border-2 border-gray-400 border-t-gray-600 animate-spin"></span>
                                                 <span>Guardando...</span>
                                             </div>
-                                        ) : isManualAndNotMoved ? (
+                                        ) : isManualPinPending ? (
                                             <span className="flex items-center gap-1.5 text-xs sm:text-sm">
                                                 <i className={`bi ${pinMovementMode === 'pin' ? 'bi-geo-alt' : 'bi-arrows-move'}`}></i>
                                                 {pinMovementMode === 'pin' ? 'Mueve el pin en el mapa' : 'Mueve el mapa'}

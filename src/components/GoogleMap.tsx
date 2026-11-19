@@ -13,6 +13,7 @@ interface GoogleMapProps {
   marker?: boolean
   draggable?: boolean
   fixedCenterMarker?: boolean
+  pinNeedsMove?: boolean
   onLocationChange?: (lat: number, lng: number) => void
 }
 
@@ -109,9 +110,11 @@ export function GoogleMap({
   marker = true,
   draggable = false,
   fixedCenterMarker = false,
+  pinNeedsMove = false,
   onLocationChange
 }: GoogleMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
+  const lastEmittedRef = useRef<{ lat: number; lng: number } | null>(null)
   const [map, setMap] = useState<any>(null)
   const [markerInstance, setMarkerInstance] = useState<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -178,7 +181,10 @@ export function GoogleMap({
       const dragListener = currentMarker.addListener('dragend', () => {
         const pos = currentMarker.getPosition()
         if (onLocationChangeRef.current && pos) {
-          onLocationChangeRef.current(pos.lat(), pos.lng())
+          const lat = pos.lat()
+          const lng = pos.lng()
+          lastEmittedRef.current = { lat, lng }
+          onLocationChangeRef.current(lat, lng)
         }
       })
 
@@ -210,17 +216,16 @@ export function GoogleMap({
         }),
         map.addListener('dragend', () => {
           isUserDragging = false
-          const center = map.getCenter()
-          if (onLocationChangeRef.current && center) {
-            onLocationChangeRef.current(center.lat(), center.lng())
-          }
         }),
         map.addListener('idle', () => {
-          // Solo disparar onLocationChange en idle si el usuario interactuó y no está arrastrando en este instante
+          // Solo disparar onLocationChange en idle cuando el usuario interactuó y el mapa se detuvo
           if (userHasMoved && !isUserDragging) {
             const center = map.getCenter()
             if (onLocationChangeRef.current && center) {
-              onLocationChangeRef.current(center.lat(), center.lng())
+              const lat = center.lat()
+              const lng = center.lng()
+              lastEmittedRef.current = { lat, lng }
+              onLocationChangeRef.current(lat, lng)
             }
           }
         }),
@@ -239,6 +244,7 @@ export function GoogleMap({
             markerInstance.setPosition(e.latLng)
           }
           if (onLocationChangeRef.current) {
+            lastEmittedRef.current = { lat, lng }
             onLocationChangeRef.current(lat, lng)
           }
         })
@@ -250,13 +256,20 @@ export function GoogleMap({
     }
   }, [map, fixedCenterMarker, draggable, markerInstance])
 
-  // Actualizar posición cuando cambien las props
+  // Actualizar posición cuando cambien las props desde fuera (sin pelear contra el arrastre del usuario)
   useEffect(() => {
     if (map) {
-      const currentCenter = map.getCenter()
-      if (!fixedCenterMarker || (currentCenter && (Math.abs(currentCenter.lat() - latitude) > 0.0001 || Math.abs(currentCenter.lng() - longitude) > 0.0001))) {
-        const newPosition = { lat: latitude, lng: longitude }
-        map.panTo(newPosition)
+      const lastEmitted = lastEmittedRef.current
+      const isEchoFromSelf = Boolean(
+        lastEmitted &&
+        Math.abs(lastEmitted.lat - latitude) < 0.00001 &&
+        Math.abs(lastEmitted.lng - longitude) < 0.00001
+      )
+      if (!isEchoFromSelf) {
+        const currentCenter = map.getCenter()
+        if (!fixedCenterMarker || (currentCenter && (Math.abs(currentCenter.lat() - latitude) > 0.0001 || Math.abs(currentCenter.lng() - longitude) > 0.0001))) {
+          map.panTo({ lat: latitude, lng: longitude })
+        }
       }
       if (markerInstance && !fixedCenterMarker) {
         markerInstance.setPosition({ lat: latitude, lng: longitude })
@@ -307,7 +320,13 @@ export function GoogleMap({
       />
       {fixedCenterMarker && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[100%] pointer-events-none drop-shadow-md z-10 transition-transform">
-          <svg className="w-10 h-10 text-red-600 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" viewBox="0 0 24 24" fill="currentColor">
+          <svg
+            className={`w-10 h-10 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] transition-colors ${
+              pinNeedsMove ? 'text-amber-500 animate-bounce' : 'text-red-600'
+            }`}
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
             <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
           </svg>
         </div>
