@@ -833,7 +833,15 @@ export default function ManualOrderSidebar({
     } catch (e) {
       console.error('Error pre-filling edit order:', e)
     }
-  }, [isOpen, mode, editOrder, availableDeliveries])
+  }, [isOpen, mode, editOrder])
+
+  // Sincronizar repartidor asignado cuando terminen de cargar los deliveries sin sobreescribir cambios del formulario
+  useEffect(() => {
+    if (!isOpen || mode !== 'edit' || !editOrder?.delivery?.assignedDelivery || availableDeliveries.length === 0) return
+    const matchedDelivery = availableDeliveries.find(d => d.id === editOrder.delivery.assignedDelivery)
+    if (!matchedDelivery) return
+    setManualOrderData(prev => (prev.selectedDelivery ? prev : { ...prev, selectedDelivery: matchedDelivery }))
+  }, [isOpen, mode, editOrder?.delivery?.assignedDelivery, availableDeliveries])
 
   useEffect(() => {
     if (!isOpen || mode !== 'create') return
@@ -3112,36 +3120,49 @@ export default function ManualOrderSidebar({
             scheduledTime: `${hh}:${mm}`
           }
         })(),
-        payment: {
-          method: manualOrderData.paymentMethod,
-          paymentStatus: manualOrderData.paymentStatus,
-          selectedBank: (manualOrderData.paymentMethod === 'transfer' || manualOrderData.paymentMethod === 'mixed')
-            ? normalizeBankName(manualOrderData.selectedBank)
-            : '',
-          receiptImageUrl: manualOrderData.receiptImageUrl || '',
-          ...(() => {
-            const isTransferOrMixed = manualOrderData.paymentMethod === 'transfer' || manualOrderData.paymentMethod === 'mixed';
-            const normalizedSelectedBank = normalizeBankName(manualOrderData.selectedBank);
-            if (isTransferOrMixed && normalizedSelectedBank && effectiveBusiness?.bankAccounts) {
-              const matchedBank = effectiveBusiness.bankAccounts.find(
-                b => normalizeBankName(b.bankName) === normalizedSelectedBank || b.accountNumber === manualOrderData.selectedBank
-              );
-              if (matchedBank) return { bankAccount: matchedBank };
-            }
-            if (
-              manualOrderData.paymentMethod === 'transfer' &&
-              effectiveBusiness?.bankAccount &&
-              (!normalizedSelectedBank || normalizeBankName(effectiveBusiness.bankAccount.bankName) === normalizedSelectedBank)
-            ) {
-              return { bankAccount: effectiveBusiness.bankAccount };
-            }
-            return {};
-          })(),
-          ...(manualOrderData.paymentMethod === 'mixed' && {
-            cashAmount: manualOrderData.cashAmount || 0,
-            transferAmount: manualOrderData.transferAmount || 0
-          })
-        },
+        payment: (() => {
+          const existingPayment = mode === 'edit' && editOrder?.payment ? editOrder.payment : {}
+          const resolvedReceiptImageUrl = manualOrderData.receiptImageUrl || existingPayment?.receiptImageUrl || ''
+          const isTransferOrMixed = manualOrderData.paymentMethod === 'transfer' || manualOrderData.paymentMethod === 'mixed'
+          const normalizedSelectedBank = normalizeBankName(manualOrderData.selectedBank)
+
+          let resolvedBankAccount: any = undefined
+          if (isTransferOrMixed && normalizedSelectedBank && effectiveBusiness?.bankAccounts) {
+            const matchedBank = effectiveBusiness.bankAccounts.find(
+              b => normalizeBankName(b.bankName) === normalizedSelectedBank || b.accountNumber === manualOrderData.selectedBank
+            )
+            if (matchedBank) resolvedBankAccount = matchedBank
+          }
+          if (
+            !resolvedBankAccount &&
+            manualOrderData.paymentMethod === 'transfer' &&
+            effectiveBusiness?.bankAccount &&
+            (!normalizedSelectedBank || normalizeBankName(effectiveBusiness.bankAccount.bankName) === normalizedSelectedBank)
+          ) {
+            resolvedBankAccount = effectiveBusiness.bankAccount
+          }
+          if (
+            !resolvedBankAccount &&
+            isTransferOrMixed &&
+            existingPayment?.bankAccount &&
+            (!normalizedSelectedBank || normalizeBankName(existingPayment.bankAccount.bankName) === normalizedSelectedBank)
+          ) {
+            resolvedBankAccount = existingPayment.bankAccount
+          }
+
+          return {
+            ...existingPayment,
+            method: manualOrderData.paymentMethod,
+            paymentStatus: manualOrderData.paymentStatus,
+            selectedBank: isTransferOrMixed ? normalizedSelectedBank : '',
+            ...(resolvedReceiptImageUrl ? { receiptImageUrl: resolvedReceiptImageUrl } : {}),
+            ...(resolvedBankAccount ? { bankAccount: resolvedBankAccount } : {}),
+            ...(manualOrderData.paymentMethod === 'mixed' && {
+              cashAmount: manualOrderData.cashAmount || 0,
+              transferAmount: manualOrderData.transferAmount || 0
+            })
+          }
+        })(),
         subtotal: manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0),
         total: manualOrderData.total,
         creditUsed: (() => {
@@ -3242,7 +3263,7 @@ export default function ManualOrderSidebar({
       backgroundSavePromiseRef.current = (async () => {
         try {
           if (capturedMode === 'edit' && capturedEditOrderId && !isFromCheckout) {
-            const updatePayload: any = {
+            const localUpdatePayload: any = {
               businessId: effectiveBusinessId,
               businessIds: orderData.businessIds,
               ...(orderData.businessSnapshot ? { businessSnapshot: orderData.businessSnapshot } : {}),
@@ -3260,17 +3281,32 @@ export default function ManualOrderSidebar({
               notas: orderData.notas,
               notaImageUrl: orderData.notaImageUrl
             }
-            await updateOrder(capturedEditOrderId, updatePayload)
+            // Actualizar subcampos de payment con notación de puntos en Firestore para nunca
+            // sobrescribir ni borrar payment.receiptImageUrl u otros campos adjuntados por el cliente
+            const { payment: paymentObj, ...restPayload } = localUpdatePayload
+            const firestoreUpdatePayload: any = {
+              ...restPayload,
+              'payment.method': paymentObj.method,
+              'payment.paymentStatus': paymentObj.paymentStatus,
+              'payment.selectedBank': paymentObj.selectedBank || '',
+              ...(paymentObj.bankAccount ? { 'payment.bankAccount': paymentObj.bankAccount } : {}),
+              ...(paymentObj.receiptImageUrl ? { 'payment.receiptImageUrl': paymentObj.receiptImageUrl } : {}),
+              ...(paymentObj.method === 'mixed' ? {
+                'payment.cashAmount': paymentObj.cashAmount || 0,
+                'payment.transferAmount': paymentObj.transferAmount || 0
+              } : {})
+            }
+            await updateOrder(capturedEditOrderId, firestoreUpdatePayload)
             onOrderUpdated && onOrderUpdated({
               ...capturedEditOrder,
-              ...updatePayload,
+              ...localUpdatePayload,
               id: capturedEditOrderId
             })
             logDebug('manual_order', 'Orden actualizada con éxito', {
               orderId: capturedEditOrderId,
               customerName: orderData.customer?.name,
               customerPhone: orderData.customer?.phone,
-              timing: updatePayload.timing
+              timing: localUpdatePayload.timing
             }, { businessId: effectiveBusinessId, customerName: orderData.customer?.name, customerPhone: orderData.customer?.phone, level: 'info' })
           } else {
             const orderId = await createOrder(orderData as any)
