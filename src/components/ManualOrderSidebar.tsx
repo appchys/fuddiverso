@@ -15,6 +15,7 @@ import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { logDebug } from '@/lib/debug-log'
 import { resolveItemIngredients } from '@/lib/stock-utils'
+import { getBankSelectOptions, normalizeBankName } from '@/lib/bank-utils'
 
 // Componente optimizado para cargar imágenes de productos de manera diferida
 // Prioriza la visualización y clic inmediato de los nombres y precios de los productos
@@ -777,7 +778,7 @@ export default function ManualOrderSidebar({
         scheduledDate,
         scheduledTime,
         paymentMethod: eo.payment?.method || '',
-        selectedBank: eo.payment?.selectedBank || '',
+        selectedBank: normalizeBankName(eo.payment?.bankAccount?.bankName || eo.payment?.selectedBank || ''),
         paymentStatus: eo.payment?.paymentStatus || 'pending',
         cashAmount: (eo.payment as any)?.cashAmount || 0,
         transferAmount: (eo.payment as any)?.transferAmount || 0,
@@ -3114,14 +3115,24 @@ export default function ManualOrderSidebar({
         payment: {
           method: manualOrderData.paymentMethod,
           paymentStatus: manualOrderData.paymentStatus,
-          selectedBank: manualOrderData.selectedBank,
+          selectedBank: (manualOrderData.paymentMethod === 'transfer' || manualOrderData.paymentMethod === 'mixed')
+            ? normalizeBankName(manualOrderData.selectedBank)
+            : '',
           receiptImageUrl: manualOrderData.receiptImageUrl || '',
           ...(() => {
-            if (manualOrderData.paymentMethod === 'transfer' && manualOrderData.selectedBank && effectiveBusiness?.bankAccounts) {
-              const matchedBank = effectiveBusiness.bankAccounts.find(b => b.bankName === manualOrderData.selectedBank || b.accountNumber === manualOrderData.selectedBank);
+            const isTransferOrMixed = manualOrderData.paymentMethod === 'transfer' || manualOrderData.paymentMethod === 'mixed';
+            const normalizedSelectedBank = normalizeBankName(manualOrderData.selectedBank);
+            if (isTransferOrMixed && normalizedSelectedBank && effectiveBusiness?.bankAccounts) {
+              const matchedBank = effectiveBusiness.bankAccounts.find(
+                b => normalizeBankName(b.bankName) === normalizedSelectedBank || b.accountNumber === manualOrderData.selectedBank
+              );
               if (matchedBank) return { bankAccount: matchedBank };
             }
-            if (manualOrderData.paymentMethod === 'transfer' && effectiveBusiness?.bankAccount) {
+            if (
+              manualOrderData.paymentMethod === 'transfer' &&
+              effectiveBusiness?.bankAccount &&
+              (!normalizedSelectedBank || normalizeBankName(effectiveBusiness.bankAccount.bankName) === normalizedSelectedBank)
+            ) {
               return { bankAccount: effectiveBusiness.bankAccount };
             }
             return {};
@@ -4281,7 +4292,7 @@ export default function ManualOrderSidebar({
               {manualOrderData.paymentMethod && (
                 <button
                   type="button"
-                  onClick={() => setManualOrderData(prev => ({ ...prev, paymentMethod: '', cashAmount: 0, transferAmount: 0 }))}
+                  onClick={() => setManualOrderData(prev => ({ ...prev, paymentMethod: '', selectedBank: '', cashAmount: 0, transferAmount: 0 }))}
                   className="text-xs text-red-500 hover:text-red-700 transition-colors font-medium"
                 >
                   Quitar selección
@@ -4302,6 +4313,7 @@ export default function ManualOrderSidebar({
                       ...prev,
                       paymentMethod: 'cash',
                       paymentStatus: 'paid',
+                      selectedBank: '',
                       cashAmount: 0,
                       transferAmount: 0
                     }));
@@ -4404,6 +4416,35 @@ export default function ManualOrderSidebar({
                 )}
               </div>
             </div>
+
+            {/* Selector minimalista de banco (opcional) */}
+            {(manualOrderData.paymentMethod === 'transfer' || manualOrderData.paymentMethod === 'mixed') && (
+              <div className="mt-2.5 flex items-center gap-2">
+                <i className="bi bi-bank text-xs text-gray-400"></i>
+                <select
+                  value={manualOrderData.selectedBank}
+                  onChange={(e) => setManualOrderData(prev => ({ ...prev, selectedBank: e.target.value }))}
+                  className="flex-1 px-2.5 py-1.5 text-xs text-gray-700 bg-gray-50 hover:bg-gray-100/80 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                >
+                  <option value="">Banco destino (opcional)</option>
+                  {getBankSelectOptions(effectiveBusiness, manualOrderData.selectedBank).map((bank) => (
+                    <option key={bank} value={bank}>
+                      {bank}
+                    </option>
+                  ))}
+                </select>
+                {manualOrderData.selectedBank && (
+                  <button
+                    type="button"
+                    onClick={() => setManualOrderData(prev => ({ ...prev, selectedBank: '' }))}
+                    className="text-gray-400 hover:text-gray-600 p-1 transition-colors"
+                    title="Quitar banco"
+                  >
+                    <i className="bi bi-x text-xs"></i>
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Configuración de Pago Mixto */}
             {manualOrderData.paymentMethod === 'mixed' && (

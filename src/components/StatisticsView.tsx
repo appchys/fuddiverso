@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { Order, Delivery } from '@/types';
+import { normalizeBankName } from '@/lib/bank-utils';
 import {
     getOrdersByBusinessComplete,
     getExpensesByBusiness,
@@ -78,6 +79,15 @@ const getPaymentMethodLabel = (order: Order): string => {
     if (m.includes('mixed') || m.includes('mixto')) return 'Pago Mixto';
     if (m.includes('contra') || m.includes('delivery')) return 'Contra entrega';
     return rawMethod;
+};
+
+const getOrderBankName = (order: Order): string => {
+    const rawBank =
+        order.payment?.bankAccount?.bankName ||
+        order.payment?.selectedBank ||
+        (order as any).selectedBank ||
+        '';
+    return normalizeBankName(rawBank) || 'Banco no especificado';
 };
 
 // Helper para limpiar y normalizar texto de conceptos (elimina espacios extras, tildes, minúsculas)
@@ -486,8 +496,17 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
         let totalItemsSold = 0;
         const productSales: Record<string, { name: string; quantity: number }> = {};
 
-        // 7. Métodos de Pago
+        // 7. Métodos de Pago y desglose de transferencias por banco
         const paymentMap: Record<string, { label: string; count: number; total: number }> = {};
+        const transferBankMap: Record<string, {
+            key: string;
+            bankName: string;
+            count: number;
+            totalTransferred: number;
+            totalSubtotal: number;
+        }> = {};
+        let totalTransfersCount = 0;
+        let totalTransfersAmount = 0;
 
         // 8. Ventas por fecha / hora
         const salesMap = new Map<string, { label: string; timestamp: number; amount: number }>();
@@ -510,6 +529,35 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
             }
             paymentMap[methodLabel].count += 1;
             paymentMap[methodLabel].total += getOrderSubtotal(order);
+
+            // Desglose de transferencias por banco (incluye transferencia directa y parte transferida en pago mixto)
+            const isTransfer = methodLabel === 'Transferencia';
+            const mixedTransferAmount = methodLabel === 'Pago Mixto' ? (order.payment?.transferAmount || 0) : 0;
+
+            if (isTransfer || mixedTransferAmount > 0) {
+                const bankName = getOrderBankName(order);
+                const bankKey = cleanConceptKey(bankName) || 'sin_banco';
+                const transferAmount = isTransfer
+                    ? (typeof order.total === 'number' ? order.total : getOrderSubtotal(order))
+                    : mixedTransferAmount;
+                const orderSub = isTransfer ? getOrderSubtotal(order) : mixedTransferAmount;
+
+                if (!transferBankMap[bankKey]) {
+                    transferBankMap[bankKey] = {
+                        key: bankKey,
+                        bankName,
+                        count: 0,
+                        totalTransferred: 0,
+                        totalSubtotal: 0,
+                    };
+                }
+                transferBankMap[bankKey].count += 1;
+                transferBankMap[bankKey].totalTransferred += transferAmount;
+                transferBankMap[bankKey].totalSubtotal += orderSub;
+
+                totalTransfersCount += 1;
+                totalTransfersAmount += transferAmount;
+            }
 
             // Procesar productos (excluyendo premios/precio 0 y agrupando por variante)
             order.items?.forEach((item) => {
@@ -730,6 +778,11 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
         // Array de Métodos de pago
         const paymentMethodsList = Object.values(paymentMap).sort((a, b) => b.count - a.count);
 
+        // Array de Transferencias por banco
+        const transferBanksList = Object.values(transferBankMap).sort(
+            (a, b) => b.totalTransferred - a.totalTransferred || b.count - a.count
+        );
+
         // Chart Data según filtro (diario u horario)
         const isSingleDay = ['today', 'yesterday'].includes(dateFilter);
         const chartData = isSingleDay
@@ -752,6 +805,9 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
             totalItemsSold,
             topProducts,
             paymentMethodsList,
+            transferBanksList,
+            totalTransfersCount,
+            totalTransfersAmount,
             expensesByConceptList,
             deliveryStatsList,
             totalDeliveryOrdersCount,
@@ -1137,6 +1193,22 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                                                     style={{ width: `${percentage}%` }}
                                                 />
                                             </div>
+                                            {pm.label === 'Transferencia' && stats.transferBanksList.length > 0 && (
+                                                <div className="mt-2.5 pl-3 border-l-2 border-indigo-100 space-y-1.5">
+                                                    {stats.transferBanksList.map((bank) => (
+                                                        <div key={bank.key} className="flex items-center justify-between text-[11px]">
+                                                            <span className="font-semibold text-gray-600 truncate pr-2 flex items-center gap-1.5" title={bank.bankName}>
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0"></span>
+                                                                {bank.bankName}
+                                                            </span>
+                                                            <span className="font-bold text-gray-800 shrink-0">
+                                                                ${bank.totalTransferred.toFixed(2)}
+                                                                <span className="font-medium text-gray-400 ml-1">({bank.count})</span>
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })
@@ -1196,6 +1268,87 @@ export default function StatisticsView({ orders = [], businessId }: StatisticsVi
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* Desglose de Transferencias por Banco */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-gray-100">
+                    <div>
+                        <h3 className="text-xl font-black text-gray-900 tracking-tight leading-tight flex items-center gap-2">
+                            <span className="material-symbols-rounded text-indigo-600">account_balance</span>
+                            Transferencias por Banco
+                        </h3>
+                        <p className="text-xs font-medium text-gray-500 leading-relaxed mt-0.5">
+                            Desglose de transferencias recibidas según el banco elegido en checkout
+                        </p>
+                    </div>
+                    {stats.totalTransfersCount > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-3 py-1 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-full border border-indigo-200">
+                                {stats.totalTransfersCount} {stats.totalTransfersCount === 1 ? 'transferencia' : 'transferencias'}
+                            </span>
+                            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 font-black text-xs rounded-full border border-emerald-200">
+                                Total: ${stats.totalTransfersAmount.toFixed(2)}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {stats.transferBanksList.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {stats.transferBanksList.map((bank) => {
+                            const pct = stats.totalTransfersAmount > 0
+                                ? Math.round((bank.totalTransferred / stats.totalTransfersAmount) * 100)
+                                : 0;
+                            return (
+                                <div
+                                    key={bank.key}
+                                    className="p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-indigo-200 hover:shadow-sm transition-all space-y-3"
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                                                <span className="material-symbols-rounded text-base">account_balance</span>
+                                            </div>
+                                            <span className="font-bold text-gray-900 text-sm truncate" title={bank.bankName}>
+                                                {bank.bankName}
+                                            </span>
+                                        </div>
+                                        <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold shrink-0">
+                                            {bank.count} {bank.count === 1 ? 'ped.' : 'peds.'} ({pct}%)
+                                        </span>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-baseline justify-between">
+                                            <span className="text-xs font-medium text-gray-500">Total transferido</span>
+                                            <span className="text-lg font-black text-indigo-700 tracking-tight">
+                                                ${bank.totalTransferred.toFixed(2)}
+                                            </span>
+                                        </div>
+                                        {Math.abs(bank.totalTransferred - bank.totalSubtotal) > 0.01 && (
+                                            <div className="flex items-center justify-between text-[11px] text-gray-500 font-medium">
+                                                <span>Subtotal productos</span>
+                                                <span className="font-bold text-gray-700">${bank.totalSubtotal.toFixed(2)}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="w-full bg-gray-200/70 h-2 rounded-full overflow-hidden">
+                                        <div
+                                            className="bg-indigo-600 h-full rounded-full transition-all duration-500"
+                                            style={{ width: `${pct}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-gray-400 text-sm font-medium">
+                        No se registraron transferencias bancarias en este periodo
+                    </div>
+                )}
             </div>
 
             {/* Resumen de Ganancias y Entregas por Delivery */}

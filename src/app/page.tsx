@@ -638,6 +638,41 @@ function HomePageContent() {
     }
   }
 
+  const renderRecommendButton = (product: any, business?: Business) => {
+    if (!business?.id) return null
+    const isRecommended = generatedReferralProducts.has(product.id)
+    const count = referralCounts[product.id]
+
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          handleGenerateReferral(product, business)
+        }}
+        className={`flex items-center gap-1 flex-shrink-0 transition-all ${isRecommended ? '' : 'text-gray-400 hover:text-[#aa1918]'}`}
+        title="Recomendar"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={isRecommended ? '#F59E0B' : 'currentColor'}
+          strokeWidth={isRecommended ? 3 : 1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+        </svg>
+        {count !== undefined && count > 0 && (
+          <span className="text-[10px] font-bold text-gray-500">
+            {count}
+          </span>
+        )}
+      </button>
+    )
+  }
+
   const handleOpenRatingModal = (business: Business) => {
     setSelectedRatingBusiness(business)
     setIsRatingModalOpen(true)
@@ -970,11 +1005,16 @@ function HomePageContent() {
                             ) : null}
                           </div>
                         </div>
-                        {product.description && (
-                          <p className="text-xs font-medium text-gray-500 line-clamp-2 leading-relaxed">
-                            {product.description}
-                          </p>
-                        )}
+                        <div className="flex items-start justify-between gap-2">
+                          {product.description ? (
+                            <p className="text-xs font-medium text-gray-500 line-clamp-2 leading-relaxed flex-1">
+                              {product.description}
+                            </p>
+                          ) : (
+                            <div className="flex-1" />
+                          )}
+                          {renderRecommendButton(product, effectiveBusiness)}
+                        </div>
                       </div>
                     </div>
                   )
@@ -1091,11 +1131,16 @@ function HomePageContent() {
                             ) : null}
                           </div>
                         </div>
-                        {product.description && (
-                          <p className="text-xs text-gray-600 line-clamp-2">
-                            {product.description}
-                          </p>
-                        )}
+                        <div className="flex items-start justify-between gap-2">
+                          {product.description ? (
+                            <p className="text-xs text-gray-600 line-clamp-2 flex-1">
+                              {product.description}
+                            </p>
+                          ) : (
+                            <div className="flex-1" />
+                          )}
+                          {renderRecommendButton(product, effectiveBusiness)}
+                        </div>
                       </div>
                     </div>
                   )
@@ -1560,21 +1605,7 @@ function HomePageContent() {
                                   <p className="text-xs text-gray-500 line-clamp-2 leading-snug flex-1">
                                     {product.description || 'Delicioso plato preparado con los mejores ingredientes.'}
                                   </p>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleGenerateReferral(product, b)
-                                    }}
-                                    className={`flex items-center gap-1 flex-shrink-0 transition-all ${generatedReferralProducts.has(product.id) ? '' : 'text-gray-400 hover:text-[#aa1918]'}`}
-                                    title="Recomendar"
-                                  >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={generatedReferralProducts.has(product.id) ? '#F59E0B' : 'currentColor'} strokeWidth={generatedReferralProducts.has(product.id) ? 3 : 1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></svg>
-                                    {referralCounts[product.id] !== undefined && referralCounts[product.id] > 0 && (
-                                      <span className="text-[10px] font-bold text-gray-500">
-                                        {referralCounts[product.id]}
-                                      </span>
-                                    )}
-                                  </button>
+                                  {renderRecommendButton(product, b)}
                                 </div>
                               </div>
                             </div>

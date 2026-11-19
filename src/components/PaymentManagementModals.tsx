@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Order, PaymentInfo } from '@/types'
 import { doc, updateDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
+import { getBankSelectOptions, normalizeBankName } from '@/lib/bank-utils'
 
 interface PaymentManagementModalsProps {
     isOpen: boolean
@@ -15,6 +16,7 @@ interface PaymentManagementModalsProps {
 interface EditPaymentData extends Pick<PaymentInfo, 'method' | 'paymentStatus'> {
     cashAmount: number;
     transferAmount: number;
+    selectedBank: string;
 }
 
 export default function PaymentManagementModals({
@@ -27,7 +29,8 @@ export default function PaymentManagementModals({
         method: 'cash',
         cashAmount: 0,
         transferAmount: 0,
-        paymentStatus: 'pending'
+        paymentStatus: 'pending',
+        selectedBank: ''
     })
 
     const [showReceiptPreviewModal, setShowReceiptPreviewModal] = useState(false)
@@ -39,41 +42,56 @@ export default function PaymentManagementModals({
                 method: order.payment?.method || 'cash',
                 cashAmount: (order.payment as any)?.cashAmount || 0,
                 transferAmount: (order.payment as any)?.transferAmount || 0,
-                paymentStatus: order.payment?.paymentStatus || (order.payment?.method === 'transfer' ? 'paid' : 'pending')
+                paymentStatus: order.payment?.paymentStatus || (order.payment?.method === 'transfer' ? 'paid' : 'pending'),
+                selectedBank: normalizeBankName(order.payment?.bankAccount?.bankName || order.payment?.selectedBank || '')
             })
         }
     }, [order, isOpen])
+
+    const buildUpdatedPayment = (statusOverride?: 'paid'): PaymentInfo => {
+        const isTransferOrMixed = editPaymentData.method === 'transfer' || editPaymentData.method === 'mixed'
+        const nextSelectedBank = isTransferOrMixed ? normalizeBankName(editPaymentData.selectedBank) : ''
+        const prevBankAccount = order?.payment?.bankAccount
+        const shouldKeepBankAccount =
+            isTransferOrMixed &&
+            prevBankAccount &&
+            (!nextSelectedBank || normalizeBankName(prevBankAccount.bankName) === nextSelectedBank)
+
+        const updatedPayment: any = {
+            ...order?.payment,
+            method: editPaymentData.method,
+            paymentStatus: statusOverride || editPaymentData.paymentStatus || 'pending',
+            selectedBank: nextSelectedBank
+        }
+
+        if (!shouldKeepBankAccount) {
+            delete updatedPayment.bankAccount
+        }
+
+        if (editPaymentData.method === 'mixed') {
+            updatedPayment.cashAmount = editPaymentData.cashAmount
+            updatedPayment.transferAmount = editPaymentData.transferAmount
+        }
+
+        return updatedPayment as PaymentInfo
+    }
 
     const handleSavePaymentEdit = async () => {
         if (!order) return
 
         try {
-            let paymentUpdate: any = {
-                method: editPaymentData.method,
-                paymentStatus: editPaymentData.paymentStatus || 'pending'
-            }
-
-            if (editPaymentData.method === 'mixed') {
-                paymentUpdate.cashAmount = editPaymentData.cashAmount
-                paymentUpdate.transferAmount = editPaymentData.transferAmount
-            }
+            const updatedPayment = buildUpdatedPayment()
 
             // Close and update state immediately (Optimistic Update)
             onOrderUpdated({
                 ...order,
-                payment: {
-                    ...order.payment!,
-                    ...paymentUpdate
-                }
+                payment: updatedPayment
             })
             onClose()
 
             const orderRef = doc(db, 'orders', order.id)
             await updateDoc(orderRef, {
-                payment: {
-                    ...order.payment,
-                    ...paymentUpdate
-                }
+                payment: updatedPayment
             })
         } catch (error) {
             console.error('Error updating payment:', error)
@@ -85,20 +103,7 @@ export default function PaymentManagementModals({
         if (!order) return
 
         try {
-            let paymentUpdate: any = {
-                method: editPaymentData.method,
-                paymentStatus: 'paid' as const
-            }
-
-            if (editPaymentData.method === 'mixed') {
-                paymentUpdate.cashAmount = editPaymentData.cashAmount
-                paymentUpdate.transferAmount = editPaymentData.transferAmount
-            }
-
-            const updatedPayment = {
-                ...order.payment,
-                ...paymentUpdate
-            }
+            const updatedPayment = buildUpdatedPayment('paid')
 
             // Close and update state immediately (Optimistic Update)
             onOrderUpdated({ ...order, payment: updatedPayment })
@@ -235,6 +240,7 @@ export default function PaymentManagementModals({
                                             method: e.target.value as 'cash',
                                             cashAmount: 0,
                                             transferAmount: 0,
+                                            selectedBank: '',
                                             paymentStatus: 'pending'
                                         })}
                                         className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
@@ -288,6 +294,38 @@ export default function PaymentManagementModals({
                                 </label>
                             </div>
 
+                            {/* Selector minimalista de banco (opcional) */}
+                            {(editPaymentData.method === 'transfer' || editPaymentData.method === 'mixed') && (
+                                <div className="mt-2.5 flex items-center gap-2">
+                                    <i className="bi bi-bank text-xs text-gray-400"></i>
+                                    <select
+                                        value={editPaymentData.selectedBank}
+                                        onChange={(e) => setEditPaymentData({
+                                            ...editPaymentData,
+                                            selectedBank: e.target.value
+                                        })}
+                                        className="flex-1 px-2.5 py-1.5 text-xs text-gray-700 bg-gray-50 hover:bg-gray-100/80 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 transition-colors"
+                                    >
+                                        <option value="">Banco destino (opcional)</option>
+                                        {getBankSelectOptions(null, editPaymentData.selectedBank).map((bank) => (
+                                            <option key={bank} value={bank}>
+                                                {bank}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {editPaymentData.selectedBank && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditPaymentData({ ...editPaymentData, selectedBank: '' })}
+                                            className="text-gray-400 hover:text-gray-600 p-1 transition-colors"
+                                            title="Quitar banco"
+                                        >
+                                            <i className="bi bi-x text-xs"></i>
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Payment Status Selection */}
                             <div className="mt-4">
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -308,42 +346,7 @@ export default function PaymentManagementModals({
                                     </select>
                                     <button
                                         type="button"
-                                        onClick={async () => {
-                                            if (!order) return;
-                                            
-                                            try {
-                                                let paymentUpdate: any = {
-                                                    method: editPaymentData.method,
-                                                    paymentStatus: 'paid' as const
-                                                };
-
-                                                if (editPaymentData.method === 'mixed') {
-                                                    paymentUpdate.cashAmount = editPaymentData.cashAmount;
-                                                    paymentUpdate.transferAmount = editPaymentData.transferAmount;
-                                                }
-
-                                                // Close and update state immediately (Optimistic Update)
-                                                onOrderUpdated({
-                                                    ...order,
-                                                    payment: {
-                                                        ...order.payment!,
-                                                        ...paymentUpdate
-                                                    }
-                                                });
-                                                onClose();
-
-                                                const orderRef = doc(db, 'orders', order.id);
-                                                await updateDoc(orderRef, {
-                                                    payment: {
-                                                        ...order.payment,
-                                                        ...paymentUpdate
-                                                    }
-                                                });
-                                            } catch (error) {
-                                                console.error('Error updating payment:', error);
-                                                alert('Error al actualizar el pago');
-                                            }
-                                        }}
+                                        onClick={handleValidatePayment}
                                         className={`px-3 py-2 rounded-lg transition-colors ${
                                             editPaymentData.paymentStatus === 'paid'
                                                 ? 'bg-green-100 text-green-700 border-green-300'
