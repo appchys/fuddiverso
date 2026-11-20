@@ -416,172 +416,172 @@ export const OrderCard = memo(function OrderCard({
                         )}
 
                         {/* Status Select Menu */}
-                        {showInlineStatusTag ? (
+                        {showInlineStatusTag && (
                             <span
                                 className={`inline-flex h-7 items-center rounded-lg border px-2 text-[11px] font-bold leading-none ${inlineStatusClass}`}
                                 title={getStatusText(order.status)}
                             >
                                 {getStatusText(order.status)}
                             </span>
-                        ) : (
-                            <div className="relative" ref={statusMenuRef}>
-                                <button
-                                    onClick={() => setStatusMenuOpen(!statusMenuOpen)}
-                                    className={`p-1.5 text-lg rounded-lg transition-all hover:bg-gray-100 ${statusMenuOpen ? 'bg-gray-100' : ''}`}
-                                    title="Opciones del pedido"
-                                >
-                                    <i className="bi bi-three-dots-vertical"></i>
-                                </button>
-
-                                {statusMenuOpen && (
-                                    <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                                        {menuView === 'main' && (
-                                            <div className="animate-in slide-in-from-left-2 duration-150">
-                                                <button
-                                                    onClick={() => {
-                                                        onEdit(order)
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-pencil text-blue-500 text-base"></i>
-                                                    Editar
-                                                </button>
-
-                                                <button
-                                                    onClick={() => setMenuView('whatsapp')}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-between font-medium group"
-                                                >
-                                                    <div className="flex items-center gap-2.5">
-                                                        <i className="bi bi-whatsapp text-green-500 text-base"></i>
-                                                        <span>WhatsApp</span>
-                                                    </div>
-                                                    <i className="bi bi-chevron-right text-xs text-gray-400 group-hover:translate-x-0.5 transition-transform"></i>
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        if (order.createdByAdmin) {
-                                                            onDelete(order.id)
-                                                        } else {
-                                                            setConfirmDiscardOpen(true)
-                                                        }
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className={`bi ${order.createdByAdmin ? 'bi-trash text-red-500' : 'bi-x-circle text-red-500'} text-base`}></i>
-                                                    {order.createdByAdmin ? 'Eliminar' : 'Cancelar'}
-                                                </button>
-
-                                                <div className="my-1 border-t border-gray-100"></div>
-
-                                                <button
-                                                    onClick={() => setMenuView('statuses')}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-between font-medium group"
-                                                >
-                                                    <div className="flex items-center gap-2.5">
-                                                        <i className="bi bi-arrow-repeat text-purple-500 text-base"></i>
-                                                        <span>Estados</span>
-                                                    </div>
-                                                    <i className="bi bi-chevron-right text-xs text-gray-400 group-hover:translate-x-0.5 transition-transform"></i>
-                                                </button>
-                                            </div>
-                                        )}
-
-                                        {menuView === 'whatsapp' && (
-                                            <div className="animate-in slide-in-from-right-2 duration-150">
-                                                <button
-                                                    onClick={() => setMenuView('main')}
-                                                    className="w-full text-left px-3 py-1.5 text-xs text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-1.5 font-semibold border-b border-gray-100 mb-1"
-                                                >
-                                                    <i className="bi bi-arrow-left text-sm"></i>
-                                                    <span>Volver</span>
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onCustomerClick(order)
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-person-check text-green-600 text-base"></i>
-                                                    Cliente (Comprobante)
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onWhatsAppDelivery(order)
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-bicycle text-indigo-500 text-base"></i>
-                                                    Delivery
-                                                </button>
-                                            </div>
-                                        )}
-
-                                        {menuView === 'statuses' && (
-                                            <div className="animate-in slide-in-from-right-2 duration-150">
-                                                <button
-                                                    onClick={() => setMenuView('main')}
-                                                    className="w-full text-left px-3 py-1.5 text-xs text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-1.5 font-semibold border-b border-gray-100 mb-1"
-                                                >
-                                                    <i className="bi bi-arrow-left text-sm"></i>
-                                                    <span>Volver</span>
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onStatusChange(order.id, 'preparing')
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-fire text-purple-500 text-base"></i>
-                                                    Preparando
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onStatusChange(order.id, 'ready')
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-box-seam text-green-500 text-base"></i>
-                                                    Listo para entrega
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        onStatusChange(order.id, 'delivered')
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors flex items-center gap-2.5 font-medium"
-                                                >
-                                                    <i className="bi bi-check-all text-gray-500 text-base"></i>
-                                                    Entregado
-                                                </button>
-
-                                                <button
-                                                    onClick={() => {
-                                                        setConfirmDiscardOpen(true)
-                                                        setStatusMenuOpen(false)
-                                                    }}
-                                                    className="w-full text-left px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2.5 font-medium border-t border-gray-50 mt-1"
-                                                >
-                                                    <i className="bi bi-x-circle text-red-500 text-base"></i>
-                                                    Descartado
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
                         )}
+
+                        <div className="relative" ref={statusMenuRef}>
+                            <button
+                                onClick={() => setStatusMenuOpen(!statusMenuOpen)}
+                                className={`p-1.5 text-lg rounded-lg transition-all hover:bg-gray-100 ${statusMenuOpen ? 'bg-gray-100' : ''}`}
+                                title="Opciones del pedido"
+                            >
+                                <i className="bi bi-three-dots-vertical"></i>
+                            </button>
+
+                            {statusMenuOpen && (
+                                <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                                    {menuView === 'main' && (
+                                        <div className="animate-in slide-in-from-left-2 duration-150">
+                                            <button
+                                                onClick={() => {
+                                                    onEdit(order)
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2.5 font-medium"
+                                            >
+                                                <i className="bi bi-pencil text-blue-500 text-base"></i>
+                                                Editar
+                                            </button>
+
+                                            <button
+                                                onClick={() => setMenuView('whatsapp')}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-between font-medium group"
+                                            >
+                                                <div className="flex items-center gap-2.5">
+                                                    <i className="bi bi-whatsapp text-green-500 text-base"></i>
+                                                    <span>WhatsApp</span>
+                                                </div>
+                                                <i className="bi bi-chevron-right text-xs text-gray-400 group-hover:translate-x-0.5 transition-transform"></i>
+                                            </button>
+
+                                            <button
+                                                onClick={() => {
+                                                    if (order.createdByAdmin) {
+                                                        onDelete(order.id)
+                                                    } else {
+                                                        setConfirmDiscardOpen(true)
+                                                    }
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2.5 font-medium"
+                                            >
+                                                <i className={`bi ${order.createdByAdmin ? 'bi-trash text-red-500' : 'bi-x-circle text-red-500'} text-base`}></i>
+                                                {order.createdByAdmin ? 'Eliminar' : 'Cancelar'}
+                                            </button>
+
+                                            <div className="my-1 border-t border-gray-100"></div>
+
+                                            <button
+                                                onClick={() => setMenuView('statuses')}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-between font-medium group"
+                                            >
+                                                <div className="flex items-center gap-2.5">
+                                                    <i className="bi bi-arrow-repeat text-purple-500 text-base"></i>
+                                                    <span>Estados</span>
+                                                </div>
+                                                <i className="bi bi-chevron-right text-xs text-gray-400 group-hover:translate-x-0.5 transition-transform"></i>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {menuView === 'whatsapp' && (
+                                        <div className="animate-in slide-in-from-right-2 duration-150">
+                                            <button
+                                                onClick={() => setMenuView('main')}
+                                                className="w-full text-left px-3 py-1.5 text-xs text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-1.5 font-semibold border-b border-gray-100 mb-1"
+                                            >
+                                                <i className="bi bi-arrow-left text-sm"></i>
+                                                <span>Volver</span>
+                                            </button>
+
+                                            <button
+                                                onClick={() => {
+                                                    onCustomerClick(order)
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center gap-2.5 font-medium"
+                                            >
+                                                <i className="bi bi-person-check text-green-600 text-base"></i>
+                                                Cliente (Comprobante)
+                                            </button>
+
+                                            <button
+                                                onClick={() => {
+                                                    onWhatsAppDelivery(order)
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors flex items-center gap-2.5 font-medium"
+                                            >
+                                                <i className="bi bi-bicycle text-indigo-500 text-base"></i>
+                                                Delivery
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {menuView === 'statuses' && (
+                                        <div className="animate-in slide-in-from-right-2 duration-150">
+                                            <button
+                                                onClick={() => setMenuView('main')}
+                                                className="w-full text-left px-3 py-1.5 text-xs text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-1.5 font-semibold border-b border-gray-100 mb-1"
+                                            >
+                                                <i className="bi bi-arrow-left text-sm"></i>
+                                                <span>Volver</span>
+                                            </button>
+
+                                            <button
+                                                onClick={() => {
+                                                    onStatusChange(order.id, 'preparing')
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors flex items-center gap-2.5 font-medium"
+                                            >
+                                                <i className="bi bi-fire text-purple-500 text-base"></i>
+                                                Preparando
+                                            </button>
+
+                                            <button
+                                                onClick={() => {
+                                                    onStatusChange(order.id, 'ready')
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors flex items-center gap-2.5 font-medium"
+                                            >
+                                                <i className="bi bi-box-seam text-green-500 text-base"></i>
+                                                Listo para entrega
+                                            </button>
+
+                                            <button
+                                                onClick={() => {
+                                                    onStatusChange(order.id, 'delivered')
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors flex items-center gap-2.5 font-medium"
+                                            >
+                                                <i className="bi bi-check-all text-gray-500 text-base"></i>
+                                                Entregado
+                                            </button>
+
+                                            <button
+                                                onClick={() => {
+                                                    setConfirmDiscardOpen(true)
+                                                    setStatusMenuOpen(false)
+                                                }}
+                                                className="w-full text-left px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2.5 font-medium border-t border-gray-50 mt-1"
+                                            >
+                                                <i className="bi bi-x-circle text-red-500 text-base"></i>
+                                                Descartado
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                         </div>
 
                         {/* Spinner de carga cuando la orden se está guardando o actualizando */}
@@ -704,15 +704,9 @@ export const OrderCard = memo(function OrderCard({
                                                 </div>
                                             )}
 
-                                            <div className="grid grid-cols-2 gap-2 p-3 text-sm">
-                                                <div>
-                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Zona</p>
-                                                    <p className="font-semibold text-gray-900">{deliveryZone}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Envío</p>
-                                                    <p className="font-semibold text-gray-900">${deliveryCost.toFixed(2)}</p>
-                                                </div>
+                                            <div className="flex flex-col items-end p-3 text-right text-sm">
+                                                <p className="font-semibold text-gray-900">{deliveryZone}</p>
+                                                <p className="font-semibold text-gray-900">${deliveryCost.toFixed(2)}</p>
                                             </div>
 
                                         </div>

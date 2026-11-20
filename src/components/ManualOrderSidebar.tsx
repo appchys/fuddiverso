@@ -16,6 +16,9 @@ import { Timestamp } from 'firebase/firestore'
 import { logDebug } from '@/lib/debug-log'
 import { resolveItemIngredients } from '@/lib/stock-utils'
 import { getBankSelectOptions, normalizeBankName } from '@/lib/bank-utils'
+import { ClientLocationsList } from './ClientLocationsModal'
+import type { WhatsAppPreorderDraft } from './LiveCheckoutsPanel'
+import { Motorbike } from 'lucide-react'
 
 // Componente optimizado para cargar imágenes de productos de manera diferida
 // Prioriza la visualización y clic inmediato de los nombres y precios de los productos
@@ -167,6 +170,7 @@ interface ManualOrderSidebarProps {
   initialCustomerPhone?: string | null
   initialCustomerName?: string | null
   initialLocationInput?: string | null
+  initialPreorderDraft?: WhatsAppPreorderDraft | null
 }
 
 export default function ManualOrderSidebar({
@@ -185,7 +189,8 @@ export default function ManualOrderSidebar({
   setProfileSubTab,
   initialCustomerPhone,
   initialCustomerName,
-  initialLocationInput
+  initialLocationInput,
+  initialPreorderDraft
 }: ManualOrderSidebarProps) {
   const [manualOrderData, setManualOrderData] = useState<ManualOrderData>({
     customerId: '',
@@ -848,21 +853,83 @@ export default function ManualOrderSidebar({
     const phone = (initialCustomerPhone || '').trim()
     const name = (initialCustomerName || '').trim()
     const loc = (initialLocationInput || '').trim()
-    if (!phone && !name && !loc) return
+    const draft = initialPreorderDraft
+    if (!phone && !name && !loc && !draft) return
+
+    const draftSelectedLocation = draft?.selectedLocation
+      ? (() => {
+          const rawLoc = draft.selectedLocation
+          const rawFee = rawLoc.tarifa && !isNaN(parseFloat(rawLoc.tarifa)) ? rawLoc.tarifa : '1.25'
+          const hasNoCoords = !rawLoc.latlong || rawLoc.latlong.startsWith('pluscode:')
+          const isLegacyOne = !rawLoc.tarifa || rawFee === '1' || rawFee === '1.0' || rawFee === '1.00'
+          return {
+            id: rawLoc.id,
+            id_cliente: rawLoc.id_cliente,
+            latlong: rawLoc.latlong || '',
+            referencia: rawLoc.referencia || '',
+            sector: rawLoc.sector || '',
+            tarifa: (hasNoCoords || isLegacyOne) ? '1.25' : rawFee,
+            photo: rawLoc.photo || '',
+            isFavorite: rawLoc.isFavorite
+          } as ClientLocation
+        })()
+      : null
+
+    const draftProducts: OrderItem[] | null =
+      draft?.items && draft.items.length > 0
+        ? draft.items.map(item => ({
+            productId: item.productId,
+            name: item.name,
+            productName: item.productName || item.name,
+            variant: item.variant,
+            variantName: item.variantName,
+            price: item.price,
+            quantity: item.quantity,
+            image: item.image,
+            basePrice: item.basePrice,
+            commission: item.commission,
+            commissionType: item.commissionType,
+            storeReceives: item.storeReceives,
+            ingredients: item.ingredients,
+            originalBusinessId: effectiveBusinessId || undefined,
+            originalBusinessName: effectiveBusiness?.name || undefined,
+            originalBusinessImage: effectiveBusiness?.image || null
+          }))
+        : null
 
     setManualOrderData(prev => ({
       ...prev,
       customerPhone: phone || prev.customerPhone,
-      customerName: name || prev.customerName
+      customerName: name || prev.customerName,
+      selectedProducts: draftProducts || prev.selectedProducts,
+      timingType: draft?.timingType || prev.timingType,
+      scheduledDate: draft?.timingType === 'scheduled' ? (draft.scheduledDate || prev.scheduledDate) : prev.scheduledDate,
+      scheduledTime: draft?.timingType === 'scheduled' ? (draft.scheduledTime || prev.scheduledTime) : prev.scheduledTime,
+      deliveryType: draft?.deliveryType || prev.deliveryType,
+      selectedLocation:
+        draft?.deliveryType === 'pickup'
+          ? null
+          : (draftSelectedLocation || prev.selectedLocation),
+      paymentMethod: draft?.paymentMethod || prev.paymentMethod,
+      cashAmount: draft?.paymentMethod === 'mixed' && typeof draft.cashAmount === 'number'
+        ? draft.cashAmount
+        : prev.cashAmount,
+      transferAmount: draft?.paymentMethod === 'mixed' && typeof draft.transferAmount === 'number'
+        ? draft.transferAmount
+        : prev.transferAmount
     }))
+
+    if (draftProducts) {
+      calculateTotal(draftProducts)
+    }
 
     if (phone.replace(/\D/g, '').length >= 9) {
       void executePhoneSearch(phone)
     }
-    if (loc) {
+    if (loc && !draftSelectedLocation && draft?.deliveryType !== 'pickup') {
       handleLocationInputChange(loc)
     }
-  }, [isOpen, mode, initialCustomerPhone, initialCustomerName, initialLocationInput])
+  }, [isOpen, mode, initialCustomerPhone, initialCustomerName, initialLocationInput, initialPreorderDraft])
 
   // Obtener categorías en el orden definido en el negocio
   const getBusinessCategories = (): string[] => {
@@ -4086,7 +4153,7 @@ export default function ManualOrderSidebar({
                     : 'border-gray-300 hover:border-gray-400'
                     }`}
                 >
-                  <i className="bi bi-scooter text-lg"></i>
+                  <Motorbike className="w-5 h-5" strokeWidth={2} />
                   <span className="text-xs font-medium">Delivery</span>
                 </button>
               </div>
@@ -5262,167 +5329,58 @@ export default function ManualOrderSidebar({
             </div>
 
             {!showNewLocationForm ? (
-              <div>
-                {/* Lista de ubicaciones existentes */}
-                {loadingClientLocations ? (
-                  <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="text-sm text-gray-500 mt-2">Cargando ubicaciones...</p>
-                  </div>
-                ) : manualOrderData.customerLocations.length > 0 ? (
-                  <div className="space-y-3 mb-4">
-                    {manualOrderData.customerLocations.map((location) => (
-                      <label key={location.id} className="flex items-start p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="selectedLocation"
-                          checked={manualOrderData.selectedLocation?.id === location.id}
-                          onChange={() => {
-                            // 1. CIERRE INMEDIATO Y SELECCIÓN OPTIMISTA (0 ms de espera)
-                            const rawFee = location.tarifa && !isNaN(parseFloat(location.tarifa)) ? location.tarifa : '1.25'
-                            const hasNoCoords = !location.latlong || location.latlong.startsWith('pluscode:')
-                            const isLegacyOne = !location.tarifa || rawFee === '1' || rawFee === '1.0' || rawFee === '1.00'
-                            const currentFee = (hasNoCoords || isLegacyOne) ? '1.25' : rawFee
-                            const initialSelected = { ...location, tarifa: currentFee }
-                            
-                            setManualOrderData(prev => ({ ...prev, selectedLocation: initialSelected }))
-                            setShowLocationModal(false)
-                            calculateTotal(manualOrderData.selectedProducts)
+              <ClientLocationsList
+                locations={manualOrderData.customerLocations}
+                selectedLocationId={manualOrderData.selectedLocation?.id}
+                loading={loadingClientLocations}
+                onSelectLocation={(location) => {
+                  // 1. CIERRE INMEDIATO Y SELECCIÓN OPTIMISTA (0 ms de espera)
+                  const rawFee = location.tarifa && !isNaN(parseFloat(location.tarifa)) ? location.tarifa : '1.25'
+                  const hasNoCoords = !location.latlong || location.latlong.startsWith('pluscode:')
+                  const isLegacyOne = !location.tarifa || rawFee === '1' || rawFee === '1.0' || rawFee === '1.00'
+                  const currentFee = (hasNoCoords || isLegacyOne) ? '1.25' : rawFee
+                  const initialSelected = { ...location, tarifa: currentFee } as ClientLocation
 
-                            // 2. Si no tiene coordenadas válidas o es pluscode, no calcular tarifa por mapa
-                            if (!location.latlong || location.latlong.startsWith('pluscode:')) {
-                              return
-                            }
+                  setManualOrderData(prev => ({ ...prev, selectedLocation: initialSelected }))
+                  setShowLocationModal(false)
+                  calculateTotal(manualOrderData.selectedProducts)
 
-                            // 3. Si hay coordenadas, verificar tarifa en segundo plano (sin bloquear la UI)
-                            const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
-                            if (isNaN(lat) || isNaN(lng)) {
-                              return
-                            }
+                  // 2. Si no tiene coordenadas válidas o es pluscode, no calcular tarifa por mapa
+                  if (!location.latlong || location.latlong.startsWith('pluscode:')) {
+                    return
+                  }
 
-                            setCalculatingTariff(true)
-                            calculateDeliveryFee({ lat, lng })
-                              .then(({ fee, zoneName }) => {
-                                const feeStr = (typeof fee === 'number' ? fee : parseFloat(currentFee)).toString()
-                                const updatedLocation = { ...location, tarifa: feeStr, sector: zoneName || location.sector }
-                                
-                                setManualOrderData(prev => {
-                                  // Solo actualizar si la ubicación seleccionada sigue siendo esta misma
-                                  if (prev.selectedLocation?.id === location.id) {
-                                    return { ...prev, selectedLocation: updatedLocation }
-                                  }
-                                  return prev
-                                })
-                                calculateTotal(manualOrderData.selectedProducts)
-                              })
-                              .catch(error => {
-                                console.error('Error calculating delivery fee in background:', error)
-                              })
-                              .finally(() => {
-                                setCalculatingTariff(false)
-                              })
-                          }}
-                          className="mr-3 mt-1 flex-shrink-0"
-                        />
+                  // 3. Si hay coordenadas, verificar tarifa en segundo plano (sin bloquear la UI)
+                  const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
+                  if (isNaN(lat) || isNaN(lng)) {
+                    return
+                  }
 
-                        {/* Mapa estático */}
-                        {location.latlong && (
-                          <a
-                            href={
-                              location.latlong.startsWith('pluscode:')
-                                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.latlong.replace('pluscode:', ''))}`
-                                : `https://www.google.com/maps/search/?api=1&query=${location.latlong}`
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative block hover:opacity-80 transition-opacity"
-                            title="Abrir en Google Maps"
-                          >
-                            <img
-                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${location.latlong}&zoom=13&size=64x64&maptype=roadmap&markers=color:red%7C${location.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
-                              alt="Ubicación en mapa"
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                              decoding="async"
-                              onError={(e) => {
-                                // Si falla la carga del mapa, ocultar la imagen y mostrar el ícono
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                const parent = target.parentElement;
-                                if (parent) {
-                                  const fallback = parent.querySelector('.map-fallback') as HTMLElement;
-                                  if (fallback) {
-                                    fallback.style.display = 'flex';
-                                  }
-                                }
-                              }}
-                            />
-                            <div className="map-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
-                              <i className="bi bi-geo-alt text-gray-400 text-lg"></i>
-                            </div>
-                          </a>
-                        )}
+                  setCalculatingTariff(true)
+                  calculateDeliveryFee({ lat, lng })
+                    .then(({ fee, zoneName }) => {
+                      const feeStr = (typeof fee === 'number' ? fee : parseFloat(currentFee)).toString()
+                      const updatedLocation = { ...location, tarifa: feeStr, sector: zoneName || location.sector } as ClientLocation
 
-                        {/* Foto de ubicación */}
-                        {location.photo && (
-                          <div className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
-                            <img
-                              src={location.photo}
-                              alt="Foto de ubicación"
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                              decoding="async"
-                            />
-                          </div>
-                        )}
-
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-900">{location.referencia}</p>
-                        </div>
-                        <div className="ml-3 flex flex-col items-end gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditLocation(location as ClientLocation);
-                            }}
-                            className="text-sm text-blue-600 hover:text-blue-700 p-1"
-                            type="button"
-                          >
-                            <i className="bi bi-pencil"></i>
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteLocation(location.id);
-                            }}
-                            className="text-sm text-red-600 hover:text-red-700 p-1"
-                            type="button"
-                          >
-                            <i className="bi bi-trash"></i>
-                          </button>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <i className="bi bi-geo-alt text-gray-400 text-4xl mb-3"></i>
-                    <p className="text-sm text-gray-500 mb-4">No hay ubicaciones registradas para este cliente</p>
-                  </div>
-                )}
-
-                {/* Botones de acción */}
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => setShowNewLocationForm(true)}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-                  >
-                    <i className="bi bi-plus-lg mr-2"></i>
-                    Nueva ubicación
-                  </button>
-                </div>
-              </div>
+                      setManualOrderData(prev => {
+                        if (prev.selectedLocation?.id === location.id) {
+                          return { ...prev, selectedLocation: updatedLocation }
+                        }
+                        return prev
+                      })
+                      calculateTotal(manualOrderData.selectedProducts)
+                    })
+                    .catch(error => {
+                      console.error('Error calculating delivery fee in background:', error)
+                    })
+                    .finally(() => {
+                      setCalculatingTariff(false)
+                    })
+                }}
+                onEditLocation={(location) => handleEditLocation(location as ClientLocation)}
+                onDeleteLocation={(locationId) => handleDeleteLocation(locationId)}
+                onAddNewLocation={() => setShowNewLocationForm(true)}
+              />
             ) : (
               /* Formulario para nueva ubicación */
               <div>

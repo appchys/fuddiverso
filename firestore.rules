@@ -38,6 +38,11 @@ service cloud.firestore {
       match /whatsappPending/{conversationId} {
         allow read, write: if true;
       }
+
+      // Contactos excluidos de las notificaciones/conversaciones pendientes de WhatsApp Business
+      match /whatsappExcluded/{contactId} {
+        allow read, write: if true;
+      }
       
       // Subcolección de biblioteca de ingredientes
       match /ingredientLibrary/{ingredientId} {

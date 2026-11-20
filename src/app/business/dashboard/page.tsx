@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product, BusinessAdministrator } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
-import { addDoc, collection, query, where, orderBy, onSnapshot, doc, setDoc, updateDoc, deleteDoc, getDocs, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { addDoc, collection, query, where, orderBy, limit, onSnapshot, doc, setDoc, updateDoc, deleteDoc, getDocs, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
 import {
     getBusiness,
     getProductsByBusiness,
@@ -96,7 +96,7 @@ const AdministratorsManagementView = dynamic(() => import('@/components/Administ
 const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), { ssr: false })
 const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: false })
 
-import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
+import type { CheckoutSession, WhatsAppPreorderDraft } from '@/components/LiveCheckoutsPanel'
 const PaymentManagementModals = dynamic(() => import('@/components/PaymentManagementModals'), { ssr: false })
 const ManualOrderSidebar = dynamic(() => import('@/components/ManualOrderSidebar'), { ssr: false })
 const WhatsAppPendingModal = dynamic(() => import('@/components/WhatsAppPendingModal'), { ssr: false })
@@ -134,6 +134,7 @@ export default function TodayOrdersPage() {
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
+    const [liveCheckoutsVisible, setLiveCheckoutsVisible] = useState<boolean | null>(null)
     const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('bluetooth')
     const [showPrinterPopover, setShowPrinterPopover] = useState(false)
     const [printerStatus, setPrinterStatus] = useState({ connected: false, deviceName: null as string | null })
@@ -394,6 +395,7 @@ export default function TodayOrdersPage() {
     const [whatsappPendingConversations, setWhatsappPendingConversations] = useState<PendingWhatsAppConversation[]>([])
     const [whatsappExcludedContacts, setWhatsappExcludedContacts] = useState<ExcludedWhatsAppContact[]>([])
     const [selectedWhatsAppConversation, setSelectedWhatsAppConversation] = useState<PendingWhatsAppConversation | null>(null)
+    const [selectedWhatsAppDraft, setSelectedWhatsAppDraft] = useState<WhatsAppPreorderDraft | null>(null)
     const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
     const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null)
 
@@ -716,7 +718,16 @@ export default function TodayOrdersPage() {
         }
     }, [business])
 
-    const showCol1 = useMemo(() => todayOrders.some(o => ['borrador', 'pending'].includes(o.status)) || checkoutCount > 0, [todayOrders, checkoutCount]);
+    const hasPendingWhatsApp = useMemo(
+        () => whatsappPendingConversations.some(c => (c.status || 'pending') === 'pending'),
+        [whatsappPendingConversations]
+    );
+    const showCol1 = useMemo(
+        () => todayOrders.some(o => ['borrador', 'pending'].includes(o.status)) ||
+            liveCheckoutsVisible === true ||
+            (liveCheckoutsVisible !== false && (checkoutCount > 0 || hasPendingWhatsApp)),
+        [todayOrders, checkoutCount, hasPendingWhatsApp, liveCheckoutsVisible]
+    );
     const showCol2 = useMemo(() => todayOrders.some(o => o.status === 'confirmed'), [todayOrders]);
     const showCol3 = useMemo(() => todayOrders.some(o => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].includes(o.status)), [todayOrders]);
     const configuredDeliveryTime = getConfiguredDeliveryTime(business)
@@ -1234,7 +1245,6 @@ export default function TodayOrdersPage() {
         // Timeout de seguridad: no mantener al usuario bloqueado en loading más de 1.5s ante latencia de red
         const safetyTimer = setTimeout(() => {
             setLoading(false)
-            isFirstOrdersLoad.current = false
         }, 1500)
 
         // Calculate start and end of today
@@ -1248,6 +1258,7 @@ export default function TodayOrdersPage() {
         let activeQueryLoaded = false
         let createdQueryLoaded = false
         let scheduledQueryLoaded = false
+        let multiStoreQueryLoaded = false
 
         const isActiveOrder = (order: Order) => ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
         const isScheduledOrder = (order: Order) => order.timing?.type === 'scheduled' && Boolean(order.timing.scheduledDate)
@@ -1327,6 +1338,8 @@ export default function TodayOrdersPage() {
             // OPTIMIZACIÓN P0: Desbloquear carga tan pronto como respondan las órdenes activas, creadas hoy o programadas
             if (activeQueryLoaded || createdQueryLoaded || scheduledQueryLoaded) {
                 setLoading(false)
+            }
+            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded && multiStoreQueryLoaded) {
                 isFirstOrdersLoad.current = false
             }
         }
@@ -1350,18 +1363,17 @@ export default function TodayOrdersPage() {
             }
         }
 
-        const handleDocChanges = (snapshot: any) => {
-            if (!isFirstOrdersLoad.current) {
-                snapshot.docChanges().forEach((change: any) => {
-                    if (change.type === 'added') {
-                        const orderData = change.doc.data() as Order
+        const handleDocChanges = (snapshot: any, isListenerLoaded: boolean) => {
+            if (!isListenerLoaded) return
+            snapshot.docChanges().forEach((change: any) => {
+                if (change.type === 'added' && !ordersMap.has(change.doc.id)) {
+                    const orderData = change.doc.data() as Order
 
-                        if (orderData.status !== 'borrador' && shouldShowInTodayOrders(orderData)) {
-                            playNotificationSound()
-                        }
+                    if (orderData.status !== 'borrador' && shouldShowInTodayOrders(orderData)) {
+                        playNotificationSound()
                     }
-                })
-            }
+                }
+            })
         }
 
         const applyDocToOrdersMap = (docId: string, docData: any, hasPendingWrites: boolean = false) => {
@@ -1388,7 +1400,7 @@ export default function TodayOrdersPage() {
             where('createdAt', '<', Timestamp.fromDate(endOfDay))
         )
         const unsubCreated = onSnapshot(qCreatedToday, { includeMetadataChanges: true }, (snapshot) => {
-            handleDocChanges(snapshot)
+            handleDocChanges(snapshot, createdQueryLoaded)
             snapshot.docs.forEach(doc => {
                 applyDocToOrdersMap(doc.id, doc.data(), doc.metadata.hasPendingWrites)
             })
@@ -1416,7 +1428,7 @@ export default function TodayOrdersPage() {
             where('status', 'in', ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'])
         )
         const unsubActive = onSnapshot(qActive, { includeMetadataChanges: true }, (snapshot) => {
-            handleDocChanges(snapshot)
+            handleDocChanges(snapshot, activeQueryLoaded)
             snapshot.docs.forEach(doc => {
                 applyDocToOrdersMap(doc.id, doc.data(), doc.metadata.hasPendingWrites)
             })
@@ -1455,7 +1467,7 @@ export default function TodayOrdersPage() {
             where('timing.scheduledDate', '<', Timestamp.fromDate(endOfDay))
         )
         const unsubScheduled = onSnapshot(qScheduledToday, (snapshot) => {
-            handleDocChanges(snapshot)
+            handleDocChanges(snapshot, scheduledQueryLoaded)
             snapshot.docs.forEach(doc => {
                 applyDocToOrdersMap(doc.id, doc.data(), (doc as any).metadata?.hasPendingWrites ?? false)
             })
@@ -1483,7 +1495,7 @@ export default function TodayOrdersPage() {
             where('status', 'in', ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'])
         )
         const unsubMultiStore = onSnapshot(qMultiStore, (snapshot) => {
-            handleDocChanges(snapshot)
+            handleDocChanges(snapshot, multiStoreQueryLoaded)
             snapshot.docs.forEach(doc => {
                 applyDocToOrdersMap(doc.id, doc.data(), (doc as any).metadata?.hasPendingWrites ?? false)
             })
@@ -1503,9 +1515,12 @@ export default function TodayOrdersPage() {
                     }
                 }
             })
+            multiStoreQueryLoaded = true
             scheduleUpdateOrdersState()
         }, (error) => {
             console.error("Error in unsubMultiStore:", error)
+            multiStoreQueryLoaded = true
+            scheduleUpdateOrdersState()
         })
 
         return () => {
@@ -1984,7 +1999,8 @@ export default function TodayOrdersPage() {
         }
         const q = query(
             collection(db, 'businesses', bizId, 'whatsappPending'),
-            orderBy('timestampMillis', 'desc')
+            orderBy('timestampMillis', 'desc'),
+            limit(100)
         )
         const unsub = onSnapshot(q, (snap) => {
             const list: PendingWhatsAppConversation[] = snap.docs.map((d) => {
@@ -2940,55 +2956,18 @@ export default function TodayOrdersPage() {
                                             aria-expanded={showMoreMenu}
                                         >
                                             <i className="bi bi-three-dots-vertical text-xl block"></i>
-                                            {(whatsappActivePendingCount > 0 || totalPendingChanges > 0 || !online) && (
+                                            {(totalPendingChanges > 0 || !online) && (
                                                 <span
-                                                    className={`absolute top-1 right-1 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
-                                                        !online || totalPendingChanges > 0 ? 'bg-amber-500' : 'bg-green-600'
-                                                    }`}
+                                                    className="absolute top-1 right-1 h-2.5 w-2.5 rounded-full ring-2 ring-white bg-amber-500"
                                                 />
                                             )}
                                         </button>
 
                                         {showMoreMenu && (
                                             <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
-                                                {/* Mensajes de WhatsApp */}
-                                                {business && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setWhatsappModalOpen(true)
-                                                            setShowMoreMenu(false)
-                                                        }}
-                                                        className="w-full px-3.5 py-2.5 text-left hover:bg-gray-50 flex items-center justify-between transition-colors"
-                                                    >
-                                                        <div className="flex items-center space-x-3">
-                                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                                                whatsappActivePendingCount > 0
-                                                                    ? 'bg-green-50 text-green-700'
-                                                                    : 'bg-gray-100 text-gray-600'
-                                                            }`}>
-                                                                <i className="bi bi-whatsapp text-base"></i>
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-xs font-bold text-gray-900">Mensajes de WhatsApp</p>
-                                                                <p className="text-[11px] text-gray-500">
-                                                                    {whatsappActivePendingCount > 0
-                                                                        ? `${whatsappActivePendingCount} pendiente${whatsappActivePendingCount !== 1 ? 's' : ''}`
-                                                                        : 'Sin mensajes pendientes'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        {whatsappActivePendingCount > 0 && (
-                                                            <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-green-600 text-white text-[10px] font-extrabold flex items-center justify-center">
-                                                                {whatsappActivePendingCount > 9 ? '9+' : whatsappActivePendingCount}
-                                                            </span>
-                                                        )}
-                                                    </button>
-                                                )}
-
                                                 {/* Tiempo de preparación */}
                                                 {business && (
-                                                    <div className="border-t border-gray-100 mt-1 pt-1" ref={timeDropdownRef}>
+                                                    <div ref={timeDropdownRef}>
                                                         <button
                                                             type="button"
                                                             onClick={() => setShowTimeDropdown(!showTimeDropdown)}
@@ -3458,8 +3437,15 @@ export default function TodayOrdersPage() {
                                                     )}
 
                                                     <div className="grid grid-cols-3 gap-2 pr-7">
-                                                        <div className="text-left">
-                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas</p>
+                                                        <div
+                                                            className="text-left group cursor-pointer hover:bg-gray-50 rounded-lg px-1 -mx-1 transition-colors"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                setLiveCheckoutsVisible(prev => !(prev ?? (checkoutCount > 0 || whatsappActivePendingCount > 0)))
+                                                            }}
+                                                            title="Mostrar u ocultar Clientes comprando ahora"
+                                                        >
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Visitas</p>
                                                             <p className="text-lg font-bold text-gray-900 flex items-center gap-1">
                                                                 <i className="bi bi-people text-gray-400 text-xs"></i>
                                                                 {visitsCount}
@@ -3545,8 +3531,21 @@ export default function TodayOrdersPage() {
                                                             <LiveCheckoutsPanel
                                                                 businessId={businessId}
                                                                 orders={todayOrders}
+                                                                products={products}
                                                                 onCountChange={setCheckoutCount}
                                                                 onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                                whatsappPendingCount={whatsappActivePendingCount}
+                                                                whatsappConversations={whatsappPendingConversations}
+                                                                onOpenWhatsApp={() => setWhatsappModalOpen(true)}
+                                                                onSelectWhatsAppConversation={(conv, draft) => {
+                                                                    setSelectedWhatsAppConversation(conv)
+                                                                    setSelectedWhatsAppDraft(draft || null)
+                                                                    setSelectedOrderForEdit(null)
+                                                                    setManualSidebarMode('create')
+                                                                    setManualOrderSidebarOpen(true)
+                                                                }}
+                                                                onCloseWhatsAppConversation={handleCloseWhatsAppConversation}
+                                                                isVisible={liveCheckoutsVisible}
                                                             />
                                                         )}
                                                         <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
@@ -3567,8 +3566,21 @@ export default function TodayOrdersPage() {
                                                             <LiveCheckoutsPanel
                                                                 businessId={businessId}
                                                                 orders={todayOrders}
+                                                                products={products}
                                                                 onCountChange={setCheckoutCount}
                                                                 onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                                whatsappPendingCount={whatsappActivePendingCount}
+                                                                whatsappConversations={whatsappPendingConversations}
+                                                                onOpenWhatsApp={() => setWhatsappModalOpen(true)}
+                                                                onSelectWhatsAppConversation={(conv, draft) => {
+                                                                    setSelectedWhatsAppConversation(conv)
+                                                                    setSelectedWhatsAppDraft(draft || null)
+                                                                    setSelectedOrderForEdit(null)
+                                                                    setManualSidebarMode('create')
+                                                                    setManualOrderSidebarOpen(true)
+                                                                }}
+                                                                onCloseWhatsAppConversation={handleCloseWhatsAppConversation}
+                                                                isVisible={liveCheckoutsVisible}
                                                             />
                                                         )}
                                                         <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm w-full animate-in fade-in duration-300">
@@ -3587,8 +3599,21 @@ export default function TodayOrdersPage() {
                                                                 <LiveCheckoutsPanel
                                                                     businessId={businessId}
                                                                     orders={todayOrders}
+                                                                    products={products}
                                                                     onCountChange={setCheckoutCount}
                                                                     onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                                    whatsappPendingCount={whatsappActivePendingCount}
+                                                                    whatsappConversations={whatsappPendingConversations}
+                                                                    onOpenWhatsApp={() => setWhatsappModalOpen(true)}
+                                                                    onSelectWhatsAppConversation={(conv, draft) => {
+                                                                        setSelectedWhatsAppConversation(conv)
+                                                                        setSelectedWhatsAppDraft(draft || null)
+                                                                        setSelectedOrderForEdit(null)
+                                                                        setManualSidebarMode('create')
+                                                                        setManualOrderSidebarOpen(true)
+                                                                    }}
+                                                                    onCloseWhatsAppConversation={handleCloseWhatsAppConversation}
+                                                                    isVisible={liveCheckoutsVisible}
                                                                 />
                                                             )}
                                                             <OrderStatusColumn
@@ -3661,8 +3686,15 @@ export default function TodayOrdersPage() {
                                                         )}
 
                                                         <div className="grid grid-cols-3 gap-4 pr-8">
-                                                            <div className="text-left">
-                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
+                                                            <div
+                                                                className="text-left group cursor-pointer hover:bg-gray-50 rounded-lg px-1.5 -mx-1.5 transition-colors"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    setLiveCheckoutsVisible(prev => !(prev ?? (checkoutCount > 0 || whatsappActivePendingCount > 0)))
+                                                                }}
+                                                                title="Mostrar u ocultar Clientes comprando ahora"
+                                                            >
+                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Visitas Hoy</p>
                                                                 <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                                                     <i className="bi bi-people text-gray-400 text-sm"></i>
                                                                     {visitsCount}
@@ -3899,6 +3931,7 @@ export default function TodayOrdersPage() {
                                     setManualOrderSidebarOpen(false)
                                     setSelectedOrderForEdit(null)
                                     setSelectedWhatsAppConversation(null)
+                                    setSelectedWhatsAppDraft(null)
                                     setManualSidebarMode('create')
                                 }}
                                 business={business}
@@ -3912,7 +3945,12 @@ export default function TodayOrdersPage() {
                                     selectedWhatsAppConversation?.displayName ||
                                     null
                                 }
-                                initialLocationInput={selectedWhatsAppConversation?.detectedLocationLink || null}
+                                initialLocationInput={
+                                    selectedWhatsAppDraft?.customLocationInput ||
+                                    selectedWhatsAppConversation?.detectedLocationLink ||
+                                    null
+                                }
+                                initialPreorderDraft={selectedWhatsAppDraft}
                                 onOrderCreated={(optimisticOrder) => {
                                     if (optimisticOrder) {
                                         setOrders(prev => [optimisticOrder as Order, ...prev])
@@ -3921,6 +3959,7 @@ export default function TodayOrdersPage() {
                                         void handleConfirmWhatsAppConversation(selectedWhatsAppConversation.docId, optimisticOrder)
                                     }
                                     setSelectedWhatsAppConversation(null)
+                                    setSelectedWhatsAppDraft(null)
                                     setManualOrderSidebarOpen(false)
                                 }}
                                 mode={manualSidebarMode}

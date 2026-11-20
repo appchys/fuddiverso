@@ -1269,73 +1269,76 @@ export function CheckoutContent({
     }
   }, [isLocationDeliveryAvailable, deliveryData.type]);
 
+  const lastSyncedCheckoutPayloadRef = useRef<string>('')
+  const lastSyncedStepRef = useRef<number | null>(null)
+
   // Sincronizar estado del checkout en Firestore para monitoreo en tiempo real
   useEffect(() => {
     // Si se está procesando la orden, no sincronizar (para evitar condiciones de carrera con la limpieza)
     if (isProcessingOrder) return
 
-    const syncCheckoutProgress = async () => {
-      // Solo sincronizar si hay usuario
-      const effectiveClientId = user?.id || clientFound?.id
-      console.log('🔄 Checkout Sync Debug - effectiveClientId:', effectiveClientId)
+    const effectiveClientId = user?.id || clientFound?.id
+    if (!effectiveClientId) return
 
-      if (!effectiveClientId) {
-        console.log('❌ Checkout Sync Debug - No hay clientId efectivo')
-        return
-      }
-
-      // Determinar businessId de varias formas
-      let businessIdToSync = embeddedBusinessId
-      if (!businessIdToSync && typeof window !== 'undefined') {
-        // Intentar obtener de searchParams
-        try {
-          const params = new URLSearchParams(window.location.search)
-          businessIdToSync = params.get('businessId') || ''
-        } catch (e) {
-          console.debug('Error reading search params:', e)
-        }
-      }
-
-      // Si tenemos business data, usar su ID
-      if (!businessIdToSync && business?.id) {
-        businessIdToSync = business.id
-      }
-
-      console.log('🔄 Checkout Sync Debug - businessIdToSync:', businessIdToSync)
-
-      // Si aún no hay businessId pero tenemos negocio, no sincronizar aún
-      if (!businessIdToSync) {
-        console.log('❌ Checkout Sync Debug - No hay businessId para sincronizar')
-        return
-      }
-
+    let businessIdToSync = embeddedBusinessId
+    if (!businessIdToSync && typeof window !== 'undefined') {
       try {
-        const progressData = {
-          cartItems,
-          customerData,
-          deliveryData: {
-            ...deliveryData,
-            latlong: selectedLocation?.latlong,
-            photo: selectedLocation?.photo
-          },
-          timingData,
-          paymentData,
-          currentStep,
-          referralCode: typeof window !== 'undefined' ? localStorage.getItem('pendingReferral') : null
-        }
+        const params = new URLSearchParams(window.location.search)
+        businessIdToSync = params.get('businessId') || ''
+      } catch (e) {
+        console.debug('Error reading search params:', e)
+      }
+    }
+    if (!businessIdToSync && business?.id) {
+      businessIdToSync = business.id
+    }
+    if (!businessIdToSync) return
 
-        console.log('🔄 Checkout Sync Debug - Sincronizando datos:', progressData)
+    const progressData = {
+      cartItems,
+      customerData,
+      deliveryData: {
+        ...deliveryData,
+        latlong: selectedLocation?.latlong,
+        photo: selectedLocation?.photo
+      },
+      timingData,
+      paymentData,
+      currentStep,
+      referralCode: typeof window !== 'undefined' ? localStorage.getItem('pendingReferral') : null
+    }
+
+    const payloadSignature = JSON.stringify({
+      effectiveClientId,
+      businessIdToSync,
+      progressData
+    })
+
+    // Evitar escrituras redundantes si los datos reales no cambiaron
+    if (payloadSignature === lastSyncedCheckoutPayloadRef.current) return
+
+    const stepChanged = lastSyncedStepRef.current !== currentStep
+    const delayMs = stepChanged ? 0 : 150
+
+    const syncCheckoutProgress = async () => {
+      try {
+        lastSyncedCheckoutPayloadRef.current = payloadSignature
+        lastSyncedStepRef.current = currentStep
         await updateCheckoutProgress(effectiveClientId, businessIdToSync, progressData)
       } catch (error) {
+        lastSyncedCheckoutPayloadRef.current = ''
         console.error('❌ Error syncing checkout progress:', error)
       }
     }
 
-    // Sincronizar después de cambios importantes
-    const timer = setTimeout(() => {
-      console.log('⏰ Checkout Sync Debug - Ejecutando sync con debounce')
+    if (delayMs === 0) {
       syncCheckoutProgress()
-    }, 500) // Debounce de 500ms para evitar sincronizar demasiado frecuentemente
+      return
+    }
+
+    const timer = setTimeout(() => {
+      syncCheckoutProgress()
+    }, delayMs)
 
     return () => clearTimeout(timer)
   }, [

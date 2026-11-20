@@ -474,15 +474,16 @@ export function OrderCard({
                         )}
 
                         {/* Status Select Menu */}
-                        {showInlineStatusTag ? (
+                        {showInlineStatusTag && (
                             <span
                                 className={`inline-flex h-7 items-center rounded-lg border px-2 text-[11px] font-bold leading-none ${inlineStatusClass}`}
                                 title={getStatusText(order.status)}
                             >
                                 {getStatusText(order.status)}
                             </span>
-                        ) : (
-                            <div className="relative" ref={statusMenuRef}>
+                        )}
+
+                        <div className="relative" ref={statusMenuRef}>
                                 <button
                                     onClick={() => setStatusMenuOpen(!statusMenuOpen)}
                                     className={`p-1.5 text-lg rounded-lg transition-all hover:bg-gray-100 ${statusMenuOpen ? 'bg-gray-100' : ''}`}
@@ -650,7 +651,6 @@ export function OrderCard({
                                     </div>
                                 )}
                             </div>
-                        )}
                     </div>
                 </div>
 

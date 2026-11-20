@@ -26,6 +26,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
+import { isDefaultManualLatLong } from './location-utils'
 export { storage, serverTimestamp, Timestamp }
 
 import { commitWrite, getDocSmart, getDocsSmart } from './offlineWrite'
@@ -3533,6 +3534,11 @@ export async function createClientLocation(locationData: {
   createdBy: 'client' | 'admin'
 }): Promise<string> {
   try {
+    // Bloquear a nivel de base de datos que un cliente guarde el punto inicial por defecto del mapa
+    if (locationData.createdBy === 'client' && isDefaultManualLatLong(locationData.latlong)) {
+      throw new Error('No se puede guardar la ubicación inicial por defecto. Mueve el pin a tu dirección real.')
+    }
+
     // Si id_cliente parece ser un número de teléfono, necesitamos convertirlo al ID real
     let clientId = locationData.id_cliente;
 
@@ -8840,7 +8846,8 @@ export async function updateCheckoutProgress(
       businessId,
       ...progressData,
       lastActivityAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      updatedAtMillis: Date.now()
     }, { merge: true })
 
     console.log('✅ Checkout Progress Debug - Datos guardados exitosamente')

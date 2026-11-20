@@ -3,6 +3,13 @@ import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
 import { ClientLocation, createClientLocation, getDeliveryDetailsForLocation, deleteLocation, updateLocation, uploadImage } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
+import {
+    DEFAULT_MANUAL_LAT,
+    DEFAULT_MANUAL_LNG,
+    parseLatLong,
+    isNearDefaultManualLocation,
+    isDefaultManualLatLong
+} from '@/lib/location-utils'
 import type { Business } from '@/types'
 
 interface NewLocationData {
@@ -26,35 +33,6 @@ interface LocationSelectionModalProps {
     onLocationUpdated?: (location: ClientLocation) => void
     /** Negocio precargado: evita volver a descargarlo en cada cálculo de tarifa */
     business?: Business | null
-}
-
-const DEFAULT_MANUAL_LAT = -1.861971
-const DEFAULT_MANUAL_LNG = -79.978529
-const DEFAULT_MANUAL_LATLONG = `${DEFAULT_MANUAL_LAT}, ${DEFAULT_MANUAL_LNG}`
-// Distancia mínima en metros que el cliente debe mover el pin desde el punto inicial por defecto
-const MIN_MANUAL_MOVE_DISTANCE_METERS = 5
-
-function parseLatLong(latlong?: string | null): { lat: number; lng: number } | null {
-    if (!latlong) return null
-    const parts = latlong.split(',').map(coord => parseFloat(coord.trim()))
-    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return null
-    return { lat: parts[0], lng: parts[1] }
-}
-
-function getDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    const toRad = (deg: number) => (deg * Math.PI) / 180
-    const R = 6371000
-    const dLat = toRad(lat2 - lat1)
-    const dLng = toRad(lng2 - lng1)
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-        Math.sin(dLng / 2) * Math.sin(dLng / 2)
-    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-function isNearDefaultManualLocation(lat: number, lng: number): boolean {
-    return getDistanceMeters(lat, lng, DEFAULT_MANUAL_LAT, DEFAULT_MANUAL_LNG) < MIN_MANUAL_MOVE_DISTANCE_METERS
 }
 
 // Tiempos máximos para no dejar al cliente esperando indefinidamente
@@ -258,19 +236,19 @@ export default function LocationSelectionModal({
     // Función para manejar cambio de ubicación en el mapa / GPS
     const handleLocationChange = useCallback(async (lat: number, lng: number, options?: { fromGps?: boolean }) => {
         const manualActive = options?.fromGps ? false : isManualMode
-        const latlong = `${lat}, ${lng}`
 
-        if (manualActive && isNearDefaultManualLocation(lat, lng)) {
-            // Si el pin sigue en (o vuelve al) punto inicial por defecto, bloquear guardado y no calcular tarifa
+        if (isNearDefaultManualLocation(lat, lng) && (manualActive || !options?.fromGps)) {
+            // Nunca almacenar el punto inicial por defecto en newLocationData.latlong
             feeRequestIdRef.current++
             setIsResolvingDeliveryFee(false)
             setFeeResolutionFailed(false)
             setIsInsideCoverage(false)
             setHasMovedPin(false)
-            setNewLocationData(prev => ({ ...prev, latlong, tarifa: '0.00', sector: '' }))
+            setNewLocationData(prev => ({ ...prev, latlong: '', tarifa: '0.00', sector: '' }))
             return
         }
 
+        const latlong = `${lat}, ${lng}`
         setHasMovedPin(true)
 
         // Actualizar las coordenadas de inmediato (no esperar a la tarifa) para que el
@@ -290,12 +268,12 @@ export default function LocationSelectionModal({
     const getCurrentLocation = () => {
         setLocationPermissionError(null)
         if (typeof navigator === 'undefined' || !navigator.geolocation) {
-            // Coordenadas por defecto si no hay geolocalización
+            // Abrir mapa en modo manual SIN pre-guardar el punto inicial en latlong
             setIsManualMode(true)
             setHasMovedPin(false)
             setNewLocationData(prev => ({
                 ...prev,
-                latlong: DEFAULT_MANUAL_LATLONG,
+                latlong: '',
                 tarifa: '0.00',
                 sector: ''
             }));
@@ -351,22 +329,23 @@ export default function LocationSelectionModal({
         setFeeResolutionFailed(false)
         setIsManualMode(true)
         setHasMovedPin(false)
+        // Mantener latlong vacío hasta que el cliente mueva el pin a una ubicación real
         setNewLocationData(prev => ({
             ...prev,
-            latlong: DEFAULT_MANUAL_LATLONG,
+            latlong: '',
             tarifa: '0.00',
             sector: ''
         }))
         setLocationPermissionError(null)
     }
 
-    // Memorizar las coordenadas del mapa
+    // Memorizar las coordenadas reales seleccionadas por el cliente
     const mapCoordinates = useMemo(() => parseLatLong(newLocationData.latlong), [newLocationData.latlong]);
 
     const isAtDefaultManualPoint = Boolean(
         mapCoordinates && isNearDefaultManualLocation(mapCoordinates.lat, mapCoordinates.lng)
     )
-    const isManualPinPending = isManualMode && !editingLocation && (!hasMovedPin || isAtDefaultManualPoint)
+    const isManualPinPending = (isManualMode && (!hasMovedPin || !mapCoordinates || isAtDefaultManualPoint)) || isAtDefaultManualPoint
 
     const handleReferenciaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setNewLocationData(prev => ({ ...prev, referencia: e.target.value }));
@@ -374,24 +353,25 @@ export default function LocationSelectionModal({
 
     const handleEditLocation = async (e: React.MouseEvent, location: ClientLocation) => {
         e.stopPropagation();
+        const isExistingAtDefault = isDefaultManualLatLong(location.latlong);
         setEditingLocation(location);
         setOpenMenuId(null);
         setIsAddingNewLocation(true);
-        setIsManualMode(false);
-        setHasMovedPin(true);
+        setIsManualMode(isExistingAtDefault);
+        setHasMovedPin(!isExistingAtDefault);
         setGpsAttempts(0);
         setLocationPermissionError(null);
         setIsSubmitting(false);
         setNewLocationData({
-            latlong: location.latlong || '',
+            latlong: isExistingAtDefault ? '' : (location.latlong || ''),
             referencia: location.referencia || '',
-            tarifa: location.tarifa || '',
-            sector: location.sector || ''
+            tarifa: isExistingAtDefault ? '0.00' : (location.tarifa || ''),
+            sector: isExistingAtDefault ? '' : (location.sector || '')
         });
         setLocationImageFile(null);
         setLocationImagePreview(location.photo || '');
 
-        if (location.latlong) {
+        if (location.latlong && !isExistingAtDefault) {
             try {
                 const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()));
                 if (!isNaN(lat) && !isNaN(lng)) {
@@ -413,8 +393,9 @@ export default function LocationSelectionModal({
 
         const parsedCoords = parseLatLong(newLocationData.latlong);
         if (
-            isManualMode &&
-            (!hasMovedPin || !parsedCoords || isNearDefaultManualLocation(parsedCoords.lat, parsedCoords.lng))
+            !parsedCoords ||
+            isNearDefaultManualLocation(parsedCoords.lat, parsedCoords.lng) ||
+            (isManualMode && !hasMovedPin)
         ) {
             alert('Por favor mueve el pin en el mapa hasta tu dirección real. No puedes guardar la ubicación inicial por defecto.');
             return;
@@ -485,6 +466,12 @@ export default function LocationSelectionModal({
 
     const handleUpdateExistingLocation = async () => {
         if (submittingRef.current) return;
+
+        const parsedCoords = parseLatLong(newLocationData.latlong);
+        if (!parsedCoords || isNearDefaultManualLocation(parsedCoords.lat, parsedCoords.lng) || (isManualMode && !hasMovedPin)) {
+            alert('Por favor mueve el pin en el mapa hasta tu dirección real. No puedes guardar la ubicación inicial por defecto.');
+            return;
+        }
 
         const referencia = newLocationData.referencia.trim();
         if (!editingLocation || !newLocationData.latlong || !referencia) {
@@ -772,11 +759,11 @@ export default function LocationSelectionModal({
                                             : 'border-gray-200'
                                 }`}>
 
-                                    {mapCoordinates ? (
+                                    {(mapCoordinates || isManualMode) ? (
                                         <>
                                             <GoogleMap
-                                                latitude={mapCoordinates.lat}
-                                                longitude={mapCoordinates.lng}
+                                                latitude={mapCoordinates ? mapCoordinates.lat : DEFAULT_MANUAL_LAT}
+                                                longitude={mapCoordinates ? mapCoordinates.lng : DEFAULT_MANUAL_LNG}
                                                 height="100%"
                                                 width="100%"
                                                 zoom={16}
@@ -888,7 +875,7 @@ export default function LocationSelectionModal({
                             </div>
 
                             {/* Delivery Fee Status */}
-                            {newLocationData.latlong && (
+                            {(newLocationData.latlong || isManualMode) && (
                                 isManualPinPending ? (
                                     <div className="p-3.5 rounded-xl border bg-amber-50 border-amber-200">
                                         <div className="flex items-center gap-2">
