@@ -3445,7 +3445,18 @@ export default function TodayOrdersPage() {
                                                             }}
                                                             title="Mostrar u ocultar Clientes comprando ahora"
                                                         >
-                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Visitas</p>
+                                                            <div className="flex items-center gap-1.5 mb-1">
+                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider group-hover:text-blue-500 transition-colors">Visitas</p>
+                                                                {checkoutCount > 0 && (
+                                                                    <span
+                                                                        className="inline-flex items-center gap-1 bg-blue-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-2xs"
+                                                                        title={`${checkoutCount} cliente${checkoutCount !== 1 ? 's' : ''} comprando ahora`}
+                                                                    >
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                                                                        {checkoutCount}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                             <p className="text-lg font-bold text-gray-900 flex items-center gap-1">
                                                                 <i className="bi bi-people text-gray-400 text-xs"></i>
                                                                 {visitsCount}
@@ -3694,7 +3705,18 @@ export default function TodayOrdersPage() {
                                                                 }}
                                                                 title="Mostrar u ocultar Clientes comprando ahora"
                                                             >
-                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Visitas Hoy</p>
+                                                                <div className="flex items-center gap-1.5 mb-1">
+                                                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider group-hover:text-blue-500 transition-colors">Visitas Hoy</p>
+                                                                    {checkoutCount > 0 && (
+                                                                        <span
+                                                                            className="inline-flex items-center gap-1 bg-blue-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-2xs"
+                                                                            title={`${checkoutCount} cliente${checkoutCount !== 1 ? 's' : ''} comprando ahora`}
+                                                                        >
+                                                                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                                                                            {checkoutCount}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                                                     <i className="bi bi-people text-gray-400 text-sm"></i>
                                                                     {visitsCount}

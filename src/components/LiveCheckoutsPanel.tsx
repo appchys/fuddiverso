@@ -189,11 +189,6 @@ export function LiveCheckoutsPanel({
         });
     }, [rawCheckouts, orders, dismissedCheckoutIds]);
 
-    // Notify parent of count changes
-    useEffect(() => {
-        onCountChange?.(checkouts.length);
-    }, [checkouts.length, onCountChange]);
-
     const activeWhatsAppConversations = useMemo(
         () => whatsappConversations.filter(c => (c.status || 'pending') === 'pending'),
         [whatsappConversations]
@@ -342,6 +337,11 @@ export function LiveCheckoutsPanel({
         entries.sort((a, b) => b.activityAt - a.activityAt);
         return entries;
     }, [checkouts, activeWhatsAppConversations]);
+
+    // Notify parent of count changes (unified total)
+    useEffect(() => {
+        onCountChange?.(unifiedEntries.length);
+    }, [unifiedEntries.length, onCountChange]);
 
     if (isVisible === false) return null;
     const hasWhatsAppActivity = activeWhatsAppConversations.length > 0 || whatsappPendingCount > 0;
