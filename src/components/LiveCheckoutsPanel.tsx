@@ -878,7 +878,7 @@ function WhatsAppConversationCard({
             key: 'delivery',
             completed: isDeliveryComplete,
             completedClass: 'bg-emerald-100 text-emerald-600',
-            icon: isPickup ? <i className="bi bi-shop"></i> : <Motorbike className="w-3 h-3" strokeWidth={2.2} />,
+            icon: isPickup ? <i className="bi bi-shop"></i> : <Motorbike className="w-3.5 h-3.5" strokeWidth={2.2} />,
             title: isPickup
                 ? 'Recoger en tienda'
                 : primaryLocation
@@ -946,40 +946,10 @@ function WhatsAppConversationCard({
                         )}
                     </div>
 
-                    {/* Right action buttons & bottom-right step status icons + chevron */}
+                    {/* Right top step status icons + chevron, bottom action buttons */}
                     <div className="shrink-0 flex flex-col items-end justify-between gap-2">
                         <div className="flex items-center gap-1.5">
-                            {onClose && (
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onClose(conversation.docId);
-                                    }}
-                                    className="inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
-                                    title="Marcar como atendido"
-                                >
-                                    <i className="bi bi-check2 text-xs"></i>
-                                    <span>Cerrar</span>
-                                </button>
-                            )}
-                            {onSelect && (
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSelect(enrichedConversation, buildDraft());
-                                    }}
-                                    className="inline-flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
-                                    title="Completar preorden en formulario de orden manual"
-                                >
-                                    <i className="bi bi-plus-circle text-xs"></i>
-                                    <span>Crear pedido</span>
-                                </button>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5">
                                 {stepIndicators.map(step => {
                                     const isActive = isExpanded && activeTab === step.key;
                                     return (
@@ -993,7 +963,7 @@ function WhatsAppConversationCard({
                                                 setActiveTab(step.key);
                                                 setIsExpanded(true);
                                             }}
-                                            className={`w-5 h-5 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-[10px] leading-none transition-all cursor-pointer ${
+                                            className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
                                                 step.completed
                                                     ? step.completedClass
                                                     : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
@@ -1008,6 +978,38 @@ function WhatsAppConversationCard({
                                 <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} transition-transform duration-200`}></i>
                             </span>
                         </div>
+                        {!isExpanded && (
+                            <div className="flex items-center gap-1.5">
+                                {onClose && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onClose(conversation.docId);
+                                        }}
+                                        className="inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
+                                        title="Marcar como atendido"
+                                    >
+                                        <i className="bi bi-check2 text-xs"></i>
+                                        <span>Cerrar</span>
+                                    </button>
+                                )}
+                                {onSelect && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onSelect(enrichedConversation, buildDraft());
+                                        }}
+                                        className="inline-flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
+                                        title="Completar preorden en formulario de orden manual"
+                                    >
+                                        <i className="bi bi-plus-circle text-xs"></i>
+                                        <span>Crear pedido</span>
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1356,20 +1358,52 @@ function WhatsAppConversationCard({
                         </a>
                     )}
 
-                    {cleanPhone && (
-                        <div className="flex items-center gap-2 flex-wrap pt-1">
-                            <a
-                                href={`https://wa.me/${cleanPhone}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="py-1.5 px-3 bg-white hover:bg-green-50 text-green-700 border border-green-200 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                            >
-                                <i className="bi bi-whatsapp"></i>
-                                Chat
-                            </a>
+                    <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                        <div>
+                            {cleanPhone && (
+                                <a
+                                    href={`https://wa.me/${cleanPhone}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="py-1.5 px-3 bg-white hover:bg-green-50 text-green-700 border border-green-200 text-xs font-bold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"
+                                >
+                                    <i className="bi bi-whatsapp"></i>
+                                    Chat
+                                </a>
+                            )}
                         </div>
-                    )}
+                        <div className="flex items-center gap-1.5 ml-auto">
+                            {onClose && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onClose(conversation.docId);
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
+                                    title="Marcar como atendido"
+                                >
+                                    <i className="bi bi-check2 text-xs"></i>
+                                    <span>Cerrar</span>
+                                </button>
+                            )}
+                            {onSelect && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSelect(enrichedConversation, buildDraft());
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
+                                    title="Completar preorden en formulario de orden manual"
+                                >
+                                    <i className="bi bi-plus-circle text-xs"></i>
+                                    <span>Crear pedido</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1471,7 +1505,7 @@ function CheckoutSessionCard({
             key: 'delivery',
             completed: isDeliveryComplete,
             completedClass: 'bg-emerald-100 text-emerald-600',
-            icon: isPickup ? <i className="bi bi-shop"></i> : <Motorbike className="w-3 h-3" strokeWidth={2.2} />,
+            icon: isPickup ? <i className="bi bi-shop"></i> : <Motorbike className="w-3.5 h-3.5" strokeWidth={2.2} />,
             title: isDeliveryComplete
                 ? isPickup
                     ? 'Recoger en tienda'
@@ -1550,8 +1584,28 @@ function CheckoutSessionCard({
                         </div>
                     </div>
 
-                    {/* Right action buttons & bottom-right step status icons + chevron */}
+                    {/* Right top step status icons + chevron, bottom action buttons */}
                     <div className="shrink-0 flex flex-col items-end justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5">
+                                {stepIndicators.map(step => (
+                                    <span
+                                        key={step.key}
+                                        title={step.title}
+                                        className={`w-7 h-7 rounded-full inline-flex items-center justify-center text-xs transition-colors ${
+                                            step.completed
+                                                ? step.completedClass
+                                                : 'bg-gray-100 text-gray-400'
+                                        }`}
+                                    >
+                                        {step.icon}
+                                    </span>
+                                ))}
+                            </div>
+                            <span className="text-gray-400 text-xs flex items-center pl-0.5 font-medium">
+                                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} transition-transform duration-200`}></i>
+                            </span>
+                        </div>
                         <div className="flex items-center gap-1.5">
                             {onCloseCheckout && (
                                 <button
@@ -1576,26 +1630,6 @@ function CheckoutSessionCard({
                                 <i className="bi bi-pencil-square text-xs"></i>
                                 <span>Completar</span>
                             </button>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <div className="flex items-center gap-1">
-                                {stepIndicators.map(step => (
-                                    <span
-                                        key={step.key}
-                                        title={step.title}
-                                        className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] transition-colors ${
-                                            step.completed
-                                                ? step.completedClass
-                                                : 'bg-gray-100 text-gray-400'
-                                        }`}
-                                    >
-                                        {step.icon}
-                                    </span>
-                                ))}
-                            </div>
-                            <span className="text-gray-400 text-xs flex items-center pl-0.5 font-medium">
-                                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} transition-transform duration-200`}></i>
-                            </span>
                         </div>
                     </div>
                 </div>
