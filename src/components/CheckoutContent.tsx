@@ -2126,10 +2126,9 @@ export function CheckoutContent({
   }
 
   // Productos no disponibles en el carrito (para validación y alerta visible)
-  const unavailableCartItems = useMemo(() => {
-    if (allProducts.length === 0) return []
-    return cartItems.filter((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))
-  }, [cartItems, allProducts, stockMap])
+  const unavailableCartItems = allProducts.length === 0
+    ? []
+    : cartItems.filter((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))
 
   // Step completion flags (puros, sin efectos secundarios)
   const step1Complete = (() => {

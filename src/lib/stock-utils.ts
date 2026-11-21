@@ -304,12 +304,14 @@ export function isCartItemEffectivelyAvailable(
       } else {
         // No se encontró variante coincidente en la BD:
         // Verificar si variantName corresponde únicamente a opciones/modificadores seleccionados
-        const isOptionsOnly = dbProduct.optionGroups?.some(g =>
-          rawLower.startsWith(g.name.toLowerCase() + ':') ||
-          rawLower.includes(g.name.toLowerCase() + ':') ||
-          rawLower.startsWith('opción:') ||
-          rawLower.startsWith('opcion:')
-        )
+        const isOptionsOnly = dbProduct.optionGroups?.some(g => {
+          const gName = (g?.name || '').toLowerCase()
+          return (
+            (gName && (rawLower.startsWith(gName + ':') || rawLower.includes(gName + ':'))) ||
+            rawLower.startsWith('opción:') ||
+            rawLower.startsWith('opcion:')
+          )
+        })
 
         // Si NO son opciones, era una variante real que fue eliminada de la BD
         if (!isOptionsOnly) {
