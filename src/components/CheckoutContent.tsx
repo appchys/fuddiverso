@@ -188,6 +188,8 @@ function TransferReceiptUploader({
     if (files && files[0]) {
       handleFileUpload(files[0])
     }
+    // Permitir volver a seleccionar el mismo archivo si el usuario reintenta
+    e.target.value = ''
   }
 
   const removeImage = () => {
@@ -288,7 +290,7 @@ function TransferReceiptUploader({
           </div>
 
           {/* Información del comprobante */}
-          {!isBusy && previewImage && (
+          {!isBusy && uploadedImageUrl && (
             <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl p-3 shadow-xs">
               <div className="flex items-center gap-2">
                 <i className="bi bi-check-circle-fill text-emerald-600 text-lg"></i>
@@ -300,6 +302,21 @@ function TransferReceiptUploader({
                 className="text-xs text-emerald-700 underline font-medium hover:text-emerald-900"
               >
                 Cambiar foto
+              </button>
+            </div>
+          )}
+          {!isBusy && previewImage && !uploadedImageUrl && (
+            <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-xs">
+              <div className="flex items-center gap-2">
+                <i className="bi bi-exclamation-circle-fill text-amber-600 text-lg"></i>
+                <span className="text-xs font-bold text-amber-800">El comprobante aún no se terminó de guardar.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs text-amber-800 underline font-bold hover:text-amber-950 ml-2 whitespace-nowrap"
+              >
+                Volver a subir
               </button>
             </div>
           )}
@@ -449,7 +466,25 @@ export function CheckoutContent({
   const [hasPreviousPickup, setHasPreviousPickup] = useState<boolean | null>(null)
   const [isDeliveryAvailableNow, setIsDeliveryAvailableNow] = useState<boolean>(true)
   const [isLocationDeliveryAvailable, setIsLocationDeliveryAvailable] = useState<boolean>(true)
+  const [isLocationOutOfCoverage, setIsLocationOutOfCoverage] = useState<boolean>(false)
   const [locationDeliveryUnavailableReason, setLocationDeliveryUnavailableReason] = useState<'out_of_coverage' | 'inactive_zone' | 'no_deliveries_in_zone' | null>(null)
+  const [timeTick, setTimeTick] = useState<number>(0)
+
+  // Refrescar evaluación horaria al volver de otra app (ej: app bancaria) o cada minuto
+  useEffect(() => {
+    const refreshTime = () => setTimeTick(t => t + 1)
+    const interval = setInterval(refreshTime, 60_000)
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshTime()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [])
 
   // Verificar disponibilidad de delivery y repartidores por zona para la ubicación seleccionada
   useEffect(() => {
@@ -457,13 +492,19 @@ export function CheckoutContent({
     const checkLocationDelivery = async () => {
       if (deliveryData.type !== 'delivery' || !selectedLocation?.latlong) {
         setIsLocationDeliveryAvailable(true)
+        setIsLocationOutOfCoverage(false)
         setLocationDeliveryUnavailableReason(null)
+        return
+      }
+
+      if (!business?.id) {
         return
       }
 
       try {
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) {
+          setIsLocationOutOfCoverage(true)
           setIsLocationDeliveryAvailable(false)
           setLocationDeliveryUnavailableReason('out_of_coverage')
           return
@@ -472,8 +513,17 @@ export function CheckoutContent({
         const details = await getDeliveryDetailsForLocation({ lat, lng }, business?.id, business)
         if (cancelled) return
 
-        // Si la tienda usa servicio Fuddi y no está fuera de cobertura, verificar si hay repartidores activos asignados
-        if (business?.deliveryServiceType === 'fuddi' && !details.isOutOfCoverage) {
+        if (details.isOutOfCoverage) {
+          setIsLocationOutOfCoverage(true)
+          setIsLocationDeliveryAvailable(false)
+          setLocationDeliveryUnavailableReason(details.isInactiveZone ? 'inactive_zone' : 'out_of_coverage')
+          return
+        }
+
+        setIsLocationOutOfCoverage(false)
+
+        // Si la tienda usa servicio Fuddi y está dentro de cobertura, verificar si hay repartidores activos asignados
+        if (business?.deliveryServiceType === 'fuddi') {
           const assignedDeliveryId = await getDeliveryForLocation({ lat, lng }, business?.id)
           if (cancelled) return
           if (!assignedDeliveryId) {
@@ -488,6 +538,7 @@ export function CheckoutContent({
       } catch (error) {
         if (cancelled) return
         console.error('Error checking location delivery availability:', error)
+        setIsLocationOutOfCoverage(false)
         setIsLocationDeliveryAvailable(true)
         setLocationDeliveryUnavailableReason(null)
       }
@@ -498,7 +549,6 @@ export function CheckoutContent({
     return () => { cancelled = true }
   }, [
     selectedLocation?.latlong,
-    selectedLocation?.tarifa,
     deliveryData.type,
     business?.id,
     business?.deliveryServiceType,
@@ -703,28 +753,30 @@ export function CheckoutContent({
 
     // Validar que el paso anterior esté completo antes de permitir desplegar
     if (stepId === 'step-2') {
-      const step1Complete = user || (customerData.name && customerData.phone && clientFound)
-      if (!step1Complete) {
+      const normalized = normalizeEcuadorianPhone(customerData.phone || '')
+      const hasValidPhone = Boolean(customerData.phone?.trim() && validateEcuadorianPhone(normalized))
+      const step1Ok = hasValidPhone && Boolean(user || clientFound || customerData.name.trim())
+      if (!step1Ok) {
         return // No hacer nada si el paso 1 no está completo
       }
     }
     
     if (stepId === 'step-3') {
-      const step2Complete = Boolean(
-        timingData.type === 'immediate' ||
-        (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime)
+      const step2Ok = Boolean(
+        (timingData.type === 'immediate' && isStoreOpen(business) && canOrderNow) ||
+        (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime && isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available)
       )
-      if (!step2Complete) {
+      if (!step2Ok) {
         return // No hacer nada si el paso 2 no está completo
       }
     }
     
     if (stepId === 'step-4') {
-      const step3Complete = deliveryData.type && (
+      const step3Ok = deliveryData.type && (
         (deliveryData.type === 'pickup') ||
-        (deliveryData.type === 'delivery' && selectedLocation && isLocationDeliveryAvailable && Number(selectedLocation.tarifa || '0') > 0)
+        (deliveryData.type === 'delivery' && selectedLocation && isLocationDeliveryAvailable && !isLocationOutOfCoverage && selectedLocation.tarifa != null && selectedLocation.tarifa !== '' && Number(selectedLocation.tarifa) >= 0)
       )
-      if (!step3Complete) {
+      if (!step3Ok) {
         return // No hacer nada si el paso 3 no está completo o si la ubicación no es válida
       }
     }
@@ -830,7 +882,7 @@ export function CheckoutContent({
       console.error('Error checking cart availability:', e)
       return { available: true, unavailableProducts: [] as any[] }
     }
-  }, [cartItems, timingData.type, timingData.scheduledDate, timingData.scheduledTime])
+  }, [cartItems, timingData.type, timingData.scheduledDate, timingData.scheduledTime, timeTick])
 
   const canOrderNow = useMemo(() => {
     if (!isStoreOpen(business)) {
@@ -838,7 +890,7 @@ export function CheckoutContent({
     }
     const availability = checkCartAvailability(cartItems as any[], new Date())
     return availability.available
-  }, [cartItems, business])
+  }, [cartItems, business, timeTick])
 
   const handleRemoveItem = (index: number) => {
     const newItems = [...cartItems]
@@ -1220,8 +1272,13 @@ export function CheckoutContent({
   useEffect(() => {
     if (!timingData.type) return
     const isTimingComplete =
-      timingData.type === 'immediate' ||
-      (timingData.type === 'scheduled' && Boolean(timingData.scheduledDate && timingData.scheduledTime))
+      (timingData.type === 'immediate' && isStoreOpen(business) && canOrderNow) ||
+      (timingData.type === 'scheduled' && Boolean(
+        timingData.scheduledDate &&
+        timingData.scheduledTime &&
+        isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) &&
+        cartAvailability.available
+      ))
 
     if (isTimingComplete) {
       setCollapsedSections(prev => {
@@ -1233,7 +1290,7 @@ export function CheckoutContent({
       })
       setCurrentStep(prev => Math.max(prev, 3))
     }
-  }, [timingData.type, timingData.scheduledDate, timingData.scheduledTime])
+  }, [timingData.type, timingData.scheduledDate, timingData.scheduledTime, business, canOrderNow, cartAvailability.available])
 
   // Effect para avance automático de pasos y expansión de secciones basado en datos completados
   useEffect(() => {
@@ -1377,33 +1434,47 @@ export function CheckoutContent({
     }
   }, [isProcessingOrder, loading, user?.id, clientFound?.id, embeddedBusinessId, business?.id])
 
-  // NUEVO: Calcular tarifa al activar delivery si ya hay una ubicación seleccionada pero sin tarifa válida (escenario de primera carga)
+  const tariffAttemptedKeyRef = useRef<string>('')
+
+  // Calcular tarifa al activar delivery si ya hay una ubicación seleccionada sin tarifa calculada para este negocio
   useEffect(() => {
+    let cancelled = false
     const ensureTariffForSelected = async () => {
       if (deliveryData.type !== 'delivery') return
-      if (!selectedLocation?.latlong) return
+      if (!selectedLocation?.latlong || !business?.id) return
+
+      const attemptKey = `${business.id}|${selectedLocation.id || ''}|${selectedLocation.latlong}`
       const currentTariff = selectedLocation.tarifa
-      const needsCalculation = currentTariff == null || Number(currentTariff) <= 0
-      if (!needsCalculation || calculatingTariff || !business?.id) return
+      const needsCalculation = currentTariff == null || currentTariff === '' || Number(currentTariff) <= 0
+      if (!needsCalculation && tariffAttemptedKeyRef.current === attemptKey) return
+      if (tariffAttemptedKeyRef.current === attemptKey) return
+
+      tariffAttemptedKeyRef.current = attemptKey
 
       try {
         setCalculatingTariff(true)
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) return
-        const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
-        const feeStr = (typeof fee === 'number' ? fee : 0).toString()
-        const updated = { ...selectedLocation, tarifa: feeStr, sector: zoneName || selectedLocation.sector }
-        setSelectedLocation(updated)
-        setDeliveryData(prev => ({ ...prev, tarifa: feeStr }))
+        const { fee, zoneName, isOutOfCoverage } = await calculateDeliveryFee({ lat, lng })
+        if (cancelled) return
+        const feeStr = (typeof fee === 'number' && Number.isFinite(fee) ? fee : 0).toString()
+        setIsLocationOutOfCoverage(!!isOutOfCoverage)
+        setSelectedLocation(prev => prev ? { ...prev, tarifa: feeStr, sector: zoneName || prev.sector } : prev)
+        setDeliveryData(prev => ({ ...prev, tarifa: prev.type === 'pickup' ? '0' : feeStr }))
       } catch (e) {
-        console.error('Error ensuring tariff for selected location:', e)
+        if (!cancelled) {
+          console.error('Error ensuring tariff for selected location:', e)
+        }
       } finally {
-        setCalculatingTariff(false)
+        if (!cancelled) {
+          setCalculatingTariff(false)
+        }
       }
     }
 
     void ensureTariffForSelected()
-  }, [deliveryData.type, selectedLocation?.id, selectedLocation?.latlong, business?.id, calculatingTariff])
+    return () => { cancelled = true }
+  }, [deliveryData.type, selectedLocation?.id, selectedLocation?.latlong, business?.id])
 
   // Función para abrir el modal
   const openLocationModal = async () => {
@@ -1698,17 +1769,20 @@ export function CheckoutContent({
     }))
     closeLocationModal()
 
-    // Si hay coordenadas, calcular la tarifa automáticamente en segundo plano para asegurar que sea fresca
-    if (location.latlong) {
+    // Si hay coordenadas y ya tenemos el negocio cargado, calcular la tarifa automáticamente en segundo plano
+    if (location.latlong && business?.id) {
       const requestId = ++tariffRequestIdRef.current
+      const attemptKey = `${business.id}|${location.id || ''}|${location.latlong}`
+      tariffAttemptedKeyRef.current = attemptKey
       setCalculatingTariff(true)
       try {
         const [lat, lng] = [latCheck, lngCheck]
-        const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+        const { fee, zoneName, isOutOfCoverage } = await calculateDeliveryFee({ lat, lng })
         if (requestId !== tariffRequestIdRef.current) return
 
-        const feeStr = (typeof fee === 'number' ? fee : 0).toString()
+        const feeStr = (typeof fee === 'number' && Number.isFinite(fee) ? fee : 0).toString()
         const sectorName = zoneName || location.sector || 'Sin especificar'
+        setIsLocationOutOfCoverage(!!isOutOfCoverage)
 
         const updatedLocation = { ...location, tarifa: feeStr, sector: sectorName }
         setSelectedLocation(updatedLocation)
@@ -1946,11 +2020,13 @@ export function CheckoutContent({
       if (showNameField && !customerData.name.trim()) {
         newErrors.name = 'El nombre es requerido'
       }
-      // Validar confirmación de teléfono para nuevos clientes
+      // Validar confirmación de teléfono para nuevos clientes (comparando números normalizados)
       if (showNameField && !clientFound) {
+        const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+        const normalizedConfirm = normalizeEcuadorianPhone(phoneConfirmation)
         if (!phoneConfirmation.trim()) {
           newErrors.phoneConfirmation = 'Por favor confirma tu número de celular'
-        } else if (phoneConfirmation !== customerData.phone) {
+        } else if (normalizedConfirm !== normalizedPhone) {
           newErrors.phoneConfirmation = 'Los números no coinciden'
         }
       }
@@ -1974,7 +2050,7 @@ export function CheckoutContent({
       if (!deliveryData.type) {
         newErrors.deliveryType = 'Selecciona un tipo de entrega'
       } else if (deliveryData.type === 'delivery') {
-        if (!deliveryData.address.trim()) {
+        if (!selectedLocation && !deliveryData.address.trim()) {
           newErrors.address = 'La dirección es requerida para delivery'
         }
       }
@@ -1983,11 +2059,11 @@ export function CheckoutContent({
     if (step === 4) {
       if (total > 0 && !paymentData.method) {
         newErrors.paymentMethod = 'Selecciona un método de pago'
-      } else if (paymentData.method === 'transfer') {
+      } else if (total > 0 && paymentData.method === 'transfer') {
         if (!selectedStoreAccount && !paymentData.selectedBank) {
           newErrors.selectedBank = 'Selecciona una cuenta bancaria para la transferencia'
         }
-        if (total > 0 && !paymentData.receiptImageUrl) {
+        if (!paymentData.receiptImageUrl) {
           newErrors.receiptImage = 'Sube el comprobante de transferencia para continuar'
         }
       }
@@ -2011,11 +2087,17 @@ export function CheckoutContent({
       }
     }
 
-    // Paso 2: Validar timing (requiere selección explícita)
+    // Paso 2: Validar timing (requiere selección válida)
     if (maxStep >= 2 && timingData.type) {
-      if (timingData.type === 'immediate') {
+      if (timingData.type === 'immediate' && isStoreOpen(business) && canOrderNow) {
         maxStep = 3;
-      } else if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
+      } else if (
+        timingData.type === 'scheduled' &&
+        timingData.scheduledDate &&
+        timingData.scheduledTime &&
+        isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) &&
+        cartAvailability.available
+      ) {
         maxStep = 3;
       }
     }
@@ -2025,7 +2107,8 @@ export function CheckoutContent({
       if (deliveryData.type === 'pickup') {
         maxStep = 4;
       } else if (deliveryData.type === 'delivery' && (deliveryData.address.trim() || selectedLocation)) {
-        if (isLocationDeliveryAvailable && (!selectedLocation || Number(selectedLocation.tarifa || '0') > 0)) {
+        const hasValidTariff = !selectedLocation || (selectedLocation.tarifa != null && selectedLocation.tarifa !== '' && Number(selectedLocation.tarifa) >= 0)
+        if (isLocationDeliveryAvailable && !isLocationOutOfCoverage && hasValidTariff) {
           maxStep = 4;
         }
       }
@@ -2034,13 +2117,19 @@ export function CheckoutContent({
     // Paso 4: Validar pago (ahora el paso final es 4, se removió el paso de confirmación)
     if (maxStep >= 4 && paymentData.method) {
       if (paymentData.method === 'cash' ||
-        (paymentData.method === 'transfer' && paymentData.selectedBank)) {
+        (paymentData.method === 'transfer' && (selectedStoreAccount || paymentData.selectedBank))) {
         maxStep = 4;
       }
     }
 
     return maxStep;
   }
+
+  // Productos no disponibles en el carrito (para validación y alerta visible)
+  const unavailableCartItems = useMemo(() => {
+    if (allProducts.length === 0) return []
+    return cartItems.filter((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))
+  }, [cartItems, allProducts, stockMap])
 
   // Step completion flags (puros, sin efectos secundarios)
   const step1Complete = (() => {
@@ -2049,7 +2138,11 @@ export function CheckoutContent({
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
     if (!validateEcuadorianPhone(normalizedPhone)) return false;
     if (showNameField && !customerData.name.trim()) return false;
-    if (!user && !clientFound && showNameField && !customerData.name.trim()) return false;
+    if (showNameField && !clientFound) {
+      const normalizedConfirm = normalizeEcuadorianPhone(phoneConfirmation);
+      if (!phoneConfirmation.trim() || normalizedConfirm !== normalizedPhone) return false;
+    }
+    if (!user && !clientFound && !(customerData.name.trim() && validateEcuadorianPhone(normalizedPhone))) return false;
     return true;
   })();
 
@@ -2066,15 +2159,16 @@ export function CheckoutContent({
     if (!deliveryData.type) return false;
     if (deliveryData.type === 'pickup') return true;
     if (deliveryData.type === 'delivery') {
-      if (!isLocationDeliveryAvailable) return false;
-      if (!selectedLocation && !deliveryData.address.trim()) return false;
-      if (selectedLocation && (!selectedLocation.tarifa || Number(selectedLocation.tarifa) <= 0)) return false;
+      if (!isLocationDeliveryAvailable || isLocationOutOfCoverage) return false;
+      if (!selectedLocation) return false;
+      if (!calculatingTariff && (selectedLocation.tarifa == null || selectedLocation.tarifa === '' || Number(selectedLocation.tarifa) < 0)) return false;
       return true;
     }
     return false;
   })();
 
   const step4Complete = (() => {
+    if (total === 0) return true;
     if (!paymentData.method) return false;
     if (paymentData.method === 'cash') return acceptsCash;
     if (paymentData.method === 'transfer') return acceptsTransfer && Boolean((selectedStoreAccount || paymentData.selectedBank) && paymentData.receiptImageUrl);
@@ -2082,98 +2176,141 @@ export function CheckoutContent({
     return false;
   })();
 
-  // Computed readiness for final confirmation (pure check — no side effects)
-  const readyToConfirm = (() => {
-    // Validar disponibilidad de productos frescos desde la base de datos y control de stock
-    if (allProducts.length > 0) {
-      const hasUnavailable = cartItems.some((item: any) => !isCartItemEffectivelyAvailable(item, allProducts, stockMap))
-      if (hasUnavailable) return false
-    }
-
-    // Paso 1: cliente
-    const phone = customerData.phone?.trim();
-    if (!phone) return false;
-    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
-    if (!validateEcuadorianPhone(normalizedPhone)) return false;
-    if (showNameField && !customerData.name.trim()) return false;
-    // Validar confirmación de teléfono para nuevos clientes
-    if (showNameField && !clientFound) {
-      if (!phoneConfirmation.trim() || phoneConfirmation !== customerData.phone) return false;
-    }
-    if (!user && !clientFound && !(customerData.name.trim() && validateEcuadorianPhone(normalizedPhone))) return false;
-
-    // Paso 2: timing
-    if (!timingData.type) return false; // requiere seleccionar inmediato o programado
-    if (timingData.type === 'immediate') {
-      if (!isStoreOpen(business) || !canOrderNow) return false;
-    }
-    if (timingData.type === 'scheduled') {
-      if (!timingData.scheduledDate || !timingData.scheduledTime) return false;
-      if (!isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) return false;
-      if (!cartAvailability.available) return false;
-    }
-
-    // Paso 3: entrega
-    if (!deliveryData.type) return false;
-    if (deliveryData.type === 'delivery') {
-      if (!isLocationDeliveryAvailable) return false;
-      // Si la ubicación seleccionada está fuera de cobertura, no permitir confirmar
-      if (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0)) return false;
-    }
-
-    // Paso 4: pago
-    if (total > 0) {
-      if (!paymentData.method) return false;
-      if (paymentData.method === 'cash' && !acceptsCash) return false;
-      if (paymentData.method === 'transfer') {
-        if (!acceptsTransfer || (!selectedStoreAccount && !paymentData.selectedBank) || !paymentData.receiptImageUrl) return false;
+  // Fuente única de verdad para el primer requisito pendiente del checkout
+  const checkoutBlockingIssue: { stepId: 'step-1' | 'step-2' | 'step-3' | 'step-4' | 'cart-items'; reason: string } | null = (() => {
+    // 0. Validar disponibilidad de productos frescos desde la base de datos y control de stock
+    if (unavailableCartItems.length > 0) {
+      const names = unavailableCartItems
+        .map((i: any) => i.variantName || i.productName || i.name)
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(', ')
+      return {
+        stepId: 'cart-items',
+        reason: `Hay productos no disponibles en tu pedido${names ? ` (${names})` : ''}. Quítalos desde el carrito para continuar.`
       }
     }
 
-    return true;
+    // 1. Paso 1: cliente
+    const phone = customerData.phone?.trim();
+    if (!phone) {
+      return { stepId: 'step-1', reason: 'Ingresa tu número de celular en el Paso 1.' }
+    }
+    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+    if (!validateEcuadorianPhone(normalizedPhone)) {
+      return { stepId: 'step-1', reason: 'Ingresa un número de celular ecuatoriano válido (10 dígitos empezando con 09) en el Paso 1.' }
+    }
+    if (showNameField && !customerData.name.trim()) {
+      return { stepId: 'step-1', reason: 'Ingresa tu nombre completo en el Paso 1.' }
+    }
+    if (showNameField && !clientFound) {
+      const normalizedConfirm = normalizeEcuadorianPhone(phoneConfirmation);
+      if (!phoneConfirmation.trim() || normalizedConfirm !== normalizedPhone) {
+        return { stepId: 'step-1', reason: 'Confirma tu número de celular en el Paso 1 para continuar.' }
+      }
+    }
+    if (!user && !clientFound && !(customerData.name.trim() && validateEcuadorianPhone(normalizedPhone))) {
+      return { stepId: 'step-1', reason: 'Completa tus datos en el Paso 1.' }
+    }
+
+    // 2. Paso 2: horario
+    if (!timingData.type) {
+      return { stepId: 'step-2', reason: 'Selecciona el horario de tu pedido (Inmediato o Programar) en el Paso 2.' }
+    }
+    if (timingData.type === 'immediate') {
+      if (!isStoreOpen(business)) {
+        return { stepId: 'step-2', reason: 'La tienda cerró su horario de atención inmediata. Elige "Programar" en el Paso 2.' }
+      }
+      if (!canOrderNow) {
+        return { stepId: 'step-2', reason: 'Algún producto no está disponible en este momento. Elige "Programar" en el Paso 2.' }
+      }
+    }
+    if (timingData.type === 'scheduled') {
+      if (!timingData.scheduledDate || !timingData.scheduledTime) {
+        return { stepId: 'step-2', reason: 'Selecciona la fecha y hora en el Paso 2.' }
+      }
+      if (!isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) {
+        return { stepId: 'step-2', reason: 'La tienda está cerrada en la fecha y hora elegidas. Ajusta el horario en el Paso 2.' }
+      }
+      if (!cartAvailability.available) {
+        return { stepId: 'step-2', reason: 'Algún producto no está disponible para la fecha u hora elegida en el Paso 2.' }
+      }
+    }
+
+    // 3. Paso 3: entrega
+    if (!deliveryData.type) {
+      return { stepId: 'step-3', reason: 'Selecciona el tipo de entrega (Domicilio o Retiro en tienda) en el Paso 3.' }
+    }
+    if (deliveryData.type === 'delivery') {
+      if (!selectedLocation) {
+        return { stepId: 'step-3', reason: 'Selecciona una dirección de entrega en el Paso 3.' }
+      }
+      if (!isLocationDeliveryAvailable || isLocationOutOfCoverage) {
+        return {
+          stepId: 'step-3',
+          reason: locationDeliveryUnavailableReason === 'no_deliveries_in_zone'
+            ? 'No hay repartidores disponibles en tu zona. Cambia de ubicación o elige Retiro en tienda en el Paso 3.'
+            : 'La ubicación seleccionada está fuera de cobertura. Elige otra dirección o Retiro en tienda en el Paso 3.'
+        }
+      }
+      if (!calculatingTariff && (selectedLocation.tarifa == null || selectedLocation.tarifa === '' || Number(selectedLocation.tarifa) < 0)) {
+        return { stepId: 'step-3', reason: 'No se pudo calcular la tarifa de envío. Vuelve a seleccionar tu ubicación en el Paso 3.' }
+      }
+    }
+
+    // 4. Paso 4: pago
+    if (total > 0) {
+      if (!paymentData.method) {
+        return { stepId: 'step-4', reason: 'Selecciona un método de pago en el Paso 4.' }
+      }
+      if (paymentData.method === 'cash' && !acceptsCash) {
+        return { stepId: 'step-4', reason: 'Esta tienda no acepta pagos en efectivo. Elige transferencia en el Paso 4.' }
+      }
+      if (paymentData.method === 'transfer') {
+        if (!acceptsTransfer) {
+          return { stepId: 'step-4', reason: 'Esta tienda no acepta pagos por transferencia. Elige efectivo en el Paso 4.' }
+        }
+        if (!selectedStoreAccount && !paymentData.selectedBank) {
+          return { stepId: 'step-4', reason: 'Selecciona una cuenta bancaria en el Paso 4.' }
+        }
+        if (!paymentData.receiptImageUrl) {
+          return { stepId: 'step-4', reason: 'Sube el comprobante de transferencia en el Paso 4 para continuar.' }
+        }
+      }
+    }
+
+    return null
   })()
 
+  // Computed readiness for final confirmation (exactamente sincronizado con checkoutBlockingIssue)
+  const readyToConfirm = checkoutBlockingIssue === null
+
   // Función para encontrar el primer paso incompleto
-  const getFirstIncompleteStep = () => {
-    // Paso 1: cliente
-    const phone = customerData.phone?.trim();
-    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
-    if (!phone || !validateEcuadorianPhone(normalizedPhone) || (!user && !clientFound && !customerData.name.trim()) || (showNameField && !customerData.name.trim()) || (showNameField && !clientFound && (!phoneConfirmation.trim() || phoneConfirmation !== customerData.phone))) {
-      return 'step-1';
-    }
+  const getFirstIncompleteStep = () => checkoutBlockingIssue?.stepId ?? null
 
-    // Paso 2: timing
-    if (!timingData.type || (timingData.type === 'scheduled' && (!timingData.scheduledDate || !timingData.scheduledTime || !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) || !cartAvailability.available))) {
-      return 'step-2';
-    }
-
-    // Paso 3: entrega
-    if (!deliveryData.type || (deliveryData.type === 'delivery' && (!deliveryData.address.trim() && !selectedLocation)) || (deliveryData.type === 'delivery' && (!isLocationDeliveryAvailable || (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0))))) {
-      return 'step-3';
-    }
-
-    // Paso 4: pago
-    if (total > 0 && (!paymentData.method || (paymentData.method === 'transfer' && (!paymentData.selectedBank || !paymentData.receiptImageUrl)))) {
-      return 'step-4';
-    }
-
-    return null; // Todos los pasos completos
-  }
-
-  // Función para manejar el clic en "Completa los pasos"
+  // Función para manejar el clic en "Completa los pasos" / "Confirmar pedido"
   const handleCompleteStepsClick = () => {
     if (!readyToConfirm) {
       const incompleteStep = getFirstIncompleteStep();
       if (incompleteStep) {
-        // Expandir el paso incompleto y hacer scroll hacia él
-        setCollapsedSections(prev => ({
-          ...prev,
-          [incompleteStep]: false
-        }));
-        
-        // Hacer scroll hacia el paso
+        // Si el problema está en los ítems del carrito, expandir paso 4 y la lista de productos
+        if (incompleteStep === 'cart-items') {
+          setCollapsedSections(prev => ({
+            ...prev,
+            'step-4': false,
+            'cart-items': false
+          }));
+        } else {
+          // Expandir el paso incompleto y hacer scroll hacia él
+          setCollapsedSections(prev => ({
+            ...prev,
+            [incompleteStep]: false
+          }));
+        }
+
+        const targetId = incompleteStep === 'cart-items' ? 'step-4' : incompleteStep
         setTimeout(() => {
-          const element = document.getElementById(incompleteStep);
+          const element = document.getElementById(targetId);
           if (element) {
             element.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
@@ -2247,7 +2384,7 @@ export function CheckoutContent({
         setCalculatingTariff(true)
         try {
           const deliveryDetails = await calculateDeliveryFee({ lat: coordinates[0], lng: coordinates[1] })
-          if (!Number.isFinite(deliveryDetails.fee) || deliveryDetails.fee <= 0 || deliveryDetails.isOutOfCoverage) {
+          if (!Number.isFinite(deliveryDetails.fee) || deliveryDetails.fee < 0 || deliveryDetails.isOutOfCoverage) {
             alert('No se pudo calcular un valor de envío válido para esta ubicación. Selecciona otra ubicación o inténtalo nuevamente.')
             setLoading(false)
             setIsProcessingOrder(false)
@@ -2271,14 +2408,29 @@ export function CheckoutContent({
         }
       }
 
+      // Calcular saldo restante a pagar considerando el costo de envío verificado y los créditos
+      const currentSubtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
+      const currentDeliveryCost = deliveryData.type === 'delivery' ? (verifiedDeliveryCost ?? getDeliveryCost()) : 0
+      const currentClientDeliveryCost = isFreeDeliveryActive ? 0 : currentDeliveryCost
+      const currentTotalBeforeCredits = currentSubtotal + currentClientDeliveryCost
+      const currentRawCredit = paymentData.useCredits
+        ? (userEditedCreditAmountRef.current
+            ? (paymentData.creditsAmount || 0)
+            : Math.min(userCredits.available, currentTotalBeforeCredits))
+        : 0
+      const currentCreditToApply = paymentData.useCredits
+        ? Math.round(Math.min(currentRawCredit, userCredits.available, currentTotalBeforeCredits) * 100) / 100
+        : 0
+      const remainingTotalToPay = Math.max(0, currentTotalBeforeCredits - currentCreditToApply)
+
       // Bloquear métodos de pago desactivados por la tienda
-      if (paymentData.method === 'cash' && !acceptsCash) {
+      if (remainingTotalToPay > 0 && paymentData.method === 'cash' && !acceptsCash) {
         alert('Esta tienda no acepta pagos en efectivo en este momento.')
         setLoading(false)
         setIsProcessingOrder(false)
         return
       }
-      if (paymentData.method === 'transfer' && !acceptsTransfer) {
+      if (remainingTotalToPay > 0 && paymentData.method === 'transfer' && !acceptsTransfer) {
         alert('Esta tienda no acepta pagos por transferencia en este momento.')
         setLoading(false)
         setIsProcessingOrder(false)
@@ -2286,15 +2438,15 @@ export function CheckoutContent({
       }
 
       // Bloquear pago por transferencia si la ubicación no tiene delivery disponible
-      if (paymentData.method === 'transfer' && deliveryData.type === 'delivery' && !isLocationDeliveryAvailable) {
+      if (remainingTotalToPay > 0 && paymentData.method === 'transfer' && deliveryData.type === 'delivery' && !isLocationDeliveryAvailable) {
         alert('El pago por transferencia no está disponible para esta ubicación porque no hay delivery disponible en la zona. Por favor selecciona pago en efectivo o retiro en local.')
         setLoading(false)
         setIsProcessingOrder(false)
         return
       }
 
-      // VALIDACIÓN CRÍTICA: Si el método de pago es transferencia, debe existir comprobante
-      if (paymentData.method === 'transfer') {
+      // VALIDACIÓN CRÍTICA: Si el saldo a pagar es mayor a 0 y el método de pago es transferencia, debe existir comprobante
+      if (remainingTotalToPay > 0 && paymentData.method === 'transfer') {
         if (!selectedStoreAccount && !paymentData.selectedBank) {
           alert('Por favor selecciona una cuenta bancaria para la transferencia')
           setLoading(false)
@@ -2706,8 +2858,13 @@ export function CheckoutContent({
     );
   }
 
-  // Determinar si la ubicación seleccionada está fuera de cobertura (tarifa nula o 0)
-  const selectedLocationOutsideCoverage = !!selectedLocation && !calculatingTariff && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0);
+  // Determinar si la ubicación seleccionada está fuera de cobertura
+  const selectedLocationOutsideCoverage = !!selectedLocation && !calculatingTariff && (
+    isLocationOutOfCoverage ||
+    selectedLocation.tarifa == null ||
+    selectedLocation.tarifa === '' ||
+    Number(selectedLocation.tarifa) < 0
+  );
 
   return (
     <div className={isEmbedded ? 'min-h-full bg-gray-50' : 'min-h-screen bg-gray-50'}>
@@ -2751,40 +2908,72 @@ export function CheckoutContent({
                 <div className="px-4 sm:px-5 pb-4 sm:pb-5">
                   <div className="space-y-4">
                 {user ? (
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 relative group animate-fadeIn w-full">
-                    <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center shadow-sm">
-                      {user.photoURL ? (
-                        <img src={user.photoURL} alt={user.nombres} className="w-full h-full object-cover" />
-                      ) : (
-                        <i className="bi bi-person-fill text-2xl text-gray-400"></i>
-                      )}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 relative group animate-fadeIn w-full">
+                      <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center shadow-sm">
+                        {user.photoURL ? (
+                          <img src={user.photoURL} alt={user.nombres} className="w-full h-full object-cover" />
+                        ) : (
+                          <i className="bi bi-person-fill text-2xl text-gray-400"></i>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-gray-900 text-base leading-tight truncate">{user.nombres}</p>
+                        <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                          <i className="bi bi-phone text-xs"></i>
+                          {customerData.phone || user.celular || 'Sin número registrado'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          logout()
+                          try {
+                            localStorage.removeItem('loginPhone')
+                            localStorage.removeItem('clientData')
+                          } catch (e) {
+                            console.error('Error clearing local client data on logout:', e)
+                          }
+                          setClientFound(null)
+                          setCustomerData({ name: '', phone: '' })
+                          setShowNameField(false)
+                          setSelectedLocation(null)
+                          setPhoneConfirmation('') // Limpiar confirmación
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 rounded-lg transition-all shadow-sm flex-shrink-0"
+                      >
+                        Salir
+                      </button>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 text-base leading-tight truncate">{user.nombres}</p>
-                      <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
-                        <i className="bi bi-phone text-xs"></i>
-                        {user.celular || customerData.phone}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        logout()
-                        try {
-                          localStorage.removeItem('loginPhone')
-                          localStorage.removeItem('clientData')
-                        } catch (e) {
-                          console.error('Error clearing local client data on logout:', e)
-                        }
-                        setClientFound(null)
-                        setCustomerData({ name: '', phone: '' })
-                        setShowNameField(false)
-                        setSelectedLocation(null)
-                        setPhoneConfirmation('') // Limpiar confirmación
-                      }}
-                      className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 rounded-lg transition-all shadow-sm flex-shrink-0"
-                    >
-                      Salir
-                    </button>
+
+                    {/* Si el usuario logueado no tiene un celular ecuatoriano válido, permitir ingresarlo aquí */}
+                    {!validateEcuadorianPhone(normalizeEcuadorianPhone(customerData.phone || '')) && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2 animate-fadeIn">
+                        <p className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                          <i className="bi bi-exclamation-triangle-fill text-amber-600"></i>
+                          Necesitamos un número de celular ecuatoriano válido (10 dígitos, ej. 0999999999) para coordinar tu pedido.
+                        </p>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={customerData.phone}
+                          onChange={(e) => setCustomerData(prev => ({ ...prev, phone: e.target.value }))}
+                          onBlur={(e) => {
+                            const normalized = normalizeEcuadorianPhone(e.target.value)
+                            if (validateEcuadorianPhone(normalized)) {
+                              setCustomerData(prev => ({ ...prev, phone: normalized }))
+                              if (user?.id) {
+                                updateClient(user.id, { celular: normalized }).catch(() => {})
+                              }
+                            }
+                          }}
+                          className="w-full px-4 py-2.5 bg-white border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 text-sm"
+                          placeholder="0999999999"
+                          maxLength={16}
+                        />
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div>
@@ -2896,19 +3085,19 @@ export function CheckoutContent({
                             pattern="[0-9]*"
                             value={phoneConfirmation}
                             onChange={(e) => setPhoneConfirmation(e.target.value)}
-                            className={`w-full pl-10 pr-12 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
+                            className={`w-full pl-10 pr-12 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && normalizeEcuadorianPhone(phoneConfirmation) === normalizeEcuadorianPhone(customerData.phone)
                               ? 'border-green-300 ring-2 ring-green-100 focus:ring-green-900'
-                              : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
+                              : phoneConfirmation.trim() && normalizeEcuadorianPhone(phoneConfirmation) !== normalizeEcuadorianPhone(customerData.phone)
                                 ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-900'
                                 : 'border-gray-200 focus:ring-gray-900'
                               }`}
                             placeholder="Vuelve a escribir tu celular"
-                            maxLength={10}
+                            maxLength={16}
                           />
                           {/* Ícono de validación */}
                           {phoneConfirmation.trim() && (
                             <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                              {phoneConfirmation === customerData.phone ? (
+                              {normalizeEcuadorianPhone(phoneConfirmation) === normalizeEcuadorianPhone(customerData.phone) ? (
                                 <i className="bi bi-check-circle-fill text-green-500 text-xl"></i>
                               ) : (
                                 <i className="bi bi-x-circle-fill text-red-500 text-xl"></i>
@@ -2931,7 +3120,7 @@ export function CheckoutContent({
 
                         <button
                           onClick={handleCreateClient}
-                          disabled={!customerData.name.trim() || !phoneConfirmation.trim() || phoneConfirmation !== customerData.phone}
+                          disabled={!customerData.name.trim() || !phoneConfirmation.trim() || normalizeEcuadorianPhone(phoneConfirmation) !== normalizeEcuadorianPhone(customerData.phone)}
                           className="w-full mt-3 px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
                         >
                           Continuar
@@ -3021,10 +3210,14 @@ export function CheckoutContent({
                   <button
                     type="button"
                     onClick={() => {
-                      // Si ya tiene datos, solo cambiar tipo (o mantenerlos)
-                      // Si no tiene datos, calcular el próximo slot disponible
-                      if (timingData.scheduledDate && timingData.scheduledTime) {
-                        setTimingData({ ...timingData, type: 'scheduled' })
+                      // Mantener fecha/hora existentes solo si ya estaba en 'scheduled' y el horario sigue siendo válido
+                      const canKeepExisting =
+                        timingData.type === 'scheduled' &&
+                        Boolean(timingData.scheduledDate && timingData.scheduledTime) &&
+                        isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
+
+                      if (canKeepExisting) {
+                        setTimingData(prev => ({ ...prev, type: 'scheduled' }))
                         setCollapsedSections(prev => ({
                           ...prev,
                           'step-3': false
@@ -3039,7 +3232,7 @@ export function CheckoutContent({
                           scheduledDate: slotDate,
                           scheduledTime: slotTime
                         })
-                        if (slotDate && slotTime) {
+                        if (slotDate && slotTime && isSpecificTimeOpen(business, slotDate, slotTime)) {
                           setCollapsedSections(prev => ({
                             ...prev,
                             'step-3': false
@@ -3618,11 +3811,11 @@ export function CheckoutContent({
                                     const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
                                     const roundedMaxPossible = Math.round(maxPossible * 100) / 100
                                     setCreditInputStr(checked ? roundedMaxPossible.toString() : '')
-                                    setPaymentData({
-                                      ...paymentData,
+                                    setPaymentData(prev => ({
+                                      ...prev,
                                       useCredits: checked,
                                       creditsAmount: checked ? roundedMaxPossible : 0
-                                    })
+                                    }))
                                   }}
                                 />
                                 <div className="w-10 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -3642,11 +3835,11 @@ export function CheckoutContent({
                                         const maxPossible = Math.min(userCredits.available, totalBeforeCredits)
                                         const roundedMax = Math.round(maxPossible * 100) / 100
                                         setCreditInputStr(roundedMax.toString())
-                                        setPaymentData({
-                                          ...paymentData,
+                                        setPaymentData(prev => ({
+                                          ...prev,
                                           useCredits: true,
                                           creditsAmount: roundedMax
-                                        })
+                                        }))
                                       }}
                                       className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-300 hover:bg-emerald-100 rounded-lg px-2 py-1 transition-colors shadow-xs"
                                     >
@@ -3805,7 +3998,7 @@ export function CheckoutContent({
                     disabled={!acceptsCash}
                     onClick={() => {
                       if (!acceptsCash) return;
-                      setPaymentData({ ...paymentData, method: 'cash' });
+                      setPaymentData(prev => ({ ...prev, method: 'cash' }));
                     }}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${
                       !acceptsCash
@@ -3855,11 +4048,11 @@ export function CheckoutContent({
                               return;
                             }
                             const defaultAcc = storeBankAccounts.find(a => a.isDefault) || storeBankAccounts[0];
-                            setPaymentData({ 
-                              ...paymentData, 
+                            setPaymentData(prev => ({ 
+                              ...prev, 
                               method: 'transfer',
-                              selectedBank: defaultAcc ? defaultAcc.id : ''
-                            });
+                              selectedBank: prev.selectedBank || (defaultAcc ? defaultAcc.id : '')
+                            }));
                           }}
                           className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${
                             isTransferDisabled
@@ -3968,7 +4161,7 @@ export function CheckoutContent({
                                       <button
                                         key={account.id}
                                         type="button"
-                                        onClick={() => setPaymentData({ ...paymentData, selectedBank: account.id })}
+                                        onClick={() => setPaymentData(prev => ({ ...prev, selectedBank: account.id }))}
                                         className={`p-3 rounded-2xl border-2 transition-all flex items-center justify-between text-left gap-2 ${
                                           isSelected
                                             ? 'border-gray-900 bg-gray-900 text-white shadow-md'
@@ -4118,12 +4311,12 @@ export function CheckoutContent({
                         )}
 
                         {/* Componente para subir comprobante - Solo visible si completó paso 2 */}
-                        {selectedStoreAccount && clientFound && deliveryData.type && (
+                        {selectedStoreAccount && (clientFound || user) && deliveryData.type && (
                           <TransferReceiptUploader
                             onReceiptUpload={handleReceiptUpload}
                             uploadedImageUrl={paymentData.receiptImageUrl || null}
                             isUploading={uploadingReceipt}
-                            clientId={clientFound.id}
+                            clientId={effectiveClientId || clientFound?.id || 'guest'}
                           />
                         )}
 
@@ -4150,23 +4343,49 @@ export function CheckoutContent({
 
         {/* Confirmación final (no flotante) */}
         <div className="max-w-xl mx-auto mt-6 px-4">
-          <div className="bg-white rounded-lg shadow-md p-4 flex justify-center">
+          <div className="bg-white rounded-xl shadow-md p-4 flex flex-col items-center gap-3">
             <div className="w-full sm:w-auto text-center">
               <button
                 type="button"
                 onClick={handleCompleteStepsClick}
-                disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage) || calculatingTariff}
-                className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage) || calculatingTariff
+                disabled={loading || calculatingTariff}
+                className={`w-full sm:w-auto px-6 py-3 rounded-xl text-white font-bold transition-all ${loading || calculatingTariff
                   ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-green-500 hover:bg-green-600'
+                  : readyToConfirm
+                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-md active:scale-[0.98]'
+                    : 'bg-gray-700 hover:bg-gray-800 active:scale-[0.98]'
                   }`}
               >
                 {loading ? 'Procesando...' : (calculatingTariff ? 'Calculando tarifa...' : (readyToConfirm ? 'Confirmar pedido' : 'Completa los pasos'))}
               </button>
-              {deliveryData.type === 'delivery' && selectedLocationOutsideCoverage && (
-                <p className="text-sm text-yellow-800 mt-2">No es posible confirmar el pedido porque la ubicación seleccionada está fuera de la zona de cobertura.</p>
-              )}
             </div>
+
+            {!readyToConfirm && !loading && !calculatingTariff && checkoutBlockingIssue && (
+              <div className="w-full bg-amber-50 border border-amber-200 rounded-xl p-3 text-left flex items-start gap-2.5 animate-fadeIn">
+                <i className="bi bi-info-circle-fill text-amber-600 text-base flex-shrink-0 mt-0.5"></i>
+                <div className="flex-1 text-xs text-amber-900 leading-relaxed">
+                  <p className="font-semibold">{checkoutBlockingIssue.reason}</p>
+                  <div className="mt-1.5 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCompleteStepsClick}
+                      className="font-bold underline text-amber-800 hover:text-amber-950"
+                    >
+                      Ir al paso pendiente
+                    </button>
+                    {checkoutBlockingIssue.stepId === 'cart-items' && isEmbedded && onEmbeddedBack && (
+                      <button
+                        type="button"
+                        onClick={onEmbeddedBack}
+                        className="font-bold underline text-rose-700 hover:text-rose-900"
+                      >
+                        Editar carrito
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

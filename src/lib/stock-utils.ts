@@ -227,7 +227,7 @@ export function isCartItemEffectivelyAvailable(
   stockMap?: Map<string, IngredientStockSummary>
 ): boolean {
   if (!item) return false
-  if (item.esPremio || item.qrCodeId) return true
+  if (item.esPremio || item.qrCodeId || item.id === 'premio-especial-auto' || item.productId === 'premio-especial-auto') return true
   if (!allProducts || allProducts.length === 0) return true // Si aún no han cargado productos de la BD, no bloquear preventivamente
 
   const rawId = item.productId || item.id || ''
@@ -237,7 +237,14 @@ export function isCartItemEffectivelyAvailable(
     ?? allProducts.find(p => typeof item.id === 'string' && item.id.startsWith(p.id + '-'))
     ?? allProducts.find(p => p.id === baseId)
 
-  if (!dbProduct) return false
+  if (!dbProduct) {
+    // Si el ítem pertenece a otra tienda (producto compartido) y allProducts solo tiene
+    // los productos de la tienda actual, no marcarlo falsamente como no disponible.
+    if (item.originalBusinessId && !allProducts.some(p => p.businessId === item.originalBusinessId)) {
+      return true
+    }
+    return false
+  }
   if (dbProduct.isAvailable === false) return false
 
   // 1. Verificar si alguna opción seleccionada fue desactivada manualmente
@@ -253,20 +260,32 @@ export function isCartItemEffectivelyAvailable(
   }
 
   const hasDbVariants = Boolean(dbProduct.variants && Array.isArray(dbProduct.variants) && dbProduct.variants.length > 0)
+  const isComboItem = Boolean(
+    item.isCombo ||
+    dbProduct.isCombo ||
+    (typeof item.variantName === 'string' && item.variantName.trim().toLowerCase().startsWith('combo:'))
+  )
 
-  // 2. Evaluar variantes
-  if (item.variantName && !item.variantName.startsWith('Combo:')) {
+  // 2. Evaluar variantes (solo cuando no es combo)
+  if (item.variantName && !isComboItem) {
     if (hasDbVariants) {
       const baseVariantName = extractBaseVariantName(item.variantName)
       const rawVariantName = item.variantName.trim()
+      const rawLower = rawVariantName.toLowerCase()
+      const baseLower = baseVariantName.toLowerCase()
       const variantId = item.variantId || (typeof item.variant === 'object' ? item.variant?.id : undefined)
 
-      const variant = dbProduct.variants!.find(v =>
-        (variantId && v.id === variantId) ||
-        v.name === rawVariantName ||
-        (baseVariantName && (v.name === baseVariantName || extractBaseVariantName(v.name) === baseVariantName)) ||
-        rawVariantName.startsWith(`${v.name} (`)
-      )
+      const variant = dbProduct.variants!.find(v => {
+        const vName = (v.name || '').trim()
+        const vLower = vName.toLowerCase()
+        const vBaseLower = extractBaseVariantName(vName).toLowerCase()
+        return (
+          (variantId && v.id === variantId) ||
+          vLower === rawLower ||
+          (baseLower && (vLower === baseLower || vBaseLower === baseLower)) ||
+          rawLower.startsWith(`${vLower} (`)
+        )
+      })
 
       if (variant) {
         if (variant.isAvailable === false) return false
@@ -286,9 +305,10 @@ export function isCartItemEffectivelyAvailable(
         // No se encontró variante coincidente en la BD:
         // Verificar si variantName corresponde únicamente a opciones/modificadores seleccionados
         const isOptionsOnly = dbProduct.optionGroups?.some(g =>
-          rawVariantName.startsWith(g.name + ':') ||
-          rawVariantName.includes(g.name + ':') ||
-          rawVariantName.startsWith('Opción:')
+          rawLower.startsWith(g.name.toLowerCase() + ':') ||
+          rawLower.includes(g.name.toLowerCase() + ':') ||
+          rawLower.startsWith('opción:') ||
+          rawLower.startsWith('opcion:')
         )
 
         // Si NO son opciones, era una variante real que fue eliminada de la BD

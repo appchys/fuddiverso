@@ -274,24 +274,66 @@ export function normalizeTime(time: string): string {
 }
 
 /**
+ * Busca el horario correspondiente a un día de la semana (0 = domingo ... 6 = sábado)
+ * de forma insensible a mayúsculas y soportando claves en inglés o español.
+ */
+function getScheduleEntryForDay(schedule: Business['schedule'], dayOfWeekIndex: number) {
+    if (!schedule) return null
+    const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+    const dayNamesEsPlain = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
+
+    const targetEn = dayNamesEn[dayOfWeekIndex]
+    const targetEs = dayNamesEs[dayOfWeekIndex]
+    const targetEsPlain = dayNamesEsPlain[dayOfWeekIndex]
+
+    const scheduleKeys = Object.keys(schedule)
+    const matchedKey = scheduleKeys.find(k => {
+        const lower = k.toLowerCase()
+        return lower === targetEn || lower === targetEs || lower === targetEsPlain
+    })
+
+    return matchedKey ? schedule[matchedKey] : null
+}
+
+/**
  * Valida si una fecha y hora específicas están dentro del horario de la tienda.
  */
 export function isSpecificTimeOpen(business: Business | null, dateStr: string, timeStr: string): boolean {
     if (!business || !dateStr || !timeStr) return false
 
+    // Si la tienda está abierta manualmente para hoy (y no ha expirado), permitir programar hoy
+    const now = new Date()
+    const todayStr = getTodayDateString(now)
+    if (dateStr === todayStr && business.manualStoreStatus === 'open') {
+        if (!business.manualStatusExpiry) {
+            return true
+        }
+        const expiryTime = business.manualStatusExpiry instanceof Date
+            ? business.manualStatusExpiry
+            : (business.manualStatusExpiry as any).seconds
+                ? new Date((business.manualStatusExpiry as any).seconds * 1000)
+                : new Date(business.manualStatusExpiry)
+        if (now < expiryTime) {
+            return true
+        }
+    }
+
     const [year, month, day] = dateStr.split('-').map(Number)
     const requestedDate = new Date(year, month - 1, day)
-    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-    const dayOfWeek = dayNames[requestedDate.getDay()]
+    const schedule = getScheduleEntryForDay(business.schedule, requestedDate.getDay())
 
-    const schedule = business.schedule?.[dayOfWeek]
-
-    if (!schedule || !schedule.isOpen) return false
+    if (!schedule || !schedule.isOpen || !schedule.open || !schedule.close) return false
 
     // Normalizar para comparación de texto segura (ej: "9:00" -> "09:00")
     const normalizedRequested = normalizeTime(timeStr)
     const normalizedOpen = normalizeTime(schedule.open)
     const normalizedClose = normalizeTime(schedule.close)
+
+    if (normalizedClose < normalizedOpen) {
+        // Horario nocturno cruzando medianoche (ej: 18:00 a 02:00)
+        return normalizedRequested >= normalizedOpen || normalizedRequested <= normalizedClose
+    }
 
     return normalizedRequested >= normalizedOpen && normalizedRequested <= normalizedClose
 }
@@ -303,23 +345,12 @@ export function getStoreScheduleForDate(business: Business | null, dateStr: stri
     if (!business || !dateStr) return null
     const [year, month, day] = dateStr.split('-').map(Number)
     const requestedDate = new Date(year, month - 1, day)
-    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-    const dayOfWeek = dayNames[requestedDate.getDay()]
-
-    // Traducción de días para el mensaje
-    const dayTranslations: Record<string, string> = {
-        'sunday': 'domingo',
-        'monday': 'lunes',
-        'tuesday': 'martes',
-        'wednesday': 'miércoles',
-        'thursday': 'jueves',
-        'friday': 'viernes',
-        'saturday': 'sábado'
-    }
+    const dayIndex = requestedDate.getDay()
+    const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 
     return {
-        schedule: business.schedule?.[dayOfWeek] || null,
-        dayName: dayTranslations[dayOfWeek] || dayOfWeek
+        schedule: getScheduleEntryForDay(business.schedule, dayIndex),
+        dayName: dayNamesEs[dayIndex] || ''
     }
 }
 
@@ -331,7 +362,6 @@ export function getNextAvailableSlot(business: Business | null): { date: string,
     if (!business) return null
 
     const now = new Date()
-    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
     // Si está cerrado manualmente, empezamos a buscar desde mañana
     let startDayOffset = 0
@@ -343,10 +373,9 @@ export function getNextAvailableSlot(business: Business | null): { date: string,
     for (let i = startDayOffset; i < 7; i++) {
         const d = new Date(now)
         d.setDate(d.getDate() + i)
-        const dayName = dayNames[d.getDay()]
-        const schedule = business.schedule?.[dayName]
+        const schedule = getScheduleEntryForDay(business.schedule, d.getDay())
 
-        if (schedule && schedule.isOpen) {
+        if (schedule && schedule.isOpen && schedule.open && schedule.close) {
             const year = d.getFullYear()
             const month = String(d.getMonth() + 1).padStart(2, '0')
             const day = String(d.getDate()).padStart(2, '0')
@@ -366,15 +395,19 @@ export function getNextAvailableSlot(business: Business | null): { date: string,
                 const bufferMinutes = 30
                 const potentialStartMinutes = currentMinutes + bufferMinutes
 
+                // Horario nocturno cruzando medianoche (ej: 18:00 a 02:00)
+                const effectiveCloseMinutes = closeMinutes < openMinutes ? closeMinutes + 24 * 60 : closeMinutes
+
                 // Si es antes de abrir, el slot es la hora de apertura
                 if (potentialStartMinutes < openMinutes) {
-                    return { date: dateStr, time: schedule.open }
+                    return { date: dateStr, time: normalizeTime(schedule.open) }
                 }
 
                 // Si estamos dentro del tiempo operativo (y hay tiempo antes del cierre)
-                if (potentialStartMinutes < closeMinutes) {
-                    const h = Math.floor(potentialStartMinutes / 60)
-                    const m = potentialStartMinutes % 60
+                if (potentialStartMinutes < effectiveCloseMinutes) {
+                    const wrappedMinutes = potentialStartMinutes % (24 * 60)
+                    const h = Math.floor(wrappedMinutes / 60)
+                    const m = wrappedMinutes % 60
                     const nextTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
                     return { date: dateStr, time: nextTime }
                 }
@@ -382,7 +415,7 @@ export function getNextAvailableSlot(business: Business | null): { date: string,
                 // Si ya no hay tiempo hoy, el loop continuará a mañana
             } else {
                 // Para días futuros, devolvemos la hora de apertura
-                return { date: dateStr, time: schedule.open }
+                return { date: dateStr, time: normalizeTime(schedule.open) }
             }
         }
     }
