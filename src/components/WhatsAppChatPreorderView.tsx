@@ -250,6 +250,7 @@ interface WhatsAppChatPreorderViewProps {
   initialTab?: PreorderTabKey
   initialProfile?: ResolvedWhatsAppClientProfile
   activeOrder?: any
+  clientOrders?: any[]
   products?: Product[]
   onBack: () => void
   onCreateOrder: (conv: PendingWhatsAppConversation, draft?: WhatsAppPreorderDraft) => void
@@ -263,6 +264,7 @@ export function WhatsAppChatPreorderView({
   initialTab,
   initialProfile,
   activeOrder,
+  clientOrders = [],
   products = [],
   onBack,
   onCreateOrder,
@@ -524,6 +526,62 @@ export function WhatsAppChatPreorderView({
     [draftItems]
   )
 
+  const sentOrderBubbles = useMemo(() => {
+    const byId = new Map<string, any>()
+    for (const o of clientOrders) {
+      if (o?.id) byId.set(String(o.id), o)
+    }
+    if (activeOrder?.id && !byId.has(String(activeOrder.id))) {
+      byId.set(String(activeOrder.id), activeOrder)
+    }
+
+    const list = Array.from(byId.values())
+      .filter((o) => String(o.status || '').toLowerCase() !== 'cancelled')
+      .map((o) => {
+        const rawTs = o.createdAt
+        let createdMs = 0
+        if (rawTs instanceof Date) createdMs = rawTs.getTime()
+        else if (rawTs && typeof rawTs.toDate === 'function') createdMs = rawTs.toDate().getTime()
+        else if (rawTs && typeof rawTs.seconds === 'number') createdMs = rawTs.seconds * 1000
+        else if (typeof rawTs === 'number') createdMs = rawTs
+        else if (typeof rawTs === 'string') createdMs = new Date(rawTs).getTime() || 0
+        return { order: o, createdMs }
+      })
+      .sort((a, b) => a.createdMs - b.createdMs)
+
+    // Si hay una orden confirmada en la conversación que no está en clientOrders, mostrar resumen de respaldo
+    if (
+      conversation.confirmedOrderId &&
+      !byId.has(String(conversation.confirmedOrderId)) &&
+      (conversation.confirmedOrderSummary || typeof conversation.confirmedOrderTotal === 'number')
+    ) {
+      list.push({
+        order: {
+          id: conversation.confirmedOrderId,
+          status: 'confirmed',
+          total: conversation.confirmedOrderTotal,
+          _fallbackSummary: conversation.confirmedOrderSummary,
+        },
+        createdMs: conversation.confirmedAtMillis || conversation.resolvedAtMillis || Date.now(),
+      })
+    }
+
+    return list
+  }, [clientOrders, activeOrder, conversation])
+
+  const getOrderStatusLabel = (status?: string): string => {
+    switch (String(status || '').toLowerCase()) {
+      case 'borrador': return 'Borrador'
+      case 'pending': return 'Pendiente'
+      case 'confirmed': return 'Confirmado'
+      case 'preparing': return 'Preparando'
+      case 'ready': return 'Listo'
+      case 'on_way': return 'En camino'
+      case 'delivered': return 'Entregado'
+      default: return 'Pedido creado'
+    }
+  }
+
   const enrichedConversation: PendingWhatsAppConversation = resolvedProfile
     ? {
         ...conversation,
@@ -765,6 +823,73 @@ export function WhatsAppChatPreorderView({
               Ver ubicación enviada en Maps
             </a>
           )}
+
+          {/* Sent Order Bubbles (aligned right, WhatsApp outgoing style) */}
+          {sentOrderBubbles.map(({ order, createdMs }) => {
+            const items = Array.isArray(order.items) ? order.items : []
+            const isPickupOrder = order.delivery?.type === 'pickup'
+            const orderTime = formatWhatsAppTime(createdMs || Date.now())
+            const canInspect = Boolean(onInspectOrder && !order._fallbackSummary)
+            return (
+              <div
+                key={`sent-order-${order.id}`}
+                onClick={canInspect ? () => onInspectOrder?.(order) : undefined}
+                title={canInspect ? 'Clic para ver o editar pedido' : undefined}
+                className={`self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-2 text-xs text-slate-800 shadow-2xs space-y-1.5 ${
+                  canInspect ? 'cursor-pointer hover:bg-[#d2f5b8] transition-colors' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-black text-emerald-900 inline-flex items-center gap-1">
+                    <i className="bi bi-bag-check-fill text-emerald-700"></i>
+                    Pedido creado
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/80 text-emerald-800 border border-emerald-200">
+                    {getOrderStatusLabel(order.status)}
+                  </span>
+                </div>
+
+                {items.length > 0 ? (
+                  <div className="space-y-0.5 text-[11px] text-slate-800">
+                    {items.map((it: any, i: number) => (
+                      <p key={i} className="leading-snug">
+                        <span className="font-bold">{it.quantity || 1}x</span>{' '}
+                        {it.productName || it.name || 'Producto'}
+                        {(it.variant || it.variantName) ? ` (${it.variant || it.variantName})` : ''}
+                      </p>
+                    ))}
+                  </div>
+                ) : order._fallbackSummary ? (
+                  <p className="text-[11px] text-slate-800 leading-snug">{order._fallbackSummary}</p>
+                ) : null}
+
+                {order.delivery && (
+                  <p className="text-[11px] text-emerald-900/80 flex items-center gap-1">
+                    <i className={`bi ${isPickupOrder ? 'bi-shop' : 'bi-geo-alt-fill'} shrink-0`}></i>
+                    <span className="truncate">
+                      {isPickupOrder
+                        ? 'Recoger en tienda'
+                        : (order.delivery.references || order.delivery.address || 'Delivery')}
+                    </span>
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between gap-3 pt-0.5 border-t border-emerald-200/70">
+                  {typeof order.total === 'number' ? (
+                    <span className="font-black text-emerald-950 text-xs">
+                      Total: ${order.total.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span></span>
+                  )}
+                  <span className="text-[10px] text-emerald-800/80 inline-flex items-center gap-1 ml-auto">
+                    {orderTime}
+                    <i className="bi bi-check2-all text-sky-600 text-xs"></i>
+                  </span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 

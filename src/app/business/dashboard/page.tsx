@@ -3220,31 +3220,47 @@ export default function TodayOrdersPage() {
                     </header>
 
                     {/* Main Content Area: Conditional Rendering */}
-                    {activeWhatsAppChatView ? (
-                        <WhatsAppChatPreorderView
-                            key={activeWhatsAppChatView.docId}
-                            businessId={business?.id}
-                            conversation={
-                                whatsappPendingConversations.find(
-                                    c => (c.docId || c.id) === activeWhatsAppChatView.docId
-                                ) || activeWhatsAppChatView.conversation
-                            }
-                            initialTab={activeWhatsAppChatView.initialTab}
-                            initialProfile={activeWhatsAppChatView.resolvedProfile}
-                            activeOrder={activeWhatsAppChatView.activeOrder}
-                            products={products}
-                            onBack={() => setActiveWhatsAppChatView(null)}
-                            onCreateOrder={(conv, draft) => {
-                                setSelectedWhatsAppConversation(conv)
-                                setSelectedWhatsAppDraft(draft || null)
-                                setSelectedOrderForEdit(null)
-                                setManualSidebarMode('create')
-                                setManualOrderSidebarOpen(true)
-                            }}
-                            onCloseConversation={handleCloseWhatsAppConversation}
-                            onInspectOrder={handleEditOrder}
-                        />
-                    ) : whatsappModalOpen ? (
+                    {activeWhatsAppChatView ? (() => {
+                        const liveConv =
+                            whatsappPendingConversations.find(
+                                c => (c.docId || c.id) === activeWhatsAppChatView.docId
+                            ) || activeWhatsAppChatView.conversation
+                        const convPhoneKey = normalizeWhatsAppConversationPhone(
+                            activeWhatsAppChatView.resolvedProfile?.clientPhone || liveConv.phone || liveConv.rawPhone
+                        )
+                        const convClientId = (
+                            activeWhatsAppChatView.resolvedProfile?.clientId || liveConv.fuddiClientId || ''
+                        ).trim()
+                        const matchedClientOrders = [...orders, ...historicalOrders].filter((o) => {
+                            if (!o) return false
+                            if (liveConv.confirmedOrderId && String(o.id) === String(liveConv.confirmedOrderId)) return true
+                            if (convClientId && o.customer?.id && String(o.customer.id).trim() === convClientId) return true
+                            const orderPhoneKey = normalizeWhatsAppConversationPhone(o.customer?.phone)
+                            return Boolean(convPhoneKey && orderPhoneKey && convPhoneKey === orderPhoneKey)
+                        })
+                        return (
+                            <WhatsAppChatPreorderView
+                                key={activeWhatsAppChatView.docId}
+                                businessId={business?.id}
+                                conversation={liveConv}
+                                initialTab={activeWhatsAppChatView.initialTab}
+                                initialProfile={activeWhatsAppChatView.resolvedProfile}
+                                activeOrder={activeWhatsAppChatView.activeOrder}
+                                clientOrders={matchedClientOrders}
+                                products={products}
+                                onBack={() => setActiveWhatsAppChatView(null)}
+                                onCreateOrder={(conv, draft) => {
+                                    setSelectedWhatsAppConversation(conv)
+                                    setSelectedWhatsAppDraft(draft || null)
+                                    setSelectedOrderForEdit(null)
+                                    setManualSidebarMode('create')
+                                    setManualOrderSidebarOpen(true)
+                                }}
+                                onCloseConversation={handleCloseWhatsAppConversation}
+                                onInspectOrder={handleEditOrder}
+                            />
+                        )
+                    })() : whatsappModalOpen ? (
                         <WhatsAppPendingModal
                             isOpen={true}
                             asPage={true}
@@ -4059,7 +4075,6 @@ export default function TodayOrdersPage() {
                                     }
                                     setSelectedWhatsAppConversation(null)
                                     setSelectedWhatsAppDraft(null)
-                                    setActiveWhatsAppChatView(null)
                                     setManualOrderSidebarOpen(false)
                                 }}
                                 mode={manualSidebarMode}
