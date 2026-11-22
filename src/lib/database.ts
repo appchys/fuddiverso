@@ -8845,6 +8845,7 @@ export async function updateCheckoutProgress(
       clientId,
       businessId,
       ...progressData,
+      status: 'active',
       lastActivityAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       updatedAtMillis: Date.now()

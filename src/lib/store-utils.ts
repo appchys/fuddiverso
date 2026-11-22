@@ -133,6 +133,67 @@ export function getTodayDateString(d: Date = new Date()): string {
     }
 }
 
+/**
+ * Calcula el timestamp (en milisegundos) de la hora de cierre más reciente que ya ocurrió
+ * según el horario configurado de la tienda (zona horaria America/Guayaquil, UTC-5).
+ * Sirve para cerrar automáticamente checkouts y mensajes de WhatsApp al finalizar cada jornada.
+ */
+export function getLastStoreCloseMillis(business: Business | null | undefined, now: Date = new Date()): number | null {
+    if (!business?.schedule) return null
+
+    const dayNamesEn = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+    const scheduleKeys = Object.keys(business.schedule)
+    if (scheduleKeys.length === 0) return null
+
+    const nowMillis = now.getTime()
+    let latestCloseMillis: number | null = null
+
+    // Revisar hoy y los últimos 7 días en hora de Ecuador (UTC-5)
+    for (let offsetDays = 0; offsetDays <= 7; offsetDays++) {
+        const probeDate = new Date(nowMillis - offsetDays * 24 * 60 * 60 * 1000)
+        const { dayOfWeekIndex } = getEcuadorDate(probeDate)
+        const dayEn = dayNamesEn[dayOfWeekIndex]
+        const dayEs = dayNamesEs[dayOfWeekIndex]
+
+        const dayKey = scheduleKeys.find(k => {
+            const lower = k.toLowerCase()
+            return lower === dayEn || lower === dayEs
+        })
+        const daySchedule = dayKey ? business.schedule[dayKey] : null
+        if (!daySchedule || !daySchedule.isOpen || !daySchedule.open || !daySchedule.close) {
+            continue
+        }
+
+        const [openH, openM] = normalizeTime(daySchedule.open).split(':').map(Number)
+        const [closeH, closeM] = normalizeTime(daySchedule.close).split(':').map(Number)
+        if ([openH, openM, closeH, closeM].some(n => Number.isNaN(n))) {
+            continue
+        }
+
+        const openMinutes = openH * 60 + openM
+        const closeMinutes = closeH * 60 + closeM
+
+        // Si el horario cruza la medianoche (ej. 18:00 a 02:00), el cierre ocurre al día siguiente
+        const closeBaseDate = closeMinutes < openMinutes
+            ? new Date(probeDate.getTime() + 24 * 60 * 60 * 1000)
+            : probeDate
+
+        const closeDateStr = getTodayDateString(closeBaseDate)
+        const hh = String(closeH).padStart(2, '0')
+        const mm = String(closeM).padStart(2, '0')
+        const closeTimestamp = new Date(`${closeDateStr}T${hh}:${mm}:00-05:00`).getTime()
+
+        if (!Number.isNaN(closeTimestamp) && closeTimestamp <= nowMillis) {
+            if (latestCloseMillis === null || closeTimestamp > latestCloseMillis) {
+                latestCloseMillis = closeTimestamp
+            }
+        }
+    }
+
+    return latestCloseMillis
+}
+
 export function isStoreOpen(business: Business | null): boolean {
     if (!business) return false
 

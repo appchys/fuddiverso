@@ -3541,6 +3541,7 @@ export default function TodayOrdersPage() {
                                                         {businessId && (
                                                             <LiveCheckoutsPanel
                                                                 businessId={businessId}
+                                                                business={business}
                                                                 orders={todayOrders}
                                                                 products={products}
                                                                 onCountChange={setCheckoutCount}
@@ -3576,6 +3577,7 @@ export default function TodayOrdersPage() {
                                                         {businessId && (
                                                             <LiveCheckoutsPanel
                                                                 businessId={businessId}
+                                                                business={business}
                                                                 orders={todayOrders}
                                                                 products={products}
                                                                 onCountChange={setCheckoutCount}
@@ -3609,6 +3611,7 @@ export default function TodayOrdersPage() {
                                                             {businessId && (
                                                                 <LiveCheckoutsPanel
                                                                     businessId={businessId}
+                                                                    business={business}
                                                                     orders={todayOrders}
                                                                     products={products}
                                                                     onCountChange={setCheckoutCount}

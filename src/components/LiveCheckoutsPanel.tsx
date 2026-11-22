@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { collection, query, where, onSnapshot, orderBy, limit, Timestamp, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -7,8 +7,9 @@ import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap';
 import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal';
 import { searchClientByPhone, getClientLocations, type ClientLocation } from '@/lib/database';
 import { ClientLocationsModal } from '@/components/ClientLocationsModal';
-import type { Product } from '@/types';
+import type { Business, Product } from '@/types';
 import { getManualOrderStorePrice, getPriceMetadata } from '@/lib/price-utils';
+import { getLastStoreCloseMillis } from '@/lib/store-utils';
 import { Motorbike } from 'lucide-react';
 
 export interface WhatsAppPreorderDraftItem {
@@ -83,10 +84,13 @@ export interface CheckoutSession {
     lastActivityAt: any;
     updatedAt: any;
     updatedAtMillis?: number;
+    status?: 'active' | 'abandoned' | 'closed' | 'completed';
+    closedAtMillis?: number;
 }
 
 interface LiveCheckoutsPanelProps {
     businessId: string;
+    business?: Business | null;
     orders?: any[];
     products?: Product[];
     onCountChange?: (count: number) => void;
@@ -101,6 +105,7 @@ interface LiveCheckoutsPanelProps {
 
 export function LiveCheckoutsPanel({
     businessId,
+    business = null,
     orders = [],
     products = [],
     onCountChange,
@@ -116,6 +121,22 @@ export function LiveCheckoutsPanel({
     const [dismissedCheckoutIds, setDismissedCheckoutIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(true);
+    const [nowMillis, setNowMillis] = useState<number>(() => Date.now());
+    const autoClosedCheckoutIdsRef = useRef<Set<string>>(new Set());
+    const autoClosedWhatsAppIdsRef = useRef<Set<string>>(new Set());
+
+    // Reloj reactivo cada 30s para detectar el instante exacto de cierre de la tienda
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setNowMillis(Date.now());
+        }, 30_000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const lastStoreCloseMillis = useMemo(
+        () => getLastStoreCloseMillis(business, new Date(nowMillis)),
+        [business, nowMillis]
+    );
 
     const handleCloseCheckout = async (session: CheckoutSession, linkedConv?: PendingWhatsAppConversation) => {
         setDismissedCheckoutIds(prev => {
@@ -124,7 +145,10 @@ export function LiveCheckoutsPanel({
             return next;
         });
         try {
-            await deleteDoc(doc(db, 'checkoutProgress', session.id));
+            await updateDoc(doc(db, 'checkoutProgress', session.id), {
+                status: 'closed',
+                closedAtMillis: Date.now(),
+            });
         } catch (err) {
             console.error('[LiveCheckouts] Error closing checkout session:', err);
         }
@@ -133,11 +157,10 @@ export function LiveCheckoutsPanel({
         }
     };
 
-    // Fetch raw data from Firestore
+    // Fetch raw data from Firestore (sin límite de 30 minutos; se limpian a la hora de cierre de la tienda)
     useEffect(() => {
         if (businessId === undefined) return;
 
-        const activeSince = Timestamp.fromDate(new Date(Date.now() - 30 * 60 * 1000));
         const q = businessId && businessId !== "" 
             ? query(
                 collection(db, 'checkoutProgress'),
@@ -147,7 +170,6 @@ export function LiveCheckoutsPanel({
             )
             : query(
                 collection(db, 'checkoutProgress'),
-                where('updatedAt', '>=', activeSince),
                 orderBy('updatedAt', 'desc'),
                 limit(50)
             );
@@ -158,13 +180,9 @@ export function LiveCheckoutsPanel({
                 ...d.data({ serverTimestamps: 'estimate' })
             })) as CheckoutSession[];
 
-            const now = Date.now();
-            const filtered = activeCheckouts.filter(c => {
-                if (c.currentStep < 1) return false;
-                const lastUpdate = getSessionUpdatedDate(c);
-                const diffMins = (now - lastUpdate.getTime()) / 60000;
-                return diffMins < 30;
-            });
+            const filtered = activeCheckouts.filter(
+                c => c.currentStep >= 1 && (!c.status || c.status === 'active')
+            );
 
             setRawCheckouts(filtered);
             setLoading(false);
@@ -176,6 +194,48 @@ export function LiveCheckoutsPanel({
         return () => unsubscribe();
     }, [businessId]);
 
+    // Auto-cerrar en Firestore todos los checkouts y mensajes de WhatsApp anteriores al último cierre de la tienda
+    useEffect(() => {
+        if (lastStoreCloseMillis === null) return;
+
+        const expiredCheckouts = rawCheckouts.filter(c => {
+            if (autoClosedCheckoutIdsRef.current.has(c.id)) return false;
+            return getSessionUpdatedDate(c).getTime() <= lastStoreCloseMillis;
+        });
+
+        if (expiredCheckouts.length > 0) {
+            expiredCheckouts.forEach(c => {
+                autoClosedCheckoutIdsRef.current.add(c.id);
+                updateDoc(doc(db, 'checkoutProgress', c.id), {
+                    status: 'abandoned',
+                    closedAtMillis: lastStoreCloseMillis,
+                }).catch(err => {
+                    autoClosedCheckoutIdsRef.current.delete(c.id);
+                    console.error('[LiveCheckouts] Error auto-closing expired checkout:', err);
+                });
+            });
+            setDismissedCheckoutIds(prev => {
+                const next = new Set(prev);
+                expiredCheckouts.forEach(c => next.add(c.id));
+                return next;
+            });
+        }
+
+        if (onCloseWhatsAppConversation) {
+            const expiredWhatsApp = whatsappConversations.filter(c => {
+                if ((c.status || 'pending') !== 'pending') return false;
+                if (!c.docId || autoClosedWhatsAppIdsRef.current.has(c.docId)) return false;
+                const effectiveTs = Math.max(c.timestampMillis || 0, c.reopenedAtMillis || 0);
+                return effectiveTs > 0 && effectiveTs <= lastStoreCloseMillis;
+            });
+
+            expiredWhatsApp.forEach(c => {
+                autoClosedWhatsAppIdsRef.current.add(c.docId);
+                onCloseWhatsAppConversation(c.docId);
+            });
+        }
+    }, [rawCheckouts, whatsappConversations, lastStoreCloseMillis, onCloseWhatsAppConversation]);
+
     const checkouts = useMemo(() => {
         if (rawCheckouts.length === 0) return [];
         const orderPhones = new Set(
@@ -184,14 +244,25 @@ export function LiveCheckoutsPanel({
 
         return rawCheckouts.filter(c => {
             if (dismissedCheckoutIds.has(c.id)) return false;
+            if (lastStoreCloseMillis !== null && getSessionUpdatedDate(c).getTime() <= lastStoreCloseMillis) {
+                return false;
+            }
             const sessionPhone = c.customerData?.phone;
             return !(sessionPhone && orderPhones.has(sessionPhone));
         });
-    }, [rawCheckouts, orders, dismissedCheckoutIds]);
+    }, [rawCheckouts, orders, dismissedCheckoutIds, lastStoreCloseMillis]);
 
     const activeWhatsAppConversations = useMemo(
-        () => whatsappConversations.filter(c => (c.status || 'pending') === 'pending'),
-        [whatsappConversations]
+        () =>
+            whatsappConversations.filter(c => {
+                if ((c.status || 'pending') !== 'pending') return false;
+                if (lastStoreCloseMillis !== null) {
+                    const effectiveTs = Math.max(c.timestampMillis || 0, c.reopenedAtMillis || 0);
+                    if (effectiveTs > 0 && effectiveTs <= lastStoreCloseMillis) return false;
+                }
+                return true;
+            }),
+        [whatsappConversations, lastStoreCloseMillis]
     );
 
     const [resolvedClientsByConvKey, setResolvedClientsByConvKey] = useState<Record<string, ResolvedWhatsAppClientProfile>>({});
