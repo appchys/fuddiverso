@@ -1345,10 +1345,10 @@ function WhatsAppConversationCard({
                                             onClose(conversation.docId);
                                         }}
                                         className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-[11px] font-bold px-2.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
-                                        title="Marcar como atendido"
+                                        title="Archivar conversación"
                                     >
-                                        <i className="bi bi-check2 text-xs"></i>
-                                        <span>Cerrar</span>
+                                        <i className="bi bi-archive text-xs"></i>
+                                        <span>Archivar</span>
                                     </button>
                                 )}
                                 {onSelect && (
@@ -1742,10 +1742,10 @@ function WhatsAppConversationCard({
                                         onClose(conversation.docId);
                                     }}
                                     className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-[11px] font-bold px-2.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
-                                    title="Marcar como atendido"
+                                    title="Archivar conversación"
                                 >
-                                    <i className="bi bi-check2 text-xs"></i>
-                                    <span>Cerrar</span>
+                                    <i className="bi bi-archive text-xs"></i>
+                                    <span>Archivar</span>
                                 </button>
                             )}
                             {onSelect && (
@@ -1972,10 +1972,10 @@ function CheckoutSessionCard({
                                 onCloseCheckout();
                             }}
                             className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-[11px] font-bold px-2.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
-                            title="Cerrar sesión de checkout"
+                            title="Archivar sesión de checkout"
                         >
-                            <i className="bi bi-check2 text-xs"></i>
-                            <span>Cerrar</span>
+                            <i className="bi bi-archive text-xs"></i>
+                            <span>Archivar</span>
                         </button>
                     )}
                     <button
@@ -2160,10 +2160,10 @@ function CheckoutSessionCard({
                                             onCloseWhatsApp(linkedWhatsApp.docId);
                                         }}
                                         className="text-[10px] font-bold text-gray-500 hover:text-gray-700 px-1.5 py-0.5 rounded hover:bg-white/80 transition-colors"
-                                        title="Marcar conversación como atendida"
+                                        title="Archivar conversación"
                                     >
-                                        <i className="bi bi-check2 mr-0.5"></i>
-                                        Cerrar chat
+                                        <i className="bi bi-archive mr-0.5"></i>
+                                        Archivar chat
                                     </button>
                                 )}
                             </div>

@@ -512,11 +512,11 @@ export default function WhatsAppPendingModal({
                 style={{ minHeight: 0 }}
                 onClick={onClearAll}
                 className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors whitespace-nowrap"
-                title="Cerrar todas las conversaciones pendientes sin pedido"
+                title="Archivar todas las conversaciones pendientes"
               >
-                <i className="bi bi-check2-all"></i>
-                <span className="hidden sm:inline">Cerrar pendientes</span>
-                <span className="sm:hidden">Limpiar</span>
+                <i className="bi bi-archive"></i>
+                <span className="hidden sm:inline">Archivar pendientes</span>
+                <span className="sm:hidden">Archivar</span>
               </button>
             )}
             <button
@@ -711,8 +711,8 @@ export default function WhatsAppPendingModal({
                             }}
                             className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-xs font-semibold text-slate-700 transition-colors"
                           >
-                            <i className="bi bi-check2-circle text-slate-500"></i>
-                            <span>Cerrar sin pedido</span>
+                            <i className="bi bi-archive text-slate-500"></i>
+                            <span>Archivar</span>
                           </button>
                         </div>
                       )}
@@ -747,10 +747,10 @@ export default function WhatsAppPendingModal({
                           handleCloseWithoutOrder(conv.docId)
                         }}
                         className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
-                        title="Marcar para cerrar esta conversación sin pedido"
+                        title="Archivar conversación"
                       >
-                        <i className="bi bi-check2-circle"></i>
-                        <span>Cerrar sin pedido</span>
+                        <i className="bi bi-archive"></i>
+                        <span>Archivar</span>
                       </button>
 
                       <button
@@ -792,7 +792,7 @@ export default function WhatsAppPendingModal({
                     )}
                     {closedList.length > 0 && sourceFilter !== 'checkout' && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
-                        {closedList.length} cerrada{closedList.length !== 1 ? 's' : ''}
+                        {closedList.length} archivada{closedList.length !== 1 ? 's' : ''}
                       </span>
                     )}
                     {archivedCheckouts.length > 0 && sourceFilter !== 'whatsapp' && (
@@ -921,7 +921,7 @@ export default function WhatsAppPendingModal({
                                     </>
                                   ) : (
                                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
-                                      Cerrada sin pedido
+                                      Archivada
                                     </span>
                                   )}
                                 </div>

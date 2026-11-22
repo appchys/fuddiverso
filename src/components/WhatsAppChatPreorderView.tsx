@@ -1091,8 +1091,8 @@ export function WhatsAppChatPreorderView({
                   }}
                   className="h-8 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 text-xs font-bold px-3 rounded-lg transition-colors"
                 >
-                  <i className="bi bi-check2"></i>
-                  Cerrar
+                  <i className="bi bi-archive"></i>
+                  Archivar
                 </button>
               )}
               <button
