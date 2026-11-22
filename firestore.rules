@@ -43,6 +43,11 @@ service cloud.firestore {
       match /whatsappExcluded/{contactId} {
         allow read, write: if true;
       }
+
+      // Estado de vinculación multi-dispositivo de WhatsApp (Baileys QR)
+      match /whatsappConnection/{docId} {
+        allow read, write: if true;
+      }
       
       // Subcolección de biblioteca de ingredientes
       match /ingredientLibrary/{ingredientId} {

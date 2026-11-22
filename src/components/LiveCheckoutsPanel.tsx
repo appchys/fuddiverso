@@ -11,6 +11,8 @@ import type { Business, Product } from '@/types';
 import { getManualOrderStorePrice, getPriceMetadata } from '@/lib/price-utils';
 import { getLastStoreCloseMillis } from '@/lib/store-utils';
 import { Motorbike } from 'lucide-react';
+import { usePersistedPreorderState, buildBasePreorderState } from '@/hooks/usePersistedPreorderState';
+import { WhatsAppBaileysModal, type BaileysStatus } from '@/components/WhatsAppBaileysModal';
 
 export interface WhatsAppPreorderDraftItem {
     productId: string;
@@ -133,6 +135,8 @@ export function LiveCheckoutsPanel({
     const [dismissedCheckoutIds, setDismissedCheckoutIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(true);
+    const [showBaileysModal, setShowBaileysModal] = useState(false);
+    const [baileysStatus, setBaileysStatus] = useState<BaileysStatus>('disconnected');
     const [nowMillis, setNowMillis] = useState<number>(() => Date.now());
     const autoClosedCheckoutIdsRef = useRef<Set<string>>(new Set());
     const autoClosedWhatsAppIdsRef = useRef<Set<string>>(new Set());
@@ -244,9 +248,9 @@ export function LiveCheckoutsPanel({
 
         if (onCloseWhatsAppConversation) {
             const expiredWhatsApp = whatsappConversations.filter(c => {
-                if ((c.status || 'pending') !== 'pending') return false;
+                if ((c.status || 'pending') === 'closed') return false;
                 if (!c.docId || autoClosedWhatsAppIdsRef.current.has(c.docId)) return false;
-                const effectiveTs = Math.max(c.timestampMillis || 0, c.reopenedAtMillis || 0);
+                const effectiveTs = getConversationActivityMillis(c);
                 return effectiveTs > 0 && effectiveTs <= lastStoreCloseMillis;
             });
 
@@ -305,12 +309,14 @@ export function LiveCheckoutsPanel({
         });
     }, [rawCheckouts, orders, dismissedCheckoutIds, lastStoreCloseMillis]);
 
+    // Conversaciones visibles: pendientes y confirmadas (la tarjeta sigue viva tras crear el pedido,
+    // porque el cliente puede seguir escribiendo). Solo desaparecen al archivarse o al cierre de la tienda.
     const activeWhatsAppConversations = useMemo(
         () =>
             whatsappConversations.filter(c => {
-                if ((c.status || 'pending') !== 'pending') return false;
+                if ((c.status || 'pending') === 'closed') return false;
                 if (lastStoreCloseMillis !== null) {
-                    const effectiveTs = Math.max(c.timestampMillis || 0, c.reopenedAtMillis || 0);
+                    const effectiveTs = getConversationActivityMillis(c);
                     if (effectiveTs > 0 && effectiveTs <= lastStoreCloseMillis) return false;
                 }
                 return true;
@@ -543,20 +549,47 @@ export function LiveCheckoutsPanel({
                             No hay clientes comprando ni mensajes de WhatsApp pendientes en este momento.
                         </p>
                     )}
-                    {onOpenWhatsApp && (
-                        <div className="flex justify-end pt-1">
+                    <div className="flex items-center justify-between pt-1">
+                        <button
+                            type="button"
+                            style={{ minHeight: 0 }}
+                            onClick={() => setShowBaileysModal(true)}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-colors cursor-pointer bg-transparent border-0 p-0"
+                            title="Configurar WhatsApp como Dispositivo Vinculado (QR)"
+                        >
+                            <span
+                                className={`w-2 h-2 rounded-full ${
+                                    baileysStatus === 'connected'
+                                        ? 'bg-green-500'
+                                        : baileysStatus === 'qr' || baileysStatus === 'connecting'
+                                            ? 'bg-amber-400 animate-pulse'
+                                            : 'bg-gray-300'
+                                }`}
+                            ></span>
+                            <i className="bi bi-whatsapp text-green-600"></i>
+                            <span>
+                                {baileysStatus === 'connected' ? 'WhatsApp vinculado' : 'Vincular WhatsApp'}
+                            </span>
+                        </button>
+                        {onOpenWhatsApp && (
                             <button
                                 type="button"
                                 style={{ minHeight: 0 }}
                                 onClick={onOpenWhatsApp}
-                                className="text-xs font-semibold text-gray-500 hover:text-gray-800 hover:underline transition-colors cursor-pointer bg-transparent border-0 p-0"
+                                className="text-xs font-semibold text-gray-500 hover:text-gray-800 hover:underline transition-colors cursor-pointer bg-transparent border-0 p-0 ml-auto"
                             >
                                 Historial
                             </button>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             )}
+            <WhatsAppBaileysModal
+                isOpen={showBaileysModal}
+                businessId={businessId}
+                onClose={() => setShowBaileysModal(false)}
+                onStatusChange={setBaileysStatus}
+            />
         </div>
     );
 }
@@ -579,6 +612,10 @@ function normalizePhoneKey(phone?: string): string {
     const digits = (phone || '').replace(/\D/g, '');
     if (!digits) return '';
     return digits.length >= 9 ? digits.slice(-9) : digits;
+}
+
+function getConversationActivityMillis(c: PendingWhatsAppConversation): number {
+    return Math.max(c.timestampMillis || 0, c.reopenedAtMillis || 0, c.confirmedAtMillis || 0);
 }
 
 function getDeliveryCoordinates(latlong?: string): { lat: number; lng: number } | null {
@@ -891,6 +928,40 @@ function WhatsAppConversationCard({
     const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('');
     const [cashAmountInput, setCashAmountInput] = useState<string>('');
     const [transferAmountInput, setTransferAmountInput] = useState<string>('');
+
+    // Persistir la preorden en Firestore para no perderla al abrir el chat, recargar o cambiar de dispositivo
+    const [basePreorderState] = useState(() => buildBasePreorderState(conversation.detectedLocationLink));
+    usePersistedPreorderState({
+        businessId,
+        docId: conversation.docId,
+        remoteState: conversation.preorderState,
+        baseState: basePreorderState,
+        localState: {
+            items: draftItems,
+            timingType,
+            scheduledDate,
+            scheduledTime,
+            deliveryType,
+            selectedLocationId,
+            customLocationInput,
+            paymentMethod,
+            cashAmountInput,
+            transferAmountInput,
+        },
+        applyState: (s) => {
+            setDraftItems(s.items);
+            setTimingType(s.timingType);
+            setScheduledDate(s.scheduledDate);
+            setScheduledTime(s.scheduledTime);
+            setDeliveryType(s.deliveryType);
+            setSelectedLocationId(s.selectedLocationId);
+            setCustomLocationInput(s.customLocationInput);
+            setPaymentMethod(s.paymentMethod);
+            setCashAmountInput(s.cashAmountInput);
+            setTransferAmountInput(s.transferAmountInput);
+        },
+    });
+    const isConfirmedConversation = conversation.status === 'confirmed';
     const [newClientName, setNewClientName] = useState<string>('');
     const [isEditingClientName, setIsEditingClientName] = useState<boolean>(false);
     const [savingNewClient, setSavingNewClient] = useState<boolean>(false);
@@ -1279,11 +1350,28 @@ function WhatsAppConversationCard({
                                         Orden activa
                                     </button>
                                 )}
+                                {isConfirmedConversation && !activeOrder && (
+                                    <span
+                                        className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                        title={conversation.confirmedOrderSummary || 'Pedido creado desde esta conversación'}
+                                    >
+                                        <i className="bi bi-check2-all"></i>
+                                        Pedido creado
+                                        {typeof conversation.confirmedOrderTotal === 'number' && ` · $${conversation.confirmedOrderTotal.toFixed(2)}`}
+                                    </span>
+                                )}
                             </>
                         )}
                     </div>
                     {timeLabel && !isEditingClientName && (
-                        <span className="shrink-0 text-[11px] font-medium text-gray-400 whitespace-nowrap">
+                        <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 whitespace-nowrap">
+                            {isConfirmedConversation &&
+                                (conversation.timestampMillis || 0) > (conversation.confirmedAtMillis || 0) + 1000 && (
+                                    <span
+                                        className="w-2 h-2 rounded-full bg-green-500"
+                                        title="El cliente escribió después de crear el pedido"
+                                    ></span>
+                                )}
                             {timeLabel}
                         </span>
                     )}

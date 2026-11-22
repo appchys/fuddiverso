@@ -40,3 +40,4 @@ sa_key.json
 # Google Drive and other temp files
 .tmp.driveupload/
 Icon?
+.whatsapp-sessions/

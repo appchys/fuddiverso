@@ -406,6 +406,7 @@ export default function TodayOrdersPage() {
         setActiveWhatsAppChatView(null)
     }, [activeTab])
     const [whatsappPendingConversations, setWhatsappPendingConversations] = useState<PendingWhatsAppConversation[]>([])
+    const revivedWhatsAppIdsRef = useRef<Set<string>>(new Set())
     const [whatsappExcludedContacts, setWhatsappExcludedContacts] = useState<ExcludedWhatsAppContact[]>([])
     const [selectedWhatsAppConversation, setSelectedWhatsAppConversation] = useState<PendingWhatsAppConversation | null>(null)
     const [selectedWhatsAppDraft, setSelectedWhatsAppDraft] = useState<WhatsAppPreorderDraft | null>(null)
@@ -2016,8 +2017,22 @@ export default function TodayOrdersPage() {
             limit(100)
         )
         const unsub = onSnapshot(q, (snap) => {
+            const toRevive: Array<{ docId: string; timestampMillis: number }> = []
             const list: PendingWhatsAppConversation[] = snap.docs.map((d) => {
                 const data = d.data() || {}
+                const timestampMillis = typeof data.timestampMillis === 'number' ? data.timestampMillis : Date.now()
+                const closedAtMillis = typeof data.closedAtMillis === 'number' ? data.closedAtMillis : null
+                let status: 'pending' | 'confirmed' | 'closed' =
+                    data.status === 'confirmed' || data.status === 'closed' ? data.status : 'pending'
+                let reopenedAtMillis = typeof data.reopenedAtMillis === 'number' ? data.reopenedAtMillis : null
+
+                // Si el cliente volvió a escribir después de archivar, la conversación revive
+                if (status === 'closed' && closedAtMillis && timestampMillis > closedAtMillis + 1000) {
+                    status = 'pending'
+                    reopenedAtMillis = timestampMillis
+                    toRevive.push({ docId: d.id, timestampMillis })
+                }
+
                 return {
                     docId: d.id,
                     id: data.id || d.id,
@@ -2032,21 +2047,42 @@ export default function TodayOrdersPage() {
                     isRegisteredClient: Boolean(data.isRegisteredClient),
                     lastMessage: data.lastMessage || '',
                     recentMessages: Array.isArray(data.recentMessages) ? data.recentMessages : [],
+                    sentReplies: Array.isArray(data.sentReplies) ? data.sentReplies : [],
+                    chatHistory: Array.isArray(data.chatHistory) ? data.chatHistory : [],
+                    canReplyDirectly: Boolean(data.canReplyDirectly),
+                    pendingReply: data.pendingReply && typeof data.pendingReply === 'object' ? data.pendingReply : null,
                     detectedLocationLink: data.detectedLocationLink || null,
-                    timestampMillis: typeof data.timestampMillis === 'number' ? data.timestampMillis : Date.now(),
+                    timestampMillis,
                     unreadCount: typeof data.unreadCount === 'number' ? data.unreadCount : 1,
-                    status: data.status === 'confirmed' || data.status === 'closed' ? data.status : 'pending',
+                    status,
                     confirmedOrderId: data.confirmedOrderId || '',
                     confirmedOrderSource: data.confirmedOrderSource || '',
                     confirmedOrderTotal: typeof data.confirmedOrderTotal === 'number' ? data.confirmedOrderTotal : null,
                     confirmedOrderSummary: data.confirmedOrderSummary || '',
                     confirmedAtMillis: typeof data.confirmedAtMillis === 'number' ? data.confirmedAtMillis : null,
-                    closedAtMillis: typeof data.closedAtMillis === 'number' ? data.closedAtMillis : null,
+                    closedAtMillis: status === 'closed' ? closedAtMillis : null,
                     resolvedAtMillis: typeof data.resolvedAtMillis === 'number' ? data.resolvedAtMillis : null,
-                    reopenedAtMillis: typeof data.reopenedAtMillis === 'number' ? data.reopenedAtMillis : null
+                    reopenedAtMillis,
+                    preorderState: data.preorderState && typeof data.preorderState === 'object' ? data.preorderState : null
                 }
             })
             setWhatsappPendingConversations(list)
+
+            // Persistir la reactivación (solo desde el servidor para evitar escrituras con caché obsoleta)
+            if (!snap.metadata.fromCache) {
+                toRevive.forEach(({ docId, timestampMillis }) => {
+                    if (revivedWhatsAppIdsRef.current.has(docId)) return
+                    revivedWhatsAppIdsRef.current.add(docId)
+                    updateDoc(doc(db, 'businesses', bizId, 'whatsappPending', docId), {
+                        status: 'pending',
+                        reopenedAtMillis: timestampMillis,
+                        closedAtMillis: null,
+                        resolvedAtMillis: null
+                    })
+                        .catch((err) => console.error('Error reviving WhatsApp conversation:', err))
+                        .finally(() => revivedWhatsAppIdsRef.current.delete(docId))
+                })
+            }
         }, (err) => {
             console.error('Error listening to whatsappPending:', err)
         })
@@ -2066,7 +2102,8 @@ export default function TodayOrdersPage() {
                 status: 'closed',
                 closedAtMillis: nowMillis,
                 resolvedAtMillis: nowMillis,
-                unreadCount: 0
+                unreadCount: 0,
+                preorderState: null
             })
         } catch (err) {
             console.error('Error closing WhatsApp conversation:', err)
@@ -2105,7 +2142,8 @@ export default function TodayOrdersPage() {
                 confirmedAtMillis: nowMillis,
                 resolvedAtMillis: nowMillis,
                 reopenedAtMillis: null,
-                unreadCount: 0
+                unreadCount: 0,
+                preorderState: null
             })
         } catch (err) {
             console.error('Error confirming WhatsApp conversation:', err)
@@ -2189,7 +2227,8 @@ export default function TodayOrdersPage() {
                         status: 'closed',
                         closedAtMillis: nowMillis,
                         resolvedAtMillis: nowMillis,
-                        unreadCount: 0
+                        unreadCount: 0,
+                        preorderState: null
                     })
                 )
             )
@@ -2223,16 +2262,24 @@ export default function TodayOrdersPage() {
                 const clientMatch = Boolean(convClientId && orderClientId && convClientId === orderClientId)
                 if (!phoneMatch && !clientMatch) return false
 
-                if (conv.reopenedAtMillis) {
+                const minOrderMillis = Math.max(conv.reopenedAtMillis || 0, conv.closedAtMillis || 0)
+                if (minOrderMillis > 0) {
+                    if (conv.confirmedOrderId && String(o.id) === String(conv.confirmedOrderId)) {
+                        return false
+                    }
                     const rawCreated = o.createdAt as any
                     const orderMillis = rawCreated?.toDate
                         ? rawCreated.toDate().getTime()
                         : rawCreated instanceof Date
                             ? rawCreated.getTime()
-                            : typeof rawCreated === 'number'
-                                ? rawCreated
-                                : 0
-                    if (orderMillis > 0 && orderMillis <= conv.reopenedAtMillis) {
+                            : typeof rawCreated?.seconds === 'number'
+                                ? rawCreated.seconds * 1000
+                                : typeof rawCreated === 'number'
+                                    ? rawCreated
+                                    : typeof rawCreated === 'string'
+                                        ? (new Date(rawCreated).getTime() || 0)
+                                        : 0
+                    if (orderMillis <= 0 || orderMillis <= minOrderMillis) {
                         return false
                     }
                 }
@@ -4040,57 +4087,6 @@ export default function TodayOrdersPage() {
                                 }}
                             />
 
-                            <ManualOrderSidebar
-                                isOpen={manualOrderSidebarOpen}
-                                onClose={() => {
-                                    setManualOrderSidebarOpen(false)
-                                    setSelectedOrderForEdit(null)
-                                    setSelectedWhatsAppConversation(null)
-                                    setSelectedWhatsAppDraft(null)
-                                    setManualSidebarMode('create')
-                                }}
-                                business={business}
-                                businesses={businesses}
-                                onBusinessChange={handleBusinessChange}
-                                loadingBusinessProducts={productsLoading}
-                                products={products}
-                                initialCustomerPhone={selectedWhatsAppConversation?.phone || null}
-                                initialCustomerName={
-                                    selectedWhatsAppConversation?.fuddiClientName ||
-                                    selectedWhatsAppConversation?.displayName ||
-                                    null
-                                }
-                                initialLocationInput={
-                                    selectedWhatsAppDraft?.customLocationInput ||
-                                    selectedWhatsAppConversation?.detectedLocationLink ||
-                                    null
-                                }
-                                initialPreorderDraft={selectedWhatsAppDraft}
-                                onOrderCreated={(optimisticOrder) => {
-                                    if (optimisticOrder) {
-                                        setOrders(prev => [optimisticOrder as Order, ...prev])
-                                    }
-                                    if (selectedWhatsAppConversation?.docId) {
-                                        void handleConfirmWhatsAppConversation(selectedWhatsAppConversation.docId, optimisticOrder)
-                                    }
-                                    setSelectedWhatsAppConversation(null)
-                                    setSelectedWhatsAppDraft(null)
-                                    setManualOrderSidebarOpen(false)
-                                }}
-                                mode={manualSidebarMode}
-                                editOrder={selectedOrderForEdit}
-                                onOrderUpdated={(updatedOrder) => {
-                                    if (updatedOrder) {
-                                        updateOrderEverywhere(updatedOrder as Order)
-                                    }
-                                    setManualOrderSidebarOpen(false)
-                                    setSelectedOrderForEdit(null)
-                                    setManualSidebarMode('create')
-                                }}
-                                setActiveTab={setActiveTab}
-                                setProfileSubTab={setProfileSubTab}
-                            />
-
                             <CustomerContactModal
                                 isOpen={customerContactModalOpen}
                                 onClose={() => setCustomerContactModalOpen(false)}
@@ -4098,6 +4094,57 @@ export default function TodayOrdersPage() {
                             />
                         </>
                     )}
+
+                    <ManualOrderSidebar
+                        isOpen={manualOrderSidebarOpen}
+                        onClose={() => {
+                            setManualOrderSidebarOpen(false)
+                            setSelectedOrderForEdit(null)
+                            setSelectedWhatsAppConversation(null)
+                            setSelectedWhatsAppDraft(null)
+                            setManualSidebarMode('create')
+                        }}
+                        business={business}
+                        businesses={businesses}
+                        onBusinessChange={handleBusinessChange}
+                        loadingBusinessProducts={productsLoading}
+                        products={products}
+                        initialCustomerPhone={selectedWhatsAppConversation?.phone || null}
+                        initialCustomerName={
+                            selectedWhatsAppConversation?.fuddiClientName ||
+                            selectedWhatsAppConversation?.displayName ||
+                            null
+                        }
+                        initialLocationInput={
+                            selectedWhatsAppDraft?.customLocationInput ||
+                            selectedWhatsAppConversation?.detectedLocationLink ||
+                            null
+                        }
+                        initialPreorderDraft={selectedWhatsAppDraft}
+                        onOrderCreated={(optimisticOrder) => {
+                            if (optimisticOrder) {
+                                setOrders(prev => [optimisticOrder as Order, ...prev])
+                            }
+                            if (selectedWhatsAppConversation?.docId) {
+                                void handleConfirmWhatsAppConversation(selectedWhatsAppConversation.docId, optimisticOrder)
+                            }
+                            setSelectedWhatsAppConversation(null)
+                            setSelectedWhatsAppDraft(null)
+                            setManualOrderSidebarOpen(false)
+                        }}
+                        mode={manualSidebarMode}
+                        editOrder={selectedOrderForEdit}
+                        onOrderUpdated={(updatedOrder) => {
+                            if (updatedOrder) {
+                                updateOrderEverywhere(updatedOrder as Order)
+                            }
+                            setManualOrderSidebarOpen(false)
+                            setSelectedOrderForEdit(null)
+                            setManualSidebarMode('create')
+                        }}
+                        setActiveTab={setActiveTab}
+                        setProfileSubTab={setProfileSubTab}
+                    />
 
 
                     {/* Toast Notification */}

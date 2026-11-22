@@ -10,6 +10,7 @@ import { ClientLocationsModal } from '@/components/ClientLocationsModal'
 import { getManualOrderStorePrice, getPriceMetadata } from '@/lib/price-utils'
 import { Motorbike } from 'lucide-react'
 import type { WhatsAppPreorderDraft, WhatsAppPreorderDraftItem } from '@/components/LiveCheckoutsPanel'
+import { usePersistedPreorderState, buildBasePreorderState } from '@/hooks/usePersistedPreorderState'
 
 export type PreorderTabKey = 'products' | 'timing' | 'delivery' | 'payment'
 
@@ -290,6 +291,95 @@ export function WhatsAppChatPreorderView({
   const [newClientName, setNewClientName] = useState<string>('')
   const [isEditingClientName, setIsEditingClientName] = useState<boolean>(false)
   const [savingNewClient, setSavingNewClient] = useState<boolean>(false)
+  const [replyText, setReplyText] = useState<string>('')
+  const [sendingReply, setSendingReply] = useState<boolean>(false)
+
+  const handleSendDirectReply = async () => {
+    const cleanText = replyText.trim()
+    if (!cleanText || !businessId || !conversation.docId || sendingReply) return
+    setSendingReply(true)
+    const replyId = `web_${Date.now()}`
+    const targetPhone =
+      resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || ''
+    try {
+      // 1. Intentar envío directo por el puente multi-dispositivo (Baileys) si está conectado
+      let sentViaBaileys = false
+      if (targetPhone) {
+        try {
+          const res = await fetch('/api/whatsapp/bridge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send',
+              businessId,
+              docId: conversation.docId,
+              phone: targetPhone,
+              text: cleanText,
+              replyId,
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            if (data?.ok) {
+              sentViaBaileys = true
+            }
+          }
+        } catch {
+          // Si no está activo en este servidor, continuar con el puente de Firestore (Baileys worker o Android RemoteInput)
+        }
+      }
+
+      // 2. Si no se envió directo en la llamada HTTP, encolar en Firestore para que lo despache el worker de Baileys o la notificación del teléfono Android
+      if (!sentViaBaileys) {
+        await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
+          pendingReply: {
+            id: replyId,
+            text: cleanText,
+            status: 'pending',
+            requestedAtMillis: Date.now(),
+          },
+        })
+      }
+      setReplyText('')
+    } catch (err) {
+      console.error('[WhatsAppChatView] Error requesting direct reply:', err)
+    } finally {
+      setSendingReply(false)
+    }
+  }
+
+  // Persistir la preorden en Firestore (compartida con la tarjeta de "Clientes comprando ahora")
+  const [basePreorderState] = useState(() => buildBasePreorderState(conversation.detectedLocationLink))
+  usePersistedPreorderState({
+    businessId,
+    docId: conversation.docId,
+    remoteState: conversation.preorderState,
+    baseState: basePreorderState,
+    localState: {
+      items: draftItems,
+      timingType,
+      scheduledDate,
+      scheduledTime,
+      deliveryType,
+      selectedLocationId,
+      customLocationInput,
+      paymentMethod,
+      cashAmountInput,
+      transferAmountInput,
+    },
+    applyState: (s) => {
+      setDraftItems(s.items)
+      setTimingType(s.timingType)
+      setScheduledDate(s.scheduledDate)
+      setScheduledTime(s.scheduledTime)
+      setDeliveryType(s.deliveryType)
+      setSelectedLocationId(s.selectedLocationId)
+      setCustomLocationInput(s.customLocationInput)
+      setPaymentMethod(s.paymentMethod)
+      setCashAmountInput(s.cashAmountInput)
+      setTransferAmountInput(s.transferAmountInput)
+    },
+  })
 
   const focusedFieldRef = useRef<'clientName' | 'productSearch' | 'customLocation' | 'cashAmount' | 'transferAmount' | null>(null)
   const clientNameInputRef = useRef<HTMLInputElement | null>(null)
@@ -792,7 +882,36 @@ export function WhatsAppChatPreorderView({
       {/* Top Scrollable Area: Client Messages (única zona con scroll) */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-6 py-2.5">
         <div className="max-w-3xl mx-auto flex flex-col items-start gap-1.5">
-          {messages.length > 0 ? (
+          {Array.isArray(conversation.chatHistory) && conversation.chatHistory.length > 0 ? (
+            [...conversation.chatHistory]
+              .sort((a, b) => (a.timestampMillis || 0) - (b.timestampMillis || 0))
+              .map((msg, idx) =>
+                msg.fromMe ? (
+                  <div
+                    key={msg.id || `me-${idx}`}
+                    className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs"
+                  >
+                    <p className="whitespace-pre-wrap break-words leading-snug">{msg.text}</p>
+                    <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800/80">
+                      <span>{formatWhatsAppTime(msg.timestampMillis)}</span>
+                      <i className="bi bi-check2-all text-sky-600 text-xs"></i>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    key={msg.id || `in-${idx}`}
+                    type="button"
+                    style={{ minHeight: 0 }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => handlePasteMessageToActiveField(msg.text)}
+                    title="Toca para pegar en el campo activo"
+                    className="max-w-[88%] text-left bg-white hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-300 rounded-xl px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words transition-colors cursor-pointer shadow-2xs"
+                  >
+                    {msg.text}
+                  </button>
+                )
+              )
+          ) : messages.length > 0 ? (
             messages.map((msg, idx) => (
               <button
                 key={idx}
@@ -822,6 +941,54 @@ export function WhatsAppChatPreorderView({
               <i className="bi bi-geo-alt-fill"></i>
               Ver ubicación enviada en Maps
             </a>
+          )}
+
+          {/* Respuestas enviadas (fallback si aún no hay chatHistory) */}
+          {(!Array.isArray(conversation.chatHistory) || conversation.chatHistory.length === 0) &&
+            Array.isArray(conversation.sentReplies) &&
+            conversation.sentReplies.map((reply) => (
+              <div
+                key={reply.id}
+                className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs"
+              >
+                <p className="whitespace-pre-wrap break-words leading-snug">{reply.text}</p>
+                <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800/80">
+                  <span>{formatWhatsAppTime(reply.timestampMillis)}</span>
+                  <i className="bi bi-check2-all text-sky-600 text-xs"></i>
+                </div>
+              </div>
+            ))}
+
+          {conversation.pendingReply?.status === 'pending' && (
+            <div className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6]/80 border border-emerald-200 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs">
+              <p className="whitespace-pre-wrap break-words leading-snug">{conversation.pendingReply.text}</p>
+              <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800">
+                <span>Enviando desde el teléfono...</span>
+                <i className="bi bi-clock text-[10px]"></i>
+              </div>
+            </div>
+          )}
+
+          {conversation.pendingReply?.status === 'failed' && (
+            <div className="self-end max-w-[88%] sm:max-w-[75%] bg-amber-50 border border-amber-200 rounded-xl rounded-tr-xs px-3 py-2 text-xs text-amber-900 shadow-2xs space-y-1">
+              <p className="whitespace-pre-wrap break-words leading-snug">{conversation.pendingReply.text}</p>
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/70">
+                <span className="text-[10px] font-semibold text-amber-800">
+                  La notificación ya no estaba activa en el teléfono
+                </span>
+                {cleanPhone && (
+                  <a
+                    href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(conversation.pendingReply.text)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-green-700 hover:underline"
+                  >
+                    <i className="bi bi-whatsapp"></i>
+                    Enviar por WhatsApp
+                  </a>
+                )}
+              </div>
+            </div>
           )}
 
           {/* Sent Order Bubbles (aligned right, WhatsApp outgoing style) */}
@@ -1188,6 +1355,34 @@ export function WhatsAppChatPreorderView({
               )}
             </div>
           )}
+
+          {/* Direct Reply Input Bar (envía por medio de la notificación activa en el teléfono Android) */}
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleSendDirectReply()
+                }
+              }}
+              placeholder="Responder al cliente por WhatsApp..."
+              className="flex-1 min-w-0 h-8 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400"
+            />
+            <button
+              type="button"
+              style={{ minHeight: 0 }}
+              disabled={!replyText.trim() || sendingReply}
+              onClick={() => void handleSendDirectReply()}
+              className="h-8 min-h-0 px-3 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+              title="Enviar respuesta directa usando la notificación del teléfono"
+            >
+              <i className="bi bi-send-fill text-[11px]"></i>
+              <span>Enviar</span>
+            </button>
+          </div>
 
           {/* Bottom Actions Bar */}
           <div className="flex items-center justify-between gap-2 pt-0.5">

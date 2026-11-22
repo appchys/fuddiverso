@@ -2090,7 +2090,8 @@ export async function confirmWhatsAppConversationsForOrder(params: {
       confirmedAtMillis: nowMillis,
       resolvedAtMillis: nowMillis,
       reopenedAtMillis: null,
-      unreadCount: 0
+      unreadCount: 0,
+      preorderState: null
     }
 
     for (const bizId of params.businessIds) {

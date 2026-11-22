@@ -28,6 +28,27 @@ export interface PendingWhatsAppConversation {
   isRegisteredClient?: boolean
   lastMessage?: string
   recentMessages?: string[]
+  sentReplies?: Array<{
+    id: string
+    text: string
+    timestampMillis: number
+    source?: string
+  }>
+  chatHistory?: Array<{
+    id: string
+    text: string
+    timestampMillis: number
+    fromMe: boolean
+    source?: string
+  }>
+  canReplyDirectly?: boolean
+  pendingReply?: {
+    id: string
+    text: string
+    status: 'pending' | 'failed'
+    requestedAtMillis?: number
+    failedAtMillis?: number
+  } | null
   detectedLocationLink?: string | null
   timestampMillis: number
   unreadCount?: number
@@ -40,6 +61,8 @@ export interface PendingWhatsAppConversation {
   closedAtMillis?: number | null
   resolvedAtMillis?: number | null
   reopenedAtMillis?: number | null
+  /** Preorden en curso (íconos completados) persistida hasta confirmar o archivar */
+  preorderState?: Partial<import('@/hooks/usePersistedPreorderState').PersistedPreorderState> | null
 }
 
 interface WhatsAppPendingModalProps {
