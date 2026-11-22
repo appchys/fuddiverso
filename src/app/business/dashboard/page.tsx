@@ -97,6 +97,7 @@ const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-co
 const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: false })
 
 import type { CheckoutSession, WhatsAppPreorderDraft } from '@/components/LiveCheckoutsPanel'
+import { WhatsAppChatPreorderView, type PreorderTabKey, type ResolvedWhatsAppClientProfile } from '@/components/WhatsAppChatPreorderView'
 const PaymentManagementModals = dynamic(() => import('@/components/PaymentManagementModals'), { ssr: false })
 const ManualOrderSidebar = dynamic(() => import('@/components/ManualOrderSidebar'), { ssr: false })
 const WhatsAppPendingModal = dynamic(() => import('@/components/WhatsAppPendingModal'), { ssr: false })
@@ -392,6 +393,18 @@ export default function TodayOrdersPage() {
 
     const [manualOrderSidebarOpen, setManualOrderSidebarOpen] = useState(false)
     const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
+    const [activeWhatsAppChatView, setActiveWhatsAppChatView] = useState<{
+        docId: string
+        conversation: PendingWhatsAppConversation
+        initialTab?: PreorderTabKey
+        resolvedProfile?: ResolvedWhatsAppClientProfile
+        activeOrder?: any
+    } | null>(null)
+
+    useEffect(() => {
+        setWhatsappModalOpen(false)
+        setActiveWhatsAppChatView(null)
+    }, [activeTab])
     const [whatsappPendingConversations, setWhatsappPendingConversations] = useState<PendingWhatsAppConversation[]>([])
     const [whatsappExcludedContacts, setWhatsappExcludedContacts] = useState<ExcludedWhatsAppContact[]>([])
     const [selectedWhatsAppConversation, setSelectedWhatsAppConversation] = useState<PendingWhatsAppConversation | null>(null)
@@ -3207,7 +3220,69 @@ export default function TodayOrdersPage() {
                     </header>
 
                     {/* Main Content Area: Conditional Rendering */}
-                    {activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins') ? (
+                    {activeWhatsAppChatView ? (
+                        <WhatsAppChatPreorderView
+                            key={activeWhatsAppChatView.docId}
+                            businessId={business?.id}
+                            conversation={
+                                whatsappPendingConversations.find(
+                                    c => (c.docId || c.id) === activeWhatsAppChatView.docId
+                                ) || activeWhatsAppChatView.conversation
+                            }
+                            initialTab={activeWhatsAppChatView.initialTab}
+                            initialProfile={activeWhatsAppChatView.resolvedProfile}
+                            activeOrder={activeWhatsAppChatView.activeOrder}
+                            products={products}
+                            onBack={() => setActiveWhatsAppChatView(null)}
+                            onCreateOrder={(conv, draft) => {
+                                setSelectedWhatsAppConversation(conv)
+                                setSelectedWhatsAppDraft(draft || null)
+                                setSelectedOrderForEdit(null)
+                                setManualSidebarMode('create')
+                                setManualOrderSidebarOpen(true)
+                            }}
+                            onCloseConversation={handleCloseWhatsAppConversation}
+                            onInspectOrder={handleEditOrder}
+                        />
+                    ) : whatsappModalOpen ? (
+                        <WhatsAppPendingModal
+                            isOpen={true}
+                            asPage={true}
+                            businessId={business?.id}
+                            conversations={whatsappPendingConversations}
+                            excludedContacts={whatsappExcludedContacts}
+                            orders={[...todayOrders, ...orders, ...historicalOrders]}
+                            onClose={() => setWhatsappModalOpen(false)}
+                            onSelectConversation={(conv) => {
+                                setSelectedWhatsAppConversation(conv)
+                                setSelectedWhatsAppDraft(null)
+                                setSelectedOrderForEdit(null)
+                                setManualSidebarMode('create')
+                                setManualOrderSidebarOpen(true)
+                            }}
+                            onCompleteCheckout={(session) => {
+                                handleOpenManualOrderFromCheckout(session)
+                            }}
+                            onCloseConversation={handleCloseWhatsAppConversation}
+                            onExcludeConversation={handleExcludeWhatsAppConversation}
+                            onUnexcludeContact={handleUnexcludeWhatsAppContact}
+                            onReopenConversation={handleReopenWhatsAppConversation}
+                            onRemoveConversation={handleRemoveWhatsAppConversation}
+                            onClearAll={handleClearAllWhatsAppConversations}
+                            onInspectOrder={(orderId, orderObj) => {
+                                const found =
+                                    orderObj ||
+                                    orders.find((o) => o.id === orderId) ||
+                                    todayOrders.find((o) => o.id === orderId) ||
+                                    historicalOrders.find((o) => o.id === orderId)
+                                if (found) {
+                                    setSelectedOrderForEdit(found as Order)
+                                    setManualSidebarMode('edit')
+                                    setManualOrderSidebarOpen(true)
+                                }
+                            }}
+                        />
+                    ) : activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins') ? (
                         <div className="p-4 sm:p-6">
                             {business && (
                                 <AdministratorsManagementView
@@ -3543,12 +3618,23 @@ export default function TodayOrdersPage() {
                                                                 businessId={businessId}
                                                                 business={business}
                                                                 orders={todayOrders}
+                                                                activeOrders={[...orders, ...historicalOrders]}
                                                                 products={products}
                                                                 onCountChange={setCheckoutCount}
                                                                 onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                                onInspectOrder={handleEditOrder}
                                                                 whatsappPendingCount={whatsappActivePendingCount}
                                                                 whatsappConversations={whatsappPendingConversations}
                                                                 onOpenWhatsApp={() => setWhatsappModalOpen(true)}
+                                                                onOpenWhatsAppChat={(conv, initialTab, resolvedProfile, activeOrder) => {
+                                                                    setActiveWhatsAppChatView({
+                                                                        docId: conv.docId || conv.id,
+                                                                        conversation: conv,
+                                                                        initialTab,
+                                                                        resolvedProfile,
+                                                                        activeOrder
+                                                                    })
+                                                                }}
                                                                 onSelectWhatsAppConversation={(conv, draft) => {
                                                                     setSelectedWhatsAppConversation(conv)
                                                                     setSelectedWhatsAppDraft(draft || null)
@@ -3579,12 +3665,23 @@ export default function TodayOrdersPage() {
                                                                 businessId={businessId}
                                                                 business={business}
                                                                 orders={todayOrders}
+                                                                activeOrders={[...orders, ...historicalOrders]}
                                                                 products={products}
                                                                 onCountChange={setCheckoutCount}
                                                                 onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                                onInspectOrder={handleEditOrder}
                                                                 whatsappPendingCount={whatsappActivePendingCount}
                                                                 whatsappConversations={whatsappPendingConversations}
                                                                 onOpenWhatsApp={() => setWhatsappModalOpen(true)}
+                                                                onOpenWhatsAppChat={(conv, initialTab, resolvedProfile, activeOrder) => {
+                                                                    setActiveWhatsAppChatView({
+                                                                        docId: conv.docId || conv.id,
+                                                                        conversation: conv,
+                                                                        initialTab,
+                                                                        resolvedProfile,
+                                                                        activeOrder
+                                                                    })
+                                                                }}
                                                                 onSelectWhatsAppConversation={(conv, draft) => {
                                                                     setSelectedWhatsAppConversation(conv)
                                                                     setSelectedWhatsAppDraft(draft || null)
@@ -3613,12 +3710,23 @@ export default function TodayOrdersPage() {
                                                                     businessId={businessId}
                                                                     business={business}
                                                                     orders={todayOrders}
+                                                                    activeOrders={[...orders, ...historicalOrders]}
                                                                     products={products}
                                                                     onCountChange={setCheckoutCount}
                                                                     onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                                                                    onInspectOrder={handleEditOrder}
                                                                     whatsappPendingCount={whatsappActivePendingCount}
                                                                     whatsappConversations={whatsappPendingConversations}
                                                                     onOpenWhatsApp={() => setWhatsappModalOpen(true)}
+                                                                    onOpenWhatsAppChat={(conv, initialTab, resolvedProfile, activeOrder) => {
+                                                                        setActiveWhatsAppChatView({
+                                                                            docId: conv.docId || conv.id,
+                                                                            conversation: conv,
+                                                                            initialTab,
+                                                                            resolvedProfile,
+                                                                            activeOrder
+                                                                        })
+                                                                    }}
                                                                     onSelectWhatsAppConversation={(conv, draft) => {
                                                                         setSelectedWhatsAppConversation(conv)
                                                                         setSelectedWhatsAppDraft(draft || null)
@@ -3916,40 +4024,6 @@ export default function TodayOrdersPage() {
                                 }}
                             />
 
-                            <WhatsAppPendingModal
-                                isOpen={whatsappModalOpen}
-                                conversations={whatsappPendingConversations}
-                                excludedContacts={whatsappExcludedContacts}
-                                orders={[...todayOrders, ...orders, ...historicalOrders]}
-                                onClose={() => setWhatsappModalOpen(false)}
-                                onSelectConversation={(conv) => {
-                                    setSelectedWhatsAppConversation(conv)
-                                    setSelectedOrderForEdit(null)
-                                    setManualSidebarMode('create')
-                                    setWhatsappModalOpen(false)
-                                    setManualOrderSidebarOpen(true)
-                                }}
-                                onCloseConversation={handleCloseWhatsAppConversation}
-                                onExcludeConversation={handleExcludeWhatsAppConversation}
-                                onUnexcludeContact={handleUnexcludeWhatsAppContact}
-                                onReopenConversation={handleReopenWhatsAppConversation}
-                                onRemoveConversation={handleRemoveWhatsAppConversation}
-                                onClearAll={handleClearAllWhatsAppConversations}
-                                onInspectOrder={(orderId, orderObj) => {
-                                    const found =
-                                        orderObj ||
-                                        orders.find((o) => o.id === orderId) ||
-                                        todayOrders.find((o) => o.id === orderId) ||
-                                        historicalOrders.find((o) => o.id === orderId)
-                                    if (found) {
-                                        setWhatsappModalOpen(false)
-                                        setSelectedOrderForEdit(found as Order)
-                                        setManualSidebarMode('edit')
-                                        setManualOrderSidebarOpen(true)
-                                    }
-                                }}
-                            />
-
                             <ManualOrderSidebar
                                 isOpen={manualOrderSidebarOpen}
                                 onClose={() => {
@@ -3985,6 +4059,7 @@ export default function TodayOrdersPage() {
                                     }
                                     setSelectedWhatsAppConversation(null)
                                     setSelectedWhatsAppDraft(null)
+                                    setActiveWhatsAppChatView(null)
                                     setManualOrderSidebarOpen(false)
                                 }}
                                 mode={manualSidebarMode}

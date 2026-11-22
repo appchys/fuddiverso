@@ -5,7 +5,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap';
 import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal';
-import { searchClientByPhone, getClientLocations, type ClientLocation } from '@/lib/database';
+import { searchClientByPhone, getClientLocations, createClient, type ClientLocation } from '@/lib/database';
 import { ClientLocationsModal } from '@/components/ClientLocationsModal';
 import type { Business, Product } from '@/types';
 import { getManualOrderStorePrice, getPriceMetadata } from '@/lib/price-utils';
@@ -92,12 +92,20 @@ interface LiveCheckoutsPanelProps {
     businessId: string;
     business?: Business | null;
     orders?: any[];
+    activeOrders?: any[];
     products?: Product[];
     onCountChange?: (count: number) => void;
     onOpenManualOrder?: (session: CheckoutSession) => void;
+    onInspectOrder?: (order: any) => void;
     whatsappPendingCount?: number;
     whatsappConversations?: PendingWhatsAppConversation[];
     onOpenWhatsApp?: () => void;
+    onOpenWhatsAppChat?: (
+        conv: PendingWhatsAppConversation,
+        initialTab?: PreorderTabKey,
+        resolvedProfile?: ResolvedWhatsAppClientProfile,
+        activeOrder?: any
+    ) => void;
     onSelectWhatsAppConversation?: (conv: PendingWhatsAppConversation, draft?: WhatsAppPreorderDraft) => void;
     onCloseWhatsAppConversation?: (docId: string) => void;
     isVisible?: boolean | null;
@@ -107,17 +115,21 @@ export function LiveCheckoutsPanel({
     businessId,
     business = null,
     orders = [],
+    activeOrders = [],
     products = [],
     onCountChange,
     onOpenManualOrder,
+    onInspectOrder,
     whatsappPendingCount = 0,
     whatsappConversations = [],
     onOpenWhatsApp,
+    onOpenWhatsAppChat,
     onSelectWhatsAppConversation,
     onCloseWhatsAppConversation,
     isVisible = null,
 }: LiveCheckoutsPanelProps) {
     const [rawCheckouts, setRawCheckouts] = useState<CheckoutSession[]>([]);
+    const [rawCheckoutsFromServer, setRawCheckoutsFromServer] = useState(false);
     const [dismissedCheckoutIds, setDismissedCheckoutIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(true);
@@ -149,8 +161,10 @@ export function LiveCheckoutsPanel({
                 status: 'closed',
                 closedAtMillis: Date.now(),
             });
-        } catch (err) {
-            console.error('[LiveCheckouts] Error closing checkout session:', err);
+        } catch (err: any) {
+            if (err?.code !== 'not-found') {
+                console.error('[LiveCheckouts] Error closing checkout session:', err);
+            }
         }
         if (linkedConv && onCloseWhatsAppConversation) {
             onCloseWhatsAppConversation(linkedConv.docId);
@@ -185,6 +199,7 @@ export function LiveCheckoutsPanel({
             );
 
             setRawCheckouts(filtered);
+            setRawCheckoutsFromServer(!snapshot.metadata.fromCache);
             setLoading(false);
         }, (error) => {
             console.error('[LiveCheckouts] Snapshot error:', error);
@@ -198,27 +213,33 @@ export function LiveCheckoutsPanel({
     useEffect(() => {
         if (lastStoreCloseMillis === null) return;
 
-        const expiredCheckouts = rawCheckouts.filter(c => {
-            if (autoClosedCheckoutIdsRef.current.has(c.id)) return false;
-            return getSessionUpdatedDate(c).getTime() <= lastStoreCloseMillis;
-        });
+        if (rawCheckoutsFromServer) {
+            const expiredCheckouts = rawCheckouts.filter(c => {
+                if (autoClosedCheckoutIdsRef.current.has(c.id)) return false;
+                return getSessionUpdatedDate(c).getTime() <= lastStoreCloseMillis;
+            });
 
-        if (expiredCheckouts.length > 0) {
-            expiredCheckouts.forEach(c => {
-                autoClosedCheckoutIdsRef.current.add(c.id);
-                updateDoc(doc(db, 'checkoutProgress', c.id), {
-                    status: 'abandoned',
-                    closedAtMillis: lastStoreCloseMillis,
-                }).catch(err => {
-                    autoClosedCheckoutIdsRef.current.delete(c.id);
-                    console.error('[LiveCheckouts] Error auto-closing expired checkout:', err);
+            if (expiredCheckouts.length > 0) {
+                expiredCheckouts.forEach(c => {
+                    autoClosedCheckoutIdsRef.current.add(c.id);
+                    updateDoc(doc(db, 'checkoutProgress', c.id), {
+                        status: 'abandoned',
+                        closedAtMillis: lastStoreCloseMillis,
+                    }).catch((err: any) => {
+                        if (err?.code === 'not-found') {
+                            // El documento ya fue eliminado en el servidor; no reintentar
+                            return;
+                        }
+                        autoClosedCheckoutIdsRef.current.delete(c.id);
+                        console.error('[LiveCheckouts] Error auto-closing expired checkout:', err);
+                    });
                 });
-            });
-            setDismissedCheckoutIds(prev => {
-                const next = new Set(prev);
-                expiredCheckouts.forEach(c => next.add(c.id));
-                return next;
-            });
+                setDismissedCheckoutIds(prev => {
+                    const next = new Set(prev);
+                    expiredCheckouts.forEach(c => next.add(c.id));
+                    return next;
+                });
+            }
         }
 
         if (onCloseWhatsAppConversation) {
@@ -234,7 +255,39 @@ export function LiveCheckoutsPanel({
                 onCloseWhatsAppConversation(c.docId);
             });
         }
-    }, [rawCheckouts, whatsappConversations, lastStoreCloseMillis, onCloseWhatsAppConversation]);
+    }, [rawCheckouts, rawCheckoutsFromServer, whatsappConversations, lastStoreCloseMillis, onCloseWhatsAppConversation]);
+
+    const activeOrdersIndex = useMemo(() => {
+        const byPhone = new Map<string, any>();
+        const byClientId = new Map<string, any>();
+        const pool = activeOrders.length > 0 ? activeOrders : orders;
+        for (const o of pool) {
+            if (!o) continue;
+            const st = String(o.status || '').toLowerCase();
+            if (st === 'delivered' || st === 'cancelled') continue;
+            const phoneKey = normalizePhoneKey(o.customer?.phone);
+            if (phoneKey && !byPhone.has(phoneKey)) {
+                byPhone.set(phoneKey, o);
+            }
+            const clientId = String(o.customer?.id || '').trim();
+            if (clientId && !byClientId.has(clientId)) {
+                byClientId.set(clientId, o);
+            }
+        }
+        return { byPhone, byClientId };
+    }, [activeOrders, orders]);
+
+    const findActiveOrderForClient = (phone?: string, clientId?: string) => {
+        const cid = (clientId || '').trim();
+        if (cid && activeOrdersIndex.byClientId.has(cid)) {
+            return activeOrdersIndex.byClientId.get(cid);
+        }
+        const pKey = normalizePhoneKey(phone);
+        if (pKey && activeOrdersIndex.byPhone.has(pKey)) {
+            return activeOrdersIndex.byPhone.get(pKey);
+        }
+        return undefined;
+    };
 
     const checkouts = useMemo(() => {
         if (rawCheckouts.length === 0) return [];
@@ -450,11 +503,29 @@ export function LiveCheckoutsPanel({
                         entry.kind === 'whatsapp' ? (
                             <WhatsAppConversationCard
                                 key={entry.key}
+                                businessId={businessId}
                                 conversation={entry.conversation}
                                 resolvedProfile={resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]}
+                                activeOrder={findActiveOrderForClient(
+                                    resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]?.clientPhone ||
+                                        entry.conversation.phone ||
+                                        entry.conversation.rawPhone,
+                                    resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]?.clientId ||
+                                        entry.conversation.fuddiClientId
+                                )}
+                                onInspectOrder={onInspectOrder}
+                                onOpenChatView={onOpenWhatsAppChat}
                                 products={products}
                                 onSelect={onSelectWhatsAppConversation}
                                 onClose={onCloseWhatsAppConversation}
+                                onClientRegistered={(profile) => {
+                                    const convKey = entry.conversation.docId || entry.conversation.id;
+                                    if (!convKey) return;
+                                    setResolvedClientsByConvKey(prev => ({
+                                        ...prev,
+                                        [convKey]: profile,
+                                    }));
+                                }}
                             />
                         ) : (
                             <CheckoutSessionCard
@@ -473,14 +544,16 @@ export function LiveCheckoutsPanel({
                         </p>
                     )}
                     {onOpenWhatsApp && (
-                        <button
-                            type="button"
-                            onClick={onOpenWhatsApp}
-                            className="w-full py-2 px-3 text-xs font-bold text-green-700 hover:text-green-800 bg-green-50/70 hover:bg-green-100/70 border border-green-200/70 rounded-lg flex items-center justify-center gap-1.5 transition-colors"
-                        >
-                            <i className="bi bi-whatsapp"></i>
-                            Ver todos los mensajes de WhatsApp
-                        </button>
+                        <div className="flex justify-end pt-1">
+                            <button
+                                type="button"
+                                style={{ minHeight: 0 }}
+                                onClick={onOpenWhatsApp}
+                                className="text-xs font-semibold text-gray-500 hover:text-gray-800 hover:underline transition-colors cursor-pointer bg-transparent border-0 p-0"
+                            >
+                                Historial
+                            </button>
+                        </div>
                     )}
                 </div>
             )}
@@ -702,6 +775,70 @@ function scoreProductSmartMatch(product: Product, rawQuery: string): number {
     return totalScore;
 }
 
+function formatEcuadorPhoneDisplay(raw: string): string {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    // Solo formatear si el texto parece un número telefónico
+    if (!/^[\d\s+\-().]+$/.test(trimmed)) return trimmed;
+    const digits = trimmed.replace(/\D/g, '');
+    let local = '';
+    if (digits.length === 10 && digits.startsWith('09')) {
+        local = digits.slice(1);
+    } else if (digits.length === 12 && digits.startsWith('5939')) {
+        local = digits.slice(3);
+    } else if (digits.length === 9 && digits.startsWith('9')) {
+        local = digits;
+    }
+    if (local.length === 9) {
+        return `+593 ${local.slice(0, 2)} ${local.slice(2, 5)} ${local.slice(5)}`;
+    }
+    return trimmed;
+}
+
+function cleanWhatsAppDisplayName(
+    candidates: Array<string | undefined | null>,
+    fallbackPhone?: string
+): string {
+    for (const raw of candidates) {
+        const trimmed = (raw || '').trim();
+        if (!trimmed) continue;
+        const clientParenMatch = trimmed.match(/^cliente\s*\(([^)]+)\)$/i);
+        if (clientParenMatch?.[1]) {
+            return formatEcuadorPhoneDisplay(clientParenMatch[1].trim());
+        }
+        return formatEcuadorPhoneDisplay(trimmed);
+    }
+    return formatEcuadorPhoneDisplay((fallbackPhone || '').trim()) || 'WhatsApp';
+}
+
+function formatWhatsAppTime(dateInput: Date | number | undefined | null): string {
+    if (!dateInput) return '';
+    const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+    if (Number.isNaN(d.getTime())) return '';
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfTarget = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const diffDays = Math.round((startOfToday - startOfTarget) / (24 * 60 * 60 * 1000));
+
+    if (diffDays <= 0) {
+        let hours = d.getHours();
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const period = hours >= 12 ? 'pm' : 'am';
+        hours = hours % 12 || 12;
+        return `${hours}:${minutes} ${period}`;
+    }
+    if (diffDays === 1) return 'Ayer';
+    if (diffDays < 7) {
+        const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        return days[d.getDay()];
+    }
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}/${mm}/${yy}`;
+}
+
 function getTodayDateString(): string {
     const now = new Date();
     const yyyy = now.getFullYear();
@@ -711,17 +848,32 @@ function getTodayDateString(): string {
 }
 
 function WhatsAppConversationCard({
+    businessId,
     conversation,
     resolvedProfile,
+    activeOrder,
+    onInspectOrder,
+    onOpenChatView,
     products = [],
     onSelect,
     onClose,
+    onClientRegistered,
 }: {
+    businessId?: string;
     conversation: PendingWhatsAppConversation;
     resolvedProfile?: ResolvedWhatsAppClientProfile;
+    activeOrder?: any;
+    onInspectOrder?: (order: any) => void;
+    onOpenChatView?: (
+        conv: PendingWhatsAppConversation,
+        initialTab?: PreorderTabKey,
+        resolvedProfile?: ResolvedWhatsAppClientProfile,
+        activeOrder?: any
+    ) => void;
     products?: Product[];
     onSelect?: (conv: PendingWhatsAppConversation, draft?: WhatsAppPreorderDraft) => void;
     onClose?: (docId: string) => void;
+    onClientRegistered?: (profile: ResolvedWhatsAppClientProfile) => void;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState<PreorderTabKey>('delivery');
@@ -739,7 +891,11 @@ function WhatsAppConversationCard({
     const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('');
     const [cashAmountInput, setCashAmountInput] = useState<string>('');
     const [transferAmountInput, setTransferAmountInput] = useState<string>('');
-    const focusedFieldRef = useRef<'productSearch' | 'customLocation' | 'cashAmount' | 'transferAmount' | null>(null);
+    const [newClientName, setNewClientName] = useState<string>('');
+    const [isEditingClientName, setIsEditingClientName] = useState<boolean>(false);
+    const [savingNewClient, setSavingNewClient] = useState<boolean>(false);
+    const focusedFieldRef = useRef<'clientName' | 'productSearch' | 'customLocation' | 'cashAmount' | 'transferAmount' | null>(null);
+    const clientNameInputRef = useRef<HTMLInputElement | null>(null);
     const productSearchInputRef = useRef<HTMLInputElement | null>(null);
     const customLocationInputRef = useRef<HTMLInputElement | null>(null);
     const cashAmountInputRef = useRef<HTMLInputElement | null>(null);
@@ -752,13 +908,18 @@ function WhatsAppConversationCard({
         // Determinar el campo objetivo: el que tiene foco (o el campo visible en la pestaña actual)
         const target =
             focusedFieldRef.current ||
-            (activeTab === 'products'
-                ? 'productSearch'
-                : activeTab === 'delivery' && effectiveDeliveryType !== 'pickup' && !primaryLocation
-                    ? 'customLocation'
-                    : null);
+            (isEditingClientName
+                ? 'clientName'
+                : activeTab === 'products'
+                    ? 'productSearch'
+                    : activeTab === 'delivery' && effectiveDeliveryType !== 'pickup' && !primaryLocation
+                        ? 'customLocation'
+                        : null);
 
-        if (target === 'productSearch') {
+        if (target === 'clientName') {
+            setNewClientName(text);
+            clientNameInputRef.current?.focus();
+        } else if (target === 'productSearch') {
             setProductSearch(text);
             productSearchInputRef.current?.focus();
         } else if (target === 'customLocation') {
@@ -779,13 +940,15 @@ function WhatsAppConversationCard({
         }
     };
 
-    const displayName =
-        resolvedProfile?.clientName ||
-        conversation.fuddiClientName ||
-        conversation.effectiveName ||
-        conversation.displayName ||
-        conversation.phone ||
-        'Cliente WhatsApp';
+    const displayName = cleanWhatsAppDisplayName(
+        [
+            resolvedProfile?.clientName,
+            conversation.fuddiClientName,
+            conversation.effectiveName,
+            conversation.displayName,
+        ],
+        resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone
+    );
 
     const isRegisteredClient = Boolean(resolvedProfile?.isRegistered || conversation.isRegisteredClient);
     const savedLocations = resolvedProfile?.locations || [];
@@ -813,9 +976,7 @@ function WhatsAppConversationCard({
         paymentMethod === 'transfer' ||
         (paymentMethod === 'mixed' && parsedCashAmount > 0 && parsedTransferAmount > 0);
 
-    const timeAgo = conversation.timestampMillis
-        ? formatDistanceToNow(new Date(conversation.timestampMillis), { addSuffix: true, locale: es })
-        : 'Ahora';
+    const timeLabel = formatWhatsAppTime(conversation.timestampMillis || Date.now());
 
     const cleanPhone = (resolvedProfile?.clientPhone || conversation.rawPhone || conversation.phone || '').replace(/\D/g, '');
     const isUnregisteredClient = !isRegisteredClient && (resolvedProfile !== undefined || cleanPhone.length < 9);
@@ -838,6 +999,43 @@ function WhatsAppConversationCard({
             .slice(0, 8)
             .map(entry => entry.product);
     }, [products, productSearch]);
+
+    const handleSaveNewClient = async () => {
+        const trimmedName = newClientName.trim();
+        const rawPhoneToSave = (resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || '').trim();
+        if (!trimmedName || !rawPhoneToSave || savingNewClient) return;
+
+        setSavingNewClient(true);
+        try {
+            const newClientId = await createClient({
+                celular: rawPhoneToSave,
+                nombres: trimmedName,
+            });
+
+            if (businessId && conversation.docId) {
+                updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
+                    fuddiClientId: newClientId,
+                    fuddiClientName: trimmedName,
+                    effectiveName: trimmedName,
+                    isRegisteredClient: true,
+                }).catch(() => {});
+            }
+
+            onClientRegistered?.({
+                clientId: newClientId,
+                clientName: trimmedName,
+                clientPhone: rawPhoneToSave,
+                isRegistered: true,
+                locations: savedLocations,
+            });
+            setNewClientName('');
+            setIsEditingClientName(false);
+        } catch (err) {
+            console.error('[LiveCheckouts] Error saving new client:', err);
+        } finally {
+            setSavingNewClient(false);
+        }
+    };
 
     const handleAddDraftProduct = (product: Product, variantObj?: any) => {
         const variantName = variantObj?.name as string | undefined;
@@ -975,50 +1173,132 @@ function WhatsAppConversationCard({
 
     return (
         <div className="bg-white rounded-xl shadow-xs border border-gray-200/90 overflow-hidden transition-all hover:border-green-300 hover:shadow-sm">
-            {/* Header: Click to toggle accordion */}
+            {/* Header: Click to open dedicated chat view (or fallback accordion) */}
             <div
-                className="p-3 sm:p-3.5 bg-white cursor-pointer hover:bg-green-50/30 transition-colors"
-                onClick={() => setIsExpanded(!isExpanded)}
+                className="p-3 sm:p-3.5 bg-white cursor-pointer hover:bg-green-50/30 transition-colors space-y-2"
+                onClick={() => {
+                    if (onOpenChatView) {
+                        onOpenChatView(enrichedConversation, undefined, resolvedProfile, activeOrder);
+                    } else {
+                        setIsExpanded(!isExpanded);
+                    }
+                }}
             >
-                <div className="flex items-stretch justify-between gap-2.5">
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                        {/* Name */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                                <i className="bi bi-whatsapp text-green-600 shrink-0 text-sm"></i>
+                {/* Top row: Name (or inline name editor) left, WhatsApp-style time top-right */}
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <i className="bi bi-whatsapp text-green-600 shrink-0 text-sm"></i>
+                        {isEditingClientName ? (
+                            <div
+                                className="flex items-center gap-1 flex-1 min-w-0"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <input
+                                    ref={clientNameInputRef}
+                                    type="text"
+                                    value={newClientName}
+                                    onFocus={() => { focusedFieldRef.current = 'clientName'; }}
+                                    onChange={(e) => setNewClientName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            void handleSaveNewClient();
+                                        } else if (e.key === 'Escape') {
+                                            e.preventDefault();
+                                            setIsEditingClientName(false);
+                                            setNewClientName('');
+                                        }
+                                    }}
+                                    placeholder="Nombre del cliente..."
+                                    className="flex-1 min-w-0 h-7 px-2 text-xs font-semibold text-gray-900 bg-white border border-amber-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                                />
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0, minWidth: 0 }}
+                                    disabled={!newClientName.trim() || savingNewClient}
+                                    onClick={() => void handleSaveNewClient()}
+                                    className="w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-md bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white inline-flex items-center justify-center transition-colors"
+                                    title="Guardar cliente"
+                                >
+                                    {savingNewClient ? (
+                                        <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                                    ) : (
+                                        <i className="bi bi-check2 text-sm"></i>
+                                    )}
+                                </button>
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0, minWidth: 0 }}
+                                    onClick={() => {
+                                        setIsEditingClientName(false);
+                                        setNewClientName('');
+                                    }}
+                                    className="w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-500 inline-flex items-center justify-center transition-colors"
+                                    title="Cancelar"
+                                >
+                                    <i className="bi bi-x text-sm"></i>
+                                </button>
+                            </div>
+                        ) : (
+                            <>
                                 <span className="text-sm font-black text-gray-900 tracking-tight truncate">
                                     {displayName}
                                 </span>
                                 {isUnregisteredClient && (
-                                    <span
-                                        className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200"
-                                        title="Cliente no registrado en Fuddi"
+                                    <button
+                                        type="button"
+                                        style={{ minHeight: 0 }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsEditingClientName(true);
+                                            setTimeout(() => clientNameInputRef.current?.focus(), 30);
+                                        }}
+                                        className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-all cursor-pointer"
+                                        title="Clic para registrar nombre del cliente en Fuddi"
                                     >
                                         <i className="bi bi-person-plus-fill"></i>
                                         Nuevo
-                                    </span>
+                                    </button>
                                 )}
-                            </div>
-                        </div>
-
-                        {/* Time */}
-                        <div className="flex items-center gap-2 text-[11px] text-gray-500 flex-wrap">
-                            <span className="inline-flex items-center gap-1 font-medium">
-                                <i className="bi bi-clock text-gray-400"></i>
-                                {timeAgo}
-                            </span>
-                        </div>
-
-                        {/* Quick Message Preview */}
-                        {conversation.lastMessage && (
-                            <p className="text-[11px] leading-snug text-gray-600 line-clamp-2 pt-0.5">
-                                {conversation.lastMessage}
-                            </p>
+                                {activeOrder && (
+                                    <button
+                                        type="button"
+                                        style={{ minHeight: 0 }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onInspectOrder?.(activeOrder);
+                                        }}
+                                        className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-all cursor-pointer"
+                                        title={
+                                            activeOrder.timing?.type === 'scheduled' && activeOrder.timing?.scheduledTime
+                                                ? `Orden activa programada (${activeOrder.timing.scheduledTime}) — Clic para ver`
+                                                : 'Este cliente tiene una orden activa — Clic para ver'
+                                        }
+                                    >
+                                        <i className="bi bi-bag-check-fill"></i>
+                                        Orden activa
+                                    </button>
+                                )}
+                            </>
                         )}
                     </div>
+                    {timeLabel && !isEditingClientName && (
+                        <span className="shrink-0 text-[11px] font-medium text-gray-400 whitespace-nowrap">
+                            {timeLabel}
+                        </span>
+                    )}
+                </div>
 
-                    {/* Right top step status icons + chevron, bottom action buttons */}
-                    <div className="shrink-0 flex flex-col items-end justify-between gap-2">
+                {/* Second row: Last 3 messages left + icons & compact action buttons right */}
+                <div className="flex items-start justify-between gap-2.5">
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                        {messages.slice(-3).map((msg, idx) => (
+                            <p key={idx} className="text-[11px] leading-snug text-gray-600 line-clamp-1">
+                                {msg}
+                            </p>
+                        ))}
+                    </div>
+                    <div className="shrink-0 flex flex-col items-end gap-1.5">
                         <div className="flex items-center gap-1.5">
                             <div className="flex items-center gap-1.5">
                                 {stepIndicators.map(step => {
@@ -1031,8 +1311,12 @@ function WhatsAppConversationCard({
                                             style={{ minHeight: 0, minWidth: 0 }}
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                setActiveTab(step.key);
-                                                setIsExpanded(true);
+                                                if (onOpenChatView) {
+                                                    onOpenChatView(enrichedConversation, step.key, resolvedProfile, activeOrder);
+                                                } else {
+                                                    setActiveTab(step.key);
+                                                    setIsExpanded(true);
+                                                }
                                             }}
                                             className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
                                                 step.completed
@@ -1046,19 +1330,21 @@ function WhatsAppConversationCard({
                                 })}
                             </div>
                             <span className="text-gray-400 text-xs flex items-center pl-0.5 font-medium">
-                                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} transition-transform duration-200`}></i>
+                                <i className={`bi ${onOpenChatView ? 'bi-chevron-right' : `bi-chevron-${isExpanded ? 'up' : 'down'}`} transition-transform duration-200`}></i>
                             </span>
                         </div>
+
                         {!isExpanded && (
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center justify-end gap-1.5">
                                 {onClose && (
                                     <button
                                         type="button"
+                                        style={{ minHeight: 0 }}
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             onClose(conversation.docId);
                                         }}
-                                        className="inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
+                                        className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-[11px] font-bold px-2.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
                                         title="Marcar como atendido"
                                     >
                                         <i className="bi bi-check2 text-xs"></i>
@@ -1068,14 +1354,15 @@ function WhatsAppConversationCard({
                                 {onSelect && (
                                     <button
                                         type="button"
+                                        style={{ minHeight: 0 }}
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             onSelect(enrichedConversation, buildDraft());
                                         }}
-                                        className="inline-flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
+                                        className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white text-[11px] font-bold px-2.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
                                         title="Completar preorden en formulario de orden manual"
                                     >
-                                        <i className="bi bi-plus-circle text-xs"></i>
+                                        <i className="bi bi-cart-plus-fill text-[11px]"></i>
                                         <span>Crear pedido</span>
                                     </button>
                                 )}
@@ -1436,8 +1723,9 @@ function WhatsAppConversationCard({
                                     href={`https://wa.me/${cleanPhone}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
+                                    style={{ minHeight: 0 }}
                                     onClick={(e) => e.stopPropagation()}
-                                    className="py-1.5 px-3 bg-white hover:bg-green-50 text-green-700 border border-green-200 text-xs font-bold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"
+                                    className="h-7 min-h-0 px-2.5 bg-white hover:bg-green-50 text-green-700 border border-green-200 text-[11px] font-bold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"
                                 >
                                     <i className="bi bi-whatsapp"></i>
                                     Chat
@@ -1448,11 +1736,12 @@ function WhatsAppConversationCard({
                             {onClose && (
                                 <button
                                     type="button"
+                                    style={{ minHeight: 0 }}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         onClose(conversation.docId);
                                     }}
-                                    className="inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
+                                    className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-[11px] font-bold px-2.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
                                     title="Marcar como atendido"
                                 >
                                     <i className="bi bi-check2 text-xs"></i>
@@ -1462,14 +1751,15 @@ function WhatsAppConversationCard({
                             {onSelect && (
                                 <button
                                     type="button"
+                                    style={{ minHeight: 0 }}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         onSelect(enrichedConversation, buildDraft());
                                     }}
-                                    className="inline-flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
+                                    className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white text-[11px] font-bold px-2.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
                                     title="Completar preorden en formulario de orden manual"
                                 >
-                                    <i className="bi bi-plus-circle text-xs"></i>
+                                    <i className="bi bi-cart-plus-fill text-[11px]"></i>
                                     <span>Crear pedido</span>
                                 </button>
                             )}
@@ -1515,7 +1805,7 @@ function CheckoutSessionCard({
     const lastUpdate = linkedWhatsApp?.timestampMillis && linkedWhatsApp.timestampMillis > checkoutDate.getTime()
         ? new Date(linkedWhatsApp.timestampMillis)
         : checkoutDate;
-    const timeAgo = formatDistanceToNow(lastUpdate, { addSuffix: true, locale: es });
+    const timeLabel = formatWhatsAppTime(lastUpdate);
 
     const handleCompleteCheckout = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -1609,100 +1899,95 @@ function CheckoutSessionCard({
         <div className="bg-white rounded-xl shadow-xs border border-gray-200/90 overflow-hidden transition-all hover:border-blue-300 hover:shadow-sm">
             {/* Header: Click to toggle accordion */}
             <div
-                className="p-3 sm:p-3.5 bg-white cursor-pointer hover:bg-slate-50/80 transition-colors"
+                className="p-3 sm:p-3.5 bg-white cursor-pointer hover:bg-slate-50/80 transition-colors space-y-2"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
-                <div className="flex items-stretch justify-between gap-2.5">
-                    {/* Left details (with min-w-0 to prevent flex blowout) */}
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                        {/* Name */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                                <i className="bi bi-person-fill text-blue-500 shrink-0 text-sm"></i>
-                                <span className="text-sm font-black text-gray-900 tracking-tight truncate">
-                                    {session.customerData?.name || linkedWhatsApp?.effectiveName || linkedWhatsApp?.displayName || "Cliente anónimo"}
-                                </span>
-                                {linkedWhatsApp && (
-                                    <i className="bi bi-whatsapp text-green-600 shrink-0 text-xs" title="Con mensajes de WhatsApp"></i>
-                                )}
-                            </div>
-                        </div>
+                {/* Top row: Name left, WhatsApp-style time top-right */}
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <i className="bi bi-person-fill text-blue-500 shrink-0 text-sm"></i>
+                        <span className="text-sm font-black text-gray-900 tracking-tight truncate">
+                            {session.customerData?.name || linkedWhatsApp?.effectiveName || linkedWhatsApp?.displayName || "Cliente anónimo"}
+                        </span>
+                        {linkedWhatsApp && (
+                            <i className="bi bi-whatsapp text-green-600 shrink-0 text-xs" title="Con mensajes de WhatsApp"></i>
+                        )}
+                    </div>
+                    {timeLabel && (
+                        <span className="shrink-0 text-[11px] font-medium text-gray-400 whitespace-nowrap">
+                            {timeLabel}
+                        </span>
+                    )}
+                </div>
 
-                        {/* Time */}
-                        <div className="flex items-center gap-2 text-[11px] text-gray-500 flex-wrap">
-                            <span className="inline-flex items-center gap-1 font-medium">
-                                <i className="bi bi-clock text-gray-400"></i>
-                                {timeAgo}
-                            </span>
-                        </div>
-
-                        {/* Quick Items Preview */}
-                        <div className="space-y-0.5 pt-0.5">
-                            {session.cartItems?.slice(0, 2).map((item, idx) => {
-                                const variant = item.variant || item.variantName;
-                                return (
-                                    <div key={idx} className="text-[11px] leading-tight text-gray-600 truncate flex items-center gap-1">
-                                        <span className="font-bold text-gray-800 shrink-0">{item.quantity}x</span>
-                                        <span className="truncate">{item.name}{variant ? ` (${variant})` : ''}</span>
-                                    </div>
-                                );
-                            })}
-                            {session.cartItems?.length > 2 && (
-                                <div className="text-[10px] text-blue-600 font-medium">
-                                    + {session.cartItems.length - 2} productos más...
+                {/* Second row: Quick Items Preview left + step icons & chevron right */}
+                <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                        {session.cartItems?.slice(0, 2).map((item, idx) => {
+                            const variant = item.variant || item.variantName;
+                            return (
+                                <div key={idx} className="text-[11px] leading-tight text-gray-600 truncate flex items-center gap-1">
+                                    <span className="font-bold text-gray-800 shrink-0">{item.quantity}x</span>
+                                    <span className="truncate">{item.name}{variant ? ` (${variant})` : ''}</span>
                                 </div>
-                            )}
-                        </div>
+                            );
+                        })}
+                        {session.cartItems?.length > 2 && (
+                            <div className="text-[10px] text-blue-600 font-medium">
+                                + {session.cartItems.length - 2} productos más...
+                            </div>
+                        )}
                     </div>
 
-                    {/* Right top step status icons + chevron, bottom action buttons */}
-                    <div className="shrink-0 flex flex-col items-end justify-between gap-2">
+                    <div className="shrink-0 flex items-center gap-1.5">
                         <div className="flex items-center gap-1.5">
-                            <div className="flex items-center gap-1.5">
-                                {stepIndicators.map(step => (
-                                    <span
-                                        key={step.key}
-                                        title={step.title}
-                                        className={`w-7 h-7 rounded-full inline-flex items-center justify-center text-xs transition-colors ${
-                                            step.completed
-                                                ? step.completedClass
-                                                : 'bg-gray-100 text-gray-400'
-                                        }`}
-                                    >
-                                        {step.icon}
-                                    </span>
-                                ))}
-                            </div>
-                            <span className="text-gray-400 text-xs flex items-center pl-0.5 font-medium">
-                                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} transition-transform duration-200`}></i>
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            {onCloseCheckout && (
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onCloseCheckout();
-                                    }}
-                                    className="inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
-                                    title="Cerrar sesión de checkout"
+                            {stepIndicators.map(step => (
+                                <span
+                                    key={step.key}
+                                    title={step.title}
+                                    className={`w-7 h-7 rounded-full inline-flex items-center justify-center text-xs transition-colors ${
+                                        step.completed
+                                            ? step.completedClass
+                                            : 'bg-gray-100 text-gray-400'
+                                    }`}
                                 >
-                                    <i className="bi bi-check2 text-xs"></i>
-                                    <span>Cerrar</span>
-                                </button>
-                            )}
-                            <button
-                                type="button"
-                                onClick={handleCompleteCheckout}
-                                className="inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
-                                title="Completar información en formulario de orden manual"
-                            >
-                                <i className="bi bi-pencil-square text-xs"></i>
-                                <span>Completar</span>
-                            </button>
+                                    {step.icon}
+                                </span>
+                            ))}
                         </div>
+                        <span className="text-gray-400 text-xs flex items-center pl-0.5 font-medium">
+                            <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} transition-transform duration-200`}></i>
+                        </span>
                     </div>
+                </div>
+
+                {/* Bottom action row */}
+                <div className="flex items-center justify-end gap-1.5 pt-0.5">
+                    {onCloseCheckout && (
+                        <button
+                            type="button"
+                            style={{ minHeight: 0 }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onCloseCheckout();
+                            }}
+                            className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-[11px] font-bold px-2.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
+                            title="Cerrar sesión de checkout"
+                        >
+                            <i className="bi bi-check2 text-xs"></i>
+                            <span>Cerrar</span>
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        style={{ minHeight: 0 }}
+                        onClick={handleCompleteCheckout}
+                        className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[11px] font-bold px-2.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
+                        title="Completar información en formulario de orden manual"
+                    >
+                        <i className="bi bi-pencil-square text-[11px]"></i>
+                        <span>Completar</span>
+                    </button>
                 </div>
             </div>
 
