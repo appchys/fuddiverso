@@ -168,16 +168,25 @@ interface ExtractedRichContent {
   fileName?: string | null
 }
 
+const WA_CATALOG_GRAPHQL_URL = 'https://graph.whatsapp.com/graphql/catalog'
+const WA_CATALOG_PUBLIC_TOKEN = 'WA|787118555984857|7bb1544a3599aa180ac9a3f7688ba243'
+const WA_ORDER_INFO_DOC_ID = '26593811266898374'
+const WA_PRODUCT_CATALOG_DOC_ID = '30445081048424116'
+
 /**
- * Consulta los productos y el total de un pedido del catálogo de WhatsApp Business
- * usando el endpoint moderno MEX GraphQL (`xwa_checkout_get_order_info` / query_id `26593811266898374`),
- * ya que el antiguo nodo `fb:thrift_iq` (`smax_id=5`) devuelve `501 feature-not-implemented`.
+ * Consulta los productos y el total de un pedido del catálogo de WhatsApp Business.
+ * 1) Usa el endpoint HTTPS GraphQL de WhatsApp (`graph.whatsapp.com/graphql/catalog`, doc_id `26593811266898374`),
+ *    ya que WhatsApp retiró tanto `fb:thrift_iq` (501) como el envío por socket `w:mex` (400).
+ * 2) Si por alguna razón ese endpoint no devuelve líneas, consulta el catálogo público real de la tienda
+ *    (`doc_id: 30445081048424116`) y hace coincidencia por precio unitario para identificar el producto.
  */
 async function fetchOrderDetailsViaMex(
   session: ManagedSession,
   orderId: string,
   token: string,
-  sellerJid?: string | null
+  sellerJid?: string | null,
+  fallbackItemCount = 0,
+  fallbackTotal1000 = 0
 ): Promise<{
   products: Array<{
     id: string
@@ -190,121 +199,153 @@ async function fetchOrderDetailsViaMex(
   total?: number
 } | null> {
   const sock = session.socket
-  if (!sock || typeof sock.query !== 'function' || !orderId || !token) return null
-
-  const rawMe = sock.user?.id || ''
+  const rawMe = sock?.user?.id || ''
   const ownPnDigits = rawMe.split(':')[0]?.split('@')[0]?.replace(/\D/g, '') || ''
   const ownPnJid = ownPnDigits ? `${ownPnDigits}@s.whatsapp.net` : ''
-  const rawMeLid = (sock.user as any)?.lid || ''
-  const ownLidDigits = rawMeLid.split(':')[0]?.split('@')[0]?.replace(/\D/g, '') || ''
-  const ownLidJid = ownLidDigits ? `${ownLidDigits}@lid` : ''
-
   const cleanSellerJid = String(sellerJid || '').trim()
-  const normalizedSeller = cleanSellerJid.includes(':')
-    ? `${cleanSellerJid.split(':')[0]}@${cleanSellerJid.split('@')[1] || 's.whatsapp.net'}`
-    : cleanSellerJid
+  const targetPnJid =
+    ownPnJid ||
+    (cleanSellerJid.endsWith('@s.whatsapp.net')
+      ? `${cleanSellerJid.split(':')[0].split('@')[0]}@s.whatsapp.net`
+      : '')
 
-  const candidateJids = Array.from(
-    new Set([ownPnJid, normalizedSeller, ownLidJid].filter(Boolean))
-  )
-  if (candidateJids.length === 0) return null
+  if (!targetPnJid) return null
 
-  const debugLog: Record<string, any> = {
-    orderId,
-    sellerJid: cleanSellerJid || null,
-    tokenLen: token.length,
-    attempts: [],
-    timestampMillis: Date.now(),
-  }
-
-  const persistDebug = async () => {
-    const db = ensureAdminDb()
-    if (!db) return
+  // 1. Consulta exacta del pedido (xwa_checkout_get_order_info) vía HTTPS GraphQL
+  if (orderId && token) {
     try {
-      await db
-        .collection('businesses')
-        .doc(session.businessId)
-        .collection('whatsappConnection')
-        .doc('lastOrderDebug')
-        .set(debugLog)
-    } catch {
-      // Ignorar
-    }
-  }
-
-  for (const targetJid of candidateJids) {
-    try {
-      const variables = {
-        request: {
-          order: {
-            id: orderId,
-            jid: targetJid,
-            token: { sensitive_string_value: token },
-            image_dimensions: { width: 100, height: 100 },
-            direct_connection_encrypted_info: null,
-          },
-        },
-      }
-      const rawNode = await sock.query(
-        {
-          tag: 'iq',
-          attrs: {
-            to: '@s.whatsapp.net',
-            type: 'get',
-            xmlns: 'w:mex',
-          },
-          content: [
-            {
-              tag: 'query',
-              attrs: { query_id: '26593811266898374' },
-              content: Buffer.from(JSON.stringify({ variables }), 'utf-8'),
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 7000)
+      try {
+        const res = await fetch(WA_CATALOG_GRAPHQL_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            access_token: WA_CATALOG_PUBLIC_TOKEN,
+            doc_id: WA_ORDER_INFO_DOC_ID,
+            lang: 'es_ES',
+            variables: {
+              request: {
+                order: {
+                  id: orderId,
+                  jid: targetPnJid,
+                  token: { sensitive_string_value: token },
+                  image_dimensions: { width: 100, height: 100 },
+                  direct_connection_encrypted_info: null,
+                },
+              },
             },
-          ],
-        },
-        8000
-      )
-      const resultChild = Array.isArray(rawNode?.content)
-        ? rawNode.content.find((c: any) => c?.tag === 'result')
-        : null
-      if (!resultChild?.content) {
-        debugLog.attempts.push({ targetJid, error: 'no result child' })
-        continue
-      }
-      const parsed = JSON.parse(Buffer.from(resultChild.content).toString('utf-8'))
-      debugLog.attempts.push({ targetJid, parsed })
-
-      const root = parsed?.data?.xwa_checkout_get_order_info
-      const orderInfo = root?.order || root
-      const rawProducts = Array.isArray(orderInfo?.products) ? orderInfo.products : []
-
-      if (rawProducts.length > 0) {
-        const products = rawProducts.map((p: any) => {
-          const images = Array.isArray(p?.media?.images) ? p.media.images : []
-          return {
-            id: String(p?.id || ''),
-            name: String(p?.name || p?.title || 'Producto').trim(),
-            price: Number(p?.price || p?.price_amount_1000 || 0),
-            currency: String(p?.currency || 'USD'),
-            quantity: Number(p?.quantity || 1),
-            imageUrl:
-              typeof images[0]?.request_image_url === 'string'
-                ? images[0].request_image_url
-                : undefined,
-          }
+          }),
         })
-        const rawTotal = Number(orderInfo?.price_details?.total_amount || 0)
-        void persistDebug()
-        return {
-          products,
-          total: rawTotal > 0 ? rawTotal : undefined,
+        if (res.ok) {
+          const parsed = await res.json()
+          const root = parsed?.data?.xwa_checkout_get_order_info
+          const orderInfo = root?.order || root
+          const rawProducts = Array.isArray(orderInfo?.products) ? orderInfo.products : []
+          if (rawProducts.length > 0) {
+            const products = rawProducts.map((p: any) => {
+              const images = Array.isArray(p?.media?.images) ? p.media.images : []
+              return {
+                id: String(p?.id || ''),
+                name: String(p?.name || p?.title || 'Producto').trim(),
+                price: Number(p?.price || p?.price_amount_1000 || 0),
+                currency: String(p?.currency || 'USD'),
+                quantity: Number(p?.quantity || 1),
+                imageUrl:
+                  typeof images[0]?.request_image_url === 'string'
+                    ? images[0].request_image_url
+                    : undefined,
+              }
+            })
+            const rawTotal = Number(orderInfo?.price_details?.total_amount || 0)
+            return {
+              products,
+              total: rawTotal > 0 ? rawTotal : undefined,
+            }
+          }
         }
+      } finally {
+        clearTimeout(timer)
       }
-    } catch (err: any) {
-      debugLog.attempts.push({ targetJid, error: err?.message || String(err) })
+    } catch (err) {
+      console.warn('[Baileys GraphQL] Error consultando xwa_checkout_get_order_info:', err)
     }
   }
 
-  void persistDebug()
+  // 2. Respaldo: consultar catálogo real de la tienda (xwa_product_catalog_get_product_catalog) y emparejar por precio
+  if (fallbackTotal1000 > 0) {
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 7000)
+      try {
+        const res = await fetch(WA_CATALOG_GRAPHQL_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            access_token: WA_CATALOG_PUBLIC_TOKEN,
+            doc_id: WA_PRODUCT_CATALOG_DOC_ID,
+            lang: 'es_ES',
+            variables: {
+              request: {
+                product_catalog: {
+                  jid: targetPnJid,
+                  allow_shop_source: 'ALLOWSHOPSOURCE_TRUE',
+                  width: '100',
+                  height: '100',
+                  limit: '50',
+                  after: null,
+                  catalog_session_id: null,
+                  direct_connection_encrypted_info: null,
+                  variant_info_fields: null,
+                  variant_thumbnail_height: null,
+                  variant_thumbnail_width: null,
+                },
+              },
+            },
+          }),
+        })
+        if (res.ok) {
+          const parsed = await res.json()
+          const catalogProducts =
+            parsed?.data?.xwa_product_catalog_get_product_catalog?.product_catalog?.products || []
+          if (Array.isArray(catalogProducts) && catalogProducts.length > 0) {
+            const qty = fallbackItemCount > 0 ? fallbackItemCount : 1
+            const unit1000 = Math.round(fallbackTotal1000 / qty)
+            const matched = catalogProducts.find((p: any) => {
+              const pPrice = Number(p?.sale_price || p?.price || 0)
+              return pPrice > 0 && Math.abs(pPrice - unit1000) <= 10
+            })
+            if (matched) {
+              const images = Array.isArray(matched?.media?.images) ? matched.media.images : []
+              return {
+                products: [
+                  {
+                    id: String(matched.id || ''),
+                    name: String(matched.name || 'Producto').trim(),
+                    price: Number(matched.sale_price || matched.price || unit1000),
+                    currency: String(matched.currency || 'USD'),
+                    quantity: qty,
+                    imageUrl:
+                      typeof images[0]?.request_image_url === 'string'
+                        ? images[0].request_image_url
+                        : undefined,
+                  },
+                ],
+                total: fallbackTotal1000,
+              }
+            }
+          }
+        }
+      } finally {
+        clearTimeout(timer)
+      }
+    } catch (err) {
+      console.warn('[Baileys GraphQL] Error consultando catálogo público:', err)
+    }
+  }
+
   return null
 }
 
@@ -483,13 +524,15 @@ async function extractRichMessageContent(
       thumbUrl = `data:image/jpeg;base64,${Buffer.from(orderMsg.thumbnail).toString('base64')}`
     }
 
-    // 3a. Consultar detalles del pedido vía endpoint moderno MEX GraphQL (xwa_checkout_get_order_info)
-    if (orderId && token && session.socket) {
+    // 3a. Consultar detalles del pedido vía GraphQL HTTPS de WhatsApp (con respaldo por catálogo de tienda)
+    if (session.socket) {
       const mexDetails = await fetchOrderDetailsViaMex(
         session,
         orderId,
         token,
-        orderMsg.sellerJid
+        orderMsg.sellerJid,
+        itemCount,
+        rawTotal1000
       )
       if (mexDetails?.products?.length) {
         detailLines = mexDetails.products.map((p) => {
@@ -897,7 +940,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 27
+const MANAGER_VERSION = 28
 
 // Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
 const globalForTimerPatch = globalThis as unknown as {
