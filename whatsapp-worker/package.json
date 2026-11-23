@@ -1,0 +1,20 @@
+{
+  "name": "fuddi-whatsapp-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "tsx --tsconfig tsconfig.json server.ts"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "firebase-admin": "^13.4.0",
+    "pino": "^10.4.0",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.2",
+    "tsx": "^4.19.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}

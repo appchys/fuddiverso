@@ -5,12 +5,66 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+const WORKER_URL = (process.env.WHATSAPP_WORKER_URL || '').trim().replace(/\/+$/, '')
+const WORKER_SECRET = (process.env.WHATSAPP_WORKER_SECRET || '').trim()
+
+async function proxyToWorker(
+  method: 'GET' | 'POST',
+  queryString: string,
+  body?: unknown
+): Promise<NextResponse> {
+  const targetUrl = `${WORKER_URL}/bridge${queryString ? `?${queryString}` : ''}`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 35_000)
+
+  try {
+    const headers: Record<string, string> = {}
+    if (WORKER_SECRET) {
+      headers['x-worker-secret'] = WORKER_SECRET
+    }
+    if (method === 'POST') {
+      headers['Content-Type'] = 'application/json'
+    }
+
+    const res = await fetch(targetUrl, {
+      method,
+      headers,
+      body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+
+    const text = await res.text()
+    try {
+      const json = text ? JSON.parse(text) : {}
+      return NextResponse.json(json, { status: res.status })
+    } catch {
+      return NextResponse.json(
+        { error: text || `Respuesta inesperada del worker (${res.status})` },
+        { status: res.status }
+      )
+    }
+  } catch (err: any) {
+    console.error(`[API ${method} /api/whatsapp/bridge] Error conectando al worker:`, err)
+    return NextResponse.json(
+      { error: err?.message || 'No se pudo conectar con el servidor de WhatsApp' },
+      { status: 502 }
+    )
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const businessId = req.nextUrl.searchParams.get('businessId')?.trim() || ''
     const hold = req.nextUrl.searchParams.get('hold') === 'true'
     if (!businessId) {
       return NextResponse.json({ error: 'businessId es requerido' }, { status: 400 })
+    }
+
+    if (WORKER_URL) {
+      return await proxyToWorker('GET', req.nextUrl.searchParams.toString())
     }
 
     const manager = getWhatsAppBaileysManager()
@@ -33,6 +87,10 @@ export async function POST(req: NextRequest) {
 
     if (!businessId) {
       return NextResponse.json({ error: 'businessId es requerido' }, { status: 400 })
+    }
+
+    if (WORKER_URL) {
+      return await proxyToWorker('POST', '', body)
     }
 
     const manager = getWhatsAppBaileysManager()

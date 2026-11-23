@@ -908,8 +908,19 @@ async function useFirestoreAuthState(businessId: string): Promise<{
           return data
         },
         set: async (data: any) => {
-          const batch = db.batch()
+          let batch = db.batch()
           let ops = 0
+
+          const flushBatch = async () => {
+            if (ops === 0) return
+            try {
+              await batch.commit()
+            } catch (err) {
+              console.warn('[Baileys FirestoreAuth] Error guardando keys batch:', err)
+            }
+            batch = db.batch()
+            ops = 0
+          }
 
           for (const category in data) {
             const catData = data[category]
@@ -930,23 +941,20 @@ async function useFirestoreAuthState(businessId: string): Promise<{
                 batch.delete(docRef)
                 ops++
               }
+              if (ops >= 400) {
+                await flushBatch()
+              }
             }
           }
 
-          if (ops > 0) {
-            try {
-              await batch.commit()
-            } catch (err) {
-              console.warn('[Baileys FirestoreAuth] Error guardando keys batch:', err)
-            }
-          }
+          await flushBatch()
         },
       },
     },
   }
 }
 
-const MANAGER_VERSION = 31
+const MANAGER_VERSION = 32
 
 // Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
 const globalForTimerPatch = globalThis as unknown as {
@@ -1437,6 +1445,9 @@ class WhatsAppBaileysManager {
           session.state.connectedPhone = normalizeEcuadorPhone(rawMePhone) || rawMePhone || null
           session.state.connectedName = sock.user?.name || null
           session.state.lastError = null
+          console.log(
+            `[Baileys] Conectado business=${businessId} phone=${session.state.connectedPhone} name=${session.state.connectedName || '-'}`
+          )
           await this.persistConnectionState(session)
           await this.markAllConversationsDirectReplyReady(businessId, true)
         }
@@ -1451,6 +1462,9 @@ class WhatsAppBaileysManager {
             statusCode === 440 ||
             statusCode === DisconnectReason.connectionReplaced ||
             String(disconnectMsg).toLowerCase().includes('conflict')
+          console.warn(
+            `[Baileys] Conexión cerrada business=${businessId} code=${statusCode} msg=${disconnectMsg} loggedOut=${loggedOut} conflict=${isConflict}`
+          )
 
           if (loggedOut) {
             await clearState()
@@ -1491,7 +1505,7 @@ class WhatsAppBaileysManager {
         if (type !== 'notify' && type !== 'append') return
         for (const msg of messages) {
           try {
-            await this.handleUpsertedMessage(session, msg)
+            await this.handleUpsertedMessage(session, msg, type)
           } catch (err) {
             console.warn('[Baileys] Error procesando mensaje:', err)
           }
@@ -1718,7 +1732,11 @@ class WhatsAppBaileysManager {
     }
   }
 
-  private async handleUpsertedMessage(session: ManagedSession, msg: proto.IWebMessageInfo) {
+  private async handleUpsertedMessage(
+    session: ManagedSession,
+    msg: proto.IWebMessageInfo,
+    upsertType: 'notify' | 'append' = 'notify'
+  ) {
     const remoteJid = msg.key?.remoteJid || ''
     if (
       !remoteJid ||
@@ -1730,15 +1748,28 @@ class WhatsAppBaileysManager {
       return
     }
 
+    const rawTsEarly = Number(msg.messageTimestamp || 0)
+    const msgMillisEarly =
+      rawTsEarly > 0 ? (rawTsEarly < 10_000_000_000 ? rawTsEarly * 1000 : rawTsEarly) : Date.now()
+    // Evitar reabrir chats viejos si WhatsApp sincroniza mensajes históricos en modo 'append'
+    if (upsertType === 'append' && Date.now() - msgMillisEarly > 15 * 60 * 1000) {
+      return
+    }
+
     const isLid = remoteJid.endsWith('@lid')
-    const altParticipant = (msg.key as any)?.senderPn || (msg as any)?.senderPn || msg.participant || ''
+    const altParticipant =
+      (msg.key as any)?.remoteJidAlt ||
+      (msg.key as any)?.senderPn ||
+      (msg as any)?.senderPn ||
+      msg.participant ||
+      ''
     let phoneSource = remoteJid.endsWith('@s.whatsapp.net')
       ? remoteJid.split('@')[0]
       : altParticipant.includes('@s.whatsapp.net')
         ? altParticipant.split('@')[0]
         : remoteJid.split('@')[0]
 
-    if (isLid) {
+    if (isLid && !altParticipant.includes('@s.whatsapp.net')) {
       const mappedPhone = await this.resolvePhoneFromLid(session.businessId, remoteJid)
       if (mappedPhone) {
         phoneSource = mappedPhone
@@ -1990,6 +2021,9 @@ class WhatsAppBaileysManager {
         resolvedAtMillis,
       },
       { merge: true }
+    )
+    console.log(
+      `[Baileys] Mensaje entrante guardado business=${session.businessId} doc=${docId} phone=${normPhone} media=${mediaType || 'text'}`
     )
   }
 
@@ -2321,6 +2355,75 @@ class WhatsAppBaileysManager {
     } catch (err: any) {
       console.error('[Baileys] Error enviando reacción:', err)
       return { ok: false, error: err?.message || 'Error al enviar reacción' }
+    }
+  }
+
+  public getActiveSessionsSummary(): Array<{
+    businessId: string
+    status: BaileysConnectionStatus
+    connectedPhone: string | null
+    connectedName: string | null
+    lastError: string | null
+    updatedAtMillis: number
+  }> {
+    return Array.from(this.sessions.values()).map((s) => ({
+      businessId: s.businessId,
+      status: s.state.status,
+      connectedPhone: s.state.connectedPhone,
+      connectedName: s.state.connectedName,
+      lastError: s.state.lastError,
+      updatedAtMillis: s.state.updatedAtMillis,
+    }))
+  }
+
+  public async autoConnectRegisteredBusinesses(): Promise<string[]> {
+    const db = ensureAdminDb()
+    if (!db) {
+      console.warn('[Baileys Worker] Firebase Admin no disponible para auto-conexión')
+      return []
+    }
+    const connectedIds: string[] = []
+    try {
+      const businessesSnap = await db.collection('businesses').select().get()
+      for (const bizDoc of businessesSnap.docs) {
+        const businessId = bizDoc.id
+        try {
+          const { hasExistingCreds } = await useFirestoreAuthState(businessId)
+          if (hasExistingCreds) {
+            console.log(`[Baileys Worker] Auto-conectando business=${businessId}...`)
+            connectedIds.push(businessId)
+            void this.connect(businessId, { waitMs: 0 })
+          }
+        } catch (err) {
+          console.warn(`[Baileys Worker] Error verificando creds de ${businessId}:`, err)
+        }
+      }
+    } catch (err) {
+      console.error('[Baileys Worker] Error listando businesses para auto-conexión:', err)
+    }
+    return connectedIds
+  }
+
+  public async reconnectIdleSessions(): Promise<void> {
+    for (const session of this.sessions.values()) {
+      if (
+        session.state.status === 'disconnected' &&
+        !session.isConnecting &&
+        !session.manualDisconnect &&
+        session.state.lastError !== 'Sesión cerrada desde el teléfono'
+      ) {
+        try {
+          const { hasExistingCreds } = await useFirestoreAuthState(session.businessId)
+          if (hasExistingCreds) {
+            console.log(
+              `[Baileys Worker] Watchdog reconectando business=${session.businessId} (lastError=${session.state.lastError || 'none'})`
+            )
+            void this.connect(session.businessId, { waitMs: 0 })
+          }
+        } catch {
+          // Ignorar error transitorio
+        }
+      }
     }
   }
 }
