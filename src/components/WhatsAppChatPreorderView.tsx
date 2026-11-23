@@ -574,7 +574,6 @@ export function WhatsAppChatPreorderView({
   const [openReactionMsgKey, setOpenReactionMsgKey] = useState<string | null>(null)
   const [optimisticReactions, setOptimisticReactions] = useState<Record<string, string | null>>({})
   const [appliedCatalogMsgKeys, setAppliedCatalogMsgKeys] = useState<Record<string, boolean>>({})
-  const [areStepsExpanded, setAreStepsExpanded] = useState<boolean>(false)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
   const attachMenuRef = useRef<HTMLDivElement | null>(null)
   const replyInputRef = useRef<HTMLInputElement | null>(null)
@@ -1164,15 +1163,6 @@ export function WhatsAppChatPreorderView({
   const allStepsComplete =
     isProductsComplete && isTimingComplete && isDeliveryComplete && isPaymentComplete
 
-  // Contraer automáticamente los 4 íconos en cuanto se completen todos los pasos
-  const prevAllStepsCompleteRef = useRef<boolean>(allStepsComplete)
-  useEffect(() => {
-    if (allStepsComplete && !prevAllStepsCompleteRef.current) {
-      setAreStepsExpanded(false)
-    }
-    prevAllStepsCompleteRef.current = allStepsComplete
-  }, [allStepsComplete])
-
   const timeLabel = formatWhatsAppTime(conversation.timestampMillis || Date.now())
   const cleanPhone = (resolvedProfile?.clientPhone || conversation.rawPhone || conversation.phone || '').replace(/\D/g, '')
   const isUnregisteredClient = !isRegisteredClient && (resolvedProfile !== undefined || cleanPhone.length < 9)
@@ -1357,6 +1347,16 @@ export function WhatsAppChatPreorderView({
 
     return list
   }, [clientOrders, activeOrder, conversation])
+
+  const headerActiveOrders = useMemo(() => {
+    return sentOrderBubbles
+      .map((b) => b.order)
+      .filter((o) => {
+        if (!o || o._fallbackSummary) return false
+        const st = String(o.status || '').toLowerCase()
+        return st !== 'delivered' && st !== 'cancelled'
+      })
+  }, [sentOrderBubbles])
 
   const timelineEntries = useMemo(() => {
     type TimelineEntry =
@@ -1697,23 +1697,29 @@ export function WhatsAppChatPreorderView({
                     Nuevo
                   </button>
                 )}
-                {activeOrder && (
-                  <button
-                    type="button"
-                    style={{ minHeight: 0 }}
-                    onClick={() => onInspectOrder?.(activeOrder)}
-                    className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 cursor-pointer"
-                  >
-                    <i className="bi bi-bag-check-fill"></i>
-                    Orden activa
-                  </button>
-                )}
               </div>
             )}
           </div>
 
           {!isEditingClientName && (
             <div className="shrink-0 flex items-center gap-1.5">
+              {headerActiveOrders.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap justify-end">
+                  {headerActiveOrders.map((ord) => (
+                    <button
+                      key={ord.id}
+                      type="button"
+                      style={{ minHeight: 0 }}
+                      onClick={() => onInspectOrder?.(ord)}
+                      title={`Ver orden (${getOrderStatusLabel(ord.status)})`}
+                      className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 cursor-pointer transition-colors"
+                    >
+                      <i className="bi bi-bag-check-fill"></i>
+                      <span>{getOrderStatusLabel(ord.status)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {(cleanPhone || onCloseConversation) && (
                 <div ref={headerMenuRef} className="relative">
                   <button
@@ -2777,41 +2783,27 @@ export function WhatsAppChatPreorderView({
             </div>
           )}
 
-          {/* Barra compacta de pasos de preorden + botón Confirmar (arriba de la barra de mensajes) */}
+          {/* Barra compacta de pasos de preorden (arriba de la barra de mensajes) */}
           <div className="flex items-center justify-end gap-1.5">
-            {(!allStepsComplete || areStepsExpanded) &&
-              stepIndicators.map(step => {
-                const isActive = activeTab === step.key
-                return (
-                  <button
-                    key={step.key}
-                    type="button"
-                    style={{ minHeight: 0, minWidth: 0 }}
-                    onClick={() => setActiveTab(prev => (prev === step.key ? null : step.key))}
-                    title={step.title}
-                    className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
-                      step.completed
-                        ? step.completedClass
-                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
-                    } ${isActive ? 'ring-2 ring-blue-500/80 ring-offset-1' : 'hover:ring-2 hover:ring-gray-300'}`}
-                  >
-                    {step.icon}
-                  </button>
-                )
-              })}
-
-            {allStepsComplete && (
-              <button
-                type="button"
-                style={{ minHeight: 0, minWidth: 0 }}
-                onClick={() => setAreStepsExpanded((prev) => !prev)}
-                title={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
-                aria-label={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
-                className="w-6 h-7 min-h-0 min-w-0 p-0 shrink-0 bg-transparent text-slate-400 hover:text-slate-700 inline-flex items-center justify-center text-xs transition-colors cursor-pointer"
-              >
-                <i className={`bi ${areStepsExpanded ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
-              </button>
-            )}
+            {stepIndicators.map(step => {
+              const isActive = activeTab === step.key
+              return (
+                <button
+                  key={step.key}
+                  type="button"
+                  style={{ minHeight: 0, minWidth: 0 }}
+                  onClick={() => setActiveTab(prev => (prev === step.key ? null : step.key))}
+                  title={step.title}
+                  className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
+                    step.completed
+                      ? step.completedClass
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
+                  } ${isActive ? 'ring-2 ring-blue-500/80 ring-offset-1' : 'hover:ring-2 hover:ring-gray-300'}`}
+                >
+                  {step.icon}
+                </button>
+              )
+            })}
           </div>
 
           {/* Vista previa de enlace en vivo al escribir una URL (igual que WhatsApp) */}
