@@ -574,6 +574,7 @@ export function WhatsAppChatPreorderView({
   const [openReactionMsgKey, setOpenReactionMsgKey] = useState<string | null>(null)
   const [optimisticReactions, setOptimisticReactions] = useState<Record<string, string | null>>({})
   const [appliedCatalogMsgKeys, setAppliedCatalogMsgKeys] = useState<Record<string, boolean>>({})
+  const [areStepsExpanded, setAreStepsExpanded] = useState<boolean>(false)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
   const attachMenuRef = useRef<HTMLDivElement | null>(null)
   const replyInputRef = useRef<HTMLInputElement | null>(null)
@@ -1160,6 +1161,17 @@ export function WhatsAppChatPreorderView({
     paymentMethod === 'cash' ||
     paymentMethod === 'transfer' ||
     (paymentMethod === 'mixed' && parsedCashAmount > 0 && parsedTransferAmount > 0)
+  const allStepsComplete =
+    isProductsComplete && isTimingComplete && isDeliveryComplete && isPaymentComplete
+
+  // Contraer automáticamente los 4 íconos en cuanto se completen todos los pasos
+  const prevAllStepsCompleteRef = useRef<boolean>(allStepsComplete)
+  useEffect(() => {
+    if (allStepsComplete && !prevAllStepsCompleteRef.current) {
+      setAreStepsExpanded(false)
+    }
+    prevAllStepsCompleteRef.current = allStepsComplete
+  }, [allStepsComplete])
 
   const timeLabel = formatWhatsAppTime(conversation.timestampMillis || Date.now())
   const cleanPhone = (resolvedProfile?.clientPhone || conversation.rawPhone || conversation.phone || '').replace(/\D/g, '')
@@ -1702,25 +1714,51 @@ export function WhatsAppChatPreorderView({
 
           {!isEditingClientName && (
             <div className="shrink-0 flex items-center gap-1.5">
-              {stepIndicators.map(step => {
-                const isActive = activeTab === step.key
-                return (
+              {(!allStepsComplete || areStepsExpanded) &&
+                stepIndicators.map(step => {
+                  const isActive = activeTab === step.key
+                  return (
+                    <button
+                      key={step.key}
+                      type="button"
+                      style={{ minHeight: 0, minWidth: 0 }}
+                      onClick={() => setActiveTab(prev => (prev === step.key ? null : step.key))}
+                      title={step.title}
+                      className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
+                        step.completed
+                          ? step.completedClass
+                          : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
+                      } ${isActive ? 'ring-2 ring-blue-500/80 ring-offset-1' : 'hover:ring-2 hover:ring-gray-300'}`}
+                    >
+                      {step.icon}
+                    </button>
+                  )
+                })}
+
+              {allStepsComplete && (
+                <>
                   <button
-                    key={step.key}
                     type="button"
                     style={{ minHeight: 0, minWidth: 0 }}
-                    onClick={() => setActiveTab(prev => (prev === step.key ? null : step.key))}
-                    title={step.title}
-                    className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
-                      step.completed
-                        ? step.completedClass
-                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
-                    } ${isActive ? 'ring-2 ring-blue-500/80 ring-offset-1' : 'hover:ring-2 hover:ring-gray-300'}`}
+                    onClick={() => setAreStepsExpanded((prev) => !prev)}
+                    title={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
+                    aria-label={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
+                    className="w-6 h-7 min-h-0 min-w-0 p-0 shrink-0 bg-transparent text-slate-400 hover:text-slate-700 inline-flex items-center justify-center text-xs transition-colors cursor-pointer"
                   >
-                    {step.icon}
+                    <i className={`bi ${areStepsExpanded ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
                   </button>
-                )
-              })}
+                  <button
+                    type="button"
+                    style={{ minHeight: 0, minWidth: 0 }}
+                    onClick={() => onCreateOrder(enrichedConversation, buildDraft())}
+                    title="Confirmar y crear pedido con los 4 datos completados"
+                    aria-label="Confirmar y crear pedido"
+                    className="w-7 h-7 min-h-0 min-w-0 p-0 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white inline-flex items-center justify-center shadow-xs transition-all cursor-pointer shrink-0"
+                  >
+                    <i className="bi bi-check-lg text-sm"></i>
+                  </button>
+                </>
+              )}
               {(cleanPhone || onCloseConversation) && (
                 <div ref={headerMenuRef} className="relative">
                   <button
