@@ -820,8 +820,17 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   const credsDocRef = colRef.doc('creds')
   const keyCache = new Map<string, any>()
 
-  const safeDocId = (type: string, id: string) =>
+  const legacySafeDocId = (type: string, id: string) =>
     `key_${type}_${id}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+
+  const safeDocId = (type: string, id: string) => {
+    if (/^[a-zA-Z0-9.-]+$/.test(id) && /^[a-zA-Z0-9-]+$/.test(type)) {
+      return `key_${type}_${id}`
+    }
+    const safeType = String(type).replace(/[^a-zA-Z0-9_.-]/g, '_')
+    const encodedId = Buffer.from(String(id), 'utf8').toString('base64url')
+    return `key2_${safeType}_${encodedId}`
+  }
 
   let creds: AuthenticationCreds
   let hasExistingCreds = false
@@ -838,28 +847,37 @@ async function useFirestoreAuthState(businessId: string): Promise<{
     creds = initAuthCreds()
   }
 
+  let credsSaveChain: Promise<void> = Promise.resolve()
   const saveCreds = async () => {
-    try {
-      await credsDocRef.set(
-        {
-          json: JSON.stringify(creds, BufferJSON.replacer),
-          updatedAtMillis: Date.now(),
-        },
-        { merge: true }
-      )
-    } catch (err) {
-      console.warn('[Baileys FirestoreAuth] Error guardando creds:', err)
-    }
+    const serialized = JSON.stringify(creds, BufferJSON.replacer)
+    credsSaveChain = credsSaveChain
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await credsDocRef.set(
+            {
+              json: serialized,
+              updatedAtMillis: Date.now(),
+            },
+            { merge: true }
+          )
+        } catch (err) {
+          console.warn('[Baileys FirestoreAuth] Error guardando creds:', err)
+        }
+      })
+    return credsSaveChain
   }
 
   const clearState = async () => {
     keyCache.clear()
     try {
-      const snap = await colRef.limit(400).get()
-      if (!snap.empty) {
+      while (true) {
+        const snap = await colRef.limit(400).get()
+        if (snap.empty) break
         const batch = db.batch()
         snap.docs.forEach((d) => batch.delete(d.ref))
         await batch.commit()
+        if (snap.size < 400) break
       }
     } catch (err) {
       console.warn('[Baileys FirestoreAuth] Error limpiando sesión:', err)
@@ -876,9 +894,10 @@ async function useFirestoreAuthState(businessId: string): Promise<{
         get: async <T extends keyof SignalDataTypeMap>(type: T, ids: string[]) => {
           const data: { [id: string]: SignalDataTypeMap[T] } = {}
           const missingIds: string[] = []
+          const typeStr = String(type)
 
           for (const id of ids) {
-            const cacheKey = `${type}:${id}`
+            const cacheKey = `${typeStr}:${id}`
             if (keyCache.has(cacheKey)) {
               const cached = keyCache.get(cacheKey)
               if (cached !== null && cached !== undefined) {
@@ -892,9 +911,14 @@ async function useFirestoreAuthState(businessId: string): Promise<{
           if (missingIds.length > 0) {
             await Promise.all(
               missingIds.map(async (id) => {
-                const cacheKey = `${type}:${id}`
+                const cacheKey = `${typeStr}:${id}`
+                const primaryDocId = safeDocId(typeStr, id)
+                const fallbackDocId = legacySafeDocId(typeStr, id)
                 try {
-                  const snap = await colRef.doc(safeDocId(String(type), id)).get()
+                  let snap = await colRef.doc(primaryDocId).get()
+                  if ((!snap.exists || !snap.data()?.json) && fallbackDocId !== primaryDocId) {
+                    snap = await colRef.doc(fallbackDocId).get()
+                  }
                   if (snap.exists && snap.data()?.json) {
                     const parsed = JSON.parse(String(snap.data()!.json), BufferJSON.reviver)
                     keyCache.set(cacheKey, parsed)
@@ -932,7 +956,9 @@ async function useFirestoreAuthState(businessId: string): Promise<{
             for (const id in catData) {
               const value = catData[id]
               const cacheKey = `${category}:${id}`
-              const docRef = colRef.doc(safeDocId(category, id))
+              const primaryDocId = safeDocId(category, id)
+              const fallbackDocId = legacySafeDocId(category, id)
+              const docRef = colRef.doc(primaryDocId)
               if (value) {
                 keyCache.set(cacheKey, value)
                 batch.set(docRef, {
@@ -944,6 +970,10 @@ async function useFirestoreAuthState(businessId: string): Promise<{
                 keyCache.set(cacheKey, null)
                 batch.delete(docRef)
                 ops++
+                if (fallbackDocId !== primaryDocId) {
+                  batch.delete(colRef.doc(fallbackDocId))
+                  ops++
+                }
               }
               if (ops >= 400) {
                 await flushBatch()
@@ -958,7 +988,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 33
+const MANAGER_VERSION = 34
 
 // Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
 const globalForTimerPatch = globalThis as unknown as {
@@ -2500,33 +2530,11 @@ class WhatsAppBaileysManager {
       const activeSocket = session.socket
       if (!activeSocket) return { ok: true, markedCount: 0 }
 
-      // Enviar confirmación de lectura (doble check azul) a WhatsApp
+      // Enviar únicamente confirmación de lectura (recibo estándar de mensajería) a WhatsApp.
+      // IMPORTANTE: No usar activeSocket.chatModify({ markRead: true }) porque escribe parches en
+      // w:sync:app:state (LTHash) que, con syncFullHistory: false, provocan SyncdFatalError y cierran
+      // la sesión de los teléfonos compañeros vinculados (iOS/Android Companion Mode).
       await activeSocket.readMessages(keys)
-
-      // También sincronizar el estado de chat leído en los dispositivos vinculados (WhatsApp Business)
-      try {
-        const lastIncoming = currentHistory
-          .filter((h) => h && !h.fromMe && (h.waMsgId || h.id) && !isSyntheticId(String(h.waMsgId || h.id)))
-          .slice(-1)[0]
-        const lastKey = keys[keys.length - 1]
-        const lastTsSec = Math.floor(
-          Number(lastIncoming?.timestampMillis || existingDocData.timestampMillis || Date.now()) / 1000
-        )
-        await activeSocket.chatModify(
-          {
-            markRead: true,
-            lastMessages: [
-              {
-                key: lastKey,
-                messageTimestamp: lastTsSec,
-              },
-            ],
-          },
-          jid
-        )
-      } catch {
-        // chatModify es best-effort; readMessages ya marcó los mensajes como leídos
-      }
 
       return { ok: true, markedCount: keys.length }
     } catch (err: any) {
