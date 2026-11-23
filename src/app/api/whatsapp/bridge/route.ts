@@ -3,19 +3,18 @@ import { getWhatsAppBaileysManager } from '@/lib/whatsapp-baileys-manager'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
   const businessId = req.nextUrl.searchParams.get('businessId')?.trim() || ''
+  const hold = req.nextUrl.searchParams.get('hold') === 'true'
   if (!businessId) {
     return NextResponse.json({ error: 'businessId es requerido' }, { status: 400 })
   }
 
   const manager = getWhatsAppBaileysManager()
-  const state = manager.getState(businessId)
-  return NextResponse.json({
-    ...state,
-    hasSavedCredentials: manager.hasSavedCredentials(businessId),
-  })
+  const state = await manager.getStateAsync(businessId, hold ? 8000 : 0)
+  return NextResponse.json(state)
 }
 
 export async function POST(req: NextRequest) {
@@ -30,8 +29,12 @@ export async function POST(req: NextRequest) {
 
     const manager = getWhatsAppBaileysManager()
 
-    if (action === 'connect') {
-      const state = await manager.connect(businessId)
+    if (action === 'connect' || action === 'pair-code') {
+      const pairingPhone = String(body?.pairingPhone || '').trim()
+      const state = await manager.connect(businessId, {
+        pairingPhone: pairingPhone || undefined,
+        waitMs: 12000,
+      })
       return NextResponse.json(state)
     }
 

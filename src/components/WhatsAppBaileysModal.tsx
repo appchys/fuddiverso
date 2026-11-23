@@ -9,6 +9,7 @@ export type BaileysStatus = 'disconnected' | 'connecting' | 'qr' | 'connected'
 export interface BaileysConnectionInfo {
   status: BaileysStatus
   qrDataUrl: string | null
+  pairingCode: string | null
   connectedPhone: string | null
   connectedName: string | null
   lastError: string | null
@@ -31,35 +32,32 @@ export function WhatsAppBaileysModal({
   const [info, setInfo] = useState<BaileysConnectionInfo>({
     status: 'disconnected',
     qrDataUrl: null,
+    pairingCode: null,
     connectedPhone: null,
     connectedName: null,
     lastError: null,
   })
   const [loadingAction, setLoadingAction] = useState(false)
+  const [linkMode, setLinkMode] = useState<'qr' | 'phone'>('qr')
+  const [pairingPhoneInput, setPairingPhoneInput] = useState('')
+  const [copiedCode, setCopiedCode] = useState(false)
 
-  const fetchStatusFromApi = useCallback(async () => {
-    if (!businessId) return
-    try {
-      const res = await fetch(`/api/whatsapp/bridge?businessId=${encodeURIComponent(businessId)}`, {
-        cache: 'no-store',
+  const applyApiData = useCallback(
+    (data: any) => {
+      if (!data || !data.status) return
+      setInfo({
+        status: data.status,
+        qrDataUrl: data.qrDataUrl || null,
+        pairingCode: data.pairingCode || null,
+        connectedPhone: data.connectedPhone || null,
+        connectedName: data.connectedName || null,
+        lastError: data.lastError || null,
+        updatedAtMillis: data.updatedAtMillis,
       })
-      if (!res.ok) return
-      const data = await res.json()
-      if (data && data.status) {
-        setInfo({
-          status: data.status,
-          qrDataUrl: data.qrDataUrl || null,
-          connectedPhone: data.connectedPhone || null,
-          connectedName: data.connectedName || null,
-          lastError: data.lastError || null,
-          updatedAtMillis: data.updatedAtMillis,
-        })
-        onStatusChange?.(data.status)
-      }
-    } catch {
-      // Ignorar errores de red temporales
-    }
-  }, [businessId, onStatusChange])
+      onStatusChange?.(data.status)
+    },
+    [onStatusChange]
+  )
 
   // Escuchar cambios en tiempo real desde Firestore
   useEffect(() => {
@@ -76,6 +74,7 @@ export function WhatsAppBaileysModal({
         setInfo({
           status,
           qrDataUrl: data.qrDataUrl || null,
+          pairingCode: data.pairingCode || null,
           connectedPhone: data.connectedPhone || null,
           connectedName: data.connectedName || null,
           lastError: data.lastError || null,
@@ -88,36 +87,64 @@ export function WhatsAppBaileysModal({
     return () => unsub()
   }, [businessId, onStatusChange])
 
-  // Consultar la API al abrir el modal y hacer polling ligero mientras genera el QR
+  // Mantener vivo el socket en Vercel mientras el modal está abierto y esperando vinculación
   useEffect(() => {
-    if (!businessId) return
-    void fetchStatusFromApi()
-    if (!isOpen) return
-    const timer = setInterval(() => {
-      void fetchStatusFromApi()
-    }, 2500)
-    return () => clearInterval(timer)
-  }, [isOpen, businessId, fetchStatusFromApi])
+    if (!isOpen || !businessId) return
+    let cancelled = false
 
-  const handleConnect = async () => {
+    const pollLoop = async () => {
+      while (!cancelled) {
+        try {
+          const res = await fetch(
+            `/api/whatsapp/bridge?businessId=${encodeURIComponent(businessId)}&hold=true`,
+            { cache: 'no-store' }
+          )
+          if (res.ok && !cancelled) {
+            const data = await res.json()
+            applyApiData(data)
+            if (data?.status === 'connected' || data?.status === 'disconnected') {
+              await new Promise((r) => setTimeout(r, 4000))
+            }
+          } else {
+            await new Promise((r) => setTimeout(r, 3000))
+          }
+        } catch {
+          await new Promise((r) => setTimeout(r, 3000))
+        }
+      }
+    }
+
+    void pollLoop()
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, businessId, applyApiData])
+
+  const handleConnect = async (usePhoneCode = false) => {
     if (!businessId || loadingAction) return
+    if (usePhoneCode && pairingPhoneInput.replace(/\D/g, '').length < 9) {
+      setInfo((prev) => ({
+        ...prev,
+        lastError: 'Ingresa tu número de WhatsApp Business (ej. 0991234567)',
+      }))
+      return
+    }
     setLoadingAction(true)
     try {
       const res = await fetch('/api/whatsapp/bridge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'connect', businessId }),
+        body: JSON.stringify({
+          action: usePhoneCode ? 'pair-code' : 'connect',
+          businessId,
+          pairingPhone: usePhoneCode ? pairingPhoneInput.trim() : undefined,
+        }),
       })
       const data = await res.json()
-      if (data && data.status) {
-        setInfo({
-          status: data.status,
-          qrDataUrl: data.qrDataUrl || null,
-          connectedPhone: data.connectedPhone || null,
-          connectedName: data.connectedName || null,
-          lastError: data.lastError || null,
-        })
-        onStatusChange?.(data.status)
+      if (data?.error) {
+        setInfo((prev) => ({ ...prev, lastError: data.error }))
+      } else {
+        applyApiData(data)
       }
     } catch (err: any) {
       setInfo((prev) => ({
@@ -139,22 +166,19 @@ export function WhatsAppBaileysModal({
         body: JSON.stringify({ action: 'disconnect', businessId, logout: true }),
       })
       const data = await res.json()
-      if (data && data.status) {
-        setInfo({
-          status: data.status,
-          qrDataUrl: null,
-          connectedPhone: null,
-          connectedName: null,
-          lastError: null,
-        })
-        onStatusChange?.(data.status)
-      }
+      applyApiData(data)
     } finally {
       setLoadingAction(false)
     }
   }
 
   if (!isOpen) return null
+
+  const formattedPairingCode = info.pairingCode
+    ? info.pairingCode.length === 8
+      ? `${info.pairingCode.slice(0, 4)}-${info.pairingCode.slice(4)}`
+      : info.pairingCode
+    : null
 
   return (
     <div
@@ -207,7 +231,7 @@ export function WhatsAppBaileysModal({
                 </div>
               </div>
               <p className="text-xs text-emerald-900/80 leading-relaxed">
-                Los mensajes entrantes aparecen automáticamente en <strong>Clientes comprando ahora</strong> y puedes responder desde el chat incluso si tu teléfono está bloqueado o sin notificaciones activas.
+                Los mensajes entrantes aparecen automáticamente en <strong>Clientes comprando ahora</strong> y puedes responder desde el chat.
               </p>
               <div className="pt-1 flex justify-end">
                 <button
@@ -222,60 +246,145 @@ export function WhatsAppBaileysModal({
                 </button>
               </div>
             </div>
-          ) : info.status === 'qr' && info.qrDataUrl ? (
-            <div className="flex flex-col items-center text-center space-y-3">
-              <div className="p-3 bg-white border-2 border-green-500/30 rounded-2xl shadow-sm">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={info.qrDataUrl}
-                  alt="Código QR de WhatsApp"
-                  className="w-60 h-60 object-contain"
-                />
-              </div>
-              <div className="space-y-1 text-xs text-gray-600 max-w-xs">
-                <p className="font-bold text-gray-900">
-                  Escanea este código desde WhatsApp Business
-                </p>
-                <p className="leading-relaxed">
-                  Abre WhatsApp Business en tu teléfono → <strong>Menú (⋮)</strong> →{' '}
-                  <strong>Dispositivos vinculados</strong> → <strong>Vincular un dispositivo</strong>.
-                </p>
-              </div>
-            </div>
-          ) : info.status === 'connecting' ? (
-            <div className="py-10 flex flex-col items-center justify-center text-center space-y-3">
-              <div className="w-8 h-8 border-3 border-green-600/30 border-t-green-600 rounded-full animate-spin"></div>
-              <p className="text-xs font-bold text-gray-700">
-                Preparando código QR de vinculación...
-              </p>
-            </div>
           ) : (
-            <div className="space-y-3">
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5 leading-relaxed">
-                <p className="font-bold text-slate-900">
-                  ¿Cómo funciona el modo Dispositivo Vinculado?
-                </p>
-                <p>
-                  Vincula Fuddi como un dispositivo adicional de tu cuenta de WhatsApp Business (igual que WhatsApp Web). Así podrás recibir mensajes, ubicaciones y responder directamente desde el panel sin depender de las notificaciones del celular.
-                </p>
+            <div className="space-y-3.5">
+              {/* Selector: QR (otra pantalla) vs Código por número (mismo celular) */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  style={{ minHeight: 0 }}
+                  onClick={() => setLinkMode('qr')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    linkMode === 'qr'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <i className="bi bi-qr-code mr-1.5"></i>
+                  Código QR
+                </button>
+                <button
+                  type="button"
+                  style={{ minHeight: 0 }}
+                  onClick={() => setLinkMode('phone')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    linkMode === 'phone'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <i className="bi bi-phone mr-1.5"></i>
+                  Desde este celular
+                </button>
               </div>
+
+              {linkMode === 'phone' ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Si estás abriendo Fuddi en el <strong>mismo teléfono</strong> donde tienes WhatsApp Business, genera un código de 8 dígitos e ingrésalo en{' '}
+                    <strong>Dispositivos vinculados → Vincular con el número de teléfono</strong>.
+                  </p>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="tel"
+                      value={pairingPhoneInput}
+                      onChange={(e) => setPairingPhoneInput(e.target.value)}
+                      placeholder="Tu celular de WhatsApp (ej. 0991234567)"
+                      className="flex-1 h-10 px-3 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30"
+                    />
+                    <button
+                      type="button"
+                      style={{ minHeight: 0 }}
+                      disabled={loadingAction}
+                      onClick={() => void handleConnect(true)}
+                      className="h-10 px-4 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-bold shrink-0 cursor-pointer"
+                    >
+                      {loadingAction ? 'Generando...' : 'Obtener código'}
+                    </button>
+                  </div>
+
+                  {formattedPairingCode && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center space-y-2">
+                      <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
+                        Código de vinculación
+                      </p>
+                      <p className="text-2xl font-black tracking-widest text-gray-900 font-mono">
+                        {formattedPairingCode}
+                      </p>
+                      <button
+                        type="button"
+                        style={{ minHeight: 0 }}
+                        onClick={() => {
+                          if (info.pairingCode) {
+                            void navigator.clipboard?.writeText(info.pairingCode)
+                            setCopiedCode(true)
+                            setTimeout(() => setCopiedCode(false), 2000)
+                          }
+                        }}
+                        className="h-7 px-3 rounded-lg bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <i className={`bi ${copiedCode ? 'bi-check2' : 'bi-clipboard'}`}></i>
+                        <span>{copiedCode ? 'Copiado' : 'Copiar código'}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : info.status === 'qr' && info.qrDataUrl ? (
+                <div className="flex flex-col items-center text-center space-y-3">
+                  <div className="p-3 bg-white border-2 border-green-500/30 rounded-2xl shadow-sm">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={info.qrDataUrl}
+                      alt="Código QR de WhatsApp"
+                      className="w-56 h-56 object-contain"
+                    />
+                  </div>
+                  <div className="space-y-1 text-xs text-gray-600 max-w-xs">
+                    <p className="font-bold text-gray-900">
+                      Escanea este código desde WhatsApp Business
+                    </p>
+                    <p className="leading-relaxed">
+                      Abre WhatsApp Business en tu teléfono → <strong>Dispositivos vinculados</strong> → <strong>Vincular un dispositivo</strong>.
+                    </p>
+                  </div>
+                </div>
+              ) : info.status === 'connecting' || loadingAction ? (
+                <div className="py-8 flex flex-col items-center justify-center text-center space-y-3">
+                  <div className="w-8 h-8 border-3 border-green-600/30 border-t-green-600 rounded-full animate-spin"></div>
+                  <p className="text-xs font-bold text-gray-700">
+                    Generando código QR de vinculación...
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                    <p className="font-bold text-slate-900">
+                      ¿Cómo funciona el modo Dispositivo Vinculado?
+                    </p>
+                    <p>
+                      Vincula Fuddi como un dispositivo adicional de tu cuenta de WhatsApp Business (igual que WhatsApp Web).
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={{ minHeight: 0 }}
+                    disabled={loadingAction}
+                    onClick={() => void handleConnect(false)}
+                    className="w-full h-10 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <i className="bi bi-qr-code-scan text-sm"></i>
+                    <span>Generar código QR para vincular</span>
+                  </button>
+                </div>
+              )}
 
               {info.lastError && (
                 <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                   {info.lastError}
                 </p>
               )}
-
-              <button
-                type="button"
-                style={{ minHeight: 0 }}
-                disabled={loadingAction}
-                onClick={() => void handleConnect()}
-                className="w-full h-10 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
-              >
-                <i className="bi bi-qr-code-scan text-sm"></i>
-                <span>{loadingAction ? 'Iniciando...' : 'Generar código QR para vincular'}</span>
-              </button>
             </div>
           )}
         </div>

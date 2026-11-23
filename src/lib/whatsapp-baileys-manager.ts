@@ -1,14 +1,16 @@
 import makeWASocket, {
+  AuthenticationCreds,
+  AuthenticationState,
+  BufferJSON,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  useMultiFileAuthState,
-  WASocket,
+  initAuthCreds,
   proto,
+  SignalDataTypeMap,
+  WASocket,
 } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import QRCode from 'qrcode'
-import * as fs from 'fs'
-import * as path from 'path'
 import { ensureAdminDb } from '@/lib/firebase-admin'
 
 export type BaileysConnectionStatus = 'disconnected' | 'connecting' | 'qr' | 'connected'
@@ -17,6 +19,7 @@ export interface BaileysBusinessState {
   businessId: string
   status: BaileysConnectionStatus
   qrDataUrl: string | null
+  pairingCode: string | null
   connectedPhone: string | null
   connectedName: string | null
   lastError: string | null
@@ -35,10 +38,11 @@ interface ManagedSession {
   reconnectTimer: ReturnType<typeof setTimeout> | null
   isConnecting: boolean
   manualDisconnect: boolean
+  stateWaiters: Array<() => void>
 }
 
-const SESSIONS_ROOT = path.join(process.cwd(), '.whatsapp-sessions')
 const MAX_RECENT_MESSAGES = 8
+const MAX_CHAT_HISTORY = 24
 
 export function normalizeEcuadorPhone(raw?: string | null): string {
   if (!raw) return ''
@@ -56,16 +60,21 @@ export function normalizeEcuadorPhone(raw?: string | null): string {
   return digits
 }
 
-export function ecuadorPhoneToJid(rawPhone: string): string | null {
+export function ecuadorPhoneToIntlDigits(rawPhone: string): string | null {
   const digits = String(rawPhone || '').replace(/\D/g, '')
   if (digits.length < 9) return null
   if (digits.length === 10 && digits.startsWith('09')) {
-    return `593${digits.slice(1)}@s.whatsapp.net`
+    return `593${digits.slice(1)}`
   }
   if (digits.length === 9 && digits.startsWith('9')) {
-    return `593${digits}@s.whatsapp.net`
+    return `593${digits}`
   }
-  return `${digits}@s.whatsapp.net`
+  return digits
+}
+
+export function ecuadorPhoneToJid(rawPhone: string): string | null {
+  const intl = ecuadorPhoneToIntlDigits(rawPhone)
+  return intl ? `${intl}@s.whatsapp.net` : null
 }
 
 function extractLocationLinkFromText(text: string): string | null {
@@ -85,7 +94,6 @@ function extractMessageContent(msg: proto.IWebMessageInfo): {
   const m = msg.message
   if (!m) return { text: '', locationLink: null }
 
-  // Desempaquetar contenedores efímeros o viewOnce
   const inner =
     m.ephemeralMessage?.message ||
     m.viewOnceMessage?.message ||
@@ -139,23 +147,158 @@ function isSameLocalDay(millisA: number, millisB: number): boolean {
   )
 }
 
+/**
+ * AuthState de Baileys respaldado 100% en Firestore (compatible con Vercel Serverless,
+ * donde /var/task es de solo lectura).
+ */
+async function useFirestoreAuthState(businessId: string): Promise<{
+  state: AuthenticationState
+  saveCreds: () => Promise<void>
+  clearState: () => Promise<void>
+  hasExistingCreds: boolean
+}> {
+  const db = ensureAdminDb()
+  if (!db) {
+    throw new Error('Firebase Admin no está disponible para guardar la sesión de WhatsApp')
+  }
+
+  const colRef = db.collection('businesses').doc(businessId).collection('whatsappAuth')
+  const credsDocRef = colRef.doc('creds')
+  const keyCache = new Map<string, any>()
+
+  const safeDocId = (type: string, id: string) =>
+    `key_${type}_${id}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+
+  let creds: AuthenticationCreds
+  let hasExistingCreds = false
+
+  try {
+    const snap = await credsDocRef.get()
+    if (snap.exists && snap.data()?.json) {
+      creds = JSON.parse(String(snap.data()!.json), BufferJSON.reviver)
+      hasExistingCreds = Boolean(creds?.registered)
+    } else {
+      creds = initAuthCreds()
+    }
+  } catch {
+    creds = initAuthCreds()
+  }
+
+  const saveCreds = async () => {
+    try {
+      await credsDocRef.set(
+        {
+          json: JSON.stringify(creds, BufferJSON.replacer),
+          updatedAtMillis: Date.now(),
+        },
+        { merge: true }
+      )
+    } catch (err) {
+      console.warn('[Baileys FirestoreAuth] Error guardando creds:', err)
+    }
+  }
+
+  const clearState = async () => {
+    keyCache.clear()
+    try {
+      const snap = await colRef.limit(400).get()
+      if (!snap.empty) {
+        const batch = db.batch()
+        snap.docs.forEach((d) => batch.delete(d.ref))
+        await batch.commit()
+      }
+    } catch (err) {
+      console.warn('[Baileys FirestoreAuth] Error limpiando sesión:', err)
+    }
+  }
+
+  return {
+    hasExistingCreds,
+    saveCreds,
+    clearState,
+    state: {
+      creds,
+      keys: {
+        get: async <T extends keyof SignalDataTypeMap>(type: T, ids: string[]) => {
+          const data: { [id: string]: SignalDataTypeMap[T] } = {}
+          const missingIds: string[] = []
+
+          for (const id of ids) {
+            const cacheKey = `${type}:${id}`
+            if (keyCache.has(cacheKey)) {
+              const cached = keyCache.get(cacheKey)
+              if (cached !== null && cached !== undefined) {
+                data[id] = cached
+              }
+            } else {
+              missingIds.push(id)
+            }
+          }
+
+          if (missingIds.length > 0) {
+            await Promise.all(
+              missingIds.map(async (id) => {
+                const cacheKey = `${type}:${id}`
+                try {
+                  const snap = await colRef.doc(safeDocId(String(type), id)).get()
+                  if (snap.exists && snap.data()?.json) {
+                    const parsed = JSON.parse(String(snap.data()!.json), BufferJSON.reviver)
+                    keyCache.set(cacheKey, parsed)
+                    data[id] = parsed
+                  } else {
+                    keyCache.set(cacheKey, null)
+                  }
+                } catch {
+                  // Ignorar error individual de lectura
+                }
+              })
+            )
+          }
+
+          return data
+        },
+        set: async (data: any) => {
+          const batch = db.batch()
+          let ops = 0
+
+          for (const category in data) {
+            const catData = data[category]
+            if (!catData) continue
+            for (const id in catData) {
+              const value = catData[id]
+              const cacheKey = `${category}:${id}`
+              const docRef = colRef.doc(safeDocId(category, id))
+              if (value) {
+                keyCache.set(cacheKey, value)
+                batch.set(docRef, {
+                  json: JSON.stringify(value, BufferJSON.replacer),
+                  updatedAtMillis: Date.now(),
+                })
+                ops++
+              } else {
+                keyCache.set(cacheKey, null)
+                batch.delete(docRef)
+                ops++
+              }
+            }
+          }
+
+          if (ops > 0) {
+            try {
+              await batch.commit()
+            } catch (err) {
+              console.warn('[Baileys FirestoreAuth] Error guardando keys batch:', err)
+            }
+          }
+        },
+      },
+    },
+  }
+}
+
 class WhatsAppBaileysManager {
   private sessions = new Map<string, ManagedSession>()
   private logger = pino({ level: 'silent' })
-
-  private getSessionDir(businessId: string): string {
-    const safeId = businessId.replace(/[^a-zA-Z0-9_-]/g, '_')
-    return path.join(SESSIONS_ROOT, safeId)
-  }
-
-  public hasSavedCredentials(businessId: string): boolean {
-    try {
-      const credsFile = path.join(this.getSessionDir(businessId), 'creds.json')
-      return fs.existsSync(credsFile)
-    } catch {
-      return false
-    }
-  }
 
   private getOrCreateSession(businessId: string): ManagedSession {
     let session = this.sessions.get(businessId)
@@ -167,6 +310,7 @@ class WhatsAppBaileysManager {
           businessId,
           status: 'disconnected',
           qrDataUrl: null,
+          pairingCode: null,
           connectedPhone: null,
           connectedName: null,
           lastError: null,
@@ -180,28 +324,86 @@ class WhatsAppBaileysManager {
         reconnectTimer: null,
         isConnecting: false,
         manualDisconnect: false,
+        stateWaiters: [],
       }
       this.sessions.set(businessId, session)
     }
     return session
   }
 
-  public getState(businessId: string): BaileysBusinessState {
+  private notifyStateWaiters(session: ManagedSession) {
+    const waiters = session.stateWaiters.splice(0, session.stateWaiters.length)
+    waiters.forEach((fn) => {
+      try {
+        fn()
+      } catch {
+        // Ignorar
+      }
+    })
+  }
+
+  private waitForStateChange(session: ManagedSession, timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        resolve()
+      }
+      const timer = setTimeout(finish, timeoutMs)
+      session.stateWaiters.push(() => {
+        clearTimeout(timer)
+        finish()
+      })
+    })
+  }
+
+  public async getStateAsync(businessId: string, holdMs = 0): Promise<BaileysBusinessState> {
     const session = this.getOrCreateSession(businessId)
-    // Si hay credenciales en disco y está desconectado sin desconexión manual, reconectar en segundo plano
+    const db = ensureAdminDb()
+
+    // Si en memoria está desconectado, revisar en Firestore si ya había credenciales registradas
     if (
       session.state.status === 'disconnected' &&
       !session.isConnecting &&
       !session.manualDisconnect &&
-      this.hasSavedCredentials(businessId)
+      db
     ) {
-      void this.connect(businessId)
+      try {
+        const statusSnap = await db
+          .collection('businesses')
+          .doc(businessId)
+          .collection('whatsappConnection')
+          .doc('status')
+          .get()
+        if (statusSnap.exists) {
+          const d = statusSnap.data() || {}
+          if (d.status === 'connected') {
+            // Reconectar en caliente
+            await this.connect(businessId, { waitMs: Math.max(holdMs, 6000) })
+            return session.state
+          }
+        }
+      } catch {
+        // Ignorar
+      }
     }
+
+    // En Vercel Serverless, mientras el modal está esperando que el usuario escanee el QR o ingrese el código,
+    // mantener viva la petición HTTP unos segundos permite que el WebSocket complete el handshake
+    if (
+      holdMs > 0 &&
+      (session.state.status === 'qr' || session.state.status === 'connecting')
+    ) {
+      await this.waitForStateChange(session, Math.min(holdMs, 12000))
+    }
+
     return session.state
   }
 
   private async persistConnectionState(session: ManagedSession) {
     session.state.updatedAtMillis = Date.now()
+    this.notifyStateWaiters(session)
     const db = ensureAdminDb()
     if (!db) return
     try {
@@ -214,6 +416,7 @@ class WhatsAppBaileysManager {
           {
             status: session.state.status,
             qrDataUrl: session.state.qrDataUrl,
+            pairingCode: session.state.pairingCode,
             connectedPhone: session.state.connectedPhone,
             connectedName: session.state.connectedName,
             lastError: session.state.lastError,
@@ -285,11 +488,44 @@ class WhatsAppBaileysManager {
     }
   }
 
-  public async connect(businessId: string): Promise<BaileysBusinessState> {
+  public async connect(
+    businessId: string,
+    options?: { pairingPhone?: string; waitMs?: number }
+  ): Promise<BaileysBusinessState> {
     const session = this.getOrCreateSession(businessId)
     session.manualDisconnect = false
+    const pairingPhone = options?.pairingPhone?.trim() || ''
+    const waitMs = typeof options?.waitMs === 'number' ? options.waitMs : 12000
 
-    if (session.isConnecting || session.state.status === 'connected') {
+    // Si ya está conectado, devolver directo
+    if (session.state.status === 'connected' && session.socket) {
+      return session.state
+    }
+
+    // Si ya está en estado QR y ahora pidió código de emparejamiento por teléfono sobre el mismo socket activo
+    if (pairingPhone && session.socket && session.state.status === 'qr') {
+      const intlPhone = ecuadorPhoneToIntlDigits(pairingPhone)
+      if (!intlPhone) {
+        session.state.lastError = 'Ingresa un número celular válido (ej. 0991234567)'
+        await this.persistConnectionState(session)
+        return session.state
+      }
+      try {
+        const code = await session.socket.requestPairingCode(intlPhone)
+        session.state.pairingCode = code
+        session.state.lastError = null
+        await this.persistConnectionState(session)
+      } catch (err: any) {
+        session.state.lastError = err?.message || 'No se pudo generar el código de vinculación'
+        await this.persistConnectionState(session)
+      }
+      return session.state
+    }
+
+    if (session.isConnecting) {
+      if (waitMs > 0) {
+        await this.waitForStateChange(session, waitMs)
+      }
       return session.state
     }
 
@@ -301,19 +537,19 @@ class WhatsAppBaileysManager {
 
     session.state.status = 'connecting'
     session.state.lastError = null
+    if (!pairingPhone) {
+      session.state.pairingCode = null
+    }
     await this.persistConnectionState(session)
 
     try {
-      const sessionDir = this.getSessionDir(businessId)
-      fs.mkdirSync(sessionDir, { recursive: true })
-
-      const { state, saveCreds } = await useMultiFileAuthState(sessionDir)
+      const { state, saveCreds, clearState } = await useFirestoreAuthState(businessId)
       let version: [number, number, number] = [2, 3000, 1017531287]
       try {
         const latest = await fetchLatestBaileysVersion()
         if (latest?.version) version = latest.version
       } catch {
-        // Usar versión por defecto si falla la consulta
+        // Usar versión por defecto
       }
 
       const sock = makeWASocket({
@@ -321,7 +557,7 @@ class WhatsAppBaileysManager {
         auth: state,
         logger: this.logger as any,
         printQRInTerminal: false,
-        browser: ['Fuddi Tienda', 'Chrome', '1.0.0'],
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
         syncFullHistory: false,
         markOnlineOnConnect: false,
       })
@@ -331,10 +567,13 @@ class WhatsAppBaileysManager {
 
       sock.ev.on('creds.update', saveCreds)
 
+      let pairingRequestedForSocket = false
+
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update
 
         if (qr) {
+          session.isConnecting = false
           try {
             const qrDataUrl = await QRCode.toDataURL(qr, {
               margin: 2,
@@ -343,6 +582,23 @@ class WhatsAppBaileysManager {
             })
             session.state.status = 'qr'
             session.state.qrDataUrl = qrDataUrl
+
+            // Si solicitó vincular por número de teléfono, pedir el código de 8 caracteres
+            if (pairingPhone && !pairingRequestedForSocket && !sock.authState.creds.registered) {
+              pairingRequestedForSocket = true
+              const intlPhone = ecuadorPhoneToIntlDigits(pairingPhone)
+              if (intlPhone) {
+                try {
+                  const code = await sock.requestPairingCode(intlPhone)
+                  session.state.pairingCode = code
+                } catch (pairErr: any) {
+                  console.warn('[Baileys] Error solicitando pairingCode:', pairErr)
+                  session.state.lastError =
+                    pairErr?.message || 'No se pudo obtener el código por número'
+                }
+              }
+            }
+
             await this.persistConnectionState(session)
           } catch (qrErr) {
             console.error('[Baileys] Error generando QR DataURL:', qrErr)
@@ -355,6 +611,7 @@ class WhatsAppBaileysManager {
           const rawMePhone = meJid.split(':')[0]?.split('@')[0] || ''
           session.state.status = 'connected'
           session.state.qrDataUrl = null
+          session.state.pairingCode = null
           session.state.connectedPhone = normalizeEcuadorPhone(rawMePhone) || rawMePhone || null
           session.state.connectedName = sock.user?.name || null
           session.state.lastError = null
@@ -369,13 +626,10 @@ class WhatsAppBaileysManager {
           const loggedOut = statusCode === DisconnectReason.loggedOut
 
           if (loggedOut) {
-            try {
-              fs.rmSync(this.getSessionDir(businessId), { recursive: true, force: true })
-            } catch {
-              // Ignorar error limpiando carpeta
-            }
+            await clearState()
             session.state.status = 'disconnected'
             session.state.qrDataUrl = null
+            session.state.pairingCode = null
             session.state.connectedPhone = null
             session.state.connectedName = null
             session.state.lastError = 'Sesión cerrada desde el teléfono'
@@ -384,11 +638,12 @@ class WhatsAppBaileysManager {
             session.state.status = 'connecting'
             await this.persistConnectionState(session)
             session.reconnectTimer = setTimeout(() => {
-              void this.connect(businessId)
-            }, 3500)
+              void this.connect(businessId, { waitMs: 0 })
+            }, 2500)
           } else {
             session.state.status = 'disconnected'
             session.state.qrDataUrl = null
+            session.state.pairingCode = null
             await this.persistConnectionState(session)
           }
         }
@@ -404,6 +659,11 @@ class WhatsAppBaileysManager {
           }
         }
       })
+
+      // Esperar hasta que Baileys emita el primer QR, el pairingCode o abra la conexión
+      if (waitMs > 0 && session.state.status === 'connecting') {
+        await this.waitForStateChange(session, waitMs)
+      }
     } catch (err: any) {
       session.isConnecting = false
       session.state.status = 'disconnected'
@@ -437,7 +697,8 @@ class WhatsAppBaileysManager {
     session.socket = null
     if (logout) {
       try {
-        fs.rmSync(this.getSessionDir(businessId), { recursive: true, force: true })
+        const { clearState } = await useFirestoreAuthState(businessId)
+        await clearState()
       } catch {
         // Ignorar
       }
@@ -445,6 +706,7 @@ class WhatsAppBaileysManager {
 
     session.state.status = 'disconnected'
     session.state.qrDataUrl = null
+    session.state.pairingCode = null
     session.state.connectedPhone = null
     session.state.connectedName = null
     await this.persistConnectionState(session)
@@ -523,7 +785,6 @@ class WhatsAppBaileysManager {
       return
     }
 
-    // Si es un LID (@lid), intentar usar senderPn si viene en el mensaje
     const altParticipant = (msg.key as any)?.senderPn || msg.participant || ''
     const phoneSource = remoteJid.endsWith('@s.whatsapp.net')
       ? remoteJid.split('@')[0]
@@ -558,8 +819,6 @@ class WhatsAppBaileysManager {
     const existing = existingSnap.exists ? existingSnap.data() || {} : null
 
     if (fromMe) {
-      // Si el mensaje lo envió la tienda desde el celular o WhatsApp Web, agregarlo a sentReplies
-      // solo si la conversación ya existe, sin alterar el timestamp de actividad del cliente
       if (!existing) return
       const currentReplies: any[] = Array.isArray(existing.sentReplies) ? existing.sentReplies : []
       if (currentReplies.some((r) => r?.id === msgId || r?.text === text)) return
@@ -582,7 +841,7 @@ class WhatsAppBaileysManager {
           fromMe: true,
           source: 'whatsapp',
         },
-      ].slice(-24)
+      ].slice(-MAX_CHAT_HISTORY)
       await docRef.set(
         {
           sentReplies: nextReplies,
@@ -594,7 +853,6 @@ class WhatsAppBaileysManager {
       return
     }
 
-    // Mensaje entrante del cliente
     const pushName = String(msg.pushName || '').trim()
     const prevRecent: string[] = Array.isArray(existing?.recentMessages)
       ? existing.recentMessages
@@ -636,10 +894,8 @@ class WhatsAppBaileysManager {
       existing?.confirmedAtMillis &&
       isSameLocalDay(Number(existing.confirmedAtMillis), nowMillis)
     ) {
-      // Si ya tiene un pedido confirmado hoy, se mantiene en confirmed y sigue visible con el nuevo mensaje
       nextStatus = 'confirmed'
     } else if (prevStatus === 'closed') {
-      // Si estaba archivado y el cliente vuelve a escribir, revive como pending
       nextStatus = 'pending'
       reopenedAtMillis = Math.max(nowMillis, msgMillis)
       closedAtMillis = null
@@ -647,7 +903,6 @@ class WhatsAppBaileysManager {
     }
 
     const prevUnread = typeof existing?.unreadCount === 'number' ? existing.unreadCount : 0
-
     const prevHistory: any[] = Array.isArray(existing?.chatHistory) ? existing.chatHistory : []
     const nextHistory = [
       ...prevHistory.filter((h) => h?.id !== msgId),
@@ -658,7 +913,7 @@ class WhatsAppBaileysManager {
         fromMe: false,
         source: 'baileys',
       },
-    ].slice(-24)
+    ].slice(-MAX_CHAT_HISTORY)
 
     await docRef.set(
       {
@@ -700,6 +955,19 @@ class WhatsAppBaileysManager {
     if (!cleanText) return { ok: false, error: 'Mensaje vacío' }
 
     const session = this.getOrCreateSession(businessId)
+
+    // Si la instancia Serverless de Vercel estaba fría pero hay credenciales guardadas en Firestore, reconectar al vuelo
+    if (session.state.status !== 'connected' || !session.socket) {
+      try {
+        const { hasExistingCreds } = await useFirestoreAuthState(businessId)
+        if (hasExistingCreds) {
+          await this.connect(businessId, { waitMs: 8000 })
+        }
+      } catch {
+        // Ignorar
+      }
+    }
+
     if (session.state.status !== 'connected' || !session.socket) {
       return { ok: false, error: 'WhatsApp no está conectado como dispositivo vinculado' }
     }
@@ -725,18 +993,18 @@ class WhatsAppBaileysManager {
         const snap = await docRef.get()
         const data = snap.exists ? snap.data() || {} : {}
         const currentReplies: any[] = Array.isArray(data.sentReplies) ? data.sentReplies : []
+        const nowOut = Date.now()
         const nextReplies = [
           ...currentReplies.filter((r) => r?.id !== replyId),
           {
             id: replyId,
             text: cleanText,
-            timestampMillis: Date.now(),
+            timestampMillis: nowOut,
             source: 'baileys',
           },
         ].slice(-MAX_RECENT_MESSAGES)
 
         const currentHistory: any[] = Array.isArray(data.chatHistory) ? data.chatHistory : []
-        const nowOut = Date.now()
         const nextHistory = [
           ...currentHistory.filter((h) => h?.id !== replyId),
           {
@@ -746,7 +1014,7 @@ class WhatsAppBaileysManager {
             fromMe: true,
             source: 'baileys',
           },
-        ].slice(-24)
+        ].slice(-MAX_CHAT_HISTORY)
 
         await docRef.set(
           {
