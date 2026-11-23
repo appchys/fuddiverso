@@ -195,78 +195,117 @@ async function fetchOrderDetailsViaMex(
   const rawMe = sock.user?.id || ''
   const ownPnDigits = rawMe.split(':')[0]?.split('@')[0]?.replace(/\D/g, '') || ''
   const ownPnJid = ownPnDigits ? `${ownPnDigits}@s.whatsapp.net` : ''
+  const rawMeLid = (sock.user as any)?.lid || ''
+  const ownLidDigits = rawMeLid.split(':')[0]?.split('@')[0]?.replace(/\D/g, '') || ''
+  const ownLidJid = ownLidDigits ? `${ownLidDigits}@lid` : ''
 
-  let targetSellerJid = String(sellerJid || '').trim()
-  // MEX requiere el JID con número telefónico (@s.whatsapp.net) cuando el vendedor es la propia cuenta
-  if (!targetSellerJid || targetSellerJid.endsWith('@lid')) {
-    targetSellerJid = ownPnJid
-  } else if (targetSellerJid.includes(':')) {
-    targetSellerJid = `${targetSellerJid.split(':')[0].split('@')[0]}@s.whatsapp.net`
+  const cleanSellerJid = String(sellerJid || '').trim()
+  const normalizedSeller = cleanSellerJid.includes(':')
+    ? `${cleanSellerJid.split(':')[0]}@${cleanSellerJid.split('@')[1] || 's.whatsapp.net'}`
+    : cleanSellerJid
+
+  const candidateJids = Array.from(
+    new Set([ownPnJid, normalizedSeller, ownLidJid].filter(Boolean))
+  )
+  if (candidateJids.length === 0) return null
+
+  const debugLog: Record<string, any> = {
+    orderId,
+    sellerJid: cleanSellerJid || null,
+    tokenLen: token.length,
+    attempts: [],
+    timestampMillis: Date.now(),
   }
-  if (!targetSellerJid) return null
 
-  try {
-    const variables = {
-      request: {
-        order: {
-          id: orderId,
-          jid: targetSellerJid,
-          token: { sensitive_string_value: token },
-          image_dimensions: { width: 100, height: 100 },
-          direct_connection_encrypted_info: null,
-        },
-      },
+  const persistDebug = async () => {
+    const db = ensureAdminDb()
+    if (!db) return
+    try {
+      await db
+        .collection('businesses')
+        .doc(session.businessId)
+        .collection('whatsappConnection')
+        .doc('lastOrderDebug')
+        .set(debugLog)
+    } catch {
+      // Ignorar
     }
-    const rawNode = await sock.query(
-      {
-        tag: 'iq',
-        attrs: {
-          to: '@s.whatsapp.net',
-          type: 'get',
-          xmlns: 'w:mex',
-        },
-        content: [
-          {
-            tag: 'query',
-            attrs: { query_id: '26593811266898374' },
-            content: Buffer.from(JSON.stringify({ variables }), 'utf-8'),
+  }
+
+  for (const targetJid of candidateJids) {
+    try {
+      const variables = {
+        request: {
+          order: {
+            id: orderId,
+            jid: targetJid,
+            token: { sensitive_string_value: token },
+            image_dimensions: { width: 100, height: 100 },
+            direct_connection_encrypted_info: null,
           },
-        ],
-      },
-      8000
-    )
-    const resultChild = Array.isArray(rawNode?.content)
-      ? rawNode.content.find((c: any) => c?.tag === 'result')
-      : null
-    if (!resultChild?.content) return null
-    const parsed = JSON.parse(Buffer.from(resultChild.content).toString('utf-8'))
-    const orderInfo = parsed?.data?.xwa_checkout_get_order_info?.order
-    if (!orderInfo) return null
-
-    const rawProducts = Array.isArray(orderInfo.products) ? orderInfo.products : []
-    const products = rawProducts.map((p: any) => {
-      const images = Array.isArray(p?.media?.images) ? p.media.images : []
-      return {
-        id: String(p?.id || ''),
-        name: String(p?.name || 'Producto').trim(),
-        price: Number(p?.price || 0),
-        currency: String(p?.currency || 'USD'),
-        quantity: Number(p?.quantity || 1),
-        imageUrl:
-          typeof images[0]?.request_image_url === 'string'
-            ? images[0].request_image_url
-            : undefined,
+        },
       }
-    })
-    const rawTotal = Number(orderInfo?.price_details?.total_amount || 0)
-    return {
-      products,
-      total: rawTotal > 0 ? rawTotal : undefined,
+      const rawNode = await sock.query(
+        {
+          tag: 'iq',
+          attrs: {
+            to: '@s.whatsapp.net',
+            type: 'get',
+            xmlns: 'w:mex',
+          },
+          content: [
+            {
+              tag: 'query',
+              attrs: { query_id: '26593811266898374' },
+              content: Buffer.from(JSON.stringify({ variables }), 'utf-8'),
+            },
+          ],
+        },
+        8000
+      )
+      const resultChild = Array.isArray(rawNode?.content)
+        ? rawNode.content.find((c: any) => c?.tag === 'result')
+        : null
+      if (!resultChild?.content) {
+        debugLog.attempts.push({ targetJid, error: 'no result child' })
+        continue
+      }
+      const parsed = JSON.parse(Buffer.from(resultChild.content).toString('utf-8'))
+      debugLog.attempts.push({ targetJid, parsed })
+
+      const root = parsed?.data?.xwa_checkout_get_order_info
+      const orderInfo = root?.order || root
+      const rawProducts = Array.isArray(orderInfo?.products) ? orderInfo.products : []
+
+      if (rawProducts.length > 0) {
+        const products = rawProducts.map((p: any) => {
+          const images = Array.isArray(p?.media?.images) ? p.media.images : []
+          return {
+            id: String(p?.id || ''),
+            name: String(p?.name || p?.title || 'Producto').trim(),
+            price: Number(p?.price || p?.price_amount_1000 || 0),
+            currency: String(p?.currency || 'USD'),
+            quantity: Number(p?.quantity || 1),
+            imageUrl:
+              typeof images[0]?.request_image_url === 'string'
+                ? images[0].request_image_url
+                : undefined,
+          }
+        })
+        const rawTotal = Number(orderInfo?.price_details?.total_amount || 0)
+        void persistDebug()
+        return {
+          products,
+          total: rawTotal > 0 ? rawTotal : undefined,
+        }
+      }
+    } catch (err: any) {
+      debugLog.attempts.push({ targetJid, error: err?.message || String(err) })
     }
-  } catch (err) {
-    console.warn('[Baileys MEX] Error consultando xwa_checkout_get_order_info:', err)
-    return null
   }
+
+  void persistDebug()
+  return null
 }
 
 /**
@@ -858,7 +897,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 26
+const MANAGER_VERSION = 27
 
 // Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
 const globalForTimerPatch = globalThis as unknown as {
