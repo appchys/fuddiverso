@@ -251,6 +251,142 @@ function getTodayDateString(): string {
 
 const SAVED_LOCATION_MATCH_RADIUS_METERS = 25
 
+interface ParsedCatalogOrderItem {
+  quantity: number
+  name: string
+  unitPrice: number | null
+}
+
+function parseWhatsAppCatalogOrderMessage(
+  rawText?: string | null,
+  mediaType?: string | null
+): ParsedCatalogOrderItem[] {
+  const text = String(rawText || '').trim()
+  if (!text) return []
+  const isCatalogMsg =
+    mediaType === 'order' ||
+    /pedido del cat[aá]logo de whatsapp/i.test(text) ||
+    /producto del cat[aá]logo:/i.test(text)
+  if (!isCatalogMsg) return []
+
+  const items: ParsedCatalogOrderItem[] = []
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+
+  for (const line of lines) {
+    // Formato pedido: "• 2x 40 Unidades ($7.50)" o "• 1x Nombre"
+    const bulletMatch = line.match(/^[•\-*]\s*(\d+)\s*x\s+(.+?)(?:\s*\(\s*\$\s*(\d+(?:[.,]\d+)?)\s*\))?$/i)
+    if (bulletMatch) {
+      const quantity = Math.max(1, parseInt(bulletMatch[1], 10) || 1)
+      const name = bulletMatch[2].trim()
+      const unitPrice = bulletMatch[3] ? parseFloat(bulletMatch[3].replace(',', '.')) : null
+      if (name) {
+        items.push({
+          quantity,
+          name,
+          unitPrice: unitPrice !== null && Number.isFinite(unitPrice) ? unitPrice : null,
+        })
+      }
+      continue
+    }
+
+    // Formato producto individual: "🏷️ Producto del catálogo: Nombre ($7.50)"
+    const singleMatch = line.match(/producto del cat[aá]logo:\s*(.+?)(?:\s*\(\s*\$\s*(\d+(?:[.,]\d+)?)\s*\))?$/i)
+    if (singleMatch) {
+      const name = singleMatch[1].trim()
+      const unitPrice = singleMatch[2] ? parseFloat(singleMatch[2].replace(',', '.')) : null
+      if (name) {
+        items.push({
+          quantity: 1,
+          name,
+          unitPrice: unitPrice !== null && Number.isFinite(unitPrice) ? unitPrice : null,
+        })
+      }
+    }
+  }
+
+  return items
+}
+
+function matchCatalogItemToStoreProduct(
+  item: ParsedCatalogOrderItem,
+  products: Product[]
+): { product: Product; variant?: any; score: number } | null {
+  if (!products.length) return null
+  const queryNorm = normalizeSearchBase(item.name)
+  const queryTokens = queryNorm.split(' ').filter((t) => t.length >= 2 || /^\d+$/.test(t))
+
+  let best: { product: Product; variant?: any; score: number } | null = null
+
+  const evaluateCandidate = (product: Product, variant?: any) => {
+    const prodNameNorm = normalizeSearchBase(product.name || '')
+    const varNameNorm = variant ? normalizeSearchBase(variant.name || '') : ''
+    const combinedNorm = varNameNorm ? `${prodNameNorm} ${varNameNorm}`.trim() : prodNameNorm
+    const candidatePrice = getManualOrderStorePrice(variant || product)
+
+    let score = 0
+
+    if (queryNorm) {
+      if (
+        (varNameNorm && varNameNorm === queryNorm) ||
+        prodNameNorm === queryNorm ||
+        combinedNorm === queryNorm
+      ) {
+        score += 140
+      } else if (
+        (varNameNorm && (varNameNorm.includes(queryNorm) || queryNorm.includes(varNameNorm))) ||
+        (prodNameNorm && (prodNameNorm.includes(queryNorm) || queryNorm.includes(prodNameNorm))) ||
+        (combinedNorm && (combinedNorm.includes(queryNorm) || queryNorm.includes(combinedNorm)))
+      ) {
+        score += 95
+      } else if (queryTokens.length > 0) {
+        const candWords = combinedNorm.split(' ').filter(Boolean)
+        let matched = 0
+        for (const qt of queryTokens) {
+          if (candWords.some((cw) => cw === qt || cw.includes(qt) || qt.includes(cw))) {
+            matched++
+          }
+        }
+        if (matched > 0) {
+          score += Math.round((matched / queryTokens.length) * 80)
+        }
+        const smart = scoreProductSmartMatch(product, item.name)
+        if (smart >= 30) {
+          score += Math.min(40, Math.round(smart * 0.35))
+        }
+      }
+    }
+
+    if (item.unitPrice !== null && Number.isFinite(candidatePrice) && candidatePrice > 0) {
+      const diff = Math.abs(candidatePrice - item.unitPrice)
+      if (diff <= 0.05) {
+        score += 65
+      } else if (diff <= 0.5) {
+        score += 25
+      }
+    }
+
+    if (product.isAvailable === false) {
+      score -= 10
+    }
+
+    if (score >= 55 && (!best || score > best.score)) {
+      best = { product, variant, score }
+    }
+  }
+
+  for (const product of products) {
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      for (const variant of product.variants) {
+        evaluateCandidate(product, variant)
+      }
+    } else {
+      evaluateCandidate(product)
+    }
+  }
+
+  return best
+}
+
 function findMatchingSavedLocation(
   lat: number,
   lng: number,
@@ -388,10 +524,43 @@ export function WhatsAppChatPreorderView({
   const [attachProductSearch, setAttachProductSearch] = useState<string>('')
   const [businessUsername, setBusinessUsername] = useState<string>('')
   const [businessData, setBusinessData] = useState<Business | null>(null)
+  const resolvedLocStorageKey = businessId ? `fuddi_wa_resolved_locs_${businessId}` : ''
   const [resolvedLocationsByCoord, setResolvedLocationsByCoord] = useState<
     Record<string, Awaited<ReturnType<typeof getDeliveryDetailsForLocation>>>
-  >({})
+  >(() => {
+    if (typeof window === 'undefined' || !businessId) return {}
+    try {
+      const raw = window.localStorage.getItem(`fuddi_wa_resolved_locs_${businessId}`)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  })
   const resolvingCoordsRef = useRef<Set<string>>(new Set())
+  const isMountedRef = useRef<boolean>(true)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !resolvedLocStorageKey) return
+    try {
+      const raw = window.localStorage.getItem(resolvedLocStorageKey)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') {
+        setResolvedLocationsByCoord((prev) => ({ ...parsed, ...prev }))
+      }
+    } catch {
+      // Ignorar errores de lectura de localStorage
+    }
+  }, [resolvedLocStorageKey])
   const [customQuickReplies, setCustomQuickReplies] = useState<
     Array<{ id: string; shortcut: string; message: string; isDefault?: boolean }>
   >([])
@@ -404,6 +573,7 @@ export function WhatsAppChatPreorderView({
   const [savingQuickReply, setSavingQuickReply] = useState<boolean>(false)
   const [openReactionMsgKey, setOpenReactionMsgKey] = useState<string | null>(null)
   const [optimisticReactions, setOptimisticReactions] = useState<Record<string, string | null>>({})
+  const [appliedCatalogMsgKeys, setAppliedCatalogMsgKeys] = useState<Record<string, boolean>>({})
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
   const attachMenuRef = useRef<HTMLDivElement | null>(null)
   const replyInputRef = useRef<HTMLInputElement | null>(null)
@@ -961,10 +1131,12 @@ export function WhatsAppChatPreorderView({
   const isRegisteredClient = Boolean(resolvedProfile?.isRegistered || conversation.isRegisteredClient)
   const savedLocations = resolvedProfile?.locations || []
   const primaryLocation =
-    (selectedLocationId ? savedLocations.find(l => l.id === selectedLocationId) : null) ||
-    savedLocations.find(l => l.isFavorite) ||
-    savedLocations[0] ||
-    null
+    selectedLocationId === '__custom__'
+      ? null
+      : (selectedLocationId ? savedLocations.find(l => l.id === selectedLocationId) : null) ||
+        savedLocations.find(l => l.isFavorite) ||
+        savedLocations[0] ||
+        null
 
   const effectiveDeliveryType: '' | 'delivery' | 'pickup' =
     deliveryType || (primaryLocation || customLocationInput.trim() || conversation.detectedLocationLink ? 'delivery' : '')
@@ -1228,7 +1400,6 @@ export function WhatsAppChatPreorderView({
   // Resolver automáticamente el sector y la tarifa de envío para las ubicaciones enviadas por el cliente
   useEffect(() => {
     if (!businessId) return
-    let cancelled = false
 
     const coordsToResolve: Array<{ key: string; lat: number; lng: number }> = []
     const seen = new Set<string>()
@@ -1254,20 +1425,26 @@ export function WhatsAppChatPreorderView({
       resolvingCoordsRef.current.add(key)
       getDeliveryDetailsForLocation({ lat, lng }, businessId, businessData ?? undefined)
         .then((details) => {
-          if (!cancelled) {
-            setResolvedLocationsByCoord((prev) => ({ ...prev, [key]: details }))
-          }
+          if (!isMountedRef.current) return
+          setResolvedLocationsByCoord((prev) => {
+            const next = { ...prev, [key]: details }
+            if (typeof window !== 'undefined' && resolvedLocStorageKey) {
+              try {
+                const entries = Object.entries(next).slice(-150)
+                window.localStorage.setItem(resolvedLocStorageKey, JSON.stringify(Object.fromEntries(entries)))
+              } catch {
+                // Ignorar cuota llena de localStorage
+              }
+            }
+            return next
+          })
         })
         .catch(() => {})
         .finally(() => {
           resolvingCoordsRef.current.delete(key)
         })
     })
-
-    return () => {
-      cancelled = true
-    }
-  }, [timelineEntries, businessId, businessData, resolvedLocationsByCoord])
+  }, [timelineEntries, businessId, businessData, resolvedLocationsByCoord, resolvedLocStorageKey])
 
   // Si la última ubicación enviada coincide con una ubicación guardada del cliente, preseleccionarla automáticamente
   const autoMatchedLocationIdRef = useRef<string | null>(null)
@@ -1287,6 +1464,61 @@ export function WhatsAppChatPreorderView({
       break
     }
   }, [timelineEntries, savedLocations, selectedLocationId, deliveryType])
+
+  const handleApplyCatalogOrderToOrder = (
+    msgKey: string,
+    matchedItems: Array<{ product: Product; variant?: any; quantity: number }>
+  ) => {
+    if (matchedItems.length === 0) return
+    setDraftItems((prev) => {
+      const next = [...prev]
+      for (const entry of matchedItems) {
+        const variantName = entry.variant?.name as string | undefined
+        const priceSource = entry.variant || entry.product
+        const unitPrice = getManualOrderStorePrice(priceSource)
+        const meta = getPriceMetadata(priceSource)
+        const fullName = variantName ? `${entry.product.name} - ${variantName}` : entry.product.name
+        const idx = next.findIndex(
+          (item) => item.productId === entry.product.id && (item.variant || '') === (variantName || '')
+        )
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], quantity: next[idx].quantity + entry.quantity }
+        } else {
+          next.push({
+            productId: entry.product.id,
+            name: fullName,
+            productName: entry.product.name,
+            variant: variantName,
+            variantName,
+            price: unitPrice,
+            quantity: entry.quantity,
+            image: entry.product.image,
+            basePrice: meta.basePrice,
+            commission: meta.commission,
+            commissionType: meta.commissionType,
+            storeReceives: meta.storeReceives,
+            ingredients: entry.variant?.ingredients || entry.product.ingredients,
+          })
+        }
+      }
+      return next
+    })
+    setAppliedCatalogMsgKeys((prev) => ({ ...prev, [msgKey]: true }))
+  }
+
+  const handleApplyLocationToOrder = (
+    preview: NonNullable<ReturnType<typeof extractLocationPreviewFromMessage>>,
+    matchedSaved: ReturnType<typeof findMatchingSavedLocation>
+  ) => {
+    setDeliveryType('delivery')
+    if (matchedSaved) {
+      setSelectedLocationId(matchedSaved.location.id)
+      setCustomLocationInput('')
+    } else {
+      setSelectedLocationId('__custom__')
+      setCustomLocationInput(preview.mapsUrl)
+    }
+  }
 
   const getOrderStatusLabel = (status?: string): string => {
     switch (String(status || '').toLowerCase()) {
@@ -1638,6 +1870,21 @@ export function WhatsAppChatPreorderView({
                     savedLocations
                   )
                 : null
+              const parsedCatalogItems = !msg.fromMe
+                ? parseWhatsAppCatalogOrderMessage(msg.text, msg.mediaType)
+                : []
+              const matchedCatalogItems = parsedCatalogItems
+                .map((it) => {
+                  const match = matchCatalogItemToStoreProduct(it, products)
+                  return match ? { product: match.product, variant: match.variant, quantity: it.quantity } : null
+                })
+                .filter((x): x is { product: Product; variant: any; quantity: number } => Boolean(x))
+              const isCatalogAppliedToOrder = Boolean(appliedCatalogMsgKeys[entry.key])
+              const catalogApplyTooltip = isCatalogAppliedToOrder
+                ? 'Productos agregados al pedido en curso (clic para sumar nuevamente)'
+                : `Agregar al pedido: ${matchedCatalogItems
+                    .map((m) => `${m.quantity}x ${m.variant?.name ? `${m.product.name} - ${m.variant.name}` : m.product.name}`)
+                    .join(', ')}`
               const isImageOnlyMsg = Boolean(msg.mediaUrl && msg.mediaType === 'image')
               const cleanedImageCaption = isImageOnlyMsg
                 ? String(msg.text || '')
@@ -1939,6 +2186,15 @@ export function WhatsAppChatPreorderView({
                 </button>
               )
 
+              const isLocationAppliedToOrder = Boolean(
+                locationPreview &&
+                  effectiveDeliveryType === 'delivery' &&
+                  (matchedSavedLoc
+                    ? primaryLocation?.id === matchedSavedLoc.location.id
+                    : selectedLocationId === '__custom__' &&
+                      customLocationInput.includes(`${locationPreview.lat},${locationPreview.lng}`))
+              )
+
               return (
                 <div
                   key={entry.key}
@@ -1947,56 +2203,116 @@ export function WhatsAppChatPreorderView({
                   }`}
                 >
                   <div
-                    className={`relative flex items-center gap-1 ${
+                    className={`relative flex items-center gap-1.5 ${
                       msg.fromMe ? 'flex-row-reverse' : 'flex-row'
                     }`}
                   >
                     {bubbleNode}
 
-                    {canReactToMsg && (
-                      <div className="relative shrink-0">
-                        <button
-                          type="button"
-                          style={{ minHeight: 0, minWidth: 0 }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setOpenReactionMsgKey((prev) =>
-                              prev === entry.key ? null : entry.key
-                            )
-                          }}
-                          title="Reaccionar"
-                          className={`w-6 h-6 rounded-full bg-white/90 hover:bg-slate-100 border border-slate-200/80 text-slate-400 hover:text-slate-700 shadow-2xs inline-flex items-center justify-center transition-opacity cursor-pointer ${
-                            isReactionPickerOpen
-                              ? 'opacity-100'
-                              : 'opacity-40 sm:opacity-0 sm:group-hover/msg:opacity-100'
-                          }`}
-                        >
-                          <i className="bi bi-emoji-smile text-[11px]"></i>
-                        </button>
-
-                        {isReactionPickerOpen && (
-                          <div
-                            className={`absolute bottom-full mb-1.5 ${
-                              msg.fromMe ? 'right-0' : 'left-0'
-                            } flex items-center gap-0.5 bg-white border border-slate-200 rounded-full shadow-lg px-1.5 py-1 z-30 animate-in fade-in zoom-in-95 duration-100`}
+                    {(locationPreview || matchedCatalogItems.length > 0 || canReactToMsg) && (
+                      <div className="flex flex-col items-center gap-1.5 shrink-0">
+                        {locationPreview && (
+                          <button
+                            type="button"
+                            style={{ minHeight: 0, minWidth: 0 }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleApplyLocationToOrder(locationPreview, matchedSavedLoc)
+                            }}
+                            title={
+                              isLocationAppliedToOrder
+                                ? 'Ubicación agregada al pedido en curso'
+                                : 'Agregar esta ubicación al pedido en curso'
+                            }
+                            aria-label={
+                              isLocationAppliedToOrder
+                                ? 'Ubicación agregada al pedido en curso'
+                                : 'Agregar esta ubicación al pedido en curso'
+                            }
+                            className={`w-8 h-8 rounded-full border shadow-xs inline-flex items-center justify-center transition-all active:scale-95 cursor-pointer ${
+                              isLocationAppliedToOrder
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border-emerald-200'
+                            }`}
                           >
-                            {QUICK_REACTION_EMOJIS.map((em) => (
-                              <button
-                                key={em}
-                                type="button"
-                                style={{ minHeight: 0, minWidth: 0 }}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  void handleReactToMessage(msg, em)
-                                }}
-                                className={`w-7 h-7 rounded-full hover:bg-slate-100 hover:scale-110 transition-transform inline-flex items-center justify-center text-sm cursor-pointer ${
-                                  myReactionEmoji === em ? 'bg-emerald-50 ring-1 ring-emerald-300' : ''
-                                }`}
-                                title={myReactionEmoji === em ? 'Quitar reacción' : `Reaccionar con ${em}`}
+                            <i
+                              className={`bi ${
+                                isLocationAppliedToOrder ? 'bi-check-lg text-sm' : 'bi-cart-plus-fill text-xs'
+                              }`}
+                            ></i>
+                          </button>
+                        )}
+
+                        {matchedCatalogItems.length > 0 && (
+                          <button
+                            type="button"
+                            style={{ minHeight: 0, minWidth: 0 }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleApplyCatalogOrderToOrder(entry.key, matchedCatalogItems)
+                            }}
+                            title={catalogApplyTooltip}
+                            aria-label={catalogApplyTooltip}
+                            className={`w-8 h-8 rounded-full border shadow-xs inline-flex items-center justify-center transition-all active:scale-95 cursor-pointer ${
+                              isCatalogAppliedToOrder
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border-emerald-200'
+                            }`}
+                          >
+                            <i
+                              className={`bi ${
+                                isCatalogAppliedToOrder ? 'bi-check-lg text-sm' : 'bi-cart-plus-fill text-xs'
+                              }`}
+                            ></i>
+                          </button>
+                        )}
+
+                        {canReactToMsg && (
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              style={{ minHeight: 0, minWidth: 0 }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setOpenReactionMsgKey((prev) =>
+                                  prev === entry.key ? null : entry.key
+                                )
+                              }}
+                              title="Reaccionar"
+                              className={`w-6 h-6 rounded-full bg-white/90 hover:bg-slate-100 border border-slate-200/80 text-slate-400 hover:text-slate-700 shadow-2xs inline-flex items-center justify-center transition-opacity cursor-pointer ${
+                                isReactionPickerOpen
+                                  ? 'opacity-100'
+                                  : 'opacity-40 sm:opacity-0 sm:group-hover/msg:opacity-100'
+                              }`}
+                            >
+                              <i className="bi bi-emoji-smile text-[11px]"></i>
+                            </button>
+
+                            {isReactionPickerOpen && (
+                              <div
+                                className={`absolute bottom-full mb-1.5 ${
+                                  msg.fromMe ? 'right-0' : 'left-0'
+                                } flex items-center gap-0.5 bg-white border border-slate-200 rounded-full shadow-lg px-1.5 py-1 z-30 animate-in fade-in zoom-in-95 duration-100`}
                               >
-                                {em}
-                              </button>
-                            ))}
+                                {QUICK_REACTION_EMOJIS.map((em) => (
+                                  <button
+                                    key={em}
+                                    type="button"
+                                    style={{ minHeight: 0, minWidth: 0 }}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      void handleReactToMessage(msg, em)
+                                    }}
+                                    className={`w-7 h-7 rounded-full hover:bg-slate-100 hover:scale-110 transition-transform inline-flex items-center justify-center text-sm cursor-pointer ${
+                                      myReactionEmoji === em ? 'bg-emerald-50 ring-1 ring-emerald-300' : ''
+                                    }`}
+                                    title={myReactionEmoji === em ? 'Quitar reacción' : `Reaccionar con ${em}`}
+                                  >
+                                    {em}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
