@@ -104,6 +104,7 @@ export function usePersistedPreorderState({
 }: UsePersistedPreorderStateParams) {
   const baseKey = serializeState(baseState)
   const lastSyncedKeyRef = useRef<string>(baseKey)
+  const pendingRemoteKeyRef = useRef<string | null>(null)
   const pendingWriteRef = useRef<(() => void) | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const applyRef = useRef(applyState)
@@ -122,6 +123,7 @@ export function usePersistedPreorderState({
     }
     pendingWriteRef.current = null
     lastSyncedKeyRef.current = remoteKey
+    pendingRemoteKeyRef.current = remoteKey
     applyRef.current(JSON.parse(remoteKey) as PersistedPreorderState)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remoteKey])
@@ -129,6 +131,13 @@ export function usePersistedPreorderState({
   // Local → remoto (debounce)
   useEffect(() => {
     if (!businessId || !docId) return
+    // Evitar sobrescribir Firestore durante el render intermedio mientras React aplica un estado remoto
+    if (pendingRemoteKeyRef.current !== null) {
+      if (localKey === pendingRemoteKeyRef.current) {
+        pendingRemoteKeyRef.current = null
+      }
+      return
+    }
     if (localKey === lastSyncedKeyRef.current) return
 
     const write = () => {

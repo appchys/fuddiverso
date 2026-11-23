@@ -2393,7 +2393,22 @@ export function WhatsAppChatPreorderView({
                   Productos
                 </p>
                 {draftItems.length > 0 && (
-                  <span className="text-xs font-black text-gray-900">${draftSubtotal.toFixed(2)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-gray-900">${draftSubtotal.toFixed(2)}</span>
+                    <button
+                      type="button"
+                      style={{ minHeight: 0 }}
+                      onClick={() => {
+                        setDraftItems([])
+                        setAppliedCatalogMsgKeys({})
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-rose-50 text-rose-600 border border-rose-200/80 text-[10px] font-bold transition-colors cursor-pointer"
+                      title="Quitar todos los productos"
+                    >
+                      <i className="bi bi-x-circle"></i>
+                      Limpiar
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2487,10 +2502,28 @@ export function WhatsAppChatPreorderView({
 
           {activeTab === 'timing' && (
             <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-2.5 space-y-2 animate-in slide-in-from-bottom-2 duration-150">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
-                <i className="bi bi-clock-fill text-amber-500"></i>
-                Horario de entrega
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
+                  <i className="bi bi-clock-fill text-amber-500"></i>
+                  Horario de entrega
+                </p>
+                {timingType && (
+                  <button
+                    type="button"
+                    style={{ minHeight: 0 }}
+                    onClick={() => {
+                      setTimingType('')
+                      setScheduledTime('')
+                      setScheduledDate(getTodayDateString())
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-rose-50 text-rose-600 border border-rose-200/80 text-[10px] font-bold transition-colors cursor-pointer"
+                    title="Quitar horario seleccionado"
+                  >
+                    <i className="bi bi-x-circle"></i>
+                    Limpiar
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -2540,6 +2573,28 @@ export function WhatsAppChatPreorderView({
 
           {activeTab === 'delivery' && (
             <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-2.5 space-y-2 animate-in slide-in-from-bottom-2 duration-150">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
+                  <Motorbike className="w-3.5 h-3.5 text-emerald-600" strokeWidth={2.2} />
+                  Entrega
+                </p>
+                {(effectiveDeliveryType || primaryLocation || customLocationInput.trim()) && (
+                  <button
+                    type="button"
+                    style={{ minHeight: 0 }}
+                    onClick={() => {
+                      setDeliveryType('')
+                      setSelectedLocationId(null)
+                      setCustomLocationInput('')
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-rose-50 text-rose-600 border border-rose-200/80 text-[10px] font-bold transition-colors cursor-pointer"
+                    title="Quitar entrega seleccionada"
+                  >
+                    <i className="bi bi-x-circle"></i>
+                    Limpiar
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -2648,10 +2703,28 @@ export function WhatsAppChatPreorderView({
 
           {activeTab === 'payment' && (
             <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-2.5 space-y-2 animate-in slide-in-from-bottom-2 duration-150">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
-                <i className="bi bi-credit-card-fill text-emerald-600"></i>
-                Método de pago
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
+                  <i className="bi bi-credit-card-fill text-emerald-600"></i>
+                  Método de pago
+                </p>
+                {paymentMethod && (
+                  <button
+                    type="button"
+                    style={{ minHeight: 0 }}
+                    onClick={() => {
+                      setPaymentMethod('')
+                      setCashAmountInput('')
+                      setTransferAmountInput('')
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-rose-50 text-rose-600 border border-rose-200/80 text-[10px] font-bold transition-colors cursor-pointer"
+                    title="Quitar método de pago"
+                  >
+                    <i className="bi bi-x-circle"></i>
+                    Limpiar
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { key: 'cash' as const, label: 'Efectivo', icon: 'bi-cash-coin' },

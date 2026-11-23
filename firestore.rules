@@ -5,11 +5,11 @@ service cloud.firestore {
     function isBusinessMember(businessId) {
       let biz = get(/databases/$(database)/documents/businesses/$(businessId)).data;
       return request.auth != null && (
-        biz.ownerId == request.auth.uid ||
-        request.auth.token.businessId == businessId ||
-        (request.auth.token.email != null && (
-          biz.email == request.auth.token.email ||
-          (biz.adminEmails is list && request.auth.token.email in biz.adminEmails)
+        ('ownerId' in biz && biz.ownerId == request.auth.uid) ||
+        ('businessId' in request.auth.token && request.auth.token.businessId == businessId) ||
+        ('email' in request.auth.token && request.auth.token.email != null && (
+          ('email' in biz && biz.email == request.auth.token.email) ||
+          ('adminEmails' in biz && biz.adminEmails is list && request.auth.token.email in biz.adminEmails)
         ))
       );
     }
