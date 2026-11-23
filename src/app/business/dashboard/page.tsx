@@ -1239,6 +1239,8 @@ export default function TodayOrdersPage() {
     // Real-time orders listener
     // Sound notification ref
     const isFirstOrdersLoad = React.useRef(true)
+    const msgAudioCtxRef = React.useRef<AudioContext | null>(null)
+    const lastMsgSoundAtRef = React.useRef<number>(0)
 
     const playNotificationSound = () => {
         try {
@@ -1248,6 +1250,69 @@ export default function TodayOrdersPage() {
             console.error("Error playing sound:", e)
         }
     }
+
+    const playMessageNotificationSound = React.useCallback(() => {
+        const now = Date.now()
+        if (now - lastMsgSoundAtRef.current < 600) return
+        lastMsgSoundAtRef.current = now
+
+        try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+            if (AudioCtx) {
+                if (!msgAudioCtxRef.current || msgAudioCtxRef.current.state === 'closed') {
+                    msgAudioCtxRef.current = new AudioCtx()
+                }
+                const ctx = msgAudioCtxRef.current
+                if (ctx.state === 'suspended') {
+                    void ctx.resume()
+                }
+                const t0 = ctx.currentTime
+                // Dos notas suaves estilo mensaje de chat (Do6 -> Mi6)
+                const notes = [
+                    { freq: 1046.5, start: t0, duration: 0.11, peak: 0.18 },
+                    { freq: 1318.5, start: t0 + 0.085, duration: 0.16, peak: 0.22 },
+                ]
+                notes.forEach(({ freq, start, duration, peak }) => {
+                    const osc = ctx.createOscillator()
+                    const gain = ctx.createGain()
+                    osc.type = 'sine'
+                    osc.frequency.setValueAtTime(freq, start)
+                    gain.gain.setValueAtTime(0.0001, start)
+                    gain.gain.exponentialRampToValueAtTime(peak, start + 0.015)
+                    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration)
+                    osc.connect(gain)
+                    gain.connect(ctx.destination)
+                    osc.start(start)
+                    osc.stop(start + duration + 0.02)
+                })
+                return
+            }
+        } catch {
+            // Fallback al audio mp3 si Web Audio API falla
+        }
+        try {
+            const audio = new Audio('/notification-sound.mp3')
+            audio.volume = 0.65
+            audio.play().catch(() => {})
+        } catch {
+            // Ignorar bloqueo de autoplay
+        }
+    }, [])
+
+    // Desbloquear AudioContext tras la primera interacción del usuario en el navegador
+    useEffect(() => {
+        const unlock = () => {
+            if (msgAudioCtxRef.current && msgAudioCtxRef.current.state === 'suspended') {
+                void msgAudioCtxRef.current.resume()
+            }
+        }
+        window.addEventListener('pointerdown', unlock, { passive: true })
+        window.addEventListener('keydown', unlock, { passive: true })
+        return () => {
+            window.removeEventListener('pointerdown', unlock)
+            window.removeEventListener('keydown', unlock)
+        }
+    }, [])
 
     useEffect(() => {
         if (!businessId) return
@@ -2011,6 +2076,8 @@ export default function TodayOrdersPage() {
             setWhatsappPendingConversations([])
             return
         }
+        let isFirstWhatsAppSnapshot = true
+        const prevConvMeta = new Map<string, { unreadCount: number; lastIncomingTs: number }>()
         const q = query(
             collection(db, 'businesses', bizId, 'whatsappPending'),
             orderBy('timestampMillis', 'desc'),
@@ -2018,6 +2085,7 @@ export default function TodayOrdersPage() {
         )
         const unsub = onSnapshot(q, (snap) => {
             const toRevive: Array<{ docId: string; timestampMillis: number }> = []
+            let hasNewIncomingMessage = false
             const list: PendingWhatsAppConversation[] = snap.docs.map((d) => {
                 const data = d.data() || {}
                 const timestampMillis = typeof data.timestampMillis === 'number' ? data.timestampMillis : Date.now()
@@ -2066,6 +2134,49 @@ export default function TodayOrdersPage() {
                     preorderState: data.preorderState && typeof data.preorderState === 'object' ? data.preorderState : null
                 }
             })
+
+            // Detectar si llegó un mensaje nuevo del cliente después de la carga inicial
+            const nowMs = Date.now()
+            list.forEach((conv) => {
+                const hist = Array.isArray(conv.chatHistory) ? conv.chatHistory : []
+                let lastIncomingTs = 0
+                for (let i = hist.length - 1; i >= 0; i--) {
+                    const m = hist[i]
+                    if (m && !m.fromMe) {
+                        lastIncomingTs = typeof m.timestampMillis === 'number' ? m.timestampMillis : conv.timestampMillis || 0
+                        break
+                    }
+                }
+                if (lastIncomingTs === 0 && hist.length === 0 && (conv.unreadCount || 0) > 0) {
+                    lastIncomingTs = conv.timestampMillis || 0
+                }
+                const currentUnread = typeof conv.unreadCount === 'number' ? conv.unreadCount : 0
+                const prev = prevConvMeta.get(conv.docId)
+
+                if (!isFirstWhatsAppSnapshot && !snap.metadata.fromCache) {
+                    if (!prev) {
+                        if (
+                            (currentUnread > 0 || lastIncomingTs > 0) &&
+                            (conv.timestampMillis || 0) > nowMs - 60_000
+                        ) {
+                            hasNewIncomingMessage = true
+                        }
+                    } else if (
+                        currentUnread > prev.unreadCount ||
+                        (lastIncomingTs > prev.lastIncomingTs && lastIncomingTs > nowMs - 60_000)
+                    ) {
+                        hasNewIncomingMessage = true
+                    }
+                }
+                prevConvMeta.set(conv.docId, { unreadCount: currentUnread, lastIncomingTs })
+            })
+
+            if (isFirstWhatsAppSnapshot && !snap.metadata.fromCache) {
+                isFirstWhatsAppSnapshot = false
+            } else if (hasNewIncomingMessage) {
+                playMessageNotificationSound()
+            }
+
             setWhatsappPendingConversations(list)
 
             // Persistir la reactivación (solo desde el servidor para evitar escrituras con caché obsoleta)
