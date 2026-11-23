@@ -7,7 +7,7 @@ import type {
 } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import QRCode from 'qrcode'
-import { ensureAdminDb } from '@/lib/firebase-admin'
+import { ensureAdminDb, uploadWhatsAppMediaToStorage } from '@/lib/firebase-admin'
 
 type BaileysModule = typeof import('@whiskeysockets/baileys')
 
@@ -133,10 +133,44 @@ function extractLocationLinkFromText(text: string): string | null {
   return null
 }
 
-function extractMessageContent(msg: proto.IWebMessageInfo): {
+function parseVcardSummary(displayName?: string | null, vcard?: string | null): string {
+  const rawVcard = String(vcard || '')
+  let name = String(displayName || '').trim()
+  if (!name) {
+    const fnMatch = rawVcard.match(/^FN[;:](.+)$/im)
+    if (fnMatch?.[1]) {
+      name = fnMatch[1].trim()
+    }
+  }
+  const phones: string[] = []
+  const telRegex = /TEL[^:]*:([+\d\s\-()]+)/gi
+  let match: RegExpExecArray | null
+  while ((match = telRegex.exec(rawVcard)) !== null) {
+    const rawNum = match[1].trim()
+    const norm = normalizeEcuadorPhone(rawNum) || rawNum
+    if (norm && !phones.includes(norm)) {
+      phones.push(norm)
+    }
+  }
+  const label = name || 'Contacto'
+  return phones.length > 0
+    ? `👤 Contacto: ${label} — ${phones.join(', ')}`
+    : `👤 Contacto: ${label}`
+}
+
+interface ExtractedRichContent {
   text: string
   locationLink: string | null
-} {
+  mediaUrl?: string | null
+  mediaType?: 'image' | 'document' | 'audio' | 'order' | 'contact' | 'location' | null
+  fileName?: string | null
+}
+
+async function extractRichMessageContent(
+  session: ManagedSession,
+  msg: proto.IWebMessageInfo,
+  logger: any
+): Promise<ExtractedRichContent> {
   const m = msg.message
   if (!m) return { text: '', locationLink: null }
 
@@ -144,16 +178,18 @@ function extractMessageContent(msg: proto.IWebMessageInfo): {
     m.ephemeralMessage?.message ||
     m.viewOnceMessage?.message ||
     m.viewOnceMessageV2?.message ||
+    m.viewOnceMessageV2Extension?.message ||
     m.documentWithCaptionMessage?.message ||
     m
 
+  // 1. Ubicaciones (fijas o en tiempo real)
   if (inner.locationMessage) {
     const lat = inner.locationMessage.degreesLatitude
     const lng = inner.locationMessage.degreesLongitude
     if (typeof lat === 'number' && typeof lng === 'number') {
       const link = `https://www.google.com/maps?q=${lat},${lng}`
       const label = inner.locationMessage.name || inner.locationMessage.address || 'Ubicación enviada'
-      return { text: `📍 ${label}: ${link}`, locationLink: link }
+      return { text: `📍 ${label}: ${link}`, locationLink: link, mediaType: 'location' }
     }
   }
 
@@ -163,17 +199,253 @@ function extractMessageContent(msg: proto.IWebMessageInfo): {
     if (typeof lat === 'number' && typeof lng === 'number') {
       const link = `https://www.google.com/maps?q=${lat},${lng}`
       const caption = inner.liveLocationMessage.caption || 'Ubicación en tiempo real'
-      return { text: `📍 ${caption}: ${link}`, locationLink: link }
+      return { text: `📍 ${caption}: ${link}`, locationLink: link, mediaType: 'location' }
     }
   }
 
+  // 2. Contactos (individual o lista de contactos)
+  if (inner.contactMessage) {
+    const summary = parseVcardSummary(
+      inner.contactMessage.displayName,
+      inner.contactMessage.vcard
+    )
+    return { text: summary, locationLink: null, mediaType: 'contact' }
+  }
+
+  if (inner.contactsArrayMessage?.contacts?.length) {
+    const lines = inner.contactsArrayMessage.contacts.map((c) =>
+      parseVcardSummary(c.displayName, c.vcard)
+    )
+    return { text: lines.join('\n'), locationLink: null, mediaType: 'contact' }
+  }
+
+  // 3. Pedidos del catálogo de WhatsApp Business (orderMessage) y consultas de productos (productMessage)
+  if (inner.orderMessage) {
+    const orderMsg = inner.orderMessage
+    const orderId = String(orderMsg.orderId || '').trim()
+    const token = String(orderMsg.token || '').trim()
+    const itemCount = Number(orderMsg.itemCount || 0)
+    const rawTotal1000 = Number(orderMsg.totalAmount1000 || 0)
+    const fallbackTotal = rawTotal1000 > 0 ? rawTotal1000 / 1000 : null
+    const note = String(orderMsg.message || '').trim()
+
+    let detailLines: string[] = []
+    let detailTotal: number | null = fallbackTotal
+    let thumbUrl: string | null = null
+
+    if (orderMsg.thumbnail && orderMsg.thumbnail.length > 0) {
+      thumbUrl = `data:image/jpeg;base64,${Buffer.from(orderMsg.thumbnail).toString('base64')}`
+    }
+
+    if (orderId && token && session.socket && typeof session.socket.getOrderDetails === 'function') {
+      try {
+        const details = await session.socket.getOrderDetails(orderId, token)
+        if (details?.products?.length) {
+          detailLines = details.products.map((p: any) => {
+            const qty = Number(p.quantity || 1)
+            const unitPrice = Number(p.price || 0) > 0 ? Number(p.price) / 1000 : null
+            return `• ${qty}x ${p.name || 'Producto'}${
+              unitPrice !== null ? ` ($${unitPrice.toFixed(2)})` : ''
+            }`
+          })
+        }
+        if (typeof details?.price?.total === 'number' && details.price.total > 0) {
+          detailTotal = details.price.total / 1000
+        }
+      } catch (err) {
+        console.warn('[Baileys] No se pudo obtener getOrderDetails del catálogo:', err)
+      }
+    }
+
+    const parts: string[] = [
+      `🛒 Pedido del catálogo de WhatsApp${itemCount > 0 ? ` (${itemCount} ítem${itemCount === 1 ? '' : 's'})` : ''}:`,
+    ]
+    if (detailLines.length > 0) {
+      parts.push(...detailLines)
+    } else if (orderMsg.orderTitle) {
+      parts.push(`• ${orderMsg.orderTitle}`)
+    }
+    if (detailTotal !== null) {
+      parts.push(`Total catálogo: $${detailTotal.toFixed(2)}`)
+    }
+    if (note) {
+      parts.push(`Nota: ${note}`)
+    }
+
+    return {
+      text: parts.join('\n'),
+      locationLink: null,
+      mediaType: 'order',
+      mediaUrl: thumbUrl,
+    }
+  }
+
+  if (inner.productMessage?.product) {
+    const prod = inner.productMessage.product
+    const title = String(prod.title || 'Producto del catálogo').trim()
+    const rawPrice1000 = Number(prod.priceAmount1000 || 0)
+    const price = rawPrice1000 > 0 ? rawPrice1000 / 1000 : null
+    const body = String(inner.productMessage.body || prod.description || '').trim()
+    const summary = `🏷️ Producto del catálogo: ${title}${
+      price !== null ? ` ($${price.toFixed(2)})` : ''
+    }${body ? `\n${body}` : ''}`
+    return {
+      text: summary,
+      locationLink: null,
+      mediaType: 'order',
+    }
+  }
+
+  // 4. Imágenes (ej. comprobantes de transferencia bancaria, fotos de productos/referencias)
+  if (inner.imageMessage) {
+    const imgMsg = inner.imageMessage
+    const caption = String(imgMsg.caption || '').trim()
+    const msgId = msg.key?.id || `img_${Date.now()}`
+    let mediaUrl: string | null = null
+
+    try {
+      const { downloadMediaMessage } = await loadBaileys()
+      const buffer = (await downloadMediaMessage(
+        msg as any,
+        'buffer',
+        {},
+        {
+          logger,
+          reuploadRequest: session.socket
+            ? session.socket.updateMediaMessage
+            : (async (m: any) => m),
+        }
+      )) as Buffer
+      if (buffer && buffer.length > 0) {
+        mediaUrl = await uploadWhatsAppMediaToStorage({
+          businessId: session.businessId,
+          fileName: `${msgId}.jpg`,
+          buffer,
+          contentType: imgMsg.mimetype || 'image/jpeg',
+        })
+      }
+    } catch (err) {
+      console.warn('[Baileys] Error descargando imagen, usando miniatura de respaldo:', err)
+    }
+
+    if (!mediaUrl && imgMsg.jpegThumbnail && imgMsg.jpegThumbnail.length > 0) {
+      mediaUrl = `data:image/jpeg;base64,${Buffer.from(imgMsg.jpegThumbnail).toString('base64')}`
+    }
+
+    const text = caption ? `📷 ${caption}` : '📷 Imagen enviada'
+    return {
+      text,
+      locationLink: caption ? extractLocationLinkFromText(caption) : null,
+      mediaUrl,
+      mediaType: 'image',
+    }
+  }
+
+  // 5. Documentos / PDFs (ej. comprobantes de transferencia en PDF)
+  if (inner.documentMessage) {
+    const docMsg = inner.documentMessage
+    const fileName = String(docMsg.fileName || docMsg.title || 'Documento').trim()
+    const caption = String(docMsg.caption || '').trim()
+    const msgId = msg.key?.id || `doc_${Date.now()}`
+    let mediaUrl: string | null = null
+
+    try {
+      const { downloadMediaMessage } = await loadBaileys()
+      const buffer = (await downloadMediaMessage(
+        msg as any,
+        'buffer',
+        {},
+        {
+          logger,
+          reuploadRequest: session.socket
+            ? session.socket.updateMediaMessage
+            : (async (m: any) => m),
+        }
+      )) as Buffer
+      if (buffer && buffer.length > 0) {
+        mediaUrl = await uploadWhatsAppMediaToStorage({
+          businessId: session.businessId,
+          fileName: `${msgId}_${fileName}`,
+          buffer,
+          contentType: docMsg.mimetype || 'application/octet-stream',
+        })
+      }
+    } catch (err) {
+      console.warn('[Baileys] Error descargando documento:', err)
+    }
+
+    const text = `📄 ${fileName}${caption ? ` — ${caption}` : ''}`
+    return {
+      text,
+      locationLink: null,
+      mediaUrl,
+      mediaType: 'document',
+      fileName,
+    }
+  }
+
+  // 6. Notas de voz / Audios
+  if (inner.audioMessage) {
+    const secs = Number(inner.audioMessage.seconds || 0)
+    const msgId = msg.key?.id || `aud_${Date.now()}`
+    let mediaUrl: string | null = null
+
+    try {
+      const { downloadMediaMessage } = await loadBaileys()
+      const buffer = (await downloadMediaMessage(
+        msg as any,
+        'buffer',
+        {},
+        {
+          logger,
+          reuploadRequest: session.socket
+            ? session.socket.updateMediaMessage
+            : (async (m: any) => m),
+        }
+      )) as Buffer
+      if (buffer && buffer.length > 0) {
+        mediaUrl = await uploadWhatsAppMediaToStorage({
+          businessId: session.businessId,
+          fileName: `${msgId}.ogg`,
+          buffer,
+          contentType: inner.audioMessage.mimetype || 'audio/ogg',
+        })
+      }
+    } catch {
+      // Ignorar fallo en audio
+    }
+
+    return {
+      text: `🎤 Nota de voz${secs > 0 ? ` (${secs}s)` : ''}`,
+      locationLink: null,
+      mediaUrl,
+      mediaType: 'audio',
+    }
+  }
+
+  // 7. Videos y Stickers
+  if (inner.videoMessage) {
+    const caption = String(inner.videoMessage.caption || '').trim()
+    return {
+      text: caption ? `🎥 ${caption}` : '🎥 Video enviado',
+      locationLink: caption ? extractLocationLinkFromText(caption) : null,
+    }
+  }
+
+  if (inner.stickerMessage) {
+    return {
+      text: '💟 Envió un sticker.',
+      locationLink: null,
+    }
+  }
+
+  // 8. Texto normal y respuestas a botones/listas
   const text = (
     inner.conversation ||
     inner.extendedTextMessage?.text ||
-    inner.imageMessage?.caption ||
-    inner.videoMessage?.caption ||
     inner.buttonsResponseMessage?.selectedDisplayText ||
     inner.listResponseMessage?.title ||
+    inner.templateButtonReplyMessage?.selectedDisplayText ||
     ''
   ).trim()
 
@@ -847,7 +1119,8 @@ class WhatsAppBaileysManager {
     if (normPhone.length < 9) return
     if (session.excludedPhones.has(normPhone)) return
 
-    const { text, locationLink } = extractMessageContent(msg)
+    const { text, locationLink, mediaUrl, mediaType, fileName } =
+      await extractRichMessageContent(session, msg, this.logger)
     if (!text) return
 
     const msgId = msg.key?.id || `msg_${Date.now()}`
@@ -932,6 +1205,9 @@ class WhatsAppBaileysManager {
           timestampMillis: msgMillis,
           fromMe: true,
           source: 'whatsapp',
+          ...(mediaUrl ? { mediaUrl } : {}),
+          ...(mediaType ? { mediaType } : {}),
+          ...(fileName ? { fileName } : {}),
         },
       ].slice(-MAX_CHAT_HISTORY)
       await docRef.set(
@@ -1003,6 +1279,9 @@ class WhatsAppBaileysManager {
         timestampMillis: Math.max(nowMillis, msgMillis),
         fromMe: false,
         source: 'baileys',
+        ...(mediaUrl ? { mediaUrl } : {}),
+        ...(mediaType ? { mediaType } : {}),
+        ...(fileName ? { fileName } : {}),
       },
     ].slice(-MAX_CHAT_HISTORY)
 

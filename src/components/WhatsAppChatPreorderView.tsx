@@ -906,9 +906,45 @@ export function WhatsAppChatPreorderView({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => handlePasteMessageToActiveField(msg.text)}
                     title="Toca para pegar en el campo activo"
-                    className="max-w-[88%] text-left bg-white hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-300 rounded-xl px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words transition-colors cursor-pointer shadow-2xs"
+                    className="max-w-[88%] text-left bg-white hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-300 rounded-xl px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words transition-colors cursor-pointer shadow-2xs space-y-1.5"
                   >
-                    {msg.text}
+                    {msg.mediaUrl && (msg.mediaType === 'image' || msg.mediaType === 'order') && (
+                      <a
+                        href={msg.mediaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-100 max-w-[240px]"
+                        title="Clic para abrir imagen en tamaño completo"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={msg.mediaUrl}
+                          alt={msg.text || 'Imagen recibida'}
+                          className="w-full max-h-56 object-cover"
+                        />
+                      </a>
+                    )}
+                    {msg.mediaUrl && msg.mediaType === 'document' && (
+                      <a
+                        href={msg.mediaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-xs"
+                      >
+                        <i className="bi bi-file-earmark-arrow-down-fill"></i>
+                        <span className="truncate max-w-[200px]">
+                          {msg.fileName || 'Abrir documento'}
+                        </span>
+                      </a>
+                    )}
+                    {msg.mediaUrl && msg.mediaType === 'audio' && (
+                      <div onClick={(e) => e.stopPropagation()} className="pt-0.5">
+                        <audio controls src={msg.mediaUrl} className="h-8 max-w-[230px]" />
+                      </div>
+                    )}
+                    <span className="block">{msg.text}</span>
                   </button>
                 )
               )

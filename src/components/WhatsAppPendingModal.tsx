@@ -40,6 +40,9 @@ export interface PendingWhatsAppConversation {
     timestampMillis: number
     fromMe: boolean
     source?: string
+    mediaUrl?: string
+    mediaType?: 'image' | 'document' | 'audio' | 'order' | 'contact' | 'location'
+    fileName?: string
   }>
   canReplyDirectly?: boolean
   pendingReply?: {

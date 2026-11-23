@@ -1,8 +1,12 @@
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app'
 import { getAuth, Auth } from 'firebase-admin/auth'
 import { getFirestore, Firestore } from 'firebase-admin/firestore'
+import { getStorage } from 'firebase-admin/storage'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as crypto from 'crypto'
+
+const STORAGE_BUCKET_NAME = 'multitienda-69778.firebasestorage.app'
 
 let adminDb: Firestore | null = null
 let adminAuth: Auth | null = null
@@ -80,4 +84,38 @@ export function ensureAdminAuth(): Auth | null {
 
   adminAuth = getAuth(app)
   return adminAuth
+}
+
+export async function uploadWhatsAppMediaToStorage(params: {
+  businessId: string
+  fileName: string
+  buffer: Buffer
+  contentType: string
+}): Promise<string | null> {
+  try {
+    const app = ensureAdminApp()
+    if (!app) return null
+    const bucket = getStorage(app).bucket(STORAGE_BUCKET_NAME)
+    const safeBiz = params.businessId.replace(/[^a-zA-Z0-9_-]/g, '_')
+    const safeName = params.fileName.replace(/[^a-zA-Z0-9_.-]/g, '_')
+    const objectPath = `whatsapp_media/${safeBiz}/${Date.now()}_${safeName}`
+    const token = crypto.randomUUID()
+    const file = bucket.file(objectPath)
+    await file.save(params.buffer, {
+      resumable: false,
+      contentType: params.contentType,
+      metadata: {
+        cacheControl: 'public, max-age=31536000',
+        metadata: {
+          firebaseStorageDownloadTokens: token,
+        },
+      },
+    })
+    return `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET_NAME}/o/${encodeURIComponent(
+      objectPath
+    )}?alt=media&token=${token}`
+  } catch (err) {
+    console.warn('[Firebase Admin Storage] Error subiendo media de WhatsApp:', err)
+    return null
+  }
 }
