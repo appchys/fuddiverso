@@ -249,7 +249,7 @@ function getTodayDateString(): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
-const SAVED_LOCATION_MATCH_RADIUS_METERS = 80
+const SAVED_LOCATION_MATCH_RADIUS_METERS = 25
 
 function findMatchingSavedLocation(
   lat: number,
