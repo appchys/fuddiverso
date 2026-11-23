@@ -1185,62 +1185,17 @@ function WhatsAppConversationCard({
         transferAmount: paymentMethod === 'mixed' ? parsedTransferAmount : undefined,
     });
 
-    const stepIndicators: Array<{
-        key: PreorderTabKey;
-        completed: boolean;
-        completedClass: string;
-        icon: React.ReactNode;
-        title: string;
-    }> = [
-        {
-            key: 'products',
-            completed: isProductsComplete,
-            completedClass: 'bg-emerald-100 text-emerald-600',
-            icon: <i className="bi bi-bag-fill"></i>,
-            title: isProductsComplete
-                ? `${draftItems.reduce((s, i) => s + i.quantity, 0)} producto(s) agregado(s)`
-                : 'Agregar productos',
-        },
-        {
-            key: 'timing',
-            completed: isTimingComplete,
-            completedClass: isImmediateTiming
-                ? 'bg-amber-100 text-amber-500'
-                : 'bg-emerald-100 text-emerald-600',
-            icon: <i className={`bi ${isImmediateTiming ? 'bi-lightning-charge-fill' : 'bi-clock-fill'}`}></i>,
-            title: isTimingComplete
-                ? timingType === 'scheduled'
-                    ? `Programado: ${scheduledDate} ${scheduledTime}`
-                    : 'Entrega inmediata'
-                : 'Elegir horario',
-        },
-        {
-            key: 'delivery',
-            completed: isDeliveryComplete,
-            completedClass: 'bg-emerald-100 text-emerald-600',
-            icon: isPickup ? <i className="bi bi-shop"></i> : <Motorbike className="w-3.5 h-3.5" strokeWidth={2.2} />,
-            title: isPickup
-                ? 'Recoger en tienda'
-                : primaryLocation
-                    ? `Dirección: ${primaryLocation.referencia || primaryLocation.sector || 'Guardada'}`
-                    : customLocationInput.trim()
-                        ? 'Ubicación ingresada'
-                        : 'Elegir dirección o recoger en tienda',
-        },
-        {
-            key: 'payment',
-            completed: isPaymentComplete,
-            completedClass: 'bg-emerald-100 text-emerald-600',
-            icon: <i className={`bi ${paymentMethod === 'cash' ? 'bi-cash-coin' : 'bi-credit-card-fill'}`}></i>,
-            title: isPaymentComplete
-                ? paymentMethod === 'cash'
-                    ? 'Pago en efectivo'
-                    : paymentMethod === 'transfer'
-                        ? 'Pago por transferencia'
-                        : 'Pago mixto'
-                : 'Elegir método de pago',
-        },
-    ];
+    const completedStepsCount = [
+        isProductsComplete,
+        isTimingComplete,
+        isDeliveryComplete,
+        isPaymentComplete,
+    ].filter(Boolean).length;
+    const progressRatio = completedStepsCount / 4;
+    const ringRadius = 19;
+    const ringCircumference = 2 * Math.PI * ringRadius;
+    const ringStrokeDashoffset = ringCircumference * (1 - progressRatio);
+    const completedStepsTooltip = `Crear pedido (${completedStepsCount}/4 pasos completados)`;
 
     return (
         <div className="bg-white rounded-xl shadow-xs border border-gray-200/90 overflow-hidden transition-all hover:border-green-300 hover:shadow-sm">
@@ -1377,8 +1332,8 @@ function WhatsAppConversationCard({
                     )}
                 </div>
 
-                {/* Second row: Last 3 messages left + icons & compact action buttons right */}
-                <div className="flex items-start justify-between gap-2.5">
+                {/* Second row: Last 3 messages left + circular create-order button with progress ring right */}
+                <div className="flex items-center justify-between gap-2.5">
                     <div className="flex-1 min-w-0 space-y-0.5">
                         {messages.slice(-3).map((msg, idx) => (
                             <p key={idx} className="text-[11px] leading-snug text-gray-600 line-clamp-1">
@@ -1386,75 +1341,72 @@ function WhatsAppConversationCard({
                             </p>
                         ))}
                     </div>
-                    <div className="shrink-0 flex flex-col items-end gap-1.5">
-                        <div className="flex items-center gap-1.5">
-                            <div className="flex items-center gap-1.5">
-                                {stepIndicators.map(step => {
-                                    const isActive = isExpanded && activeTab === step.key;
-                                    return (
-                                        <button
-                                            key={step.key}
-                                            type="button"
-                                            title={step.title}
-                                            style={{ minHeight: 0, minWidth: 0 }}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (onOpenChatView) {
-                                                    onOpenChatView(enrichedConversation, step.key, resolvedProfile, activeOrder);
-                                                } else {
-                                                    setActiveTab(step.key);
-                                                    setIsExpanded(true);
-                                                }
-                                            }}
-                                            className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
-                                                step.completed
-                                                    ? step.completedClass
-                                                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
-                                            } ${isActive ? 'ring-2 ring-blue-500/80 ring-offset-1' : 'hover:ring-2 hover:ring-gray-300'}`}
-                                        >
-                                            {step.icon}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <span className="text-gray-400 text-xs flex items-center pl-0.5 font-medium">
-                                <i className={`bi ${onOpenChatView ? 'bi-chevron-right' : `bi-chevron-${isExpanded ? 'up' : 'down'}`} transition-transform duration-200`}></i>
-                            </span>
-                        </div>
-
-                        {!isExpanded && (
-                            <div className="flex items-center justify-end gap-1.5">
-                                {onClose && (
-                                    <button
-                                        type="button"
-                                        style={{ minHeight: 0 }}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onClose(conversation.docId);
-                                        }}
-                                        className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-white hover:bg-gray-100 active:scale-95 text-gray-600 border border-gray-200 text-[11px] font-bold px-2.5 rounded-lg transition-all shrink-0 whitespace-nowrap"
-                                        title="Archivar conversación"
-                                    >
-                                        <i className="bi bi-archive text-xs"></i>
-                                        <span>Archivar</span>
-                                    </button>
-                                )}
-                                {onSelect && (
-                                    <button
-                                        type="button"
-                                        style={{ minHeight: 0 }}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onSelect(enrichedConversation, buildDraft());
-                                        }}
-                                        className="h-7 min-h-0 inline-flex items-center justify-center gap-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white text-[11px] font-bold px-2.5 rounded-lg transition-all shadow-xs shrink-0 whitespace-nowrap"
-                                        title="Completar preorden en formulario de orden manual"
-                                    >
-                                        <i className="bi bi-cart-plus-fill text-[11px]"></i>
-                                        <span>Crear pedido</span>
-                                    </button>
-                                )}
-                            </div>
+                    <div className="shrink-0 flex items-center gap-2">
+                        {!isExpanded && onClose && (
+                            <button
+                                type="button"
+                                style={{ minHeight: 0, minWidth: 0 }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose(conversation.docId);
+                                }}
+                                className="w-8 h-8 min-h-0 min-w-0 p-0 inline-flex items-center justify-center bg-gray-50 hover:bg-gray-100 active:scale-95 text-gray-500 hover:text-gray-700 border border-gray-200/90 rounded-full transition-all shrink-0 cursor-pointer"
+                                title="Archivar conversación"
+                                aria-label="Archivar conversación"
+                            >
+                                <i className="bi bi-archive text-xs"></i>
+                            </button>
+                        )}
+                        {onSelect && (
+                            <button
+                                type="button"
+                                style={{ minHeight: 0, minWidth: 0 }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelect(enrichedConversation, buildDraft());
+                                }}
+                                title={completedStepsTooltip}
+                                aria-label={completedStepsTooltip}
+                                className="relative w-11 h-11 min-h-0 min-w-0 p-0 inline-flex items-center justify-center rounded-full shrink-0 cursor-pointer group active:scale-95 transition-transform"
+                            >
+                                <svg
+                                    viewBox="0 0 44 44"
+                                    className="w-11 h-11 -rotate-90 pointer-events-none"
+                                    aria-hidden="true"
+                                >
+                                    <circle
+                                        cx="22"
+                                        cy="22"
+                                        r={ringRadius}
+                                        fill="none"
+                                        stroke="#e5e7eb"
+                                        strokeWidth="3.2"
+                                    />
+                                    {completedStepsCount > 0 && (
+                                        <circle
+                                            cx="22"
+                                            cy="22"
+                                            r={ringRadius}
+                                            fill="none"
+                                            stroke={completedStepsCount === 4 ? '#059669' : '#10b981'}
+                                            strokeWidth="3.2"
+                                            strokeLinecap="round"
+                                            strokeDasharray={ringCircumference}
+                                            strokeDashoffset={ringStrokeDashoffset}
+                                            className="transition-all duration-300"
+                                        />
+                                    )}
+                                </svg>
+                                <span
+                                    className={`absolute inset-[5px] rounded-full inline-flex items-center justify-center text-white shadow-xs transition-colors ${
+                                        completedStepsCount === 4
+                                            ? 'bg-emerald-600 group-hover:bg-emerald-700'
+                                            : 'bg-rose-600 group-hover:bg-rose-700'
+                                    }`}
+                                >
+                                    <i className="bi bi-cart-plus-fill text-sm"></i>
+                                </span>
+                            </button>
                         )}
                     </div>
                 </div>
