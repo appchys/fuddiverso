@@ -51,9 +51,25 @@ interface ManagedSession {
 const MAX_RECENT_MESSAGES = 8
 const MAX_CHAT_HISTORY = 24
 
+export function isWhatsAppLidDigits(raw?: string | null): boolean {
+  const digits = String(raw || '').replace(/\D/g, '')
+  return (
+    digits.length >= 13 &&
+    !digits.startsWith('593') &&
+    !digits.startsWith('00593')
+  )
+}
+
 export function normalizeEcuadorPhone(raw?: string | null): string {
   if (!raw) return ''
-  let digits = String(raw).replace(/\D/g, '')
+  const trimmed = String(raw).trim()
+  if (trimmed.endsWith('@lid')) {
+    return trimmed.split('@')[0].replace(/\D/g, '')
+  }
+  let digits = trimmed.replace(/\D/g, '')
+  if (isWhatsAppLidDigits(digits)) {
+    return digits
+  }
   if (digits.startsWith('00593')) {
     digits = digits.slice(5)
   } else if (digits.startsWith('593') && digits.length >= 11) {
@@ -70,6 +86,9 @@ export function normalizeEcuadorPhone(raw?: string | null): string {
 export function ecuadorPhoneToIntlDigits(rawPhone: string): string | null {
   const digits = String(rawPhone || '').replace(/\D/g, '')
   if (digits.length < 9) return null
+  if (digits.startsWith('00593') && digits.length >= 14) {
+    return `593${digits.slice(5)}`
+  }
   if (digits.length === 10 && digits.startsWith('09')) {
     return `593${digits.slice(1)}`
   }
@@ -79,8 +98,28 @@ export function ecuadorPhoneToIntlDigits(rawPhone: string): string | null {
   return digits
 }
 
-export function ecuadorPhoneToJid(rawPhone: string): string | null {
-  const intl = ecuadorPhoneToIntlDigits(rawPhone)
+export function ecuadorPhoneToJid(
+  rawPhoneOrJid: string,
+  explicitWhatsappJid?: string | null
+): string | null {
+  const cleanExplicit = String(explicitWhatsappJid || '').trim()
+  if (
+    cleanExplicit &&
+    (cleanExplicit.endsWith('@s.whatsapp.net') || cleanExplicit.endsWith('@lid'))
+  ) {
+    return cleanExplicit
+  }
+  const cleanInput = String(rawPhoneOrJid || '').trim()
+  if (cleanInput.endsWith('@s.whatsapp.net') || cleanInput.endsWith('@lid')) {
+    return cleanInput
+  }
+  const digits = cleanInput.replace(/\D/g, '')
+  if (digits.length < 9) return null
+  // Si es un identificador LID de WhatsApp Business (13-16 dígitos que no son teléfono 593)
+  if (isWhatsAppLidDigits(digits)) {
+    return `${digits}@lid`
+  }
+  const intl = ecuadorPhoneToIntlDigits(digits)
   return intl ? `${intl}@s.whatsapp.net` : null
 }
 
@@ -796,12 +835,15 @@ class WhatsAppBaileysManager {
       return
     }
 
-    const altParticipant = (msg.key as any)?.senderPn || msg.participant || ''
+    const isLid = remoteJid.endsWith('@lid')
+    const altParticipant = (msg.key as any)?.senderPn || (msg as any)?.senderPn || msg.participant || ''
     const phoneSource = remoteJid.endsWith('@s.whatsapp.net')
       ? remoteJid.split('@')[0]
-      : altParticipant.split('@')[0] || remoteJid.split('@')[0]
+      : altParticipant.includes('@s.whatsapp.net')
+        ? altParticipant.split('@')[0]
+        : remoteJid.split('@')[0]
 
-    const normPhone = normalizeEcuadorPhone(phoneSource)
+    let normPhone = normalizeEcuadorPhone(phoneSource)
     if (normPhone.length < 9) return
     if (session.excludedPhones.has(normPhone)) return
 
@@ -818,16 +860,55 @@ class WhatsAppBaileysManager {
     const db = ensureAdminDb()
     if (!db) return
 
-    const convId = `phone:${normPhone}`
-    const docId = `phone_${normPhone}`
-    const docRef = db
+    const colRef = db
       .collection('businesses')
       .doc(session.businessId)
       .collection('whatsappPending')
-      .doc(docId)
 
-    const existingSnap = await docRef.get()
-    const existing = existingSnap.exists ? existingSnap.data() || {} : null
+    const pushName = String(msg.pushName || '').trim()
+
+    // Resolver el documento existente en whatsappPending (unificando con el formato phone:09... de Android o con whatsappJid)
+    let docId = `phone:${normPhone}`
+    let existing: Record<string, any> | null = null
+
+    const colonSnap = await colRef.doc(`phone:${normPhone}`).get()
+    if (colonSnap.exists) {
+      docId = colonSnap.id
+      existing = colonSnap.data() || {}
+    } else {
+      const underscoreSnap = await colRef.doc(`phone_${normPhone}`).get()
+      if (underscoreSnap.exists) {
+        docId = underscoreSnap.id
+        existing = underscoreSnap.data() || {}
+      } else if (isLid) {
+        // Si entró con @lid, buscar si ya existe una conversación por whatsappJid o con el mismo nombre de contacto en Android
+        const recentSnap = await colRef.orderBy('timestampMillis', 'desc').limit(30).get()
+        const cleanPush = pushName.toLowerCase()
+        const matchedDoc = recentSnap.docs.find((d) => {
+          const data = d.data() || {}
+          if (data.whatsappJid === remoteJid) return true
+          if (
+            cleanPush.length >= 2 &&
+            (String(data.displayName || '').trim().toLowerCase() === cleanPush ||
+              String(data.fuddiClientName || '').trim().toLowerCase() === cleanPush)
+          ) {
+            return true
+          }
+          return false
+        })
+        if (matchedDoc) {
+          docId = matchedDoc.id
+          existing = matchedDoc.data() || {}
+          const existingPhone = normalizeEcuadorPhone(existing.phone || existing.rawPhone)
+          if (existingPhone.length >= 9 && !isWhatsAppLidDigits(existingPhone)) {
+            normPhone = existingPhone
+          }
+        }
+      }
+    }
+
+    const convId = existing?.id || `phone:${normPhone}`
+    const docRef = colRef.doc(docId)
 
     if (fromMe) {
       if (!existing) return
@@ -855,6 +936,7 @@ class WhatsAppBaileysManager {
       ].slice(-MAX_CHAT_HISTORY)
       await docRef.set(
         {
+          whatsappJid: remoteJid,
           sentReplies: nextReplies,
           chatHistory: nextHistory,
           canReplyDirectly: true,
@@ -863,8 +945,6 @@ class WhatsAppBaileysManager {
       )
       return
     }
-
-    const pushName = String(msg.pushName || '').trim()
     const prevRecent: string[] = Array.isArray(existing?.recentMessages)
       ? existing.recentMessages
       : []
@@ -929,6 +1009,7 @@ class WhatsAppBaileysManager {
     await docRef.set(
       {
         id: convId,
+        whatsappJid: remoteJid,
         phone: normPhone,
         rawPhone: normPhone,
         displayName,
@@ -983,10 +1064,31 @@ class WhatsAppBaileysManager {
       return { ok: false, error: 'WhatsApp no está conectado como dispositivo vinculado' }
     }
 
-    const jid = ecuadorPhoneToJid(phone)
-    if (!jid) return { ok: false, error: 'Número de teléfono inválido' }
-
     const db = ensureAdminDb()
+    let docRef: FirebaseFirestore.DocumentReference | null = null
+    let existingDocData: Record<string, any> = {}
+
+    if (db && docId) {
+      docRef = db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('whatsappPending')
+        .doc(docId)
+      try {
+        const snap = await docRef.get()
+        if (snap.exists) {
+          existingDocData = snap.data() || {}
+        }
+      } catch {
+        // Ignorar
+      }
+    }
+
+    const jid = ecuadorPhoneToJid(
+      phone || existingDocData.phone || existingDocData.rawPhone || '',
+      existingDocData.whatsappJid
+    )
+    if (!jid) return { ok: false, error: 'Número o JID de WhatsApp inválido' }
 
     try {
       session.processedReplyIds.add(replyId)
@@ -995,15 +1097,10 @@ class WhatsAppBaileysManager {
         session.sentByBridgeMsgIds.add(sentMsg.key.id)
       }
 
-      if (db && docId) {
-        const docRef = db
-          .collection('businesses')
-          .doc(businessId)
-          .collection('whatsappPending')
-          .doc(docId)
-        const snap = await docRef.get()
-        const data = snap.exists ? snap.data() || {} : {}
-        const currentReplies: any[] = Array.isArray(data.sentReplies) ? data.sentReplies : []
+      if (docRef) {
+        const currentReplies: any[] = Array.isArray(existingDocData.sentReplies)
+          ? existingDocData.sentReplies
+          : []
         const nowOut = Date.now()
         const nextReplies = [
           ...currentReplies.filter((r) => r?.id !== replyId),
@@ -1015,7 +1112,9 @@ class WhatsAppBaileysManager {
           },
         ].slice(-MAX_RECENT_MESSAGES)
 
-        const currentHistory: any[] = Array.isArray(data.chatHistory) ? data.chatHistory : []
+        const currentHistory: any[] = Array.isArray(existingDocData.chatHistory)
+          ? existingDocData.chatHistory
+          : []
         const nextHistory = [
           ...currentHistory.filter((h) => h?.id !== replyId),
           {
@@ -1029,6 +1128,7 @@ class WhatsAppBaileysManager {
 
         await docRef.set(
           {
+            whatsappJid: jid,
             sentReplies: nextReplies,
             chatHistory: nextHistory,
             pendingReply: null,

@@ -293,43 +293,44 @@ export function WhatsAppChatPreorderView({
   const [savingNewClient, setSavingNewClient] = useState<boolean>(false)
   const [replyText, setReplyText] = useState<string>('')
   const [sendingReply, setSendingReply] = useState<boolean>(false)
+  const [optimisticReply, setOptimisticReply] = useState<{ id: string; text: string } | null>(null)
 
   const handleSendDirectReply = async () => {
     const cleanText = replyText.trim()
     if (!cleanText || !businessId || !conversation.docId || sendingReply) return
+    setReplyText('')
     setSendingReply(true)
     const replyId = `web_${Date.now()}`
+    setOptimisticReply({ id: replyId, text: cleanText })
     const targetPhone =
       resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || ''
     try {
       // 1. Intentar envío directo por el puente multi-dispositivo (Baileys) si está conectado
       let sentViaBaileys = false
-      if (targetPhone) {
-        try {
-          const res = await fetch('/api/whatsapp/bridge', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'send',
-              businessId,
-              docId: conversation.docId,
-              phone: targetPhone,
-              text: cleanText,
-              replyId,
-            }),
-          })
-          if (res.ok) {
-            const data = await res.json()
-            if (data?.ok) {
-              sentViaBaileys = true
-            }
+      try {
+        const res = await fetch('/api/whatsapp/bridge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send',
+            businessId,
+            docId: conversation.docId,
+            phone: targetPhone,
+            text: cleanText,
+            replyId,
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data?.ok) {
+            sentViaBaileys = true
           }
-        } catch {
-          // Si no está activo en este servidor, continuar con el puente de Firestore (Baileys worker o Android RemoteInput)
         }
+      } catch {
+        // Si no está activo en este servidor, continuar con el puente de Firestore
       }
 
-      // 2. Si no se envió directo en la llamada HTTP, encolar en Firestore para que lo despache el worker de Baileys o la notificación del teléfono Android
+      // 2. Si no se envió directo en la llamada HTTP, encolar en Firestore para que lo despache el worker de Baileys o la notificación activa del teléfono Android
       if (!sentViaBaileys) {
         await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
           pendingReply: {
@@ -340,10 +341,10 @@ export function WhatsAppChatPreorderView({
           },
         })
       }
-      setReplyText('')
     } catch (err) {
       console.error('[WhatsAppChatView] Error requesting direct reply:', err)
     } finally {
+      setOptimisticReply(null)
       setSendingReply(false)
     }
   }
@@ -959,11 +960,16 @@ export function WhatsAppChatPreorderView({
               </div>
             ))}
 
-          {conversation.pendingReply?.status === 'pending' && (
+          {(conversation.pendingReply?.status === 'pending' ||
+            (optimisticReply &&
+              !conversation.chatHistory?.some((m) => m.id === optimisticReply.id) &&
+              !conversation.sentReplies?.some((r) => r.id === optimisticReply.id))) && (
             <div className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6]/80 border border-emerald-200 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs">
-              <p className="whitespace-pre-wrap break-words leading-snug">{conversation.pendingReply.text}</p>
+              <p className="whitespace-pre-wrap break-words leading-snug">
+                {conversation.pendingReply?.text || optimisticReply?.text}
+              </p>
               <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800">
-                <span>Enviando desde el teléfono...</span>
+                <span>Enviando...</span>
                 <i className="bi bi-clock text-[10px]"></i>
               </div>
             </div>
