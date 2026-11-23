@@ -6,15 +6,23 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
-  const businessId = req.nextUrl.searchParams.get('businessId')?.trim() || ''
-  const hold = req.nextUrl.searchParams.get('hold') === 'true'
-  if (!businessId) {
-    return NextResponse.json({ error: 'businessId es requerido' }, { status: 400 })
-  }
+  try {
+    const businessId = req.nextUrl.searchParams.get('businessId')?.trim() || ''
+    const hold = req.nextUrl.searchParams.get('hold') === 'true'
+    if (!businessId) {
+      return NextResponse.json({ error: 'businessId es requerido' }, { status: 400 })
+    }
 
-  const manager = getWhatsAppBaileysManager()
-  const state = await manager.getStateAsync(businessId, hold ? 8000 : 0)
-  return NextResponse.json(state)
+    const manager = getWhatsAppBaileysManager()
+    const state = await manager.getStateAsync(businessId, hold ? 8000 : 0)
+    return NextResponse.json(state)
+  } catch (err: any) {
+    console.error('[API GET /api/whatsapp/bridge] Error:', err)
+    return NextResponse.json(
+      { error: err?.message || 'Error consultando estado de WhatsApp' },
+      { status: 500 }
+    )
+  }
 }
 
 export async function POST(req: NextRequest) {

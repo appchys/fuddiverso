@@ -41,7 +41,7 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 });
 
 const nextConfig = {
-  serverExternalPackages: ['firebase-admin'],
+  serverExternalPackages: ['firebase-admin', '@whiskeysockets/baileys', 'pino', 'qrcode', 'ws'],
   images: {
     unoptimized: true,
     remotePatterns: [

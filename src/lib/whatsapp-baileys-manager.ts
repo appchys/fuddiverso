@@ -1,10 +1,6 @@
-import makeWASocket, {
+import type {
   AuthenticationCreds,
   AuthenticationState,
-  BufferJSON,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  initAuthCreds,
   proto,
   SignalDataTypeMap,
   WASocket,
@@ -12,6 +8,20 @@ import makeWASocket, {
 import pino from 'pino'
 import QRCode from 'qrcode'
 import { ensureAdminDb } from '@/lib/firebase-admin'
+
+type BaileysModule = typeof import('@whiskeysockets/baileys')
+
+let cachedBaileysModule: BaileysModule | null = null
+const nativeDynamicImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string
+) => Promise<BaileysModule>
+
+async function loadBaileys(): Promise<BaileysModule> {
+  if (!cachedBaileysModule) {
+    cachedBaileysModule = await nativeDynamicImport('@whiskeysockets/baileys')
+  }
+  return cachedBaileysModule
+}
 
 export type BaileysConnectionStatus = 'disconnected' | 'connecting' | 'qr' | 'connected'
 
@@ -157,6 +167,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   clearState: () => Promise<void>
   hasExistingCreds: boolean
 }> {
+  const { BufferJSON, initAuthCreds } = await loadBaileys()
   const db = ensureAdminDb()
   if (!db) {
     throw new Error('Firebase Admin no está disponible para guardar la sesión de WhatsApp')
@@ -543,6 +554,9 @@ class WhatsAppBaileysManager {
     await this.persistConnectionState(session)
 
     try {
+      const baileys = await loadBaileys()
+      const makeWASocket = baileys.makeWASocket || baileys.default
+      const { DisconnectReason, fetchLatestBaileysVersion } = baileys
       const { state, saveCreds, clearState } = await useFirestoreAuthState(businessId)
       let version: [number, number, number] = [2, 3000, 1017531287]
       try {
