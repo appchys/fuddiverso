@@ -238,22 +238,30 @@ async function extractRichMessageContent(
     }
 
     if (orderId && token && session.socket && typeof session.socket.getOrderDetails === 'function') {
-      try {
-        const details = await session.socket.getOrderDetails(orderId, token)
-        if (details?.products?.length) {
-          detailLines = details.products.map((p: any) => {
-            const qty = Number(p.quantity || 1)
-            const unitPrice = Number(p.price || 0) > 0 ? Number(p.price) / 1000 : null
-            return `• ${qty}x ${p.name || 'Producto'}${
-              unitPrice !== null ? ` ($${unitPrice.toFixed(2)})` : ''
-            }`
-          })
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const details = await session.socket.getOrderDetails(orderId, token)
+          if (details?.products?.length) {
+            detailLines = details.products.map((p: any) => {
+              const qty = Number(p.quantity || 1)
+              const unitPrice = Number(p.price || 0) > 0 ? Number(p.price) / 1000 : null
+              return `• ${qty}x ${p.name || 'Producto'}${
+                unitPrice !== null ? ` ($${unitPrice.toFixed(2)})` : ''
+              }`
+            })
+            if (typeof details?.price?.total === 'number' && details.price.total > 0) {
+              detailTotal = details.price.total / 1000
+            }
+            break
+          }
+        } catch (err) {
+          if (attempt === 2) {
+            console.warn('[Baileys] No se pudo obtener getOrderDetails del catálogo:', err)
+          }
         }
-        if (typeof details?.price?.total === 'number' && details.price.total > 0) {
-          detailTotal = details.price.total / 1000
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 600))
         }
-      } catch (err) {
-        console.warn('[Baileys] No se pudo obtener getOrderDetails del catálogo:', err)
       }
     }
 
@@ -262,7 +270,11 @@ async function extractRichMessageContent(
     ]
     if (detailLines.length > 0) {
       parts.push(...detailLines)
-    } else if (orderMsg.orderTitle) {
+    } else if (
+      orderMsg.orderTitle &&
+      String(orderMsg.orderTitle).trim().toLowerCase() !==
+        String(session.state.connectedName || '').trim().toLowerCase()
+    ) {
       parts.push(`• ${orderMsg.orderTitle}`)
     }
     if (detailTotal !== null) {
@@ -615,7 +627,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 18
+const MANAGER_VERSION = 19
 
 class WhatsAppBaileysManager {
   public readonly version = MANAGER_VERSION
