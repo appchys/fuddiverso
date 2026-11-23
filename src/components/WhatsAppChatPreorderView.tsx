@@ -1714,51 +1714,6 @@ export function WhatsAppChatPreorderView({
 
           {!isEditingClientName && (
             <div className="shrink-0 flex items-center gap-1.5">
-              {(!allStepsComplete || areStepsExpanded) &&
-                stepIndicators.map(step => {
-                  const isActive = activeTab === step.key
-                  return (
-                    <button
-                      key={step.key}
-                      type="button"
-                      style={{ minHeight: 0, minWidth: 0 }}
-                      onClick={() => setActiveTab(prev => (prev === step.key ? null : step.key))}
-                      title={step.title}
-                      className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
-                        step.completed
-                          ? step.completedClass
-                          : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
-                      } ${isActive ? 'ring-2 ring-blue-500/80 ring-offset-1' : 'hover:ring-2 hover:ring-gray-300'}`}
-                    >
-                      {step.icon}
-                    </button>
-                  )
-                })}
-
-              {allStepsComplete && (
-                <>
-                  <button
-                    type="button"
-                    style={{ minHeight: 0, minWidth: 0 }}
-                    onClick={() => setAreStepsExpanded((prev) => !prev)}
-                    title={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
-                    aria-label={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
-                    className="w-6 h-7 min-h-0 min-w-0 p-0 shrink-0 bg-transparent text-slate-400 hover:text-slate-700 inline-flex items-center justify-center text-xs transition-colors cursor-pointer"
-                  >
-                    <i className={`bi ${areStepsExpanded ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
-                  </button>
-                  <button
-                    type="button"
-                    style={{ minHeight: 0, minWidth: 0 }}
-                    onClick={() => onCreateOrder(enrichedConversation, buildDraft())}
-                    title="Confirmar y crear pedido con los 4 datos completados"
-                    aria-label="Confirmar y crear pedido"
-                    className="w-7 h-7 min-h-0 min-w-0 p-0 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white inline-flex items-center justify-center shadow-xs transition-all cursor-pointer shrink-0"
-                  >
-                    <i className="bi bi-check-lg text-sm"></i>
-                  </button>
-                </>
-              )}
               {(cleanPhone || onCloseConversation) && (
                 <div ref={headerMenuRef} className="relative">
                   <button
@@ -2822,6 +2777,43 @@ export function WhatsAppChatPreorderView({
             </div>
           )}
 
+          {/* Barra compacta de pasos de preorden + botón Confirmar (arriba de la barra de mensajes) */}
+          <div className="flex items-center justify-end gap-1.5">
+            {(!allStepsComplete || areStepsExpanded) &&
+              stepIndicators.map(step => {
+                const isActive = activeTab === step.key
+                return (
+                  <button
+                    key={step.key}
+                    type="button"
+                    style={{ minHeight: 0, minWidth: 0 }}
+                    onClick={() => setActiveTab(prev => (prev === step.key ? null : step.key))}
+                    title={step.title}
+                    className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
+                      step.completed
+                        ? step.completedClass
+                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200/80'
+                    } ${isActive ? 'ring-2 ring-blue-500/80 ring-offset-1' : 'hover:ring-2 hover:ring-gray-300'}`}
+                  >
+                    {step.icon}
+                  </button>
+                )
+              })}
+
+            {allStepsComplete && (
+              <button
+                type="button"
+                style={{ minHeight: 0, minWidth: 0 }}
+                onClick={() => setAreStepsExpanded((prev) => !prev)}
+                title={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
+                aria-label={areStepsExpanded ? 'Contraer pasos' : 'Ver los 4 pasos completados'}
+                className="w-6 h-7 min-h-0 min-w-0 p-0 shrink-0 bg-transparent text-slate-400 hover:text-slate-700 inline-flex items-center justify-center text-xs transition-colors cursor-pointer"
+              >
+                <i className={`bi ${areStepsExpanded ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
+              </button>
+            )}
+          </div>
+
           {/* Vista previa de enlace en vivo al escribir una URL (igual que WhatsApp) */}
           {(loadingLinkPreview || draftLinkPreview) && (
             <div className="flex items-stretch gap-2.5 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden animate-in fade-in slide-in-from-bottom-1 duration-150">
@@ -3265,10 +3257,15 @@ export function WhatsAppChatPreorderView({
                 type="button"
                 style={{ minHeight: 0, minWidth: 0 }}
                 onClick={() => onCreateOrder(enrichedConversation, buildDraft())}
-                className="w-8 h-8 min-h-0 min-w-0 p-0 shrink-0 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-xs transition-colors inline-flex items-center justify-center cursor-pointer"
-                title="Crear pedido"
+                className={`w-8 h-8 min-h-0 min-w-0 p-0 shrink-0 rounded-full text-white shadow-xs transition-all active:scale-95 inline-flex items-center justify-center cursor-pointer ${
+                  allStepsComplete
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-rose-600 hover:bg-rose-700'
+                }`}
+                title={allStepsComplete ? 'Confirmar y crear pedido' : 'Crear pedido'}
+                aria-label={allStepsComplete ? 'Confirmar y crear pedido' : 'Crear pedido'}
               >
-                <i className="bi bi-cart-plus-fill text-xs"></i>
+                <i className={`bi ${allStepsComplete ? 'bi-check-lg text-sm' : 'bi-cart-plus-fill text-xs'}`}></i>
               </button>
             )}
           </div>
