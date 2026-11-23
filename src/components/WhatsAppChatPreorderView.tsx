@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { doc, updateDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import type { Product } from '@/types'
@@ -294,6 +294,46 @@ export function WhatsAppChatPreorderView({
   const [replyText, setReplyText] = useState<string>('')
   const [sendingReply, setSendingReply] = useState<boolean>(false)
   const [optimisticReply, setOptimisticReply] = useState<{ id: string; text: string } | null>(null)
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+  const isInitialScrollPendingRef = useRef<boolean>(true)
+
+  const scrollMessagesToBottom = useCallback((smooth = false) => {
+    const el = messagesScrollRef.current
+    if (!el) return
+    if (smooth) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [])
+
+  const chatMessageCount = Array.isArray(conversation.chatHistory)
+    ? conversation.chatHistory.length
+    : (conversation.recentMessages?.length || 0) + (conversation.sentReplies?.length || 0)
+
+  const lastChatTimestamp = Array.isArray(conversation.chatHistory) && conversation.chatHistory.length > 0
+    ? conversation.chatHistory[conversation.chatHistory.length - 1]?.timestampMillis || 0
+    : conversation.timestampMillis || 0
+
+  useLayoutEffect(() => {
+    isInitialScrollPendingRef.current = true
+    scrollMessagesToBottom(false)
+    const raf = requestAnimationFrame(() => scrollMessagesToBottom(false))
+    const t = setTimeout(() => {
+      scrollMessagesToBottom(false)
+      isInitialScrollPendingRef.current = false
+    }, 120)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(t)
+    }
+  }, [conversation.docId, scrollMessagesToBottom])
+
+  useEffect(() => {
+    scrollMessagesToBottom(false)
+    const raf = requestAnimationFrame(() => scrollMessagesToBottom(false))
+    return () => cancelAnimationFrame(raf)
+  }, [chatMessageCount, lastChatTimestamp, optimisticReply?.id, activeTab, scrollMessagesToBottom])
 
   const handleSendDirectReply = async () => {
     const cleanText = replyText.trim()
@@ -383,39 +423,11 @@ export function WhatsAppChatPreorderView({
   })
 
   const focusedFieldRef = useRef<'clientName' | 'productSearch' | 'customLocation' | 'cashAmount' | 'transferAmount' | null>(null)
-  const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const clientNameInputRef = useRef<HTMLInputElement | null>(null)
   const productSearchInputRef = useRef<HTMLInputElement | null>(null)
   const customLocationInputRef = useRef<HTMLInputElement | null>(null)
   const cashAmountInputRef = useRef<HTMLInputElement | null>(null)
   const transferAmountInputRef = useRef<HTMLInputElement | null>(null)
-
-  // Posicionar el scroll en el mensaje más reciente al abrir el chat o cuando llegan/envían nuevos mensajes
-  const messagesCount =
-    (Array.isArray(conversation.chatHistory) ? conversation.chatHistory.length : 0) +
-    (Array.isArray(conversation.recentMessages) ? conversation.recentMessages.length : 0) +
-    (Array.isArray(conversation.sentReplies) ? conversation.sentReplies.length : 0)
-
-  useEffect(() => {
-    const scrollToBottom = () => {
-      const el = messagesScrollRef.current
-      if (!el) return
-      el.scrollTop = el.scrollHeight
-    }
-    scrollToBottom()
-    const rafId = requestAnimationFrame(scrollToBottom)
-    const timerId = window.setTimeout(scrollToBottom, 120)
-    return () => {
-      cancelAnimationFrame(rafId)
-      window.clearTimeout(timerId)
-    }
-  }, [
-    conversation.docId,
-    conversation.timestampMillis,
-    messagesCount,
-    optimisticReply?.id,
-    conversation.pendingReply?.id,
-  ])
 
   // Resolver perfil del cliente si no vino precargado
   useEffect(() => {
@@ -952,6 +964,11 @@ export function WhatsAppChatPreorderView({
                         <img
                           src={msg.mediaUrl}
                           alt={msg.text || 'Imagen recibida'}
+                          onLoad={() => {
+                            if (isInitialScrollPendingRef.current) {
+                              scrollMessagesToBottom(false)
+                            }
+                          }}
                           className="w-full max-h-56 object-cover"
                         />
                       </a>
