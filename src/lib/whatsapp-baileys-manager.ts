@@ -12,13 +12,10 @@ import { ensureAdminDb } from '@/lib/firebase-admin'
 type BaileysModule = typeof import('@whiskeysockets/baileys')
 
 let cachedBaileysModule: BaileysModule | null = null
-const nativeDynamicImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string
-) => Promise<BaileysModule>
-
 async function loadBaileys(): Promise<BaileysModule> {
   if (!cachedBaileysModule) {
-    cachedBaileysModule = await nativeDynamicImport('@whiskeysockets/baileys')
+    // Referencia estática para que @vercel/nft trace todas las dependencias transitivas de Baileys en Vercel
+    cachedBaileysModule = await import('@whiskeysockets/baileys')
   }
   return cachedBaileysModule
 }

@@ -42,6 +42,11 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 
 const nextConfig = {
   serverExternalPackages: ['firebase-admin', '@whiskeysockets/baileys', 'pino', 'qrcode', 'ws'],
+  outputFileTracingIncludes: {
+    '/api/whatsapp/bridge': [
+      './node_modules/@whiskeysockets/baileys/**/*',
+    ],
+  },
   images: {
     unoptimized: true,
     remotePatterns: [
