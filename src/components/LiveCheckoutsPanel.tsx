@@ -1054,6 +1054,38 @@ function WhatsAppConversationCard({
 
     const cleanPhone = (resolvedProfile?.clientPhone || conversation.rawPhone || conversation.phone || '').replace(/\D/g, '');
     const isUnregisteredClient = !isRegisteredClient && (resolvedProfile !== undefined || cleanPhone.length < 9);
+    const previewMessages = useMemo(() => {
+        const hist = Array.isArray(conversation.chatHistory) ? conversation.chatHistory : [];
+        if (hist.length > 0) {
+            return [...hist]
+                .sort((a, b) => (a.timestampMillis || 0) - (b.timestampMillis || 0))
+                .map((m) => {
+                    const txt = String(m.text || '').trim();
+                    const fallback =
+                        m.mediaType === 'image'
+                            ? '📷 Imagen'
+                            : m.mediaType === 'audio'
+                                ? '🎤 Nota de voz'
+                                : m.mediaType === 'document'
+                                    ? `📄 ${m.fileName || 'Archivo'}`
+                                    : '';
+                    return {
+                        text: txt || fallback,
+                        fromMe: Boolean(m.fromMe),
+                    };
+                })
+                .filter((m) => Boolean(m.text))
+                .slice(-3);
+        }
+        const fallbackList =
+            conversation.recentMessages && conversation.recentMessages.length > 0
+                ? conversation.recentMessages
+                : conversation.lastMessage
+                    ? [conversation.lastMessage]
+                    : [];
+        return fallbackList.slice(-3).map((text) => ({ text, fromMe: false }));
+    }, [conversation.chatHistory, conversation.recentMessages, conversation.lastMessage]);
+
     const messages =
         conversation.recentMessages && conversation.recentMessages.length > 0
             ? conversation.recentMessages
@@ -1347,12 +1379,20 @@ function WhatsAppConversationCard({
                     )}
                 </div>
 
-                {/* Second row: Last 3 messages left + circular create-order button with progress ring right */}
+                {/* Second row: Last 3 messages (client + mine) left + circular create-order button with progress ring right */}
                 <div className="flex items-center justify-between gap-2.5">
                     <div className="flex-1 min-w-0 space-y-0.5">
-                        {messages.slice(-3).map((msg, idx) => (
-                            <p key={idx} className="text-[11px] leading-snug text-gray-600 line-clamp-1">
-                                {msg}
+                        {previewMessages.map((msg, idx) => (
+                            <p
+                                key={idx}
+                                className={`text-[11px] leading-snug line-clamp-1 ${
+                                    msg.fromMe ? 'text-emerald-700/90' : 'text-gray-600'
+                                }`}
+                            >
+                                {msg.fromMe && (
+                                    <span className="font-bold text-emerald-700 mr-1">Tú:</span>
+                                )}
+                                {msg.text}
                             </p>
                         ))}
                     </div>
