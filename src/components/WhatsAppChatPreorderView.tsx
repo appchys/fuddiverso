@@ -383,11 +383,39 @@ export function WhatsAppChatPreorderView({
   })
 
   const focusedFieldRef = useRef<'clientName' | 'productSearch' | 'customLocation' | 'cashAmount' | 'transferAmount' | null>(null)
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const clientNameInputRef = useRef<HTMLInputElement | null>(null)
   const productSearchInputRef = useRef<HTMLInputElement | null>(null)
   const customLocationInputRef = useRef<HTMLInputElement | null>(null)
   const cashAmountInputRef = useRef<HTMLInputElement | null>(null)
   const transferAmountInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Posicionar el scroll en el mensaje más reciente al abrir el chat o cuando llegan/envían nuevos mensajes
+  const messagesCount =
+    (Array.isArray(conversation.chatHistory) ? conversation.chatHistory.length : 0) +
+    (Array.isArray(conversation.recentMessages) ? conversation.recentMessages.length : 0) +
+    (Array.isArray(conversation.sentReplies) ? conversation.sentReplies.length : 0)
+
+  useEffect(() => {
+    const scrollToBottom = () => {
+      const el = messagesScrollRef.current
+      if (!el) return
+      el.scrollTop = el.scrollHeight
+    }
+    scrollToBottom()
+    const rafId = requestAnimationFrame(scrollToBottom)
+    const timerId = window.setTimeout(scrollToBottom, 120)
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.clearTimeout(timerId)
+    }
+  }, [
+    conversation.docId,
+    conversation.timestampMillis,
+    messagesCount,
+    optimisticReply?.id,
+    conversation.pendingReply?.id,
+  ])
 
   // Resolver perfil del cliente si no vino precargado
   useEffect(() => {
@@ -881,7 +909,10 @@ export function WhatsAppChatPreorderView({
       </div>
 
       {/* Top Scrollable Area: Client Messages (única zona con scroll) */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-6 py-2.5">
+      <div
+        ref={messagesScrollRef}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-6 py-2.5"
+      >
         <div className="max-w-3xl mx-auto flex flex-col items-start gap-1.5">
           {Array.isArray(conversation.chatHistory) && conversation.chatHistory.length > 0 ? (
             [...conversation.chatHistory]
