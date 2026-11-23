@@ -38,6 +38,7 @@ export interface WhatsAppPreorderDraft {
     deliveryType?: '' | 'delivery' | 'pickup';
     selectedLocation?: ClientLocation | null;
     customLocationInput?: string;
+    customLocationReference?: string;
     paymentMethod?: '' | 'cash' | 'transfer' | 'mixed';
     cashAmount?: number;
     transferAmount?: number;
@@ -925,6 +926,7 @@ function WhatsAppConversationCard({
     const [deliveryType, setDeliveryType] = useState<'' | 'delivery' | 'pickup'>('');
     const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
     const [customLocationInput, setCustomLocationInput] = useState<string>('');
+    const [customLocationReference, setCustomLocationReference] = useState<string>('');
     const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('');
     const [cashAmountInput, setCashAmountInput] = useState<string>('');
     const [transferAmountInput, setTransferAmountInput] = useState<string>('');
@@ -944,6 +946,7 @@ function WhatsAppConversationCard({
             deliveryType,
             selectedLocationId,
             customLocationInput,
+            customLocationReference,
             paymentMethod,
             cashAmountInput,
             transferAmountInput,
@@ -956,6 +959,7 @@ function WhatsAppConversationCard({
             setDeliveryType(s.deliveryType);
             setSelectedLocationId(s.selectedLocationId);
             setCustomLocationInput(s.customLocationInput);
+            setCustomLocationReference(s.customLocationReference || '');
             setPaymentMethod(s.paymentMethod);
             setCashAmountInput(s.cashAmountInput);
             setTransferAmountInput(s.transferAmountInput);
@@ -1178,6 +1182,10 @@ function WhatsAppConversationCard({
         customLocationInput:
             effectiveDeliveryType === 'delivery' && !primaryLocation
                 ? (customLocationInput.trim() || undefined)
+                : undefined,
+        customLocationReference:
+            effectiveDeliveryType === 'delivery' && !primaryLocation
+                ? (customLocationReference.trim() || undefined)
                 : undefined,
         paymentMethod: paymentMethod || undefined,
         cashAmount: paymentMethod === 'mixed' ? parsedCashAmount : undefined,

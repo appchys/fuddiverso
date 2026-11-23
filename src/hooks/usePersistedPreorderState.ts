@@ -20,6 +20,7 @@ export interface PersistedPreorderState {
   deliveryType: '' | 'delivery' | 'pickup'
   selectedLocationId: string | null
   customLocationInput: string
+  customLocationReference?: string
   paymentMethod: '' | 'cash' | 'transfer' | 'mixed'
   cashAmountInput: string
   transferAmountInput: string
@@ -43,6 +44,7 @@ export function buildBasePreorderState(_detectedLocationLink?: string | null): P
     deliveryType: '',
     selectedLocationId: null,
     customLocationInput: '',
+    customLocationReference: '',
     paymentMethod: '',
     cashAmountInput: '',
     transferAmountInput: '',
@@ -62,6 +64,7 @@ function normalizeState(
     deliveryType: raw.deliveryType || '',
     selectedLocationId: raw.selectedLocationId || null,
     customLocationInput: typeof raw.customLocationInput === 'string' ? raw.customLocationInput : base.customLocationInput,
+    customLocationReference: typeof raw.customLocationReference === 'string' ? raw.customLocationReference : '',
     paymentMethod: raw.paymentMethod || '',
     cashAmountInput: raw.cashAmountInput || '',
     transferAmountInput: raw.transferAmountInput || '',

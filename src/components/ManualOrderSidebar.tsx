@@ -928,6 +928,12 @@ export default function ManualOrderSidebar({
     }
     if (loc && !draftSelectedLocation && draft?.deliveryType !== 'pickup') {
       handleLocationInputChange(loc)
+      if (draft?.customLocationReference?.trim()) {
+        setNewLocationData(prev => ({
+          ...prev,
+          referencia: draft.customLocationReference!.trim()
+        }))
+      }
     }
   }, [isOpen, mode, initialCustomerPhone, initialCustomerName, initialLocationInput, initialPreorderDraft])
 

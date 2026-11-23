@@ -487,6 +487,7 @@ export function WhatsAppChatPreorderView({
   const [deliveryType, setDeliveryType] = useState<'' | 'delivery' | 'pickup'>('')
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
   const [customLocationInput, setCustomLocationInput] = useState<string>('')
+  const [customLocationReference, setCustomLocationReference] = useState<string>('')
   const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('')
   const [cashAmountInput, setCashAmountInput] = useState<string>('')
   const [transferAmountInput, setTransferAmountInput] = useState<string>('')
@@ -1051,6 +1052,7 @@ export function WhatsAppChatPreorderView({
       deliveryType,
       selectedLocationId,
       customLocationInput,
+      customLocationReference,
       paymentMethod,
       cashAmountInput,
       transferAmountInput,
@@ -1063,16 +1065,18 @@ export function WhatsAppChatPreorderView({
       setDeliveryType(s.deliveryType)
       setSelectedLocationId(s.selectedLocationId)
       setCustomLocationInput(s.customLocationInput)
+      setCustomLocationReference(s.customLocationReference || '')
       setPaymentMethod(s.paymentMethod)
       setCashAmountInput(s.cashAmountInput)
       setTransferAmountInput(s.transferAmountInput)
     },
   })
 
-  const focusedFieldRef = useRef<'clientName' | 'productSearch' | 'customLocation' | 'cashAmount' | 'transferAmount' | null>(null)
+  const focusedFieldRef = useRef<'clientName' | 'productSearch' | 'customLocation' | 'customLocationReference' | 'cashAmount' | 'transferAmount' | null>(null)
   const clientNameInputRef = useRef<HTMLInputElement | null>(null)
   const productSearchInputRef = useRef<HTMLInputElement | null>(null)
   const customLocationInputRef = useRef<HTMLInputElement | null>(null)
+  const customLocationReferenceInputRef = useRef<HTMLInputElement | null>(null)
   const cashAmountInputRef = useRef<HTMLInputElement | null>(null)
   const transferAmountInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -1192,10 +1196,21 @@ export function WhatsAppChatPreorderView({
     } else if (target === 'productSearch') {
       setProductSearch(text)
       productSearchInputRef.current?.focus()
+    } else if (target === 'customLocationReference') {
+      setCustomLocationReference(text)
+      customLocationReferenceInputRef.current?.focus()
     } else if (target === 'customLocation') {
-      setCustomLocationInput(text)
-      if (deliveryType !== 'delivery') setDeliveryType('delivery')
-      customLocationInputRef.current?.focus()
+      const hasCurrentMap = Boolean(extractLocationPreviewFromMessage(customLocationInput))
+      const incomingIsMap = Boolean(extractLocationPreviewFromMessage(text))
+      if (hasCurrentMap && !incomingIsMap) {
+        setCustomLocationReference(text)
+        customLocationReferenceInputRef.current?.focus()
+      } else {
+        setCustomLocationInput(text)
+        setSelectedLocationId('__custom__')
+        if (deliveryType !== 'delivery') setDeliveryType('delivery')
+        customLocationInputRef.current?.focus()
+      }
     } else if (target === 'cashAmount' || target === 'transferAmount') {
       const numMatch = text.replace(',', '.').match(/\d+(?:\.\d{1,2})?/)
       if (numMatch) {
@@ -1414,6 +1429,14 @@ export function WhatsAppChatPreorderView({
     return entries.sort((a, b) => a.timestampMillis - b.timestampMillis)
   }, [conversation.chatHistory, conversation.sentReplies, conversation.timestampMillis, messages, sentOrderBubbles])
 
+  const customLocationPreview = useMemo(
+    () => extractLocationPreviewFromMessage(customLocationInput),
+    [customLocationInput]
+  )
+  const resolvedCustomLocation = customLocationPreview
+    ? resolvedLocationsByCoord[`${customLocationPreview.lat},${customLocationPreview.lng}`]
+    : undefined
+
   // Resolver automáticamente el sector y la tarifa de envío para las ubicaciones enviadas por el cliente
   useEffect(() => {
     if (!businessId) return
@@ -1421,19 +1444,24 @@ export function WhatsAppChatPreorderView({
     const coordsToResolve: Array<{ key: string; lat: number; lng: number }> = []
     const seen = new Set<string>()
 
-    for (const entry of timelineEntries) {
-      if (entry.kind !== 'message' || entry.msg?.fromMe) continue
-      const preview = extractLocationPreviewFromMessage(entry.msg?.text)
-      if (!preview) continue
+    const enqueuePreview = (preview: ReturnType<typeof extractLocationPreviewFromMessage>) => {
+      if (!preview) return
       const key = `${preview.lat},${preview.lng}`
       if (seen.has(key) || resolvedLocationsByCoord[key] || resolvingCoordsRef.current.has(key)) {
-        continue
+        return
       }
       const latNum = Number(preview.lat)
       const lngNum = Number(preview.lng)
-      if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) continue
+      if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return
       seen.add(key)
       coordsToResolve.push({ key, lat: latNum, lng: lngNum })
+    }
+
+    enqueuePreview(customLocationPreview)
+
+    for (const entry of timelineEntries) {
+      if (entry.kind !== 'message' || entry.msg?.fromMe) continue
+      enqueuePreview(extractLocationPreviewFromMessage(entry.msg?.text))
     }
 
     if (coordsToResolve.length === 0) return
@@ -1461,7 +1489,7 @@ export function WhatsAppChatPreorderView({
           resolvingCoordsRef.current.delete(key)
         })
     })
-  }, [timelineEntries, businessId, businessData, resolvedLocationsByCoord, resolvedLocStorageKey])
+  }, [timelineEntries, customLocationPreview, businessId, businessData, resolvedLocationsByCoord, resolvedLocStorageKey])
 
   const handleApplyCatalogOrderToOrder = (
     msgKey: string,
@@ -1512,6 +1540,7 @@ export function WhatsAppChatPreorderView({
     if (matchedSaved) {
       setSelectedLocationId(matchedSaved.location.id)
       setCustomLocationInput('')
+      setCustomLocationReference('')
     } else {
       setSelectedLocationId('__custom__')
       setCustomLocationInput(preview.mapsUrl)
@@ -1554,6 +1583,10 @@ export function WhatsAppChatPreorderView({
     customLocationInput:
       effectiveDeliveryType === 'delivery' && !primaryLocation
         ? (customLocationInput.trim() || undefined)
+        : undefined,
+    customLocationReference:
+      effectiveDeliveryType === 'delivery' && !primaryLocation
+        ? (customLocationReference.trim() || undefined)
         : undefined,
     paymentMethod: paymentMethod || undefined,
     cashAmount: paymentMethod === 'mixed' ? parsedCashAmount : undefined,
@@ -2577,7 +2610,7 @@ export function WhatsAppChatPreorderView({
                   <Motorbike className="w-3.5 h-3.5 text-emerald-600" strokeWidth={2.2} />
                   Entrega
                 </p>
-                {(effectiveDeliveryType || primaryLocation || customLocationInput.trim()) && (
+                {(effectiveDeliveryType || primaryLocation || customLocationInput.trim() || customLocationReference.trim()) && (
                   <button
                     type="button"
                     style={{ minHeight: 0 }}
@@ -2585,6 +2618,7 @@ export function WhatsAppChatPreorderView({
                       setDeliveryType('')
                       setSelectedLocationId(null)
                       setCustomLocationInput('')
+                      setCustomLocationReference('')
                     }}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white hover:bg-rose-50 text-rose-600 border border-rose-200/80 text-[10px] font-bold transition-colors cursor-pointer"
                     title="Quitar entrega seleccionada"
@@ -2651,6 +2685,91 @@ export function WhatsAppChatPreorderView({
                     {savedLocations.length > 1 ? `Ver todas (${savedLocations.length})` : 'Ver mapa'}
                   </span>
                 </button>
+              ) : customLocationPreview ? (
+                <div className="space-y-2">
+                  <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs flex items-stretch">
+                    <a
+                      href={customLocationPreview.mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="relative w-28 sm:w-32 shrink-0 bg-slate-100 overflow-hidden group block"
+                      title="Abrir ubicación en Google Maps"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={customLocationPreview.staticMapUrl}
+                        alt={resolvedCustomLocation?.zoneName || 'Ubicación seleccionada'}
+                        className="w-full h-full object-cover min-h-[78px] group-hover:scale-105 transition-transform duration-200"
+                      />
+                    </a>
+                    <div className="flex-1 min-w-0 p-2.5 flex flex-col justify-between gap-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Nueva ubicación
+                          </p>
+                          <p className="text-xs font-black text-slate-900 truncate flex items-center gap-1 mt-0.5">
+                            <i className="bi bi-geo-alt-fill text-rose-500 shrink-0"></i>
+                            <span className="truncate">
+                              {resolvedCustomLocation?.zoneName ||
+                                (businessId ? 'Buscando sector...' : customLocationPreview.label)}
+                            </span>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          style={{ minHeight: 0, minWidth: 0 }}
+                          onClick={() => {
+                            setCustomLocationInput('')
+                            setCustomLocationReference('')
+                            setSelectedLocationId(null)
+                          }}
+                          title="Cambiar ubicación"
+                          className="shrink-0 w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 inline-flex items-center justify-center transition-colors cursor-pointer"
+                        >
+                          <i className="bi bi-x text-sm"></i>
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        {resolvedCustomLocation ? (
+                          resolvedCustomLocation.isOutOfCoverage ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200/80 text-[10px] font-bold">
+                              {resolvedCustomLocation.isInactiveZone ? 'Sin envío' : 'Sin cobertura'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold">
+                              {resolvedCustomLocation.fee <= 0
+                                ? 'Envío gratis'
+                                : `Envío $${resolvedCustomLocation.fee.toFixed(2)}`}
+                            </span>
+                          )
+                        ) : businessId ? (
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Calculando envío...
+                          </span>
+                        ) : null}
+                        <a
+                          href={customLocationPreview.mapsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1"
+                        >
+                          <span>Ver mapa</span>
+                          <i className="bi bi-box-arrow-up-right text-[9px]"></i>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    ref={customLocationReferenceInputRef}
+                    type="text"
+                    value={customLocationReference}
+                    onFocus={() => { focusedFieldRef.current = 'customLocationReference' }}
+                    onChange={(e) => setCustomLocationReference(e.target.value)}
+                    placeholder="Referencias (ej: casa esquinera, portón negro, frente al parque...)"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
               ) : (
                 <div className="space-y-1.5">
                   {savedLocations.length > 0 && (
@@ -2667,6 +2786,7 @@ export function WhatsAppChatPreorderView({
                             onClick={() => {
                               setSelectedLocationId(loc.id)
                               setCustomLocationInput('')
+                              setCustomLocationReference('')
                               setDeliveryType('delivery')
                             }}
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-xs font-semibold text-slate-700 hover:text-emerald-800 transition-colors cursor-pointer"
