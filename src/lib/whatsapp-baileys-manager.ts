@@ -8,6 +8,12 @@ import type {
 import pino from 'pino'
 import QRCode from 'qrcode'
 import { ensureAdminDb, uploadWhatsAppMediaToStorage } from '@/lib/firebase-admin'
+import {
+  extractFirstUrlFromText,
+  fetchLinkPreviewMetadata,
+  fetchLinkPreviewJpegThumbnail,
+  type LinkPreviewData,
+} from '@/lib/link-preview'
 
 type BaileysModule = typeof import('@whiskeysockets/baileys')
 
@@ -940,7 +946,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 28
+const MANAGER_VERSION = 31
 
 // Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
 const globalForTimerPatch = globalThis as unknown as {
@@ -1492,6 +1498,24 @@ class WhatsAppBaileysManager {
         }
       })
 
+      sock.ev.on('messages.reaction', async (reactions) => {
+        for (const item of reactions) {
+          try {
+            const targetKey = item?.key
+            const reaction = item?.reaction
+            const remoteJid = String(targetKey?.remoteJid || reaction?.key?.remoteJid || '').trim()
+            const targetWaId = String(targetKey?.id || '').trim()
+            const emoji = String(reaction?.text || '').trim()
+            const reactorIsMe = Boolean(reaction?.key?.fromMe)
+            if (remoteJid && targetWaId) {
+              await this.handleIncomingReaction(session, remoteJid, targetWaId, emoji, reactorIsMe)
+            }
+          } catch (err) {
+            console.warn('[Baileys] Error procesando reacción entrante:', err)
+          }
+        }
+      })
+
       // Esperar hasta que Baileys emita el primer QR, el pairingCode o abra la conexión
       if (waitMs > 0) {
         const deadline = Date.now() + waitMs
@@ -1610,6 +1634,90 @@ class WhatsAppBaileysManager {
     return null
   }
 
+  private async handleIncomingReaction(
+    session: ManagedSession,
+    remoteJid: string,
+    targetWaId: string,
+    emoji: string,
+    reactorIsMe: boolean
+  ) {
+    if (
+      !remoteJid ||
+      !targetWaId ||
+      remoteJid === 'status@broadcast' ||
+      remoteJid.endsWith('@g.us') ||
+      remoteJid.endsWith('@newsletter')
+    ) {
+      return
+    }
+
+    const isLid = remoteJid.endsWith('@lid')
+    let phoneSource = remoteJid.split('@')[0]
+    if (isLid) {
+      const mappedPhone = await this.resolvePhoneFromLid(session.businessId, remoteJid)
+      if (mappedPhone) phoneSource = mappedPhone
+    }
+    const normPhone = normalizeEcuadorPhone(phoneSource)
+
+    const db = ensureAdminDb()
+    if (!db) return
+    const colRef = db
+      .collection('businesses')
+      .doc(session.businessId)
+      .collection('whatsappPending')
+
+    let targetDocRef: FirebaseFirestore.DocumentReference | null = null
+    let targetDocData: Record<string, any> | null = null
+
+    if (normPhone.length >= 9) {
+      const colonSnap = await colRef.doc(`phone:${normPhone}`).get()
+      if (colonSnap.exists) {
+        targetDocRef = colonSnap.ref
+        targetDocData = colonSnap.data() || {}
+      } else {
+        const underscoreSnap = await colRef.doc(`phone_${normPhone}`).get()
+        if (underscoreSnap.exists) {
+          targetDocRef = underscoreSnap.ref
+          targetDocData = underscoreSnap.data() || {}
+        }
+      }
+    }
+
+    if (!targetDocRef) {
+      const recentSnap = await colRef.orderBy('timestampMillis', 'desc').limit(30).get()
+      const matched = recentSnap.docs.find((d) => {
+        const data = d.data() || {}
+        if (data.whatsappJid === remoteJid) return true
+        const hist: any[] = Array.isArray(data.chatHistory) ? data.chatHistory : []
+        return hist.some((h) => h?.id === targetWaId || h?.waMsgId === targetWaId)
+      })
+      if (matched) {
+        targetDocRef = matched.ref
+        targetDocData = matched.data() || {}
+      }
+    }
+
+    if (!targetDocRef || !targetDocData || !Array.isArray(targetDocData.chatHistory)) return
+
+    let updated = false
+    const nextHistory = targetDocData.chatHistory.map((h: any) => {
+      if (h?.id !== targetWaId && h?.waMsgId !== targetWaId) return h
+      updated = true
+      const prevReactions: Array<{ emoji: string; fromMe: boolean }> = Array.isArray(h.reactions)
+        ? h.reactions
+        : []
+      const filtered = prevReactions.filter((r) => Boolean(r?.fromMe) !== reactorIsMe)
+      const nextReactions = emoji ? [...filtered, { emoji, fromMe: reactorIsMe }] : filtered
+      const updatedEntry = { ...h, reactions: nextReactions }
+      recordBaileysHistoryEntry(session, targetDocRef!.id, updatedEntry)
+      return updatedEntry
+    })
+
+    if (updated) {
+      await targetDocRef.set({ chatHistory: nextHistory }, { merge: true })
+    }
+  }
+
   private async handleUpsertedMessage(session: ManagedSession, msg: proto.IWebMessageInfo) {
     const remoteJid = msg.key?.remoteJid || ''
     if (
@@ -1640,6 +1748,19 @@ class WhatsAppBaileysManager {
     let normPhone = normalizeEcuadorPhone(phoneSource)
     if (normPhone.length < 9) return
     if (session.excludedPhones.has(normPhone)) return
+
+    // 0. Manejar reacciones entrantes/salientes si llegaran por messages.upsert
+    const reactionMsg = msg.message?.reactionMessage
+    if (reactionMsg?.key?.id) {
+      await this.handleIncomingReaction(
+        session,
+        remoteJid,
+        String(reactionMsg.key.id).trim(),
+        String(reactionMsg.text || '').trim(),
+        Boolean(msg.key?.fromMe)
+      )
+      return
+    }
 
     const { text, locationLink, mediaUrl, mediaType, fileName } =
       await extractRichMessageContent(session, msg, this.logger)
@@ -1877,7 +1998,8 @@ class WhatsAppBaileysManager {
     docId: string,
     phone: string,
     text: string,
-    replyId = `baileys_${Date.now()}`
+    replyId = `baileys_${Date.now()}`,
+    linkPreview?: LinkPreviewData | null
   ): Promise<{ ok: boolean; error?: string }> {
     const cleanText = text.trim()
     if (!cleanText) return { ok: false, error: 'Mensaje vacío' }
@@ -1947,6 +2069,42 @@ class WhatsAppBaileysManager {
 
     try {
       session.processedReplyIds.add(replyId)
+
+      // Preparar vista previa rica de enlace (OpenGraph + miniatura JPEG) si el mensaje incluye URL
+      let resolvedPreview: LinkPreviewData | null = null
+      if (linkPreview !== null) {
+        if (linkPreview && linkPreview.url) {
+          resolvedPreview = linkPreview
+        } else {
+          const detectedUrl = extractFirstUrlFromText(cleanText)
+          if (detectedUrl) {
+            resolvedPreview = await fetchLinkPreviewMetadata(detectedUrl)
+          }
+        }
+      }
+
+      const jpegThumbnail = resolvedPreview?.image
+        ? await fetchLinkPreviewJpegThumbnail(resolvedPreview.image)
+        : undefined
+
+      const baileysMessagePayload: any = {
+        text: cleanText,
+        ...(resolvedPreview
+          ? {
+              linkPreview: {
+                'canonical-url': resolvedPreview.url,
+                'matched-text':
+                  resolvedPreview.matchedText ||
+                  extractFirstUrlFromText(cleanText) ||
+                  resolvedPreview.url,
+                title: resolvedPreview.title || resolvedPreview.siteName,
+                description: resolvedPreview.description || '',
+                ...(jpegThumbnail ? { jpegThumbnail } : {}),
+              },
+            }
+          : {}),
+      }
+
       let sentMsg: any
       let lastSendErr: any = null
 
@@ -1961,7 +2119,7 @@ class WhatsAppBaileysManager {
           continue
         }
         try {
-          sentMsg = await activeSocket.sendMessage(jid, { text: cleanText })
+          sentMsg = await activeSocket.sendMessage(jid, baileysMessagePayload)
           lastSendErr = null
           break
         } catch (err: any) {
@@ -2004,15 +2162,28 @@ class WhatsAppBaileysManager {
         const currentHistory: any[] = Array.isArray(existingDocData.chatHistory)
           ? existingDocData.chatHistory
           : []
+        const outgoingEntry: Record<string, any> = {
+          id: replyId,
+          ...(sentMsg?.key?.id ? { waMsgId: sentMsg.key.id } : {}),
+          text: cleanText,
+          timestampMillis: nowOut,
+          fromMe: true,
+          source: 'baileys',
+        }
+        if (resolvedPreview) {
+          outgoingEntry.linkPreview = {
+            url: resolvedPreview.url,
+            matchedText: resolvedPreview.matchedText,
+            title: resolvedPreview.title,
+            description: resolvedPreview.description,
+            image: resolvedPreview.image || null,
+            siteName: resolvedPreview.siteName,
+          }
+        }
+        recordBaileysHistoryEntry(session, docId, outgoingEntry)
         const nextHistory = [
           ...currentHistory.filter((h) => h?.id !== replyId),
-          {
-            id: replyId,
-            text: cleanText,
-            timestampMillis: nowOut,
-            fromMe: true,
-            source: 'baileys',
-          },
+          outgoingEntry,
         ].slice(-MAX_CHAT_HISTORY)
 
         await docRef.set(
@@ -2031,6 +2202,125 @@ class WhatsAppBaileysManager {
     } catch (err: any) {
       console.error('[Baileys] Error enviando mensaje:', err)
       return { ok: false, error: err?.message || 'Error al enviar mensaje por Baileys' }
+    }
+  }
+
+  public async sendReaction(
+    businessId: string,
+    docId: string,
+    phone: string,
+    messageId: string,
+    targetFromMe: boolean,
+    emoji: string
+  ): Promise<{ ok: boolean; error?: string }> {
+    const cleanMsgId = String(messageId || '').trim()
+    if (!cleanMsgId) return { ok: false, error: 'messageId requerido' }
+
+    const session = this.getOrCreateSession(businessId)
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (session.state.status === 'connected' && session.socket) break
+      try {
+        const { hasExistingCreds } = await useFirestoreAuthState(businessId)
+        if (hasExistingCreds) {
+          await this.connect(businessId, { waitMs: 12000 })
+        }
+      } catch {
+        // Ignorar
+      }
+      if (session.state.status !== 'connected' || !session.socket) {
+        await new Promise((r) => setTimeout(r, 800))
+      }
+    }
+
+    if (session.state.status !== 'connected' || !session.socket) {
+      return { ok: false, error: 'WhatsApp no está conectado como dispositivo vinculado' }
+    }
+
+    const db = ensureAdminDb()
+    let docRef: FirebaseFirestore.DocumentReference | null = null
+    let existingDocData: Record<string, any> = {}
+
+    if (db && docId) {
+      docRef = db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('whatsappPending')
+        .doc(docId)
+      try {
+        const snap = await docRef.get()
+        if (snap.exists) {
+          existingDocData = snap.data() || {}
+        }
+      } catch {
+        // Ignorar
+      }
+    }
+
+    const rawCandidatePhone = phone || existingDocData.phone || existingDocData.rawPhone || ''
+    let explicitJid = String(existingDocData.whatsappJid || '').trim()
+    if (!explicitJid) {
+      if (isWhatsAppLidDigits(rawCandidatePhone)) {
+        explicitJid = `${rawCandidatePhone.replace(/\D/g, '')}@lid`
+      } else {
+        const lidForPhone = await this.resolveLidFromPhone(businessId, rawCandidatePhone)
+        if (lidForPhone) {
+          explicitJid = lidForPhone
+        }
+      }
+    }
+
+    const jid = ecuadorPhoneToJid(rawCandidatePhone, explicitJid)
+    if (!jid) return { ok: false, error: 'Número o JID de WhatsApp inválido' }
+
+    const currentHistory: any[] = Array.isArray(existingDocData.chatHistory)
+      ? existingDocData.chatHistory
+      : []
+    const matchedEntry = currentHistory.find(
+      (h) => h?.id === cleanMsgId || h?.waMsgId === cleanMsgId
+    )
+    const waTargetId = String(matchedEntry?.waMsgId || cleanMsgId).trim()
+    const cleanEmoji = String(emoji || '').trim()
+
+    try {
+      const activeSocket = session.socket
+      if (!activeSocket) return { ok: false, error: 'Socket de WhatsApp no disponible' }
+
+      const sentReact = await activeSocket.sendMessage(jid, {
+        react: {
+          text: cleanEmoji,
+          key: {
+            remoteJid: jid,
+            fromMe: Boolean(targetFromMe),
+            id: waTargetId,
+          },
+        },
+      })
+      if (sentReact?.key?.id) {
+        session.sentByBridgeMsgIds.add(sentReact.key.id)
+      }
+
+      if (docRef && currentHistory.length > 0) {
+        const nextHistory = currentHistory.map((h) => {
+          if (h?.id !== cleanMsgId && h?.waMsgId !== cleanMsgId) return h
+          const prevReactions: Array<{ emoji: string; fromMe: boolean }> = Array.isArray(h.reactions)
+            ? h.reactions
+            : []
+          const filtered = prevReactions.filter((r) => !r?.fromMe)
+          const nextReactions = cleanEmoji
+            ? [...filtered, { emoji: cleanEmoji, fromMe: true }]
+            : filtered
+          const updatedEntry = { ...h, reactions: nextReactions }
+          recordBaileysHistoryEntry(session, docId, updatedEntry)
+          return updatedEntry
+        })
+        await docRef.set({ chatHistory: nextHistory }, { merge: true })
+      }
+
+      return { ok: true }
+    } catch (err: any) {
+      console.error('[Baileys] Error enviando reacción:', err)
+      return { ok: false, error: err?.message || 'Error al enviar reacción' }
     }
   }
 }

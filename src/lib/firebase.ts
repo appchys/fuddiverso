@@ -1,11 +1,12 @@
 // firebase.ts
 // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import {
   getFirestore,
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager
+  persistentMultipleTabManager,
+  type Firestore
 } from "firebase/firestore";
 import {
   getAuth,
@@ -29,17 +30,25 @@ const firebaseConfig = {
   appId: "1:939925630795:web:713aca499392bfa36482ce"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase (reutilizando instancia existente en HMR/Fast Refresh)
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Initialize Firestore con caché persistente en navegador (IndexedDB)
-// y la opción ignoreUndefinedProperties
-const db = initializeFirestore(app, {
-  ignoreUndefinedProperties: true,
-  localCache: typeof window !== 'undefined'
-    ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-    : undefined
-});
+// y la opción ignoreUndefinedProperties, protegido contra doble inicialización en HMR
+function createFirestore(): Firestore {
+  try {
+    return initializeFirestore(app, {
+      ignoreUndefinedProperties: true,
+      localCache: typeof window !== 'undefined'
+        ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+        : undefined
+    });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
+const db = createFirestore();
 
 // Initialize Firebase Authentication
 // En el navegador definimos la persistencia al crear la instancia (en lugar de

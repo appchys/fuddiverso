@@ -36,6 +36,7 @@ export interface PendingWhatsAppConversation {
   }>
   chatHistory?: Array<{
     id: string
+    waMsgId?: string
     text: string
     timestampMillis: number
     fromMe: boolean
@@ -43,6 +44,18 @@ export interface PendingWhatsAppConversation {
     mediaUrl?: string
     mediaType?: 'image' | 'document' | 'audio' | 'order' | 'contact' | 'location'
     fileName?: string
+    reactions?: Array<{
+      emoji: string
+      fromMe: boolean
+    }>
+    linkPreview?: {
+      url: string
+      matchedText?: string
+      title?: string
+      description?: string
+      image?: string | null
+      siteName?: string
+    } | null
   }>
   canReplyDirectly?: boolean
   pendingReply?: {

@@ -57,8 +57,37 @@ export async function POST(req: NextRequest) {
       const phone = String(body?.phone || '').trim()
       const text = String(body?.text || '').trim()
       const replyId = String(body?.replyId || `web_${Date.now()}`).trim()
+      const linkPreview =
+        body && Object.prototype.hasOwnProperty.call(body, 'linkPreview')
+          ? body.linkPreview
+          : undefined
 
-      const result = await manager.sendOutgoingMessage(businessId, docId, phone, text, replyId)
+      const result = await manager.sendOutgoingMessage(
+        businessId,
+        docId,
+        phone,
+        text,
+        replyId,
+        linkPreview
+      )
+      return NextResponse.json(result)
+    }
+
+    if (action === 'react') {
+      const docId = String(body?.docId || '').trim()
+      const phone = String(body?.phone || '').trim()
+      const messageId = String(body?.messageId || '').trim()
+      const fromMe = Boolean(body?.fromMe)
+      const emoji = String(body?.emoji || '').trim()
+
+      const result = await manager.sendReaction(
+        businessId,
+        docId,
+        phone,
+        messageId,
+        fromMe,
+        emoji
+      )
       return NextResponse.json(result)
     }
 
