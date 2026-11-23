@@ -8,6 +8,7 @@ import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingMo
 import { searchClientByPhone, getClientLocations, createClient, generateProductSlug, getDeliveryDetailsForLocation, type ClientLocation } from '@/lib/database'
 import { ClientLocationsModal } from '@/components/ClientLocationsModal'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
+import { getDistanceMeters, parseLatLong } from '@/lib/location-utils'
 import { getManualOrderStorePrice, getPriceMetadata } from '@/lib/price-utils'
 import { Motorbike } from 'lucide-react'
 import type { WhatsAppPreorderDraft, WhatsAppPreorderDraftItem } from '@/components/LiveCheckoutsPanel'
@@ -246,6 +247,26 @@ function getTodayDateString(): string {
   const mm = String(now.getMonth() + 1).padStart(2, '0')
   const dd = String(now.getDate()).padStart(2, '0')
   return `${yyyy}-${mm}-${dd}`
+}
+
+const SAVED_LOCATION_MATCH_RADIUS_METERS = 80
+
+function findMatchingSavedLocation(
+  lat: number,
+  lng: number,
+  locations: ClientLocation[]
+): { location: ClientLocation; distanceMeters: number } | null {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || locations.length === 0) return null
+  let best: { location: ClientLocation; distanceMeters: number } | null = null
+  for (const loc of locations) {
+    const parsed = parseLatLong(loc.latlong)
+    if (!parsed) continue
+    const dist = getDistanceMeters(lat, lng, parsed.lat, parsed.lng)
+    if (dist <= SAVED_LOCATION_MATCH_RADIUS_METERS && (!best || dist < best.distanceMeters)) {
+      best = { location: loc, distanceMeters: Math.round(dist) }
+    }
+  }
+  return best
 }
 
 function extractLocationPreviewFromMessage(rawText?: string | null): {
@@ -1248,6 +1269,25 @@ export function WhatsAppChatPreorderView({
     }
   }, [timelineEntries, businessId, businessData, resolvedLocationsByCoord])
 
+  // Si la última ubicación enviada coincide con una ubicación guardada del cliente, preseleccionarla automáticamente
+  const autoMatchedLocationIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (savedLocations.length === 0 || selectedLocationId) return
+    for (let i = timelineEntries.length - 1; i >= 0; i--) {
+      const entry = timelineEntries[i]
+      if (entry.kind !== 'message' || entry.msg?.fromMe) continue
+      const preview = extractLocationPreviewFromMessage(entry.msg?.text)
+      if (!preview) continue
+      const matched = findMatchingSavedLocation(Number(preview.lat), Number(preview.lng), savedLocations)
+      if (matched && autoMatchedLocationIdRef.current !== matched.location.id) {
+        autoMatchedLocationIdRef.current = matched.location.id
+        setSelectedLocationId(matched.location.id)
+        if (!deliveryType) setDeliveryType('delivery')
+      }
+      break
+    }
+  }, [timelineEntries, savedLocations, selectedLocationId, deliveryType])
+
   const getOrderStatusLabel = (status?: string): string => {
     switch (String(status || '').toLowerCase()) {
       case 'borrador': return 'Borrador'
@@ -1591,6 +1631,13 @@ export function WhatsAppChatPreorderView({
               const locationPreview = !msg.fromMe ? extractLocationPreviewFromMessage(msg.text) : null
               const locationCoordKey = locationPreview ? `${locationPreview.lat},${locationPreview.lng}` : ''
               const resolvedLoc = locationCoordKey ? resolvedLocationsByCoord[locationCoordKey] : undefined
+              const matchedSavedLoc = locationPreview
+                ? findMatchingSavedLocation(
+                    Number(locationPreview.lat),
+                    Number(locationPreview.lng),
+                    savedLocations
+                  )
+                : null
               const isImageOnlyMsg = Boolean(msg.mediaUrl && msg.mediaType === 'image')
               const cleanedImageCaption = isImageOnlyMsg
                 ? String(msg.text || '')
@@ -1695,41 +1742,83 @@ export function WhatsAppChatPreorderView({
                       />
                     </div>
                     <div className="px-2.5 py-2 space-y-1 bg-white group-hover:bg-blue-50/40 transition-colors">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-slate-900 truncate inline-flex items-center gap-1.5 min-w-0">
-                          <i className="bi bi-geo-alt-fill text-rose-500 shrink-0"></i>
-                          <span className="truncate">
-                            {resolvedLoc?.zoneName || (businessId ? 'Buscando sector...' : locationPreview.label)}
-                          </span>
-                        </span>
-                        {resolvedLoc ? (
-                          resolvedLoc.isOutOfCoverage ? (
-                            <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200/80 text-[10px] font-bold">
-                              {resolvedLoc.isInactiveZone ? 'Sin envío' : 'Sin cobertura'}
+                      {matchedSavedLoc ? (
+                        <>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-slate-900 truncate inline-flex items-center gap-1.5 min-w-0">
+                              <i className="bi bi-bookmark-check-fill text-blue-600 shrink-0"></i>
+                              <span className="truncate">
+                                {matchedSavedLoc.location.referencia ||
+                                  matchedSavedLoc.location.sector ||
+                                  'Ubicación guardada'}
+                              </span>
                             </span>
-                          ) : (
-                            <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold">
-                              {resolvedLoc.fee <= 0 ? 'Envío gratis' : `Envío $${resolvedLoc.fee.toFixed(2)}`}
+                            <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/80 text-[10px] font-bold">
+                              Guardada
                             </span>
-                          )
-                        ) : businessId ? (
-                          <span className="shrink-0 text-[10px] text-slate-400 font-medium">
-                            Calculando...
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] text-slate-500 truncate">
-                          {locationPreview.label &&
-                          locationPreview.label !== 'Ubicación enviada' &&
-                          locationPreview.label.toLowerCase() !== String(resolvedLoc?.zoneName || '').toLowerCase()
-                            ? locationPreview.label
-                            : 'Ver en Google Maps'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 shrink-0">
-                          {formatWhatsAppTime(msg.timestampMillis)}
-                        </span>
-                      </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-slate-600 font-medium truncate">
+                              {[
+                                resolvedLoc?.zoneName || matchedSavedLoc.location.sector,
+                                resolvedLoc && !resolvedLoc.isOutOfCoverage
+                                  ? resolvedLoc.fee <= 0
+                                    ? 'Envío gratis'
+                                    : `Envío $${resolvedLoc.fee.toFixed(2)}`
+                                  : matchedSavedLoc.location.tarifa &&
+                                      !Number.isNaN(Number(matchedSavedLoc.location.tarifa))
+                                    ? Number(matchedSavedLoc.location.tarifa) <= 0
+                                      ? 'Envío gratis'
+                                      : `Envío $${Number(matchedSavedLoc.location.tarifa).toFixed(2)}`
+                                    : null,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ') || 'Ubicación registrada del cliente'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 shrink-0">
+                              {formatWhatsAppTime(msg.timestampMillis)}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-slate-900 truncate inline-flex items-center gap-1.5 min-w-0">
+                              <i className="bi bi-geo-alt-fill text-rose-500 shrink-0"></i>
+                              <span className="truncate">
+                                {resolvedLoc?.zoneName || (businessId ? 'Buscando sector...' : locationPreview.label)}
+                              </span>
+                            </span>
+                            {resolvedLoc ? (
+                              resolvedLoc.isOutOfCoverage ? (
+                                <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200/80 text-[10px] font-bold">
+                                  {resolvedLoc.isInactiveZone ? 'Sin envío' : 'Sin cobertura'}
+                                </span>
+                              ) : (
+                                <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold">
+                                  {resolvedLoc.fee <= 0 ? 'Envío gratis' : `Envío $${resolvedLoc.fee.toFixed(2)}`}
+                                </span>
+                              )
+                            ) : businessId ? (
+                              <span className="shrink-0 text-[10px] text-slate-400 font-medium">
+                                Calculando...
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-slate-500 truncate">
+                              {locationPreview.label &&
+                              locationPreview.label !== 'Ubicación enviada' &&
+                              locationPreview.label.toLowerCase() !== String(resolvedLoc?.zoneName || '').toLowerCase()
+                                ? locationPreview.label
+                                : 'Ver en Google Maps'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 shrink-0">
+                              {formatWhatsAppTime(msg.timestampMillis)}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </a>
                 </div>
