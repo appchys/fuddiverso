@@ -3,9 +3,9 @@
 import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { collection, doc, getDoc, updateDoc, addDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import type { Product } from '@/types'
+import type { Business, Product } from '@/types'
 import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal'
-import { searchClientByPhone, getClientLocations, createClient, generateProductSlug, type ClientLocation } from '@/lib/database'
+import { searchClientByPhone, getClientLocations, createClient, generateProductSlug, getDeliveryDetailsForLocation, type ClientLocation } from '@/lib/database'
 import { ClientLocationsModal } from '@/components/ClientLocationsModal'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { getManualOrderStorePrice, getPriceMetadata } from '@/lib/price-utils'
@@ -366,6 +366,11 @@ export function WhatsAppChatPreorderView({
   const [attachMenuView, setAttachMenuView] = useState<'main' | 'products'>('main')
   const [attachProductSearch, setAttachProductSearch] = useState<string>('')
   const [businessUsername, setBusinessUsername] = useState<string>('')
+  const [businessData, setBusinessData] = useState<Business | null>(null)
+  const [resolvedLocationsByCoord, setResolvedLocationsByCoord] = useState<
+    Record<string, Awaited<ReturnType<typeof getDeliveryDetailsForLocation>>>
+  >({})
+  const resolvingCoordsRef = useRef<Set<string>>(new Set())
   const [customQuickReplies, setCustomQuickReplies] = useState<
     Array<{ id: string; shortcut: string; message: string; isDefault?: boolean }>
   >([])
@@ -446,7 +451,9 @@ export function WhatsAppChatPreorderView({
     getDoc(doc(db, 'businesses', businessId))
       .then((snap) => {
         if (!cancelled && snap.exists()) {
-          const uname = String(snap.data()?.username || '').trim()
+          const data = snap.data()
+          setBusinessData({ id: snap.id, ...data } as Business)
+          const uname = String(data?.username || '').trim()
           if (uname) setBusinessUsername(uname)
         }
       })
@@ -1197,6 +1204,50 @@ export function WhatsAppChatPreorderView({
     return entries.sort((a, b) => a.timestampMillis - b.timestampMillis)
   }, [conversation.chatHistory, conversation.sentReplies, conversation.timestampMillis, messages, sentOrderBubbles])
 
+  // Resolver automáticamente el sector y la tarifa de envío para las ubicaciones enviadas por el cliente
+  useEffect(() => {
+    if (!businessId) return
+    let cancelled = false
+
+    const coordsToResolve: Array<{ key: string; lat: number; lng: number }> = []
+    const seen = new Set<string>()
+
+    for (const entry of timelineEntries) {
+      if (entry.kind !== 'message' || entry.msg?.fromMe) continue
+      const preview = extractLocationPreviewFromMessage(entry.msg?.text)
+      if (!preview) continue
+      const key = `${preview.lat},${preview.lng}`
+      if (seen.has(key) || resolvedLocationsByCoord[key] || resolvingCoordsRef.current.has(key)) {
+        continue
+      }
+      const latNum = Number(preview.lat)
+      const lngNum = Number(preview.lng)
+      if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) continue
+      seen.add(key)
+      coordsToResolve.push({ key, lat: latNum, lng: lngNum })
+    }
+
+    if (coordsToResolve.length === 0) return
+
+    coordsToResolve.forEach(({ key, lat, lng }) => {
+      resolvingCoordsRef.current.add(key)
+      getDeliveryDetailsForLocation({ lat, lng }, businessId, businessData ?? undefined)
+        .then((details) => {
+          if (!cancelled) {
+            setResolvedLocationsByCoord((prev) => ({ ...prev, [key]: details }))
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          resolvingCoordsRef.current.delete(key)
+        })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [timelineEntries, businessId, businessData, resolvedLocationsByCoord])
+
   const getOrderStatusLabel = (status?: string): string => {
     switch (String(status || '').toLowerCase()) {
       case 'borrador': return 'Borrador'
@@ -1538,6 +1589,8 @@ export function WhatsAppChatPreorderView({
 
               const msg = entry.msg
               const locationPreview = !msg.fromMe ? extractLocationPreviewFromMessage(msg.text) : null
+              const locationCoordKey = locationPreview ? `${locationPreview.lat},${locationPreview.lng}` : ''
+              const resolvedLoc = locationCoordKey ? resolvedLocationsByCoord[locationCoordKey] : undefined
               const isImageOnlyMsg = Boolean(msg.mediaUrl && msg.mediaType === 'image')
               const cleanedImageCaption = isImageOnlyMsg
                 ? String(msg.text || '')
@@ -1620,7 +1673,7 @@ export function WhatsAppChatPreorderView({
                   </div>
                 </div>
               ) : locationPreview ? (
-                <div className="w-[250px] sm:w-[270px] bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs">
+                <div className="w-[260px] sm:w-[285px] bg-white border border-slate-200/90 rounded-xl overflow-hidden shadow-2xs">
                   <a
                     href={locationPreview.mapsUrl}
                     target="_blank"
@@ -1632,7 +1685,7 @@ export function WhatsAppChatPreorderView({
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={locationPreview.staticMapUrl}
-                        alt={locationPreview.label}
+                        alt={resolvedLoc?.zoneName || locationPreview.label}
                         onLoad={() => {
                           if (isInitialScrollPendingRef.current) {
                             scrollMessagesToBottom(false)
@@ -1641,14 +1694,42 @@ export function WhatsAppChatPreorderView({
                         className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
                       />
                     </div>
-                    <div className="px-2.5 py-2 flex items-center justify-between gap-2 bg-white group-hover:bg-blue-50/40 transition-colors">
-                      <span className="text-xs font-bold text-slate-800 truncate inline-flex items-center gap-1.5">
-                        <i className="bi bi-geo-alt-fill text-rose-500 shrink-0"></i>
-                        <span className="truncate">{locationPreview.label}</span>
-                      </span>
-                      <span className="text-[10px] text-slate-400 shrink-0">
-                        {formatWhatsAppTime(msg.timestampMillis)}
-                      </span>
+                    <div className="px-2.5 py-2 space-y-1 bg-white group-hover:bg-blue-50/40 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-900 truncate inline-flex items-center gap-1.5 min-w-0">
+                          <i className="bi bi-geo-alt-fill text-rose-500 shrink-0"></i>
+                          <span className="truncate">
+                            {resolvedLoc?.zoneName || (businessId ? 'Buscando sector...' : locationPreview.label)}
+                          </span>
+                        </span>
+                        {resolvedLoc ? (
+                          resolvedLoc.isOutOfCoverage ? (
+                            <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200/80 text-[10px] font-bold">
+                              {resolvedLoc.isInactiveZone ? 'Sin envío' : 'Sin cobertura'}
+                            </span>
+                          ) : (
+                            <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold">
+                              {resolvedLoc.fee <= 0 ? 'Envío gratis' : `Envío $${resolvedLoc.fee.toFixed(2)}`}
+                            </span>
+                          )
+                        ) : businessId ? (
+                          <span className="shrink-0 text-[10px] text-slate-400 font-medium">
+                            Calculando...
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-slate-500 truncate">
+                          {locationPreview.label &&
+                          locationPreview.label !== 'Ubicación enviada' &&
+                          locationPreview.label.toLowerCase() !== String(resolvedLoc?.zoneName || '').toLowerCase()
+                            ? locationPreview.label
+                            : 'Ver en Google Maps'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 shrink-0">
+                          {formatWhatsAppTime(msg.timestampMillis)}
+                        </span>
+                      </div>
                     </div>
                   </a>
                 </div>
