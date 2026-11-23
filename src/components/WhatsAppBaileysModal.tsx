@@ -87,9 +87,10 @@ export function WhatsAppBaileysModal({
     return () => unsub()
   }, [businessId, onStatusChange])
 
-  // Mantener vivo el socket en Vercel mientras el modal está abierto y esperando vinculación
+  // Mantener vivo el socket en Vercel únicamente mientras el modal está abierto esperando QR o código de vinculación
   useEffect(() => {
     if (!isOpen || !businessId) return
+    if (info.status !== 'qr' && info.status !== 'connecting') return
     let cancelled = false
 
     const pollLoop = async () => {
@@ -103,7 +104,7 @@ export function WhatsAppBaileysModal({
             const data = await res.json()
             applyApiData(data)
             if (data?.status === 'connected' || data?.status === 'disconnected') {
-              await new Promise((r) => setTimeout(r, 4000))
+              break
             }
           } else {
             await new Promise((r) => setTimeout(r, 3000))
@@ -118,7 +119,7 @@ export function WhatsAppBaileysModal({
     return () => {
       cancelled = true
     }
-  }, [isOpen, businessId, applyApiData])
+  }, [isOpen, businessId, info.status, applyApiData])
 
   const handleConnect = async (usePhoneCode = false) => {
     if (!businessId || loadingAction) return

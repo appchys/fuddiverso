@@ -42,6 +42,8 @@ interface ManagedSession {
   excludedPhones: Set<string>
   processedReplyIds: Set<string>
   sentByBridgeMsgIds: Set<string>
+  baileysHistoryByDoc: Map<string, any[]>
+  repairingDocIds: Set<string>
   reconnectTimer: ReturnType<typeof setTimeout> | null
   isConnecting: boolean
   manualDisconnect: boolean
@@ -166,6 +168,211 @@ interface ExtractedRichContent {
   fileName?: string | null
 }
 
+/**
+ * Consulta los productos y el total de un pedido del catálogo de WhatsApp Business
+ * usando el endpoint moderno MEX GraphQL (`xwa_checkout_get_order_info` / query_id `26593811266898374`),
+ * ya que el antiguo nodo `fb:thrift_iq` (`smax_id=5`) devuelve `501 feature-not-implemented`.
+ */
+async function fetchOrderDetailsViaMex(
+  session: ManagedSession,
+  orderId: string,
+  token: string,
+  sellerJid?: string | null
+): Promise<{
+  products: Array<{
+    id: string
+    name: string
+    price: number
+    currency: string
+    quantity: number
+    imageUrl?: string
+  }>
+  total?: number
+} | null> {
+  const sock = session.socket
+  if (!sock || typeof sock.query !== 'function' || !orderId || !token) return null
+
+  const rawMe = sock.user?.id || ''
+  const ownPnDigits = rawMe.split(':')[0]?.split('@')[0]?.replace(/\D/g, '') || ''
+  const ownPnJid = ownPnDigits ? `${ownPnDigits}@s.whatsapp.net` : ''
+
+  let targetSellerJid = String(sellerJid || '').trim()
+  // MEX requiere el JID con número telefónico (@s.whatsapp.net) cuando el vendedor es la propia cuenta
+  if (!targetSellerJid || targetSellerJid.endsWith('@lid')) {
+    targetSellerJid = ownPnJid
+  } else if (targetSellerJid.includes(':')) {
+    targetSellerJid = `${targetSellerJid.split(':')[0].split('@')[0]}@s.whatsapp.net`
+  }
+  if (!targetSellerJid) return null
+
+  try {
+    const variables = {
+      request: {
+        order: {
+          id: orderId,
+          jid: targetSellerJid,
+          token: { sensitive_string_value: token },
+          image_dimensions: { width: 100, height: 100 },
+          direct_connection_encrypted_info: null,
+        },
+      },
+    }
+    const rawNode = await sock.query(
+      {
+        tag: 'iq',
+        attrs: {
+          to: '@s.whatsapp.net',
+          type: 'get',
+          xmlns: 'w:mex',
+        },
+        content: [
+          {
+            tag: 'query',
+            attrs: { query_id: '26593811266898374' },
+            content: Buffer.from(JSON.stringify({ variables }), 'utf-8'),
+          },
+        ],
+      },
+      8000
+    )
+    const resultChild = Array.isArray(rawNode?.content)
+      ? rawNode.content.find((c: any) => c?.tag === 'result')
+      : null
+    if (!resultChild?.content) return null
+    const parsed = JSON.parse(Buffer.from(resultChild.content).toString('utf-8'))
+    const orderInfo = parsed?.data?.xwa_checkout_get_order_info?.order
+    if (!orderInfo) return null
+
+    const rawProducts = Array.isArray(orderInfo.products) ? orderInfo.products : []
+    const products = rawProducts.map((p: any) => {
+      const images = Array.isArray(p?.media?.images) ? p.media.images : []
+      return {
+        id: String(p?.id || ''),
+        name: String(p?.name || 'Producto').trim(),
+        price: Number(p?.price || 0),
+        currency: String(p?.currency || 'USD'),
+        quantity: Number(p?.quantity || 1),
+        imageUrl:
+          typeof images[0]?.request_image_url === 'string'
+            ? images[0].request_image_url
+            : undefined,
+      }
+    })
+    const rawTotal = Number(orderInfo?.price_details?.total_amount || 0)
+    return {
+      products,
+      total: rawTotal > 0 ? rawTotal : undefined,
+    }
+  } catch (err) {
+    console.warn('[Baileys MEX] Error consultando xwa_checkout_get_order_info:', err)
+    return null
+  }
+}
+
+/**
+ * Determina si un mensaje proveniente de la notificación de Android (`in_...` / `source: 'notification'`)
+ * es un eco genérico redundante de un mensaje enriquecido ya capturado por Baileys.
+ */
+function isRedundantAndroidEcho(androidItem: any, baileysItems: any[]): boolean {
+  const id = String(androidItem?.id || '')
+  const src = String(androidItem?.source || '')
+  if (src === 'baileys' || (!id.startsWith('in_') && src !== 'notification')) {
+    return false
+  }
+  const aText = String(androidItem?.text || '').trim()
+  const aLower = aText.toLowerCase()
+  const aTs = Number(androidItem?.timestampMillis || 0)
+
+  return baileysItems.some((b) => {
+    if (Boolean(b?.fromMe) !== Boolean(androidItem?.fromMe)) return false
+    const bTs = Number(b?.timestampMillis || 0)
+    if (aTs > 0 && bTs > 0 && Math.abs(aTs - bTs) > 60_000) return false
+    const bText = String(b?.text || '').trim()
+    if (bText.toLowerCase() === aLower) return true
+    const bMedia = String(b?.mediaType || '')
+    if (
+      bMedia === 'order' &&
+      (aText.startsWith('🛒') || aLower.includes('solicitud de pedido'))
+    ) {
+      return true
+    }
+    if (
+      bMedia === 'image' &&
+      (aText.startsWith('📷') || aLower.includes('envió una foto'))
+    ) {
+      return true
+    }
+    if (
+      bMedia === 'audio' &&
+      (aText.startsWith('🎤') || aLower.includes('mensaje de voz'))
+    ) {
+      return true
+    }
+    if (bMedia === 'document' && aText.startsWith('📄')) {
+      return true
+    }
+    if (bMedia === 'contact' && aText.startsWith('👤')) {
+      return true
+    }
+    if (
+      bMedia === 'location' &&
+      (aText.startsWith('📍') || aLower.includes('ubicación'))
+    ) {
+      return true
+    }
+    return false
+  })
+}
+
+function recordBaileysHistoryEntry(session: ManagedSession, docId: string, entry: any) {
+  const list = session.baileysHistoryByDoc.get(docId) || []
+  const filtered = list.filter((x) => x?.id !== entry?.id)
+  filtered.push(entry)
+  session.baileysHistoryByDoc.set(docId, filtered.slice(-MAX_CHAT_HISTORY))
+}
+
+function mergeWithBaileysRichHistory(
+  session: ManagedSession,
+  docId: string,
+  firestoreHistory: any[]
+): any[] {
+  const cachedBaileys = session.baileysHistoryByDoc.get(docId) || []
+  const baseList = Array.isArray(firestoreHistory) ? firestoreHistory : []
+
+  // Unir entradas existentes con las cacheadas por Baileys (priorizando la versión enriquecida con mediaUrl/mediaType)
+  const byId = new Map<string, any>()
+  for (const item of baseList) {
+    if (!item || typeof item !== 'object') continue
+    const key = String(item.id || `${item.timestampMillis}_${item.text}`)
+    byId.set(key, item)
+  }
+  for (const bItem of cachedBaileys) {
+    if (!bItem || typeof bItem !== 'object') continue
+    const key = String(bItem.id || `${bItem.timestampMillis}_${bItem.text}`)
+    const existing = byId.get(key)
+    if (!existing) {
+      byId.set(key, bItem)
+    } else {
+      byId.set(key, {
+        ...existing,
+        ...bItem,
+        text:
+          String(bItem.text || '').length >= String(existing.text || '').length
+            ? bItem.text
+            : existing.text,
+      })
+    }
+  }
+
+  const allItems = Array.from(byId.values())
+  const allBaileysItems = allItems.filter((x) => x?.source === 'baileys')
+
+  return allItems
+    .filter((item) => !isRedundantAndroidEcho(item, allBaileysItems))
+    .sort((a, b) => Number(a?.timestampMillis || 0) - Number(b?.timestampMillis || 0))
+    .slice(-MAX_CHAT_HISTORY)
+}
+
 async function extractRichMessageContent(
   session: ManagedSession,
   msg: proto.IWebMessageInfo,
@@ -237,31 +444,55 @@ async function extractRichMessageContent(
       thumbUrl = `data:image/jpeg;base64,${Buffer.from(orderMsg.thumbnail).toString('base64')}`
     }
 
-    if (orderId && token && session.socket && typeof session.socket.getOrderDetails === 'function') {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const details = await session.socket.getOrderDetails(orderId, token)
-          if (details?.products?.length) {
-            detailLines = details.products.map((p: any) => {
-              const qty = Number(p.quantity || 1)
-              const unitPrice = Number(p.price || 0) > 0 ? Number(p.price) / 1000 : null
-              return `• ${qty}x ${p.name || 'Producto'}${
-                unitPrice !== null ? ` ($${unitPrice.toFixed(2)})` : ''
-              }`
-            })
-            if (typeof details?.price?.total === 'number' && details.price.total > 0) {
-              detailTotal = details.price.total / 1000
-            }
-            break
-          }
-        } catch (err) {
-          if (attempt === 2) {
-            console.warn('[Baileys] No se pudo obtener getOrderDetails del catálogo:', err)
-          }
+    // 3a. Consultar detalles del pedido vía endpoint moderno MEX GraphQL (xwa_checkout_get_order_info)
+    if (orderId && token && session.socket) {
+      const mexDetails = await fetchOrderDetailsViaMex(
+        session,
+        orderId,
+        token,
+        orderMsg.sellerJid
+      )
+      if (mexDetails?.products?.length) {
+        detailLines = mexDetails.products.map((p) => {
+          const qty = Number(p.quantity || 1)
+          const unitPrice = Number(p.price || 0) > 0 ? Number(p.price) / 1000 : null
+          return `• ${qty}x ${p.name || 'Producto'}${
+            unitPrice !== null ? ` ($${unitPrice.toFixed(2)})` : ''
+          }`
+        })
+        if (!thumbUrl && mexDetails.products[0]?.imageUrl) {
+          thumbUrl = mexDetails.products[0].imageUrl
         }
-        if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 600))
+      }
+      if (typeof mexDetails?.total === 'number' && mexDetails.total > 0) {
+        detailTotal = mexDetails.total / 1000
+      }
+    }
+
+    // 3b. Respaldo legacy getOrderDetails si MEX no devolvió líneas
+    if (
+      detailLines.length === 0 &&
+      orderId &&
+      token &&
+      session.socket &&
+      typeof session.socket.getOrderDetails === 'function'
+    ) {
+      try {
+        const details = await session.socket.getOrderDetails(orderId, token)
+        if (details?.products?.length) {
+          detailLines = details.products.map((p: any) => {
+            const qty = Number(p.quantity || 1)
+            const unitPrice = Number(p.price || 0) > 0 ? Number(p.price) / 1000 : null
+            return `• ${qty}x ${p.name || 'Producto'}${
+              unitPrice !== null ? ` ($${unitPrice.toFixed(2)})` : ''
+            }`
+          })
         }
+        if (typeof details?.price?.total === 'number' && details.price.total > 0) {
+          detailTotal = details.price.total / 1000
+        }
+      } catch {
+        // Ignorar fallo en endpoint legacy (501 feature-not-implemented)
       }
     }
 
@@ -270,12 +501,12 @@ async function extractRichMessageContent(
     ]
     if (detailLines.length > 0) {
       parts.push(...detailLines)
-    } else if (
-      orderMsg.orderTitle &&
-      String(orderMsg.orderTitle).trim().toLowerCase() !==
-        String(session.state.connectedName || '').trim().toLowerCase()
-    ) {
-      parts.push(`• ${orderMsg.orderTitle}`)
+    } else if (orderMsg.orderTitle) {
+      const storeName = String(session.state.connectedName || '').trim().toLowerCase()
+      const cleanTitle = String(orderMsg.orderTitle).trim()
+      if (cleanTitle && cleanTitle.toLowerCase() !== storeName) {
+        parts.push(`• ${cleanTitle}`)
+      }
     }
     if (detailTotal !== null) {
       parts.push(`Total catálogo: $${detailTotal.toFixed(2)}`)
@@ -627,7 +858,25 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 19
+const MANAGER_VERSION = 26
+
+// Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
+const globalForTimerPatch = globalThis as unknown as {
+  __fuddiOrigSetTimeout?: typeof globalThis.setTimeout
+}
+if (!globalForTimerPatch.__fuddiOrigSetTimeout) {
+  globalForTimerPatch.__fuddiOrigSetTimeout = globalThis.setTimeout.bind(globalThis)
+  globalThis.setTimeout = ((fn: any, delay?: number, ...args: any[]) => {
+    if (
+      delay === 2500 &&
+      typeof fn === 'function' &&
+      String(fn).includes('connect(businessId')
+    ) {
+      return globalForTimerPatch.__fuddiOrigSetTimeout!(() => {}, 0)
+    }
+    return globalForTimerPatch.__fuddiOrigSetTimeout!(fn, delay, ...args)
+  }) as typeof globalThis.setTimeout
+}
 
 class WhatsAppBaileysManager {
   public readonly version = MANAGER_VERSION
@@ -744,6 +993,8 @@ class WhatsAppBaileysManager {
         excludedPhones: new Set(),
         processedReplyIds: new Set(),
         sentByBridgeMsgIds: new Set(),
+        baileysHistoryByDoc: new Map(),
+        repairingDocIds: new Set(),
         reconnectTimer: null,
         isConnecting: false,
         manualDisconnect: false,
@@ -783,13 +1034,13 @@ class WhatsAppBaileysManager {
 
   public async getStateAsync(businessId: string, holdMs = 0): Promise<BaileysBusinessState> {
     const session = this.getOrCreateSession(businessId)
-    const db = ensureAdminDb()
 
-    // Si en memoria está desconectado, revisar en Firestore si ya había credenciales registradas
+    // Si en memoria está desconectado (y no fue por ceder la conexión ante otra instancia activa), revisar si hay credenciales en Firestore
     if (
       session.state.status === 'disconnected' &&
       !session.isConnecting &&
-      !session.manualDisconnect
+      !session.manualDisconnect &&
+      session.state.lastError !== 'Conflict (440)'
     ) {
       try {
         const { hasExistingCreds } = await useFirestoreAuthState(businessId)
@@ -876,6 +1127,55 @@ class WhatsAppBaileysManager {
             if (session.state.status !== 'connected' || !session.socket) return
             snap.docs.forEach((docSnap) => {
               const data = docSnap.data() || {}
+
+              // 1. Si Android sobrescribió chatHistory borrando mensajes enriquecidos de Baileys o agregando ecos genéricos ("🛒 Recibiste una solicitud de pedido."), restaurarlos
+              if (
+                session.baileysHistoryByDoc.has(docSnap.id) &&
+                !session.repairingDocIds.has(docSnap.id)
+              ) {
+                const currentHistory: any[] = Array.isArray(data.chatHistory) ? data.chatHistory : []
+                const repairedHistory = mergeWithBaileysRichHistory(
+                  session,
+                  docSnap.id,
+                  currentHistory
+                )
+                const currentJson = JSON.stringify(
+                  currentHistory.map((x) => ({
+                    id: x?.id,
+                    text: x?.text,
+                    mediaUrl: x?.mediaUrl || null,
+                    mediaType: x?.mediaType || null,
+                  }))
+                )
+                const repairedJson = JSON.stringify(
+                  repairedHistory.map((x) => ({
+                    id: x?.id,
+                    text: x?.text,
+                    mediaUrl: x?.mediaUrl || null,
+                    mediaType: x?.mediaType || null,
+                  }))
+                )
+                if (currentJson !== repairedJson) {
+                  session.repairingDocIds.add(docSnap.id)
+                  const lastIncoming = [...repairedHistory]
+                    .reverse()
+                    .find((x) => !x?.fromMe && x?.text)
+                  const updatePayload: Record<string, any> = {
+                    chatHistory: repairedHistory,
+                  }
+                  if (lastIncoming?.text) {
+                    updatePayload.lastMessage = lastIncoming.text
+                  }
+                  void docSnap.ref
+                    .set(updatePayload, { merge: true })
+                    .catch(() => {})
+                    .finally(() => {
+                      session.repairingDocIds.delete(docSnap.id)
+                    })
+                }
+              }
+
+              // 2. Procesar respuestas pendientes encoladas
               const pendingReply = data.pendingReply
               if (
                 pendingReply &&
@@ -1082,13 +1382,14 @@ class WhatsAppBaileysManager {
             session.state.pairingCode = null
             session.state.lastError = 'Conflict (440)'
             this.notifyStateWaiters(session)
-          } else if (!session.manualDisconnect) {
+          } else if (!session.manualDisconnect && this.version === MANAGER_VERSION) {
             session.state.status = 'connecting'
             session.state.lastError = `Reconectando (${disconnectMsg})`
             await this.persistConnectionState(session)
             session.reconnectTimer = setTimeout(() => {
+              if (this.version !== MANAGER_VERSION || session.manualDisconnect) return
               void this.connect(businessId, { waitMs: 0 })
-            }, 2500)
+            }, 2600)
           } else {
             session.state.status = 'disconnected'
             session.state.qrDataUrl = null
@@ -1443,19 +1744,21 @@ class WhatsAppBaileysManager {
 
     const prevUnread = typeof existing?.unreadCount === 'number' ? existing.unreadCount : 0
     const prevHistory: any[] = Array.isArray(existing?.chatHistory) ? existing.chatHistory : []
-    const nextHistory = [
+    const newBaileysEntry = {
+      id: msgId,
+      text,
+      timestampMillis: Math.max(nowMillis, msgMillis),
+      fromMe: false,
+      source: 'baileys',
+      ...(mediaUrl ? { mediaUrl } : {}),
+      ...(mediaType ? { mediaType } : {}),
+      ...(fileName ? { fileName } : {}),
+    }
+    recordBaileysHistoryEntry(session, docId, newBaileysEntry)
+    const nextHistory = mergeWithBaileysRichHistory(session, docId, [
       ...prevHistory.filter((h) => h?.id !== msgId),
-      {
-        id: msgId,
-        text,
-        timestampMillis: Math.max(nowMillis, msgMillis),
-        fromMe: false,
-        source: 'baileys',
-        ...(mediaUrl ? { mediaUrl } : {}),
-        ...(mediaType ? { mediaType } : {}),
-        ...(fileName ? { fileName } : {}),
-      },
-    ].slice(-MAX_CHAT_HISTORY)
+      newBaileysEntry,
+    ])
 
     await docRef.set(
       {
