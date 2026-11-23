@@ -8,7 +8,7 @@ export const maxDuration = 60
 
 const WORKER_URL = (process.env.WHATSAPP_WORKER_URL || '').trim().replace(/\/+$/, '')
 const WORKER_SECRET = (process.env.WHATSAPP_WORKER_SECRET || '').trim()
-const ALLOWED_ACTIONS = new Set(['connect', 'pair-code', 'disconnect', 'send', 'react'])
+const ALLOWED_ACTIONS = new Set(['connect', 'pair-code', 'disconnect', 'send', 'react', 'mark-read'])
 const MAX_MESSAGE_LENGTH = 4000
 
 async function verifyBusinessAccess(
@@ -248,6 +248,22 @@ export async function POST(req: NextRequest) {
         messageId,
         fromMe,
         emoji
+      )
+      return NextResponse.json(result)
+    }
+
+    if (action === 'mark-read') {
+      const docId = String(body?.docId || '').trim()
+      const phone = String(body?.phone || '').trim()
+      const messageIds = Array.isArray(body?.messageIds)
+        ? body.messageIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+        : undefined
+
+      const result = await manager.markConversationAsRead(
+        businessId,
+        docId,
+        phone,
+        messageIds
       )
       return NextResponse.json(result)
     }

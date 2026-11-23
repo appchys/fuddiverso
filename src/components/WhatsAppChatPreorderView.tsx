@@ -541,6 +541,7 @@ export function WhatsAppChatPreorderView({
   })
   const resolvingCoordsRef = useRef<Set<string>>(new Set())
   const isMountedRef = useRef<boolean>(true)
+  const lastMarkedReadKeyRef = useRef<string>('')
 
   useEffect(() => {
     isMountedRef.current = true
@@ -1428,6 +1429,64 @@ export function WhatsAppChatPreorderView({
 
     return entries.sort((a, b) => a.timestampMillis - b.timestampMillis)
   }, [conversation.chatHistory, conversation.sentReplies, conversation.timestampMillis, messages, sentOrderBubbles])
+
+  // Al abrir el chat (o al recibir nuevos mensajes con el chat abierto), marcar como leído en Firestore y en WhatsApp (Baileys)
+  useEffect(() => {
+    if (!businessId || !conversation.docId) return
+    const unread = Number(conversation.unreadCount || 0)
+    const incomingIds = (Array.isArray(conversation.chatHistory) ? conversation.chatHistory : [])
+      .filter((m) => m && !m.fromMe)
+      .slice(-20)
+      .map((m) => String(m.waMsgId || m.id || '').trim())
+      .filter(Boolean)
+    const latestIncomingId = incomingIds[incomingIds.length - 1] || ''
+    const markKey = `${conversation.docId}|${latestIncomingId}|${unread > 0 ? 'u' : 'r'}`
+
+    if (unread <= 0 && lastMarkedReadKeyRef.current.startsWith(`${conversation.docId}|${latestIncomingId}|`)) {
+      return
+    }
+    if (lastMarkedReadKeyRef.current === markKey) return
+    lastMarkedReadKeyRef.current = markKey
+
+    const targetPhone =
+      resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || ''
+
+    if (unread > 0) {
+      updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
+        unreadCount: 0,
+      }).catch(() => {})
+    }
+
+    ;(async () => {
+      try {
+        const idToken = await auth.currentUser?.getIdToken()
+        await fetch('/api/whatsapp/bridge', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          },
+          body: JSON.stringify({
+            action: 'mark-read',
+            businessId,
+            docId: conversation.docId,
+            phone: targetPhone,
+            messageIds: incomingIds,
+          }),
+        })
+      } catch {
+        // Ignorar fallo transitorio de red
+      }
+    })()
+  }, [
+    businessId,
+    conversation.docId,
+    conversation.unreadCount,
+    conversation.chatHistory,
+    conversation.phone,
+    conversation.rawPhone,
+    resolvedProfile?.clientPhone,
+  ])
 
   const customLocationPreview = useMemo(
     () => extractLocationPreviewFromMessage(customLocationInput),

@@ -1531,6 +1531,39 @@ class WhatsAppBaileysManager {
         }
       })
 
+      // Sincronizar lectura desde WhatsApp → Firestore (si el usuario lee el chat en WhatsApp, poner unreadCount = 0)
+      sock.ev.on('chats.update', async (updates) => {
+        for (const chat of updates) {
+          try {
+            if (chat?.unreadCount !== 0) continue
+            const remoteJid = String(chat?.id || '').trim()
+            if (
+              !remoteJid ||
+              remoteJid === 'status@broadcast' ||
+              remoteJid.endsWith('@g.us') ||
+              remoteJid.endsWith('@newsletter')
+            ) {
+              continue
+            }
+            const db = ensureAdminDb()
+            if (!db) continue
+            const colRef = db
+              .collection('businesses')
+              .doc(session.businessId)
+              .collection('whatsappPending')
+            const snap = await colRef.where('whatsappJid', '==', remoteJid).limit(3).get()
+            for (const docSnap of snap.docs) {
+              const data = docSnap.data() || {}
+              if (typeof data.unreadCount === 'number' && data.unreadCount > 0) {
+                await docSnap.ref.set({ unreadCount: 0 }, { merge: true })
+              }
+            }
+          } catch {
+            // Ignorar errores transitorios de sincronización de lectura
+          }
+        }
+      })
+
       // Esperar hasta que Baileys emita el primer QR, el pairingCode o abra la conexión
       if (waitMs > 0) {
         const deadline = Date.now() + waitMs
@@ -2372,6 +2405,133 @@ class WhatsAppBaileysManager {
     } catch (err: any) {
       console.error('[Baileys] Error enviando reacción:', err)
       return { ok: false, error: err?.message || 'Error al enviar reacción' }
+    }
+  }
+
+  public async markConversationAsRead(
+    businessId: string,
+    docId: string,
+    phone: string,
+    messageIds?: string[]
+  ): Promise<{ ok: boolean; markedCount?: number; error?: string }> {
+    const db = ensureAdminDb()
+    let docRef: FirebaseFirestore.DocumentReference | null = null
+    let existingDocData: Record<string, any> = {}
+
+    if (db && docId) {
+      docRef = db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('whatsappPending')
+        .doc(docId)
+      try {
+        const snap = await docRef.get()
+        if (snap.exists) {
+          existingDocData = snap.data() || {}
+        }
+        await docRef.set({ unreadCount: 0 }, { merge: true })
+      } catch {
+        // Ignorar error de lectura/escritura parcial
+      }
+    }
+
+    const session = this.getOrCreateSession(businessId)
+    if (session.state.status !== 'connected' || !session.socket) {
+      return { ok: true, markedCount: 0 }
+    }
+
+    const rawCandidatePhone = phone || existingDocData.phone || existingDocData.rawPhone || ''
+    let explicitJid = String(existingDocData.whatsappJid || '').trim()
+    if (!explicitJid) {
+      if (isWhatsAppLidDigits(rawCandidatePhone)) {
+        explicitJid = `${rawCandidatePhone.replace(/\D/g, '')}@lid`
+      } else {
+        const lidForPhone = await this.resolveLidFromPhone(businessId, rawCandidatePhone)
+        if (lidForPhone) {
+          explicitJid = lidForPhone
+        }
+      }
+    }
+
+    const jid = ecuadorPhoneToJid(rawCandidatePhone, explicitJid)
+    if (!jid) return { ok: true, markedCount: 0 }
+
+    const idSet = new Set<string>()
+    const isSyntheticId = (id: string) =>
+      !id ||
+      id.startsWith('in_') ||
+      id.startsWith('msg_') ||
+      id.startsWith('web_') ||
+      id.startsWith('android_') ||
+      id.startsWith('reply_')
+
+    if (Array.isArray(messageIds)) {
+      for (const rawId of messageIds) {
+        const clean = String(rawId || '').trim()
+        if (clean && !isSyntheticId(clean)) {
+          idSet.add(clean)
+        }
+      }
+    }
+
+    const currentHistory: any[] = Array.isArray(existingDocData.chatHistory)
+      ? existingDocData.chatHistory
+      : []
+    for (let i = currentHistory.length - 1; i >= 0 && idSet.size < 20; i--) {
+      const h = currentHistory[i]
+      if (!h || h.fromMe) continue
+      const candidate = String(h.waMsgId || h.id || '').trim()
+      if (candidate && !isSyntheticId(candidate)) {
+        idSet.add(candidate)
+      }
+    }
+
+    const keys = Array.from(idSet).map((id) => ({
+      remoteJid: jid,
+      id,
+      fromMe: false,
+    }))
+
+    if (keys.length === 0) {
+      return { ok: true, markedCount: 0 }
+    }
+
+    try {
+      const activeSocket = session.socket
+      if (!activeSocket) return { ok: true, markedCount: 0 }
+
+      // Enviar confirmación de lectura (doble check azul) a WhatsApp
+      await activeSocket.readMessages(keys)
+
+      // También sincronizar el estado de chat leído en los dispositivos vinculados (WhatsApp Business)
+      try {
+        const lastIncoming = currentHistory
+          .filter((h) => h && !h.fromMe && (h.waMsgId || h.id) && !isSyntheticId(String(h.waMsgId || h.id)))
+          .slice(-1)[0]
+        const lastKey = keys[keys.length - 1]
+        const lastTsSec = Math.floor(
+          Number(lastIncoming?.timestampMillis || existingDocData.timestampMillis || Date.now()) / 1000
+        )
+        await activeSocket.chatModify(
+          {
+            markRead: true,
+            lastMessages: [
+              {
+                key: lastKey,
+                messageTimestamp: lastTsSec,
+              },
+            ],
+          },
+          jid
+        )
+      } catch {
+        // chatModify es best-effort; readMessages ya marcó los mensajes como leídos
+      }
+
+      return { ok: true, markedCount: keys.length }
+    } catch (err: any) {
+      console.warn('[Baileys] Error marcando mensajes como leídos:', err?.message || err)
+      return { ok: false, error: err?.message || 'Error al marcar como leído' }
     }
   }
 

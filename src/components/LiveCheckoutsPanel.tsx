@@ -1326,7 +1326,7 @@ function WhatsAppConversationCard({
                         )}
                     </div>
                     {timeLabel && !isEditingClientName && (
-                        <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 whitespace-nowrap">
+                        <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-400 whitespace-nowrap">
                             {isConfirmedConversation &&
                                 (conversation.timestampMillis || 0) > (conversation.confirmedAtMillis || 0) + 1000 && (
                                     <span
@@ -1334,7 +1334,15 @@ function WhatsAppConversationCard({
                                         title="El cliente escribió después de crear el pedido"
                                     ></span>
                                 )}
-                            {timeLabel}
+                            <span>{timeLabel}</span>
+                            {(conversation.unreadCount || 0) > 0 && (
+                                <span
+                                    className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold leading-none shadow-2xs"
+                                    title={`${conversation.unreadCount} mensaje(s) sin leer`}
+                                >
+                                    {(conversation.unreadCount || 0) > 99 ? '99+' : conversation.unreadCount}
+                                </span>
+                            )}
                         </span>
                     )}
                 </div>

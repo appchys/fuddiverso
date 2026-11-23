@@ -153,6 +153,22 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, result)
         }
 
+        if (action === 'mark-read') {
+          const docId = String(body?.docId || '').trim()
+          const phone = String(body?.phone || '').trim()
+          const messageIds = Array.isArray(body?.messageIds)
+            ? body.messageIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+            : undefined
+
+          const result = await manager.markConversationAsRead(
+            businessId,
+            docId,
+            phone,
+            messageIds
+          )
+          return sendJson(res, 200, result)
+        }
+
         return sendJson(res, 400, { error: 'Acción no soportada' })
       }
     }
