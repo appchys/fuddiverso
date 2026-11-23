@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { auth } from '@/lib/firebase'
 import { Business, Product, Delivery, BusinessAdministrator, CommissionType, BankAccount } from '@/types'
 import {
   getBusiness,
@@ -107,15 +108,21 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
   const [loadingLink, setLoadingLink] = useState<{ [email: string]: boolean }>({})
   const [copiedLink, setCopiedLink] = useState<{ [email: string]: boolean }>({})
 
+  const getAdminAuthHeaders = async (includeJson = false): Promise<Record<string, string>> => {
+    const idToken = await auth.currentUser?.getIdToken()
+    return {
+      ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+    }
+  }
+
   const handleCopyMagicLink = async (email: string) => {
     setLoadingLink(prev => ({ ...prev, [email]: true }))
     try {
       const response = await fetch(
         `/api/business/magic-link?businessId=${encodeURIComponent(businessId)}&email=${encodeURIComponent(email)}`,
         {
-          headers: {
-            'x-admin-password': 'admin123'
-          }
+          headers: await getAdminAuthHeaders(false)
         }
       )
 
@@ -148,10 +155,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     try {
       const response = await fetch('/api/business/magic-link', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-password': 'admin123'
-        },
+        headers: await getAdminAuthHeaders(true),
         body: JSON.stringify({
           businessId,
           email,
@@ -189,10 +193,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
       if (newAdminData.password.trim()) {
         const response = await fetch('/api/business/admin-password', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-admin-password': 'admin123'
-          },
+          headers: await getAdminAuthHeaders(true),
           body: JSON.stringify({
             businessId,
             email: newAdminData.email.trim(),
@@ -246,10 +247,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     try {
       const response = await fetch('/api/business/admin-password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-password': 'admin123'
-        },
+        headers: await getAdminAuthHeaders(true),
         body: JSON.stringify({
           businessId,
           email: passwordAdminEmail,

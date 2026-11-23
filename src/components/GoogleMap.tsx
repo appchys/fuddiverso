@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 
-export const GOOGLE_MAPS_API_KEY = 'AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs'
+export const GOOGLE_MAPS_API_KEY =
+  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs'
 
 interface GoogleMapProps {
   latitude: number

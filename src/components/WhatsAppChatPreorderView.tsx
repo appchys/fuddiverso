@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { collection, doc, getDoc, updateDoc, addDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { auth, db } from '@/lib/firebase'
 import type { Business, Product } from '@/types'
 import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal'
 import { searchClientByPhone, getClientLocations, createClient, generateProductSlug, getDeliveryDetailsForLocation, type ClientLocation } from '@/lib/database'
@@ -486,7 +486,7 @@ export function WhatsAppChatPreorderView({
   const [scheduledTime, setScheduledTime] = useState<string>('')
   const [deliveryType, setDeliveryType] = useState<'' | 'delivery' | 'pickup'>('')
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
-  const [customLocationInput, setCustomLocationInput] = useState<string>(conversation.detectedLocationLink || '')
+  const [customLocationInput, setCustomLocationInput] = useState<string>('')
   const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('')
   const [cashAmountInput, setCashAmountInput] = useState<string>('')
   const [transferAmountInput, setTransferAmountInput] = useState<string>('')
@@ -949,9 +949,13 @@ export function WhatsAppChatPreorderView({
     const targetPhone =
       resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || ''
     try {
+      const idToken = await auth.currentUser?.getIdToken()
       await fetch('/api/whatsapp/bridge', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
         body: JSON.stringify({
           action: 'react',
           businessId,
@@ -983,12 +987,16 @@ export function WhatsAppChatPreorderView({
     const targetPhone =
       resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || ''
     try {
-      // 1. Intentar envío directo por el puente multi-dispositivo (Baileys) si está conectado
+      // 1. Intentar envío directo por el puente multi-dispositivo (Baileys) autenticado con Firebase ID Token
       let sentViaBaileys = false
       try {
+        const idToken = await auth.currentUser?.getIdToken()
         const res = await fetch('/api/whatsapp/bridge', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          },
           body: JSON.stringify({
             action: 'send',
             businessId,
@@ -1029,7 +1037,7 @@ export function WhatsAppChatPreorderView({
   }
 
   // Persistir la preorden en Firestore (compartida con la tarjeta de "Clientes comprando ahora")
-  const [basePreorderState] = useState(() => buildBasePreorderState(conversation.detectedLocationLink))
+  const [basePreorderState] = useState(() => buildBasePreorderState())
   usePersistedPreorderState({
     businessId,
     docId: conversation.docId,
@@ -1131,15 +1139,12 @@ export function WhatsAppChatPreorderView({
   const isRegisteredClient = Boolean(resolvedProfile?.isRegistered || conversation.isRegisteredClient)
   const savedLocations = resolvedProfile?.locations || []
   const primaryLocation =
-    selectedLocationId === '__custom__'
-      ? null
-      : (selectedLocationId ? savedLocations.find(l => l.id === selectedLocationId) : null) ||
-        savedLocations.find(l => l.isFavorite) ||
-        savedLocations[0] ||
-        null
+    selectedLocationId && selectedLocationId !== '__custom__'
+      ? savedLocations.find(l => l.id === selectedLocationId) || null
+      : null
 
   const effectiveDeliveryType: '' | 'delivery' | 'pickup' =
-    deliveryType || (primaryLocation || customLocationInput.trim() || conversation.detectedLocationLink ? 'delivery' : '')
+    deliveryType || (primaryLocation || customLocationInput.trim() ? 'delivery' : '')
   const isPickup = effectiveDeliveryType === 'pickup'
 
   const isProductsComplete = draftItems.length > 0
@@ -1148,7 +1153,7 @@ export function WhatsAppChatPreorderView({
     timingType === 'immediate' ||
     (timingType === 'scheduled' && Boolean(scheduledDate && scheduledTime))
   const isDeliveryComplete =
-    isPickup || Boolean(primaryLocation || customLocationInput.trim() || conversation.detectedLocationLink)
+    isPickup || Boolean(primaryLocation || customLocationInput.trim())
   const parsedCashAmount = parseFloat(cashAmountInput) || 0
   const parsedTransferAmount = parseFloat(transferAmountInput) || 0
   const isPaymentComplete =
@@ -1446,25 +1451,6 @@ export function WhatsAppChatPreorderView({
     })
   }, [timelineEntries, businessId, businessData, resolvedLocationsByCoord, resolvedLocStorageKey])
 
-  // Si la última ubicación enviada coincide con una ubicación guardada del cliente, preseleccionarla automáticamente
-  const autoMatchedLocationIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (savedLocations.length === 0 || selectedLocationId) return
-    for (let i = timelineEntries.length - 1; i >= 0; i--) {
-      const entry = timelineEntries[i]
-      if (entry.kind !== 'message' || entry.msg?.fromMe) continue
-      const preview = extractLocationPreviewFromMessage(entry.msg?.text)
-      if (!preview) continue
-      const matched = findMatchingSavedLocation(Number(preview.lat), Number(preview.lng), savedLocations)
-      if (matched && autoMatchedLocationIdRef.current !== matched.location.id) {
-        autoMatchedLocationIdRef.current = matched.location.id
-        setSelectedLocationId(matched.location.id)
-        if (!deliveryType) setDeliveryType('delivery')
-      }
-      break
-    }
-  }, [timelineEntries, savedLocations, selectedLocationId, deliveryType])
-
   const handleApplyCatalogOrderToOrder = (
     msgKey: string,
     matchedItems: Array<{ product: Product; variant?: any; quantity: number }>
@@ -1555,7 +1541,7 @@ export function WhatsAppChatPreorderView({
     selectedLocation: effectiveDeliveryType === 'delivery' ? primaryLocation : null,
     customLocationInput:
       effectiveDeliveryType === 'delivery' && !primaryLocation
-        ? (customLocationInput.trim() || conversation.detectedLocationLink || undefined)
+        ? (customLocationInput.trim() || undefined)
         : undefined,
     paymentMethod: paymentMethod || undefined,
     cashAmount: paymentMethod === 'mixed' ? parsedCashAmount : undefined,
@@ -2560,7 +2546,7 @@ export function WhatsAppChatPreorderView({
                   style={{ minHeight: 0 }}
                   onClick={() => setDeliveryType('delivery')}
                   className={`py-1.5 px-3 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-                    effectiveDeliveryType !== 'pickup'
+                    effectiveDeliveryType === 'delivery'
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}
@@ -2612,18 +2598,50 @@ export function WhatsAppChatPreorderView({
                   </span>
                 </button>
               ) : (
-                <input
-                  ref={customLocationInputRef}
-                  type="text"
-                  value={customLocationInput}
-                  onFocus={() => { focusedFieldRef.current = 'customLocation' }}
-                  onChange={(e) => {
-                    setCustomLocationInput(e.target.value)
-                    if (deliveryType !== 'delivery') setDeliveryType('delivery')
-                  }}
-                  placeholder="Pegar enlace de Google Maps o dirección..."
-                  className="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                />
+                <div className="space-y-1.5">
+                  {savedLocations.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Ubicaciones guardadas del cliente
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {savedLocations.map((loc) => (
+                          <button
+                            key={loc.id}
+                            type="button"
+                            style={{ minHeight: 0 }}
+                            onClick={() => {
+                              setSelectedLocationId(loc.id)
+                              setCustomLocationInput('')
+                              setDeliveryType('delivery')
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-xs font-semibold text-slate-700 hover:text-emerald-800 transition-colors cursor-pointer"
+                          >
+                            <i className="bi bi-geo-alt-fill text-emerald-600 text-[11px]"></i>
+                            <span className="truncate max-w-[200px]">
+                              {loc.referencia || loc.sector || 'Ubicación guardada'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={customLocationInputRef}
+                    type="text"
+                    value={customLocationInput}
+                    onFocus={() => { focusedFieldRef.current = 'customLocation' }}
+                    onChange={(e) => {
+                      setCustomLocationInput(e.target.value)
+                      if (e.target.value.trim()) {
+                        setSelectedLocationId('__custom__')
+                        if (deliveryType !== 'delivery') setDeliveryType('delivery')
+                      }
+                    }}
+                    placeholder="Pegar enlace de Google Maps o dirección..."
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
               )}
             </div>
           )}

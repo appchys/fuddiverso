@@ -1,21 +1,28 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper: verifica si el usuario autenticado es dueño o administrador de la tienda
+    function isBusinessMember(businessId) {
+      let biz = get(/databases/$(database)/documents/businesses/$(businessId)).data;
+      return request.auth != null && (
+        biz.ownerId == request.auth.uid ||
+        request.auth.token.businessId == businessId ||
+        (request.auth.token.email != null && (
+          biz.email == request.auth.token.email ||
+          (biz.adminEmails is list && request.auth.token.email in biz.adminEmails)
+        ))
+      );
+    }
+
     // Permitir lectura pública de negocios y productos
     match /businesses/{businessId} {
       allow read: if true;
-      // Permitir escritura pública para que el panel administrativo local pueda crear/modificar tiendas
-      allow write: if true;
-      
-      // Permitir actualización parcial sin autenticación (rating stats, zoneId, groupId)
-      allow update: if (
-        (request.writeFields.hasOnly(['zoneId', 'groupId']) &&
-         request.resource.data.zoneId is string &&
-         request.resource.data.groupId is string) ||
-        (request.writeFields.hasOnly(['ratingAverage', 'ratingCount', 'updatedAt']) &&
-         request.resource.data.ratingAverage is number &&
-         request.resource.data.ratingCount is number)
-      );
+      allow create: if request.auth != null;
+      // Bloquear modificación no autenticada de campos críticos de propiedad/administración
+      allow update: if
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['ownerId', 'email', 'administrators', 'adminEmails']) ||
+        isBusinessMember(businessId);
+      allow delete: if isBusinessMember(businessId);
       
       // Subcolección de notificaciones
       // Se sincronizan entre dispositivos del mismo usuario
@@ -34,19 +41,30 @@ service cloud.firestore {
         allow delete: if false;
       }
 
-      // Conversaciones pendientes de WhatsApp Business sincronizadas desde Fuddi Tienda Android
+      // Credenciales privadas de sesión de WhatsApp (Baileys): SOLO servidor Admin SDK
+      match /whatsappAuth/{docId} {
+        allow read, write: if false;
+      }
+
+      // Conversaciones de WhatsApp Business: solo dueño/administradores autenticados de la tienda
       match /whatsappPending/{conversationId} {
-        allow read, write: if true;
+        allow read, write: if isBusinessMember(businessId);
       }
 
-      // Contactos excluidos de las notificaciones/conversaciones pendientes de WhatsApp Business
+      // Contactos excluidos de WhatsApp Business: solo dueño/administradores de la tienda
       match /whatsappExcluded/{contactId} {
-        allow read, write: if true;
+        allow read, write: if isBusinessMember(businessId);
       }
 
-      // Estado de vinculación multi-dispositivo de WhatsApp (Baileys QR)
+      // Respuestas rápidas de WhatsApp Business: solo dueño/administradores de la tienda
+      match /quickReplies/{replyId} {
+        allow read, write: if isBusinessMember(businessId);
+      }
+
+      // Estado de vinculación multi-dispositivo de WhatsApp (Baileys QR): lectura solo miembros, escritura solo servidor Admin SDK
       match /whatsappConnection/{docId} {
-        allow read, write: if true;
+        allow read: if isBusinessMember(businessId);
+        allow write: if false;
       }
       
       // Subcolección de biblioteca de ingredientes
@@ -355,9 +373,15 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Enlaces mágicos de inicio de sesión: SOLO servidor Admin SDK
+    match /magic_links/{tokenId} {
+      allow read, write: if false;
+    }
+
     // Configuración global y control de versiones OTA de las apps Android (Tienda / Delivery)
     match /appConfig/{document} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if request.auth != null;
     }
   }
 }

@@ -924,13 +924,13 @@ function WhatsAppConversationCard({
     const [scheduledTime, setScheduledTime] = useState<string>('');
     const [deliveryType, setDeliveryType] = useState<'' | 'delivery' | 'pickup'>('');
     const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
-    const [customLocationInput, setCustomLocationInput] = useState<string>(conversation.detectedLocationLink || '');
+    const [customLocationInput, setCustomLocationInput] = useState<string>('');
     const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('');
     const [cashAmountInput, setCashAmountInput] = useState<string>('');
     const [transferAmountInput, setTransferAmountInput] = useState<string>('');
 
     // Persistir la preorden en Firestore para no perderla al abrir el chat, recargar o cambiar de dispositivo
-    const [basePreorderState] = useState(() => buildBasePreorderState(conversation.detectedLocationLink));
+    const [basePreorderState] = useState(() => buildBasePreorderState());
     usePersistedPreorderState({
         businessId,
         docId: conversation.docId,
@@ -1024,13 +1024,12 @@ function WhatsAppConversationCard({
     const isRegisteredClient = Boolean(resolvedProfile?.isRegistered || conversation.isRegisteredClient);
     const savedLocations = resolvedProfile?.locations || [];
     const primaryLocation =
-        (selectedLocationId ? savedLocations.find(l => l.id === selectedLocationId) : null) ||
-        savedLocations.find(l => l.isFavorite) ||
-        savedLocations[0] ||
-        null;
+        selectedLocationId && selectedLocationId !== '__custom__'
+            ? savedLocations.find(l => l.id === selectedLocationId) || null
+            : null;
 
     const effectiveDeliveryType: '' | 'delivery' | 'pickup' =
-        deliveryType || (primaryLocation || customLocationInput.trim() || conversation.detectedLocationLink ? 'delivery' : '');
+        deliveryType || (primaryLocation || customLocationInput.trim() ? 'delivery' : '');
     const isPickup = effectiveDeliveryType === 'pickup';
 
     const isProductsComplete = draftItems.length > 0;
@@ -1039,7 +1038,7 @@ function WhatsAppConversationCard({
         timingType === 'immediate' ||
         (timingType === 'scheduled' && Boolean(scheduledDate && scheduledTime));
     const isDeliveryComplete =
-        isPickup || Boolean(primaryLocation || customLocationInput.trim() || conversation.detectedLocationLink);
+        isPickup || Boolean(primaryLocation || customLocationInput.trim());
     const parsedCashAmount = parseFloat(cashAmountInput) || 0;
     const parsedTransferAmount = parseFloat(transferAmountInput) || 0;
     const isPaymentComplete =
@@ -1178,7 +1177,7 @@ function WhatsAppConversationCard({
         selectedLocation: effectiveDeliveryType === 'delivery' ? primaryLocation : null,
         customLocationInput:
             effectiveDeliveryType === 'delivery' && !primaryLocation
-                ? (customLocationInput.trim() || conversation.detectedLocationLink || undefined)
+                ? (customLocationInput.trim() || undefined)
                 : undefined,
         paymentMethod: paymentMethod || undefined,
         cashAmount: paymentMethod === 'mixed' ? parsedCashAmount : undefined,

@@ -71,6 +71,11 @@ service firebase.storage {
       allow write: if true;
     }
 
+    // Reglas para archivos multimedia de WhatsApp (subidos por Admin SDK, acceso únicamente mediante download token UUID)
+    match /whatsapp_media/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     // Regla por defecto para otras carpetas
     match /{allPaths=**} {
       // Permitir lectura pública por defecto

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { doc, onSnapshot } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { auth, db } from '@/lib/firebase'
 
 export type BaileysStatus = 'disconnected' | 'connecting' | 'qr' | 'connected'
 
@@ -96,9 +96,13 @@ export function WhatsAppBaileysModal({
     const pollLoop = async () => {
       while (!cancelled) {
         try {
+          const idToken = await auth.currentUser?.getIdToken()
           const res = await fetch(
             `/api/whatsapp/bridge?businessId=${encodeURIComponent(businessId)}&hold=true`,
-            { cache: 'no-store' }
+            {
+              cache: 'no-store',
+              headers: idToken ? { Authorization: `Bearer ${idToken}` } : undefined,
+            }
           )
           if (res.ok && !cancelled) {
             const data = await res.json()
@@ -132,9 +136,13 @@ export function WhatsAppBaileysModal({
     }
     setLoadingAction(true)
     try {
+      const idToken = await auth.currentUser?.getIdToken()
       const res = await fetch('/api/whatsapp/bridge', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
         body: JSON.stringify({
           action: usePhoneCode ? 'pair-code' : 'connect',
           businessId,
@@ -161,9 +169,13 @@ export function WhatsAppBaileysModal({
     if (!businessId || loadingAction) return
     setLoadingAction(true)
     try {
+      const idToken = await auth.currentUser?.getIdToken()
       const res = await fetch('/api/whatsapp/bridge', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
         body: JSON.stringify({ action: 'disconnect', businessId, logout: true }),
       })
       const data = await res.json()

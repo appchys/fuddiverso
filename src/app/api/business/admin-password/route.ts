@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'node:crypto'
 import { FieldValue } from 'firebase-admin/firestore'
 import { ensureAdminAuth, ensureAdminDb } from '@/lib/firebase-admin'
 import type { BusinessAdministrator } from '@/types'
+
+function matchesSuperAdminSecret(provided: string | null): boolean {
+  const expected = (process.env.SUPER_ADMIN_API_SECRET || '').trim()
+  if (!expected || !provided) return false
+  const a = Buffer.from(provided.trim())
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
 
 type AdminRole = 'admin' | 'manager' | 'atencion_cliente'
 
@@ -36,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     const authHeader = request.headers.get('authorization') || ''
     const adminPasswordHeader = request.headers.get('x-admin-password')
-    const isAdminBypass = adminPasswordHeader === 'admin123'
+    const isAdminBypass = matchesSuperAdminSecret(adminPasswordHeader)
 
     let decodedToken
     let requesterEmail = ''

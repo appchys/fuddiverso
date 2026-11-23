@@ -34,7 +34,7 @@ export function getTodayDateKey(): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
-export function buildBasePreorderState(detectedLocationLink?: string | null): PersistedPreorderState {
+export function buildBasePreorderState(_detectedLocationLink?: string | null): PersistedPreorderState {
   return {
     items: [],
     timingType: '',
@@ -42,7 +42,7 @@ export function buildBasePreorderState(detectedLocationLink?: string | null): Pe
     scheduledTime: '',
     deliveryType: '',
     selectedLocationId: null,
-    customLocationInput: detectedLocationLink || '',
+    customLocationInput: '',
     paymentMethod: '',
     cashAmountInput: '',
     transferAmountInput: '',

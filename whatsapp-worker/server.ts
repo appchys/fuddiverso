@@ -4,11 +4,15 @@ import { URL } from 'node:url'
 import { getWhatsAppBaileysManager } from '@/lib/whatsapp-baileys-manager'
 
 const PORT = Number(process.env.PORT || 3005)
-const HOST = process.env.HOST || '0.0.0.0'
+const HOST = process.env.HOST || '127.0.0.1'
 const WORKER_SECRET = String(process.env.WHATSAPP_WORKER_SECRET || '').trim()
 
+if (!WORKER_SECRET || WORKER_SECRET.length < 32) {
+  console.error('[Baileys Worker] FATAL: WHATSAPP_WORKER_SECRET debe estar configurado (>= 32 caracteres).')
+  process.exit(1)
+}
+
 function isAuthorized(req: http.IncomingMessage): boolean {
-  if (!WORKER_SECRET) return true
   const provided = String(req.headers['x-worker-secret'] || '').trim()
   if (!provided) return false
   const a = Buffer.from(provided)
@@ -22,6 +26,7 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   })
   res.end(body)
 }
@@ -32,7 +37,7 @@ function readJsonBody(req: http.IncomingMessage): Promise<any> {
     let total = 0
     req.on('data', (chunk: Buffer) => {
       total += chunk.length
-      if (total > 2 * 1024 * 1024) {
+      if (total > 512 * 1024) {
         reject(new Error('Body too large'))
         req.destroy()
         return
@@ -59,6 +64,9 @@ const server = http.createServer(async (req, res) => {
     const pathname = reqUrl.pathname
 
     if (req.method === 'GET' && pathname === '/health') {
+      if (!isAuthorized(req)) {
+        return sendJson(res, 200, { ok: true })
+      }
       return sendJson(res, 200, {
         ok: true,
         uptimeSec: Math.round(process.uptime()),

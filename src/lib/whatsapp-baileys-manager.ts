@@ -51,6 +51,8 @@ interface ManagedSession {
   baileysHistoryByDoc: Map<string, any[]>
   repairingDocIds: Set<string>
   reconnectTimer: ReturnType<typeof setTimeout> | null
+  reconnectAttempts: number
+  outgoingSendTimestamps: number[]
   isConnecting: boolean
   manualDisconnect: boolean
   stateWaiters: Array<() => void>
@@ -58,6 +60,8 @@ interface ManagedSession {
 
 const MAX_RECENT_MESSAGES = 8
 const MAX_CHAT_HISTORY = 24
+const MAX_OUTGOING_PER_MINUTE = 25
+const MAX_OUTGOING_TEXT_LENGTH = 4000
 
 export function isWhatsAppLidDigits(raw?: string | null): boolean {
   const digits = String(raw || '').replace(/\D/g, '')
@@ -954,7 +958,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 32
+const MANAGER_VERSION = 33
 
 // Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
 const globalForTimerPatch = globalThis as unknown as {
@@ -1092,6 +1096,8 @@ class WhatsAppBaileysManager {
         baileysHistoryByDoc: new Map(),
         repairingDocIds: new Set(),
         reconnectTimer: null,
+        reconnectAttempts: 0,
+        outgoingSendTimestamps: [],
         isConnecting: false,
         manualDisconnect: false,
         stateWaiters: [],
@@ -1271,25 +1277,8 @@ class WhatsAppBaileysManager {
                 }
               }
 
-              // 2. Procesar respuestas pendientes encoladas
-              const pendingReply = data.pendingReply
-              if (
-                pendingReply &&
-                pendingReply.status === 'pending' &&
-                pendingReply.id &&
-                pendingReply.text &&
-                !session.processedReplyIds.has(pendingReply.id)
-              ) {
-                session.processedReplyIds.add(pendingReply.id)
-                const phone = data.phone || data.rawPhone || ''
-                void this.sendOutgoingMessage(
-                  session.businessId,
-                  docSnap.id,
-                  phone,
-                  String(pendingReply.text),
-                  String(pendingReply.id)
-                )
-              }
+              // Seguridad: el envío de mensajes ya no se dispara automáticamente por escritura en Firestore (pendingReply),
+              // sino exclusivamente mediante la API autenticada (/api/whatsapp/bridge con Firebase ID Token + x-worker-secret).
             })
           },
           (err) => console.warn('[Baileys] Error escuchando whatsappPending:', err)
@@ -1437,6 +1426,7 @@ class WhatsAppBaileysManager {
 
         if (connection === 'open') {
           session.isConnecting = false
+          session.reconnectAttempts = 0
           const meJid = sock.user?.id || ''
           const rawMePhone = meJid.split(':')[0]?.split('@')[0] || ''
           session.state.status = 'connected'
@@ -1458,6 +1448,7 @@ class WhatsAppBaileysManager {
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode
           const disconnectMsg = (lastDisconnect?.error as any)?.message || String(statusCode || '')
           const loggedOut = statusCode === DisconnectReason.loggedOut
+          const isAuthForbidden = statusCode === 401 || statusCode === 403 || statusCode === 405
           const isConflict =
             statusCode === 440 ||
             statusCode === DisconnectReason.connectionReplaced ||
@@ -1475,23 +1466,33 @@ class WhatsAppBaileysManager {
             session.state.connectedName = null
             session.state.lastError = 'Sesión cerrada desde el teléfono'
             await this.persistConnectionState(session)
+          } else if (isAuthForbidden) {
+            session.state.status = 'disconnected'
+            session.state.qrDataUrl = null
+            session.state.pairingCode = null
+            session.state.lastError = `Sesión rechazada por WhatsApp (${statusCode})`
+            await this.persistConnectionState(session)
           } else if (isConflict) {
-            // Otra instancia (ej. Vercel vs Local o llamada concurrente) tomó la conexión activa.
-            // No auto-reconectar en bucle para no expulsar a la instancia activa ni tumbar el socket,
-            // pero sí despertar a cualquier promesa que estuviera esperando en waitForStateChange.
+            // Otra instancia tomó la conexión activa; no reconectar en bucle
             session.state.status = 'disconnected'
             session.state.qrDataUrl = null
             session.state.pairingCode = null
             session.state.lastError = 'Conflict (440)'
             this.notifyStateWaiters(session)
           } else if (!session.manualDisconnect && this.version === MANAGER_VERSION) {
+            // Backoff exponencial (3s -> 6s -> 12s -> 24s -> 60s máx) con jitter para proteger la cuenta ante WhatsApp
+            const attempt = session.reconnectAttempts
+            session.reconnectAttempts = Math.min(attempt + 1, 6)
+            const baseDelay = Math.min(60_000, 3_000 * Math.pow(2, attempt))
+            const jitter = Math.floor(Math.random() * 1000)
+            const delayMs = baseDelay + jitter
             session.state.status = 'connecting'
-            session.state.lastError = `Reconectando (${disconnectMsg})`
+            session.state.lastError = `Reconectando en ${Math.round(delayMs / 1000)}s (${disconnectMsg})`
             await this.persistConnectionState(session)
             session.reconnectTimer = setTimeout(() => {
               if (this.version !== MANAGER_VERSION || session.manualDisconnect) return
               void this.connect(businessId, { waitMs: 0 })
-            }, 2600)
+            }, delayMs)
           } else {
             session.state.status = 'disconnected'
             session.state.qrDataUrl = null
@@ -2037,8 +2038,24 @@ class WhatsAppBaileysManager {
   ): Promise<{ ok: boolean; error?: string }> {
     const cleanText = text.trim()
     if (!cleanText) return { ok: false, error: 'Mensaje vacío' }
+    if (cleanText.length > MAX_OUTGOING_TEXT_LENGTH) {
+      return { ok: false, error: `El mensaje excede el límite de ${MAX_OUTGOING_TEXT_LENGTH} caracteres` }
+    }
 
     const session = this.getOrCreateSession(businessId)
+
+    // Rate limit anti-ban: máximo 25 mensajes salientes por minuto por negocio
+    const nowRate = Date.now()
+    session.outgoingSendTimestamps = session.outgoingSendTimestamps.filter(
+      (ts) => nowRate - ts < 60_000
+    )
+    if (session.outgoingSendTimestamps.length >= MAX_OUTGOING_PER_MINUTE) {
+      return {
+        ok: false,
+        error: 'Límite de envío alcanzado por seguridad (máx. 25 mensajes/minuto). Intenta en unos segundos.',
+      }
+    }
+    session.outgoingSendTimestamps.push(nowRate)
 
     // Si la instancia Serverless de Vercel estaba fría (o cedió el socket ante otra instancia) pero hay credenciales guardadas en Firestore, reconectar al vuelo al momento de enviar
     for (let attempt = 0; attempt < 2; attempt++) {
