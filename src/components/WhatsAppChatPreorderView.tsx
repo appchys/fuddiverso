@@ -333,7 +333,7 @@ export function WhatsAppChatPreorderView({
     scrollMessagesToBottom(false)
     const raf = requestAnimationFrame(() => scrollMessagesToBottom(false))
     return () => cancelAnimationFrame(raf)
-  }, [chatMessageCount, lastChatTimestamp, optimisticReply?.id, activeTab, scrollMessagesToBottom])
+  }, [chatMessageCount, lastChatTimestamp, optimisticReply?.id, activeTab, clientOrders.length, activeOrder?.id, scrollMessagesToBottom])
 
   const handleSendDirectReply = async () => {
     const cleanText = replyText.trim()
@@ -700,6 +700,62 @@ export function WhatsAppChatPreorderView({
     return list
   }, [clientOrders, activeOrder, conversation])
 
+  const timelineEntries = useMemo(() => {
+    type TimelineEntry =
+      | { kind: 'message'; key: string; timestampMillis: number; msg: any }
+      | { kind: 'order'; key: string; timestampMillis: number; order: any; createdMs: number }
+
+    const entries: TimelineEntry[] = []
+
+    if (Array.isArray(conversation.chatHistory) && conversation.chatHistory.length > 0) {
+      conversation.chatHistory.forEach((msg, idx) => {
+        entries.push({
+          kind: 'message',
+          key: msg.id || `${msg.fromMe ? 'me' : 'in'}-${idx}`,
+          timestampMillis: Number(msg.timestampMillis || 0),
+          msg,
+        })
+      })
+    } else {
+      const baseTs = Math.max(1, (conversation.timestampMillis || Date.now()) - messages.length * 1000)
+      messages.forEach((txt, idx) => {
+        entries.push({
+          kind: 'message',
+          key: `fallback-in-${idx}`,
+          timestampMillis: baseTs + idx * 1000,
+          msg: { id: `fallback-in-${idx}`, text: txt, fromMe: false, timestampMillis: baseTs + idx * 1000 },
+        })
+      })
+      if (Array.isArray(conversation.sentReplies)) {
+        conversation.sentReplies.forEach((reply, idx) => {
+          entries.push({
+            kind: 'message',
+            key: reply.id || `fallback-reply-${idx}`,
+            timestampMillis: Number(reply.timestampMillis || 0),
+            msg: {
+              id: reply.id || `fallback-reply-${idx}`,
+              text: reply.text,
+              fromMe: true,
+              timestampMillis: Number(reply.timestampMillis || 0),
+            },
+          })
+        })
+      }
+    }
+
+    sentOrderBubbles.forEach(({ order, createdMs }) => {
+      entries.push({
+        kind: 'order',
+        key: `sent-order-${order.id}`,
+        timestampMillis: createdMs || Date.now(),
+        order,
+        createdMs,
+      })
+    })
+
+    return entries.sort((a, b) => a.timestampMillis - b.timestampMillis)
+  }, [conversation.chatHistory, conversation.sentReplies, conversation.timestampMillis, messages, sentOrderBubbles])
+
   const getOrderStatusLabel = (status?: string): string => {
     switch (String(status || '').toLowerCase()) {
       case 'borrador': return 'Borrador'
@@ -926,90 +982,142 @@ export function WhatsAppChatPreorderView({
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-6 py-2.5"
       >
         <div className="max-w-3xl mx-auto flex flex-col items-start gap-1.5">
-          {Array.isArray(conversation.chatHistory) && conversation.chatHistory.length > 0 ? (
-            [...conversation.chatHistory]
-              .sort((a, b) => (a.timestampMillis || 0) - (b.timestampMillis || 0))
-              .map((msg, idx) =>
-                msg.fromMe ? (
+          {timelineEntries.length > 0 ? (
+            timelineEntries.map((entry) => {
+              if (entry.kind === 'order') {
+                const { order, createdMs } = entry
+                const items = Array.isArray(order.items) ? order.items : []
+                const isPickupOrder = order.delivery?.type === 'pickup'
+                const orderTime = formatWhatsAppTime(createdMs || Date.now())
+                const canInspect = Boolean(onInspectOrder && !order._fallbackSummary)
+                return (
                   <div
-                    key={msg.id || `me-${idx}`}
-                    className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs"
+                    key={entry.key}
+                    onClick={canInspect ? () => onInspectOrder?.(order) : undefined}
+                    title={canInspect ? 'Clic para ver o editar pedido' : undefined}
+                    className={`self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-2 text-xs text-slate-800 shadow-2xs space-y-1.5 ${
+                      canInspect ? 'cursor-pointer hover:bg-[#d2f5b8] transition-colors' : ''
+                    }`}
                   >
-                    <p className="whitespace-pre-wrap break-words leading-snug">{msg.text}</p>
-                    <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800/80">
-                      <span>{formatWhatsAppTime(msg.timestampMillis)}</span>
-                      <i className="bi bi-check2-all text-sky-600 text-xs"></i>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-black text-emerald-900 inline-flex items-center gap-1">
+                        <i className="bi bi-bag-check-fill text-emerald-700"></i>
+                        Pedido creado
+                      </span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/80 text-emerald-800 border border-emerald-200">
+                        {getOrderStatusLabel(order.status)}
+                      </span>
+                    </div>
+
+                    {items.length > 0 ? (
+                      <div className="space-y-0.5 text-[11px] text-slate-800">
+                        {items.map((it: any, i: number) => (
+                          <p key={i} className="leading-snug">
+                            <span className="font-bold">{it.quantity || 1}x</span>{' '}
+                            {it.productName || it.name || 'Producto'}
+                            {(it.variant || it.variantName) ? ` (${it.variant || it.variantName})` : ''}
+                          </p>
+                        ))}
+                      </div>
+                    ) : order._fallbackSummary ? (
+                      <p className="text-[11px] text-slate-800 leading-snug">{order._fallbackSummary}</p>
+                    ) : null}
+
+                    {order.delivery && (
+                      <p className="text-[11px] text-emerald-900/80 flex items-center gap-1">
+                        <i className={`bi ${isPickupOrder ? 'bi-shop' : 'bi-geo-alt-fill'} shrink-0`}></i>
+                        <span className="truncate">
+                          {isPickupOrder
+                            ? 'Recoger en tienda'
+                            : (order.delivery.references || order.delivery.address || 'Delivery')}
+                        </span>
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3 pt-0.5 border-t border-emerald-200/70">
+                      {typeof order.total === 'number' ? (
+                        <span className="font-black text-emerald-950 text-xs">
+                          Total: ${order.total.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span></span>
+                      )}
+                      <span className="text-[10px] text-emerald-800/80 inline-flex items-center gap-1 ml-auto">
+                        {orderTime}
+                        <i className="bi bi-check2-all text-sky-600 text-xs"></i>
+                      </span>
                     </div>
                   </div>
-                ) : (
-                  <button
-                    key={msg.id || `in-${idx}`}
-                    type="button"
-                    style={{ minHeight: 0 }}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handlePasteMessageToActiveField(msg.text)}
-                    title="Toca para pegar en el campo activo"
-                    className="max-w-[88%] text-left bg-white hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-300 rounded-xl px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words transition-colors cursor-pointer shadow-2xs space-y-1.5"
-                  >
-                    {msg.mediaUrl && (msg.mediaType === 'image' || msg.mediaType === 'order') && (
-                      <a
-                        href={msg.mediaUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-100 max-w-[240px]"
-                        title="Clic para abrir imagen en tamaño completo"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={msg.mediaUrl}
-                          alt={msg.text || 'Imagen recibida'}
-                          onLoad={() => {
-                            if (isInitialScrollPendingRef.current) {
-                              scrollMessagesToBottom(false)
-                            }
-                          }}
-                          className="w-full max-h-56 object-cover"
-                        />
-                      </a>
-                    )}
-                    {msg.mediaUrl && msg.mediaType === 'document' && (
-                      <a
-                        href={msg.mediaUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-xs"
-                      >
-                        <i className="bi bi-file-earmark-arrow-down-fill"></i>
-                        <span className="truncate max-w-[200px]">
-                          {msg.fileName || 'Abrir documento'}
-                        </span>
-                      </a>
-                    )}
-                    {msg.mediaUrl && msg.mediaType === 'audio' && (
-                      <div onClick={(e) => e.stopPropagation()} className="pt-0.5">
-                        <audio controls src={msg.mediaUrl} className="h-8 max-w-[230px]" />
-                      </div>
-                    )}
-                    <span className="block">{msg.text}</span>
-                  </button>
                 )
+              }
+
+              const msg = entry.msg
+              return msg.fromMe ? (
+                <div
+                  key={entry.key}
+                  className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs"
+                >
+                  <p className="whitespace-pre-wrap break-words leading-snug">{msg.text}</p>
+                  <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800/80">
+                    <span>{formatWhatsAppTime(msg.timestampMillis)}</span>
+                    <i className="bi bi-check2-all text-sky-600 text-xs"></i>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  key={entry.key}
+                  type="button"
+                  style={{ minHeight: 0 }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handlePasteMessageToActiveField(msg.text)}
+                  title="Toca para pegar en el campo activo"
+                  className="max-w-[88%] text-left bg-white hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-300 rounded-xl px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words transition-colors cursor-pointer shadow-2xs space-y-1.5"
+                >
+                  {msg.mediaUrl && (msg.mediaType === 'image' || msg.mediaType === 'order') && (
+                    <a
+                      href={msg.mediaUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-100 max-w-[240px]"
+                      title="Clic para abrir imagen en tamaño completo"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={msg.mediaUrl}
+                        alt={msg.text || 'Imagen recibida'}
+                        onLoad={() => {
+                          if (isInitialScrollPendingRef.current) {
+                            scrollMessagesToBottom(false)
+                          }
+                        }}
+                        className="w-full max-h-56 object-cover"
+                      />
+                    </a>
+                  )}
+                  {msg.mediaUrl && msg.mediaType === 'document' && (
+                    <a
+                      href={msg.mediaUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-xs"
+                    >
+                      <i className="bi bi-file-earmark-arrow-down-fill"></i>
+                      <span className="truncate max-w-[200px]">
+                        {msg.fileName || 'Abrir documento'}
+                      </span>
+                    </a>
+                  )}
+                  {msg.mediaUrl && msg.mediaType === 'audio' && (
+                    <div onClick={(e) => e.stopPropagation()} className="pt-0.5">
+                      <audio controls src={msg.mediaUrl} className="h-8 max-w-[230px]" />
+                    </div>
+                  )}
+                  <span className="block">{msg.text}</span>
+                </button>
               )
-          ) : messages.length > 0 ? (
-            messages.map((msg, idx) => (
-              <button
-                key={idx}
-                type="button"
-                style={{ minHeight: 0 }}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handlePasteMessageToActiveField(msg)}
-                title="Toca para pegar en el campo activo"
-                className="max-w-[88%] text-left bg-white hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-300 rounded-xl px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words transition-colors cursor-pointer shadow-2xs"
-              >
-                {msg}
-              </button>
-            ))
+            })
           ) : (
             <p className="w-full text-xs text-slate-400 bg-white rounded-xl border border-slate-200 px-3 py-4 text-center">
               Sin mensajes registrados
@@ -1027,22 +1135,6 @@ export function WhatsAppChatPreorderView({
               Ver ubicación enviada en Maps
             </a>
           )}
-
-          {/* Respuestas enviadas (fallback si aún no hay chatHistory) */}
-          {(!Array.isArray(conversation.chatHistory) || conversation.chatHistory.length === 0) &&
-            Array.isArray(conversation.sentReplies) &&
-            conversation.sentReplies.map((reply) => (
-              <div
-                key={reply.id}
-                className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs"
-              >
-                <p className="whitespace-pre-wrap break-words leading-snug">{reply.text}</p>
-                <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800/80">
-                  <span>{formatWhatsAppTime(reply.timestampMillis)}</span>
-                  <i className="bi bi-check2-all text-sky-600 text-xs"></i>
-                </div>
-              </div>
-            ))}
 
           {(conversation.pendingReply?.status === 'pending' ||
             (optimisticReply &&
@@ -1080,73 +1172,6 @@ export function WhatsAppChatPreorderView({
               </div>
             </div>
           )}
-
-          {/* Sent Order Bubbles (aligned right, WhatsApp outgoing style) */}
-          {sentOrderBubbles.map(({ order, createdMs }) => {
-            const items = Array.isArray(order.items) ? order.items : []
-            const isPickupOrder = order.delivery?.type === 'pickup'
-            const orderTime = formatWhatsAppTime(createdMs || Date.now())
-            const canInspect = Boolean(onInspectOrder && !order._fallbackSummary)
-            return (
-              <div
-                key={`sent-order-${order.id}`}
-                onClick={canInspect ? () => onInspectOrder?.(order) : undefined}
-                title={canInspect ? 'Clic para ver o editar pedido' : undefined}
-                className={`self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-2 text-xs text-slate-800 shadow-2xs space-y-1.5 ${
-                  canInspect ? 'cursor-pointer hover:bg-[#d2f5b8] transition-colors' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-black text-emerald-900 inline-flex items-center gap-1">
-                    <i className="bi bi-bag-check-fill text-emerald-700"></i>
-                    Pedido creado
-                  </span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/80 text-emerald-800 border border-emerald-200">
-                    {getOrderStatusLabel(order.status)}
-                  </span>
-                </div>
-
-                {items.length > 0 ? (
-                  <div className="space-y-0.5 text-[11px] text-slate-800">
-                    {items.map((it: any, i: number) => (
-                      <p key={i} className="leading-snug">
-                        <span className="font-bold">{it.quantity || 1}x</span>{' '}
-                        {it.productName || it.name || 'Producto'}
-                        {(it.variant || it.variantName) ? ` (${it.variant || it.variantName})` : ''}
-                      </p>
-                    ))}
-                  </div>
-                ) : order._fallbackSummary ? (
-                  <p className="text-[11px] text-slate-800 leading-snug">{order._fallbackSummary}</p>
-                ) : null}
-
-                {order.delivery && (
-                  <p className="text-[11px] text-emerald-900/80 flex items-center gap-1">
-                    <i className={`bi ${isPickupOrder ? 'bi-shop' : 'bi-geo-alt-fill'} shrink-0`}></i>
-                    <span className="truncate">
-                      {isPickupOrder
-                        ? 'Recoger en tienda'
-                        : (order.delivery.references || order.delivery.address || 'Delivery')}
-                    </span>
-                  </p>
-                )}
-
-                <div className="flex items-center justify-between gap-3 pt-0.5 border-t border-emerald-200/70">
-                  {typeof order.total === 'number' ? (
-                    <span className="font-black text-emerald-950 text-xs">
-                      Total: ${order.total.toFixed(2)}
-                    </span>
-                  ) : (
-                    <span></span>
-                  )}
-                  <span className="text-[10px] text-emerald-800/80 inline-flex items-center gap-1 ml-auto">
-                    {orderTime}
-                    <i className="bi bi-check2-all text-sky-600 text-xs"></i>
-                  </span>
-                </div>
-              </div>
-            )
-          })}
         </div>
       </div>
 
