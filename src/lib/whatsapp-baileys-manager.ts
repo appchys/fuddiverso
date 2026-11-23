@@ -495,7 +495,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
     const snap = await credsDocRef.get()
     if (snap.exists && snap.data()?.json) {
       creds = JSON.parse(String(snap.data()!.json), BufferJSON.reviver)
-      hasExistingCreds = Boolean(creds?.registered)
+      hasExistingCreds = Boolean(creds?.registered || creds?.me?.id || creds?.account)
     } else {
       creds = initAuthCreds()
     }
@@ -615,9 +615,101 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
+const MANAGER_VERSION = 18
+
 class WhatsAppBaileysManager {
+  public readonly version = MANAGER_VERSION
   private sessions = new Map<string, ManagedSession>()
+  private lidToPhoneCache = new Map<string, string>()
+  private phoneToLidCache = new Map<string, string>()
   private logger = pino({ level: 'silent' })
+
+  public shutdownForUpgrade() {
+    for (const s of this.sessions.values()) {
+      s.manualDisconnect = true
+      try {
+        if (s.reconnectTimer) clearTimeout(s.reconnectTimer)
+      } catch {}
+      try {
+        s.firestoreUnsub?.()
+      } catch {}
+      try {
+        s.excludedUnsub?.()
+      } catch {}
+      try {
+        s.socket?.ev?.removeAllListeners?.('connection.update')
+        s.socket?.ev?.removeAllListeners?.('messages.upsert')
+        s.socket?.ev?.removeAllListeners?.('creds.update')
+      } catch {}
+      try {
+        s.socket?.end?.(undefined)
+      } catch {}
+    }
+    this.sessions.clear()
+  }
+
+  private async resolvePhoneFromLid(businessId: string, rawLidOrJid: string): Promise<string | null> {
+    const lidDigits = String(rawLidOrJid || '').split('@')[0].split(':')[0].replace(/\D/g, '')
+    if (!lidDigits || !isWhatsAppLidDigits(lidDigits)) return null
+    const cacheKey = `${businessId}:${lidDigits}`
+    if (this.lidToPhoneCache.has(cacheKey)) {
+      return this.lidToPhoneCache.get(cacheKey) || null
+    }
+    const db = ensureAdminDb()
+    if (!db) return null
+    try {
+      const snap = await db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('whatsappAuth')
+        .doc(`key_lid-mapping_${lidDigits}_reverse`)
+        .get()
+      if (snap.exists && snap.data()?.json) {
+        const parsed = String(JSON.parse(String(snap.data()!.json)) || '').replace(/\D/g, '')
+        const norm = normalizeEcuadorPhone(parsed)
+        if (norm.length >= 9 && !isWhatsAppLidDigits(norm)) {
+          this.lidToPhoneCache.set(cacheKey, norm)
+          this.phoneToLidCache.set(`${businessId}:${norm}`, `${lidDigits}@lid`)
+          return norm
+        }
+      }
+    } catch {
+      // Ignorar
+    }
+    return null
+  }
+
+  private async resolveLidFromPhone(businessId: string, normPhone: string): Promise<string | null> {
+    const clean = normalizeEcuadorPhone(normPhone)
+    if (!clean || isWhatsAppLidDigits(clean)) return null
+    const cacheKey = `${businessId}:${clean}`
+    if (this.phoneToLidCache.has(cacheKey)) {
+      return this.phoneToLidCache.get(cacheKey) || null
+    }
+    const intl = ecuadorPhoneToIntlDigits(clean)
+    const db = ensureAdminDb()
+    if (!db || !intl) return null
+    try {
+      const snap = await db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('whatsappAuth')
+        .doc(`key_lid-mapping_${intl}`)
+        .get()
+      if (snap.exists && snap.data()?.json) {
+        const lidDigits = String(JSON.parse(String(snap.data()!.json)) || '').replace(/\D/g, '')
+        if (lidDigits) {
+          const lidJid = `${lidDigits}@lid`
+          this.phoneToLidCache.set(cacheKey, lidJid)
+          this.lidToPhoneCache.set(`${businessId}:${lidDigits}`, clean)
+          return lidJid
+        }
+      }
+    } catch {
+      // Ignorar
+    }
+    return null
+  }
 
   private getOrCreateSession(businessId: string): ManagedSession {
     let session = this.sessions.get(businessId)
@@ -685,23 +777,13 @@ class WhatsAppBaileysManager {
     if (
       session.state.status === 'disconnected' &&
       !session.isConnecting &&
-      !session.manualDisconnect &&
-      db
+      !session.manualDisconnect
     ) {
       try {
-        const statusSnap = await db
-          .collection('businesses')
-          .doc(businessId)
-          .collection('whatsappConnection')
-          .doc('status')
-          .get()
-        if (statusSnap.exists) {
-          const d = statusSnap.data() || {}
-          if (d.status === 'connected') {
-            // Reconectar en caliente
-            await this.connect(businessId, { waitMs: Math.max(holdMs, 6000) })
-            return session.state
-          }
+        const { hasExistingCreds } = await useFirestoreAuthState(businessId)
+        if (hasExistingCreds) {
+          await this.connect(businessId, { waitMs: Math.max(holdMs, 8000) })
+          return session.state
         }
       } catch {
         // Ignorar
@@ -843,7 +925,12 @@ class WhatsAppBaileysManager {
 
     if (session.isConnecting) {
       if (waitMs > 0) {
-        await this.waitForStateChange(session, waitMs)
+        const deadline = Date.now() + waitMs
+        while (session.isConnecting && session.state.status === 'connecting' && Date.now() < deadline) {
+          const remaining = deadline - Date.now()
+          if (remaining <= 0) break
+          await this.waitForStateChange(session, remaining)
+        }
       }
       return session.state
     }
@@ -874,6 +961,18 @@ class WhatsAppBaileysManager {
         // Usar versión por defecto
       }
 
+      try {
+        if (session.socket) {
+          session.socket.ev?.removeAllListeners?.('connection.update')
+          session.socket.ev?.removeAllListeners?.('messages.upsert')
+          session.socket.ev?.removeAllListeners?.('creds.update')
+          session.socket.end?.(undefined)
+          session.socket = null
+        }
+      } catch {
+        // Ignorar
+      }
+
       const sock = makeWASocket({
         version,
         auth: state,
@@ -892,6 +991,7 @@ class WhatsAppBaileysManager {
       let pairingRequestedForSocket = false
 
       sock.ev.on('connection.update', async (update) => {
+        if (session.socket !== sock) return
         const { connection, lastDisconnect, qr } = update
 
         if (qr) {
@@ -945,7 +1045,12 @@ class WhatsAppBaileysManager {
           session.isConnecting = false
           session.socket = null
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode
+          const disconnectMsg = (lastDisconnect?.error as any)?.message || String(statusCode || '')
           const loggedOut = statusCode === DisconnectReason.loggedOut
+          const isConflict =
+            statusCode === 440 ||
+            statusCode === DisconnectReason.connectionReplaced ||
+            String(disconnectMsg).toLowerCase().includes('conflict')
 
           if (loggedOut) {
             await clearState()
@@ -956,8 +1061,18 @@ class WhatsAppBaileysManager {
             session.state.connectedName = null
             session.state.lastError = 'Sesión cerrada desde el teléfono'
             await this.persistConnectionState(session)
+          } else if (isConflict) {
+            // Otra instancia (ej. Vercel vs Local o llamada concurrente) tomó la conexión activa.
+            // No auto-reconectar en bucle para no expulsar a la instancia activa ni tumbar el socket,
+            // pero sí despertar a cualquier promesa que estuviera esperando en waitForStateChange.
+            session.state.status = 'disconnected'
+            session.state.qrDataUrl = null
+            session.state.pairingCode = null
+            session.state.lastError = 'Conflict (440)'
+            this.notifyStateWaiters(session)
           } else if (!session.manualDisconnect) {
             session.state.status = 'connecting'
+            session.state.lastError = `Reconectando (${disconnectMsg})`
             await this.persistConnectionState(session)
             session.reconnectTimer = setTimeout(() => {
               void this.connect(businessId, { waitMs: 0 })
@@ -983,8 +1098,13 @@ class WhatsAppBaileysManager {
       })
 
       // Esperar hasta que Baileys emita el primer QR, el pairingCode o abra la conexión
-      if (waitMs > 0 && session.state.status === 'connecting') {
-        await this.waitForStateChange(session, waitMs)
+      if (waitMs > 0) {
+        const deadline = Date.now() + waitMs
+        while (session.state.status === 'connecting' && Date.now() < deadline) {
+          const remaining = deadline - Date.now()
+          if (remaining <= 0) break
+          await this.waitForStateChange(session, remaining)
+        }
       }
     } catch (err: any) {
       session.isConnecting = false
@@ -1109,11 +1229,18 @@ class WhatsAppBaileysManager {
 
     const isLid = remoteJid.endsWith('@lid')
     const altParticipant = (msg.key as any)?.senderPn || (msg as any)?.senderPn || msg.participant || ''
-    const phoneSource = remoteJid.endsWith('@s.whatsapp.net')
+    let phoneSource = remoteJid.endsWith('@s.whatsapp.net')
       ? remoteJid.split('@')[0]
       : altParticipant.includes('@s.whatsapp.net')
         ? altParticipant.split('@')[0]
         : remoteJid.split('@')[0]
+
+    if (isLid) {
+      const mappedPhone = await this.resolvePhoneFromLid(session.businessId, remoteJid)
+      if (mappedPhone) {
+        phoneSource = mappedPhone
+      }
+    }
 
     let normPhone = normalizeEcuadorPhone(phoneSource)
     if (normPhone.length < 9) return
@@ -1182,6 +1309,39 @@ class WhatsAppBaileysManager {
 
     const convId = existing?.id || `phone:${normPhone}`
     const docRef = colRef.doc(docId)
+
+    // Si se resolvió un @lid a su número real (09...) y quedó un documento huérfano phone_{lid}, unificar y borrar el duplicado
+    if (isLid && !isWhatsAppLidDigits(normPhone)) {
+      const lidDigits = remoteJid.split('@')[0].split(':')[0].replace(/\D/g, '')
+      const orphanIds = [`phone_${lidDigits}`, `phone:${lidDigits}`].filter((id) => id !== docId)
+      for (const orphanId of orphanIds) {
+        try {
+          const orphanRef = colRef.doc(orphanId)
+          const orphanSnap = await orphanRef.get()
+          if (orphanSnap.exists) {
+            const orphanData = orphanSnap.data() || {}
+            if (existing) {
+              const mergedHistory = [
+                ...(Array.isArray(existing.chatHistory) ? existing.chatHistory : []),
+                ...(Array.isArray(orphanData.chatHistory) ? orphanData.chatHistory : []),
+              ]
+                .filter((item, idx, arr) => item?.id ? arr.findIndex((x) => x?.id === item.id) === idx : true)
+                .sort((a, b) => Number(a?.timestampMillis || 0) - Number(b?.timestampMillis || 0))
+                .slice(-MAX_CHAT_HISTORY)
+              existing.chatHistory = mergedHistory
+              if (!existing.detectedLocationLink && orphanData.detectedLocationLink) {
+                existing.detectedLocationLink = orphanData.detectedLocationLink
+              }
+            } else {
+              existing = orphanData
+            }
+            await orphanRef.delete()
+          }
+        } catch {
+          // Ignorar error limpiando duplicado
+        }
+      }
+    }
 
     if (fromMe) {
       if (!existing) return
@@ -1327,20 +1487,27 @@ class WhatsAppBaileysManager {
 
     const session = this.getOrCreateSession(businessId)
 
-    // Si la instancia Serverless de Vercel estaba fría pero hay credenciales guardadas en Firestore, reconectar al vuelo
-    if (session.state.status !== 'connected' || !session.socket) {
+    // Si la instancia Serverless de Vercel estaba fría (o cedió el socket ante otra instancia) pero hay credenciales guardadas en Firestore, reconectar al vuelo al momento de enviar
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (session.state.status === 'connected' && session.socket) break
       try {
         const { hasExistingCreds } = await useFirestoreAuthState(businessId)
         if (hasExistingCreds) {
-          await this.connect(businessId, { waitMs: 8000 })
+          await this.connect(businessId, { waitMs: 12000 })
         }
       } catch {
         // Ignorar
       }
+      if (session.state.status !== 'connected' || !session.socket) {
+        await new Promise((r) => setTimeout(r, 800))
+      }
     }
 
     if (session.state.status !== 'connected' || !session.socket) {
-      return { ok: false, error: 'WhatsApp no está conectado como dispositivo vinculado' }
+      return {
+        ok: false,
+        error: `WhatsApp no está conectado como dispositivo vinculado (${session.state.status}: ${session.state.lastError || 'sin socket'})`,
+      }
     }
 
     const db = ensureAdminDb()
@@ -1363,15 +1530,61 @@ class WhatsAppBaileysManager {
       }
     }
 
-    const jid = ecuadorPhoneToJid(
-      phone || existingDocData.phone || existingDocData.rawPhone || '',
-      existingDocData.whatsappJid
-    )
+    const rawCandidatePhone = phone || existingDocData.phone || existingDocData.rawPhone || ''
+    let explicitJid = String(existingDocData.whatsappJid || '').trim()
+
+    // Si en WhatsApp Auth existe un LID mapeado para este teléfono (o viceversa), preferir el JID con sesión activa en Baileys
+    if (!explicitJid) {
+      if (isWhatsAppLidDigits(rawCandidatePhone)) {
+        explicitJid = `${rawCandidatePhone.replace(/\D/g, '')}@lid`
+      } else {
+        const lidForPhone = await this.resolveLidFromPhone(businessId, rawCandidatePhone)
+        if (lidForPhone) {
+          explicitJid = lidForPhone
+        }
+      }
+    }
+
+    const jid = ecuadorPhoneToJid(rawCandidatePhone, explicitJid)
     if (!jid) return { ok: false, error: 'Número o JID de WhatsApp inválido' }
 
     try {
       session.processedReplyIds.add(replyId)
-      const sentMsg = await session.socket.sendMessage(jid, { text: cleanText })
+      let sentMsg: any
+      let lastSendErr: any = null
+
+      for (let sendAttempt = 0; sendAttempt < 2; sendAttempt++) {
+        let activeSocket = session.socket
+        if (!activeSocket || session.state.status !== 'connected') {
+          await this.connect(businessId, { waitMs: 12000 })
+          activeSocket = session.socket
+        }
+        if (!activeSocket) {
+          lastSendErr = new Error('Socket de WhatsApp no disponible')
+          continue
+        }
+        try {
+          sentMsg = await activeSocket.sendMessage(jid, { text: cleanText })
+          lastSendErr = null
+          break
+        } catch (err: any) {
+          lastSendErr = err
+          const msg = String(err?.message || '').toLowerCase()
+          if (
+            sendAttempt === 0 &&
+            (msg.includes('closed') || msg.includes('connection') || msg.includes('null'))
+          ) {
+            await this.connect(businessId, { waitMs: 12000 })
+            continue
+          }
+          throw err
+        }
+      }
+
+      if (lastSendErr) {
+        throw lastSendErr
+      }
+
       if (sentMsg?.key?.id) {
         session.sentByBridgeMsgIds.add(sentMsg.key.id)
       }
@@ -1430,8 +1643,40 @@ const globalForBaileys = globalThis as unknown as {
 }
 
 export function getWhatsAppBaileysManager(): WhatsAppBaileysManager {
-  if (!globalForBaileys.__fuddiBaileysManager) {
+  const existing = globalForBaileys.__fuddiBaileysManager
+  if (!existing || existing.version !== MANAGER_VERSION) {
+    if (existing) {
+      try {
+        if ((existing as any).sessions) {
+          for (const s of (existing as any).sessions.values()) {
+            s.manualDisconnect = true
+            try {
+              if (s.reconnectTimer) clearTimeout(s.reconnectTimer)
+            } catch {}
+            try {
+              s.firestoreUnsub?.()
+            } catch {}
+            try {
+              s.excludedUnsub?.()
+            } catch {}
+            try {
+              s.socket?.ev?.removeAllListeners?.('connection.update')
+              s.socket?.ev?.removeAllListeners?.('messages.upsert')
+              s.socket?.ev?.removeAllListeners?.('creds.update')
+            } catch {}
+            try {
+              s.socket?.end?.(undefined)
+            } catch {}
+          }
+        }
+        if (typeof existing.shutdownForUpgrade === 'function') {
+          existing.shutdownForUpgrade()
+        }
+      } catch {
+        // Ignorar errores al limpiar instancia previa
+      }
+    }
     globalForBaileys.__fuddiBaileysManager = new WhatsAppBaileysManager()
   }
-  return globalForBaileys.__fuddiBaileysManager
+  return globalForBaileys.__fuddiBaileysManager!
 }
