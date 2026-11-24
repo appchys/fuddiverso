@@ -5,7 +5,7 @@ import { collection, doc, getDoc, updateDoc, addDoc, deleteDoc, onSnapshot, quer
 import { auth, db } from '@/lib/firebase'
 import type { Business, Product } from '@/types'
 import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal'
-import { searchClientByPhone, getClientLocations, createClient, generateProductSlug, getDeliveryDetailsForLocation, type ClientLocation } from '@/lib/database'
+import { searchClientByPhone, getClientLocations, createClient, createClientLocation, generateProductSlug, getDeliveryDetailsForLocation, type ClientLocation } from '@/lib/database'
 import { ClientLocationsModal } from '@/components/ClientLocationsModal'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { getDistanceMeters, parseLatLong } from '@/lib/location-utils'
@@ -13,6 +13,7 @@ import { getManualOrderStorePrice, getPriceMetadata } from '@/lib/price-utils'
 import { Motorbike } from 'lucide-react'
 import type { WhatsAppPreorderDraft, WhatsAppPreorderDraftItem } from '@/components/LiveCheckoutsPanel'
 import { usePersistedPreorderState, buildBasePreorderState } from '@/hooks/usePersistedPreorderState'
+import { formatWhatsAppMessageText } from '@/lib/whatsapp-format'
 
 export type PreorderTabKey = 'products' | 'timing' | 'delivery' | 'payment'
 
@@ -458,6 +459,7 @@ interface WhatsAppChatPreorderViewProps {
   onBack: () => void
   onCreateOrder: (conv: PendingWhatsAppConversation, draft?: WhatsAppPreorderDraft) => void
   onCloseConversation?: (docId: string) => void
+  onExcludeConversation?: (conv: PendingWhatsAppConversation) => void
   onInspectOrder?: (order: any) => void
 }
 
@@ -472,6 +474,7 @@ export function WhatsAppChatPreorderView({
   onBack,
   onCreateOrder,
   onCloseConversation,
+  onExcludeConversation,
   onInspectOrder,
 }: WhatsAppChatPreorderViewProps) {
   const [activeTab, setActiveTab] = useState<PreorderTabKey | null>(initialTab ?? null)
@@ -488,6 +491,7 @@ export function WhatsAppChatPreorderView({
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
   const [customLocationInput, setCustomLocationInput] = useState<string>('')
   const [customLocationReference, setCustomLocationReference] = useState<string>('')
+  const [savingCustomLocation, setSavingCustomLocation] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('')
   const [cashAmountInput, setCashAmountInput] = useState<string>('')
   const [transferAmountInput, setTransferAmountInput] = useState<string>('')
@@ -885,7 +889,7 @@ export function WhatsAppChatPreorderView({
     scrollMessagesToBottom(false)
     const raf = requestAnimationFrame(() => scrollMessagesToBottom(false))
     return () => cancelAnimationFrame(raf)
-  }, [chatMessageCount, lastChatTimestamp, optimisticReply?.id, activeTab, clientOrders.length, activeOrder?.id, scrollMessagesToBottom])
+  }, [chatMessageCount, lastChatTimestamp, optimisticReply?.id, clientOrders.length, activeOrder?.id, scrollMessagesToBottom])
 
   useEffect(() => {
     const match = replyText.match(/https?:\/\/[^\s<>()]+/i)
@@ -1195,12 +1199,15 @@ export function WhatsAppChatPreorderView({
       setNewClientName(text)
       clientNameInputRef.current?.focus()
     } else if (target === 'productSearch') {
+      setActiveTab('products')
       setProductSearch(text)
       productSearchInputRef.current?.focus()
     } else if (target === 'customLocationReference') {
+      setActiveTab('delivery')
       setCustomLocationReference(text)
       customLocationReferenceInputRef.current?.focus()
     } else if (target === 'customLocation') {
+      setActiveTab('delivery')
       const hasCurrentMap = Boolean(extractLocationPreviewFromMessage(customLocationInput))
       const incomingIsMap = Boolean(extractLocationPreviewFromMessage(text))
       if (hasCurrentMap && !incomingIsMap) {
@@ -1215,6 +1222,7 @@ export function WhatsAppChatPreorderView({
     } else if (target === 'cashAmount' || target === 'transferAmount') {
       const numMatch = text.replace(',', '.').match(/\d+(?:\.\d{1,2})?/)
       if (numMatch) {
+        setActiveTab('payment')
         if (target === 'cashAmount') {
           setCashAmountInput(numMatch[0])
           cashAmountInputRef.current?.focus()
@@ -1589,6 +1597,7 @@ export function WhatsAppChatPreorderView({
       return next
     })
     setAppliedCatalogMsgKeys((prev) => ({ ...prev, [msgKey]: true }))
+    setActiveTab('products')
   }
 
   const handleApplyLocationToOrder = (
@@ -1603,6 +1612,67 @@ export function WhatsAppChatPreorderView({
     } else {
       setSelectedLocationId('__custom__')
       setCustomLocationInput(preview.mapsUrl)
+    }
+    setActiveTab('delivery')
+  }
+
+  const handleSaveCustomLocation = async () => {
+    if (!customLocationPreview || savingCustomLocation) return
+    const refText = customLocationReference.trim()
+    if (!refText) return
+    const clientKey =
+      (resolvedProfile?.clientId || conversation.fuddiClientId || '').trim() ||
+      (resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || '').replace(/\D/g, '')
+    if (!clientKey) return
+
+    setSavingCustomLocation(true)
+    try {
+      const latlong = `${customLocationPreview.lat},${customLocationPreview.lng}`
+      const sector = resolvedCustomLocation?.zoneName || customLocationPreview.label || ''
+      const tarifa =
+        resolvedCustomLocation && !resolvedCustomLocation.isOutOfCoverage
+          ? String(resolvedCustomLocation.fee)
+          : '0'
+
+      const newId = await createClientLocation({
+        id_cliente: clientKey,
+        latlong,
+        referencia: refText,
+        tarifa,
+        sector,
+        createdBy: 'admin',
+      })
+
+      const newLocation: ClientLocation = {
+        id: newId,
+        id_cliente: clientKey,
+        latlong,
+        referencia: refText,
+        tarifa,
+        sector,
+        createdBy: 'admin',
+      }
+
+      setResolvedProfile((prev) => {
+        if (!prev) {
+          return {
+            clientId: clientKey,
+            isRegistered: true,
+            locations: [newLocation],
+          }
+        }
+        return {
+          ...prev,
+          locations: [newLocation, ...(prev.locations || [])],
+        }
+      })
+      setSelectedLocationId(newId)
+      setCustomLocationInput('')
+      setCustomLocationReference('')
+    } catch (err) {
+      console.error('[WhatsAppChatPreorder] Error saving custom location:', err)
+    } finally {
+      setSavingCustomLocation(false)
     }
   }
 
@@ -1817,7 +1887,7 @@ export function WhatsAppChatPreorderView({
                   ))}
                 </div>
               )}
-              {(cleanPhone || onCloseConversation) && (
+              {(cleanPhone || onCloseConversation || onExcludeConversation) && (
                 <div ref={headerMenuRef} className="relative">
                   <button
                     type="button"
@@ -1855,6 +1925,21 @@ export function WhatsAppChatPreorderView({
                         >
                           <i className="bi bi-archive text-sm"></i>
                           Archivar
+                        </button>
+                      )}
+                      {onExcludeConversation && (
+                        <button
+                          type="button"
+                          style={{ minHeight: 0 }}
+                          onClick={() => {
+                            setShowHeaderMenu(false)
+                            onExcludeConversation(conversation)
+                            onBack()
+                          }}
+                          className="w-full h-8 px-2.5 bg-white hover:bg-red-50 text-red-600 text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-2 cursor-pointer"
+                        >
+                          <i className="bi bi-slash-circle text-sm"></i>
+                          Excluir
                         </button>
                       )}
                     </div>
@@ -2045,7 +2130,7 @@ export function WhatsAppChatPreorderView({
                       </div>
                     </a>
                   )}
-                  <p className="whitespace-pre-wrap break-words leading-snug">{msg.text}</p>
+                  <p className="whitespace-pre-wrap break-words leading-snug">{formatWhatsAppMessageText(msg.text)}</p>
                   <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800/80">
                     <span>{formatWhatsAppTime(msg.timestampMillis)}</span>
                     <i className="bi bi-check2-all text-sky-600 text-xs"></i>
@@ -2076,10 +2161,10 @@ export function WhatsAppChatPreorderView({
                     <div className="px-2.5 py-2 space-y-1 bg-white group-hover:bg-blue-50/40 transition-colors">
                       {matchedSavedLoc ? (
                         <>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-slate-900 truncate inline-flex items-center gap-1.5 min-w-0">
-                              <i className="bi bi-bookmark-check-fill text-blue-600 shrink-0"></i>
-                              <span className="truncate">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-xs font-bold text-slate-900 flex items-start gap-1.5 min-w-0">
+                              <i className="bi bi-bookmark-check-fill text-blue-600 shrink-0 mt-0.5"></i>
+                              <span className="line-clamp-2 leading-snug">
                                 {matchedSavedLoc.location.referencia ||
                                   matchedSavedLoc.location.sector ||
                                   'Ubicación guardada'}
@@ -2127,7 +2212,7 @@ export function WhatsAppChatPreorderView({
                                   {resolvedLoc.isInactiveZone ? 'Sin envío' : 'Sin cobertura'}
                                 </span>
                               ) : (
-                                <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold">
+                                <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-slate-600">
                                   {resolvedLoc.fee <= 0 ? 'Envío gratis' : `Envío $${resolvedLoc.fee.toFixed(2)}`}
                                 </span>
                               )
@@ -2143,7 +2228,7 @@ export function WhatsAppChatPreorderView({
                               locationPreview.label !== 'Ubicación enviada' &&
                               locationPreview.label.toLowerCase() !== String(resolvedLoc?.zoneName || '').toLowerCase()
                                 ? locationPreview.label
-                                : 'Ver en Google Maps'}
+                                : ''}
                             </span>
                             <span className="text-[10px] text-slate-400 shrink-0">
                               {formatWhatsAppTime(msg.timestampMillis)}
@@ -2194,7 +2279,7 @@ export function WhatsAppChatPreorderView({
                       title="Toca para pegar en el campo activo"
                       className="w-full text-left px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words hover:bg-blue-50/50 transition-colors cursor-pointer"
                     >
-                      <span className="block">{cleanedImageCaption}</span>
+                      <span className="block">{formatWhatsAppMessageText(cleanedImageCaption)}</span>
                       {msg.timestampMillis ? (
                         <span className="flex items-center justify-end text-[10px] text-slate-400 pt-0.5">
                           {formatWhatsAppTime(msg.timestampMillis)}
@@ -2262,7 +2347,7 @@ export function WhatsAppChatPreorderView({
                       <audio controls src={msg.mediaUrl} className="h-8 max-w-[230px]" />
                     </div>
                   )}
-                  <span className="block">{msg.text}</span>
+                  <span className="block">{formatWhatsAppMessageText(msg.text)}</span>
                   {msg.timestampMillis ? (
                     <span className="flex items-center justify-end text-[10px] text-slate-400 pt-0.5">
                       {formatWhatsAppTime(msg.timestampMillis)}
@@ -2446,7 +2531,7 @@ export function WhatsAppChatPreorderView({
               !conversation.sentReplies?.some((r) => r.id === optimisticReply.id))) && (
             <div className="self-end max-w-[88%] sm:max-w-[75%] bg-[#dcf8c6]/80 border border-emerald-200 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs">
               <p className="whitespace-pre-wrap break-words leading-snug">
-                {conversation.pendingReply?.text || optimisticReply?.text}
+                {formatWhatsAppMessageText(conversation.pendingReply?.text || optimisticReply?.text)}
               </p>
               <div className="flex items-center justify-end gap-1 pt-0.5 text-[10px] text-emerald-800">
                 <span>Enviando...</span>
@@ -2457,7 +2542,7 @@ export function WhatsAppChatPreorderView({
 
           {conversation.pendingReply?.status === 'failed' && (
             <div className="self-end max-w-[88%] sm:max-w-[75%] bg-amber-50 border border-amber-200 rounded-xl rounded-tr-xs px-3 py-2 text-xs text-amber-900 shadow-2xs space-y-1">
-              <p className="whitespace-pre-wrap break-words leading-snug">{conversation.pendingReply.text}</p>
+              <p className="whitespace-pre-wrap break-words leading-snug">{formatWhatsAppMessageText(conversation.pendingReply.text)}</p>
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/70">
                 <span className="text-[10px] font-semibold text-amber-800">
                   La notificación ya no estaba activa en el teléfono
@@ -2481,9 +2566,9 @@ export function WhatsAppChatPreorderView({
 
       {/* Bottom Footer: Active Form + Actions (siempre fijo abajo y visible) */}
       <div className="relative z-40 bg-white border-t border-slate-200 shadow-[0_-4px_16px_rgba(15,23,42,0.06)] shrink-0 overflow-visible">
-        <div className="max-w-3xl mx-auto px-3 sm:px-6 py-2.5 space-y-2.5">
-          {activeTab && (
-            <div className="max-h-[45dvh] overflow-y-auto overscroll-contain space-y-2.5">
+        {activeTab && (
+          <div className="absolute bottom-full left-0 right-0 z-40 bg-white border-t border-slate-200 shadow-[0_-8px_24px_rgba(15,23,42,0.12)]">
+            <div className="max-w-3xl mx-auto px-3 sm:px-6 py-2.5 max-h-[45dvh] overflow-y-auto overscroll-contain space-y-2.5">
           {/* Active Preorder Form Drawer in Footer */}
           {activeTab === 'products' && (
             <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-2.5 space-y-2 animate-in slide-in-from-bottom-2 duration-150">
@@ -2805,7 +2890,7 @@ export function WhatsAppChatPreorderView({
                               {resolvedCustomLocation.isInactiveZone ? 'Sin envío' : 'Sin cobertura'}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600">
                               {resolvedCustomLocation.fee <= 0
                                 ? 'Envío gratis'
                                 : `Envío $${resolvedCustomLocation.fee.toFixed(2)}`}
@@ -2828,15 +2913,38 @@ export function WhatsAppChatPreorderView({
                       </div>
                     </div>
                   </div>
-                  <input
-                    ref={customLocationReferenceInputRef}
-                    type="text"
-                    value={customLocationReference}
-                    onFocus={() => { focusedFieldRef.current = 'customLocationReference' }}
-                    onChange={(e) => setCustomLocationReference(e.target.value)}
-                    placeholder="Referencias (ej: casa esquinera, portón negro, frente al parque...)"
-                    className="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      ref={customLocationReferenceInputRef}
+                      type="text"
+                      value={customLocationReference}
+                      onFocus={() => { focusedFieldRef.current = 'customLocationReference' }}
+                      onChange={(e) => setCustomLocationReference(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && customLocationReference.trim()) {
+                          e.preventDefault()
+                          void handleSaveCustomLocation()
+                        }
+                      }}
+                      placeholder="Referencias (ej: casa esquinera, portón negro, frente al parque...)"
+                      className="flex-1 min-w-0 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                    />
+                    <button
+                      type="button"
+                      style={{ minHeight: 0 }}
+                      disabled={!customLocationReference.trim() || savingCustomLocation}
+                      onClick={() => void handleSaveCustomLocation()}
+                      className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Guardar ubicación en el perfil del cliente"
+                    >
+                      {savingCustomLocation ? (
+                        <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                      ) : (
+                        <i className="bi bi-bookmark-check-fill text-xs"></i>
+                      )}
+                      <span>Guardar</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -2969,8 +3077,10 @@ export function WhatsAppChatPreorderView({
             </div>
           )}
             </div>
-          )}
+          </div>
+        )}
 
+        <div className="max-w-3xl mx-auto px-3 sm:px-6 py-2.5 space-y-2.5">
           {/* Barra compacta de pasos de preorden (arriba de la barra de mensajes) */}
           <div className="flex items-center justify-end gap-1.5">
             {stepIndicators.map(step => {

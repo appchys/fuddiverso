@@ -1,8 +1,10 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore'
+import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
+import { formatWhatsAppMessageText } from '@/lib/whatsapp-format'
+import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
 
 export type WhatsAppConversationStatus = 'pending' | 'confirmed' | 'closed'
 
@@ -90,6 +92,13 @@ interface WhatsAppPendingModalProps {
   orders?: any[]
   onClose: () => void
   onSelectConversation: (conversation: PendingWhatsAppConversation) => void
+  onOpenChatView?: (
+    conversation: PendingWhatsAppConversation,
+    initialTab?: any,
+    resolvedProfile?: any,
+    activeOrder?: any
+  ) => void
+  renderOrderCard?: (order: any) => React.ReactNode
   onCompleteCheckout?: (session: any) => void
   onCloseConversation?: (docId: string) => void
   onExcludeConversation?: (conversation: PendingWhatsAppConversation) => void
@@ -118,6 +127,12 @@ function formatEcuadorPhoneDisplay(raw: string): string {
   return trimmed
 }
 
+function normalizePhoneKey(raw?: string | null): string {
+  const digits = String(raw || '').replace(/\D/g, '')
+  if (!digits) return ''
+  return digits.length >= 9 ? digits.slice(-9) : digits
+}
+
 function cleanConversationTitle(conv: PendingWhatsAppConversation): string {
   const candidates = [conv.effectiveName, conv.fuddiClientName, conv.displayName]
   for (const raw of candidates) {
@@ -130,146 +145,130 @@ function cleanConversationTitle(conv: PendingWhatsAppConversation): string {
   return formatEcuadorPhoneDisplay((conv.phone || conv.rawPhone || '').trim()) || 'WhatsApp'
 }
 
-function formatRelativeTime(timestampMillis?: number | null): string {
+function formatWhatsAppTime(timestampMillis?: number | null): string {
   if (!timestampMillis) return ''
-  const diff = Date.now() - timestampMillis
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return 'Ahora'
-  if (minutes < 60) return `Hace ${minutes}m`
-  if (minutes < 24 * 60) {
-    return new Date(timestampMillis).toLocaleTimeString('es-EC', {
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+  const d = new Date(timestampMillis)
+  if (Number.isNaN(d.getTime())) return ''
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfTarget = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const diffDays = Math.round((startOfToday - startOfTarget) / (24 * 60 * 60 * 1000))
+  if (diffDays <= 0) {
+    let hours = d.getHours()
+    const minutes = String(d.getMinutes()).padStart(2, '0')
+    const period = hours >= 12 ? 'pm' : 'am'
+    hours = hours % 12 || 12
+    return `${hours}:${minutes} ${period}`
   }
-  return new Date(timestampMillis).toLocaleDateString('es-EC', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  if (diffDays === 1) return 'Ayer'
+  if (diffDays < 7) {
+    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+    return days[d.getDay()]
+  }
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  return `${dd}/${mm}/${yy}`
 }
 
-function getOrderStatusMeta(status?: string): { label: string; className: string } {
+function getPreviewMessages(conv: PendingWhatsAppConversation): Array<{ text: string; fromMe: boolean }> {
+  const hist = Array.isArray(conv.chatHistory) ? conv.chatHistory : []
+  if (hist.length > 0) {
+    return hist
+      .filter((m) => Boolean(m?.text && m.text.trim()))
+      .slice(-3)
+      .map((m) => ({ text: m.text.trim(), fromMe: Boolean(m.fromMe) }))
+  }
+  if (Array.isArray(conv.recentMessages) && conv.recentMessages.length > 0) {
+    return conv.recentMessages
+      .filter((t) => Boolean(t && t.trim()))
+      .slice(-3)
+      .map((t) => ({ text: t.trim(), fromMe: false }))
+  }
+  if (conv.lastMessage && conv.lastMessage.trim()) {
+    return [{ text: conv.lastMessage.trim(), fromMe: false }]
+  }
+  return []
+}
+
+function getOrderStatusBadge(status?: string): { label: string; className: string } {
   switch (status) {
-    case 'pending':
-      return { label: 'Pendiente', className: 'bg-amber-100 text-amber-800 border-amber-200' }
-    case 'confirmed':
-      return { label: 'Confirmado', className: 'bg-blue-100 text-blue-800 border-blue-200' }
-    case 'preparing':
-      return { label: 'Preparando', className: 'bg-indigo-100 text-indigo-800 border-indigo-200' }
-    case 'ready':
-      return { label: 'Listo', className: 'bg-purple-100 text-purple-800 border-purple-200' }
-    case 'on_way':
-      return { label: 'En camino', className: 'bg-sky-100 text-sky-800 border-sky-200' }
-    case 'delivered':
-      return { label: 'Entregado', className: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
-    case 'cancelled':
-      return { label: 'Cancelado', className: 'bg-red-100 text-red-800 border-red-200' }
     case 'borrador':
-      return { label: 'Borrador', className: 'bg-slate-200 text-slate-700 border-slate-300' }
+      return { label: 'Borrador', className: 'bg-orange-50 text-orange-700 border-orange-200' }
+    case 'pending':
+      return { label: 'Pendiente', className: 'bg-amber-50 text-amber-700 border-amber-200' }
+    case 'confirmed':
+      return { label: 'Confirmado', className: 'bg-blue-50 text-blue-700 border-blue-200' }
+    case 'preparing':
+      return { label: 'Preparando', className: 'bg-purple-50 text-purple-700 border-purple-200' }
+    case 'ready':
+      return { label: 'Listo', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+    case 'on_way':
+      return { label: 'En camino', className: 'bg-indigo-50 text-indigo-700 border-indigo-200' }
+    case 'delivered':
+      return { label: 'Entregado', className: 'bg-slate-100 text-slate-700 border-slate-200' }
+    case 'cancelled':
+      return { label: 'Cancelado', className: 'bg-red-50 text-red-700 border-red-200' }
     default:
-      return { label: 'Confirmado', className: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
+      return { label: 'Confirmado', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
   }
 }
 
 export default function WhatsAppPendingModal({
   isOpen,
-  asPage = false,
   businessId,
   conversations,
   excludedContacts = [],
   orders = [],
   onClose,
   onSelectConversation,
+  onOpenChatView,
+  renderOrderCard,
   onCompleteCheckout,
-  onCloseConversation,
   onExcludeConversation,
   onUnexcludeContact,
   onReopenConversation,
   onRemoveConversation,
-  onClearAll,
-  onInspectOrder
+  onInspectOrder,
 }: WhatsAppPendingModalProps) {
+  const [activeSection, setActiveSection] = useState<'archived' | 'excluded'>('archived')
   const [searchQuery, setSearchQuery] = useState('')
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'whatsapp' | 'checkout'>('all')
-  const [resolvedExpanded, setResolvedExpanded] = useState(asPage)
-  const [resolvedFilter, setResolvedFilter] = useState<'all' | 'confirmed' | 'closed'>('all')
-  const [expandedTraceDocId, setExpandedTraceDocId] = useState<string | null>(null)
   const [openMenuDocId, setOpenMenuDocId] = useState<string | null>(null)
-  const [showExcludedModal, setShowExcludedModal] = useState(false)
-  const [checkoutDocs, setCheckoutDocs] = useState<any[]>([])
+  const [expandedOrderDocIds, setExpandedOrderDocIds] = useState<Record<string, boolean>>({})
+  const [historyCheckouts, setHistoryCheckouts] = useState<CheckoutSession[]>([])
 
   useEffect(() => {
     if (!isOpen || !businessId) {
-      setCheckoutDocs([])
+      setHistoryCheckouts([])
       return
     }
     const q = query(
       collection(db, 'checkoutProgress'),
       where('businessId', '==', businessId),
       orderBy('updatedAt', 'desc'),
-      limit(100)
+      limit(50)
     )
     const unsub = onSnapshot(
       q,
-      (snap) => {
-        const list = snap.docs.map((d) => ({
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => ({
           id: d.id,
-          ...d.data({ serverTimestamps: 'estimate' })
-        }))
-        setCheckoutDocs(list)
+          ...d.data({ serverTimestamps: 'estimate' }),
+        })) as CheckoutSession[]
+        setHistoryCheckouts(
+          list.filter(
+            (c) =>
+              c.currentStep >= 1 &&
+              (c.status === 'closed' || c.status === 'abandoned' || c.status === 'completed')
+          )
+        )
       },
       (err) => {
-        console.error('[History] Error loading checkoutProgress:', err)
+        console.error('[WhatsAppPendingModal] Error loading checkout history:', err)
       }
     )
     return () => unsub()
   }, [isOpen, businessId])
-
-  const getCheckoutTimestampMillis = (session: any): number => {
-    if (typeof session.closedAtMillis === 'number' && session.closedAtMillis > 0) return session.closedAtMillis
-    if (typeof session.updatedAtMillis === 'number' && session.updatedAtMillis > 0) return session.updatedAtMillis
-    const raw = session.updatedAt || session.lastActivityAt
-    if (raw && typeof raw.toDate === 'function') {
-      const ms = raw.toDate().getTime()
-      if (!Number.isNaN(ms)) return ms
-    }
-    if (raw) {
-      const ms = new Date(raw).getTime()
-      if (!Number.isNaN(ms)) return ms
-    }
-    return 0
-  }
-
-  const { activeCheckouts, archivedCheckouts } = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    const matchesSearch = (session: any) => {
-      if (!q) return true
-      const name = String(session.customerData?.name || '').toLowerCase()
-      const phone = String(session.customerData?.phone || '').toLowerCase()
-      const addr = String(session.deliveryData?.address || '').toLowerCase()
-      const items = Array.isArray(session.cartItems)
-        ? session.cartItems.map((i: any) => String(i.name || '')).join(' ').toLowerCase()
-        : ''
-      return name.includes(q) || phone.includes(q) || addr.includes(q) || items.includes(q)
-    }
-
-    const active: any[] = []
-    const archived: any[] = []
-    for (const session of checkoutDocs) {
-      if (!matchesSearch(session)) continue
-      const st = session.status || 'active'
-      if (st === 'active') {
-        active.push(session)
-      } else {
-        archived.push(session)
-      }
-    }
-    active.sort((a, b) => getCheckoutTimestampMillis(b) - getCheckoutTimestampMillis(a))
-    archived.sort((a, b) => getCheckoutTimestampMillis(b) - getCheckoutTimestampMillis(a))
-    return { activeCheckouts: active, archivedCheckouts: archived }
-  }, [checkoutDocs, searchQuery])
 
   const ordersById = useMemo(() => {
     const map = new Map<string, any>()
@@ -279,962 +278,596 @@ export default function WhatsAppPendingModal({
     return map
   }, [orders])
 
-  const { pendingList, confirmedList, closedList, resolvedList } = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    const matchesSearch = (conv: PendingWhatsAppConversation) => {
-      if (!q) return true
-      const name = (conv.effectiveName || conv.fuddiClientName || conv.displayName || '').toLowerCase()
-      const phone = (conv.phone || '').toLowerCase()
-      const msg = (conv.lastMessage || '').toLowerCase()
-      const orderId = (conv.confirmedOrderId || '').toLowerCase()
-      return name.includes(q) || phone.includes(q) || msg.includes(q) || orderId.includes(q)
+  const ordersByClientOrPhone = useMemo(() => {
+    const byClientId = new Map<string, any>()
+    const byPhone = new Map<string, any>()
+    for (const o of orders) {
+      if (!o || o.status === 'cancelled') continue
+      const cid = String(o.customer?.id || '').trim()
+      if (cid && !byClientId.has(cid)) byClientId.set(cid, o)
+      const pKey = normalizePhoneKey(o.customer?.phone)
+      if (pKey && !byPhone.has(pKey)) byPhone.set(pKey, o)
     }
+    return { byClientId, byPhone }
+  }, [orders])
 
-    const pending: PendingWhatsAppConversation[] = []
-    const confirmed: PendingWhatsAppConversation[] = []
-    const closed: PendingWhatsAppConversation[] = []
-
-    for (const conv of conversations) {
-      if (!matchesSearch(conv)) continue
-      const st = conv.status || 'pending'
-      if (st === 'confirmed') {
-        confirmed.push(conv)
-      } else if (st === 'closed') {
-        closed.push(conv)
-      } else {
-        pending.push(conv)
-      }
+  const findOrderForConv = (conv: PendingWhatsAppConversation) => {
+    if (conv.confirmedOrderId && ordersById.has(String(conv.confirmedOrderId))) {
+      return ordersById.get(String(conv.confirmedOrderId))
     }
-
-    const sortResolved = (a: PendingWhatsAppConversation, b: PendingWhatsAppConversation) => {
-      const ta = a.resolvedAtMillis || a.confirmedAtMillis || a.closedAtMillis || a.timestampMillis || 0
-      const tb = b.resolvedAtMillis || b.confirmedAtMillis || b.closedAtMillis || b.timestampMillis || 0
-      return tb - ta
+    const cid = String(conv.fuddiClientId || '').trim()
+    if (cid && ordersByClientOrPhone.byClientId.has(cid)) {
+      return ordersByClientOrPhone.byClientId.get(cid)
     }
-
-    confirmed.sort(sortResolved)
-    closed.sort(sortResolved)
-    const resolved = [...confirmed, ...closed].sort(sortResolved)
-
-    return {
-      pendingList: pending,
-      confirmedList: confirmed,
-      closedList: closed,
-      resolvedList: resolved
+    const pKey = normalizePhoneKey(conv.phone || conv.rawPhone)
+    if (pKey && ordersByClientOrPhone.byPhone.has(pKey)) {
+      return ordersByClientOrPhone.byPhone.get(pKey)
     }
-  }, [conversations, searchQuery])
-
-  const filteredResolvedList = useMemo(() => {
-    if (resolvedFilter === 'confirmed') return confirmedList
-    if (resolvedFilter === 'closed') return closedList
-    return resolvedList
-  }, [resolvedFilter, confirmedList, closedList, resolvedList])
-
-  const unifiedActiveItems = useMemo(() => {
-    const items: Array<{ kind: 'whatsapp'; ts: number; data: PendingWhatsAppConversation } | { kind: 'checkout'; ts: number; data: any }> = []
-    if (sourceFilter !== 'checkout') {
-      for (const conv of pendingList) {
-        items.push({ kind: 'whatsapp', ts: conv.timestampMillis || 0, data: conv })
-      }
-    }
-    if (sourceFilter !== 'whatsapp') {
-      for (const session of activeCheckouts) {
-        items.push({ kind: 'checkout', ts: getCheckoutTimestampMillis(session), data: session })
-      }
-    }
-    items.sort((a, b) => b.ts - a.ts)
-    return items
-  }, [pendingList, activeCheckouts, sourceFilter])
-
-  const unifiedArchivedItems = useMemo(() => {
-    const items: Array<{ kind: 'whatsapp'; ts: number; data: PendingWhatsAppConversation } | { kind: 'checkout'; ts: number; data: any }> = []
-    if (sourceFilter !== 'checkout') {
-      for (const conv of filteredResolvedList) {
-        const ts = conv.resolvedAtMillis || conv.confirmedAtMillis || conv.closedAtMillis || conv.timestampMillis || 0
-        items.push({ kind: 'whatsapp', ts, data: conv })
-      }
-    }
-    if (sourceFilter !== 'whatsapp') {
-      for (const session of archivedCheckouts) {
-        if (resolvedFilter === 'confirmed' && session.status !== 'completed') continue
-        if (resolvedFilter === 'closed' && session.status === 'completed') continue
-        items.push({ kind: 'checkout', ts: getCheckoutTimestampMillis(session), data: session })
-      }
-    }
-    items.sort((a, b) => b.ts - a.ts)
-    return items
-  }, [filteredResolvedList, archivedCheckouts, sourceFilter, resolvedFilter])
-
-  const renderCheckoutCard = (session: any) => {
-    const name = session.customerData?.name || 'Cliente anónimo'
-    const phone = session.customerData?.phone || ''
-    const cleanPhone = phone.replace(/\D/g, '')
-    const st = session.status || 'active'
-    const isPickup = session.deliveryData?.type === 'pickup'
-    const items = Array.isArray(session.cartItems) ? session.cartItems : []
-    const subtotal = items.reduce(
-      (acc: number, it: any) => acc + ((it.price || it.product?.price || 0) * (it.quantity || 1)),
-      0
-    )
-    const deliveryFee = isPickup ? 0 : (parseFloat(session.deliveryData?.tarifa || '0') || 0)
-    const totalEst = subtotal + deliveryFee
-    const ts = getCheckoutTimestampMillis(session)
-
-    const statusBadge =
-      st === 'active'
-        ? { label: 'Activo', cls: 'bg-blue-100 text-blue-700' }
-        : st === 'completed'
-          ? { label: 'Completado', cls: 'bg-emerald-100 text-emerald-700' }
-          : st === 'abandoned'
-            ? { label: 'Abandonado', cls: 'bg-amber-100 text-amber-700' }
-            : { label: 'Cerrado', cls: 'bg-slate-200 text-slate-700' }
-
-    return (
-      <div
-        key={`checkout-${session.id}`}
-        className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs hover:border-blue-300 transition-all"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-              <i className="bi bi-cart-fill text-base"></i>
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <p className="text-sm font-extrabold text-slate-900 truncate">{name}</p>
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100">
-                  Checkout
-                </span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold ${statusBadge.cls}`}>
-                  {statusBadge.label}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 flex-wrap">
-                {phone && <span>{phone}</span>}
-                {ts > 0 && (
-                  <>
-                    {phone && <span>•</span>}
-                    <span>{formatRelativeTime(ts)}</span>
-                  </>
-                )}
-                {session.currentStep && (
-                  <>
-                    <span>•</span>
-                    <span>Paso {session.currentStep}/4</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-          {totalEst > 0 && (
-            <span className="text-xs font-black text-slate-900 shrink-0">${totalEst.toFixed(2)}</span>
-          )}
-        </div>
-
-        {items.length > 0 && (
-          <div className="mt-2 bg-slate-50 rounded-lg px-2.5 py-1.5 space-y-0.5 border border-slate-100">
-            {items.slice(0, 3).map((it: any, i: number) => (
-              <p key={i} className="text-xs text-slate-700 truncate">
-                <span className="font-bold text-slate-900">{it.quantity || 1}x</span> {it.name || it.productName || 'Producto'}
-                {(it.variant || it.variantName) ? ` (${it.variant || it.variantName})` : ''}
-              </p>
-            ))}
-            {items.length > 3 && (
-              <p className="text-[11px] text-blue-600 font-semibold">+{items.length - 3} productos más...</p>
-            )}
-          </div>
-        )}
-
-        {session.deliveryData?.address && !isPickup && (
-          <p className="mt-1.5 text-[11px] text-slate-600 flex items-center gap-1 truncate">
-            <i className="bi bi-geo-alt-fill text-red-500 shrink-0"></i>
-            <span className="truncate">{session.deliveryData.address}</span>
-          </p>
-        )}
-
-        <div className="mt-2.5 flex items-center justify-end gap-2">
-          {cleanPhone && (
-            <a
-              href={`https://wa.me/${cleanPhone}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-green-200 bg-green-50/70 hover:bg-green-100 text-green-700 text-xs font-bold transition-colors"
-            >
-              <i className="bi bi-whatsapp"></i>
-              <span>Chat</span>
-            </a>
-          )}
-          {onCompleteCheckout && (
-            <button
-              type="button"
-              onClick={() => onCompleteCheckout(session)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors"
-            >
-              <i className="bi bi-pencil-square"></i>
-              <span>Completar</span>
-            </button>
-          )}
-        </div>
-      </div>
-    )
+    return null
   }
+
+  const findOrderForCheckout = (session: CheckoutSession) => {
+    const cid = String(session.clientId || '').trim()
+    if (cid && ordersByClientOrPhone.byClientId.has(cid)) {
+      return ordersByClientOrPhone.byClientId.get(cid)
+    }
+    const pKey = normalizePhoneKey(session.customerData?.phone)
+    if (pKey && ordersByClientOrPhone.byPhone.has(pKey)) {
+      return ordersByClientOrPhone.byPhone.get(pKey)
+    }
+    return null
+  }
+
+  const getCheckoutActivityMillis = (session: CheckoutSession): number => {
+    if (typeof session.closedAtMillis === 'number' && session.closedAtMillis > 0) {
+      return session.closedAtMillis
+    }
+    if (typeof session.updatedAtMillis === 'number' && session.updatedAtMillis > 0) {
+      return session.updatedAtMillis
+    }
+    const raw = session.updatedAt || session.lastActivityAt
+    if (raw && typeof raw.toDate === 'function') {
+      return raw.toDate().getTime()
+    }
+    return 0
+  }
+
+  const unifiedHistoryItems = useMemo(() => {
+    type HistoryItem =
+      | { kind: 'whatsapp'; key: string; sortAt: number; conv: PendingWhatsAppConversation }
+      | { kind: 'checkout'; key: string; sortAt: number; session: CheckoutSession }
+
+    const q = searchQuery.trim().toLowerCase()
+    const items: HistoryItem[] = []
+
+    for (const c of conversations) {
+      if (c.status !== 'closed' && c.status !== 'confirmed') continue
+      if (q) {
+        const title = cleanConversationTitle(c).toLowerCase()
+        const phone = String(c.phone || c.rawPhone || '').toLowerCase()
+        const preview = getPreviewMessages(c)
+          .map((m) => m.text.toLowerCase())
+          .join(' ')
+        if (!title.includes(q) && !phone.includes(q) && !preview.includes(q)) continue
+      }
+      items.push({
+        kind: 'whatsapp',
+        key: `wa:${c.docId || c.id}`,
+        sortAt: c.closedAtMillis || c.resolvedAtMillis || c.timestampMillis || 0,
+        conv: c,
+      })
+    }
+
+    for (const session of historyCheckouts) {
+      if (q) {
+        const name = String(session.customerData?.name || '').toLowerCase()
+        const phone = String(session.customerData?.phone || '').toLowerCase()
+        const prodNames = Array.isArray(session.cartItems)
+          ? session.cartItems.map((i: any) => String(i.name || i.productName || '').toLowerCase()).join(' ')
+          : ''
+        if (!name.includes(q) && !phone.includes(q) && !prodNames.includes(q)) continue
+      }
+      items.push({
+        kind: 'checkout',
+        key: `co:${session.id}`,
+        sortAt: getCheckoutActivityMillis(session),
+        session,
+      })
+    }
+
+    items.sort((a, b) => b.sortAt - a.sortAt)
+    return items
+  }, [conversations, historyCheckouts, searchQuery])
+
+  const filteredExcluded = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return excludedContacts
+      .filter((c) => {
+        if (!q) return true
+        return (
+          String(c.displayName || '').toLowerCase().includes(q) ||
+          String(c.phone || '').toLowerCase().includes(q)
+        )
+      })
+      .sort((a, b) => (b.excludedAtMillis || 0) - (a.excludedAtMillis || 0))
+  }, [excludedContacts, searchQuery])
 
   if (!isOpen) return null
 
-  const handleCloseWithoutOrder = (docId: string) => {
-    if (onCloseConversation) {
-      onCloseConversation(docId)
-    } else {
-      onRemoveConversation(docId)
-    }
-  }
-
   return (
     <div
-      className={
-        asPage
-          ? 'w-full pb-10'
-          : 'fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-3 sm:p-4'
-      }
-      onClick={asPage ? undefined : onClose}
+      className="fixed inset-0 z-50 h-[100dvh] w-full flex flex-col bg-slate-50 overflow-hidden animate-in fade-in slide-in-from-right-3 duration-150"
+      onClick={() => {
+        if (openMenuDocId) setOpenMenuDocId(null)
+      }}
     >
-      <div
-        className={
-          asPage
-            ? 'w-full flex flex-col'
-            : 'w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl bg-slate-50 shadow-2xl overflow-hidden border border-slate-200'
-        }
-        onClick={asPage ? undefined : (e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div
-          className={
-            asPage
-              ? 'bg-white px-3 sm:px-6 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2'
-              : 'bg-white px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3'
-          }
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            {asPage && (
-              <button
-                type="button"
-                style={{ minHeight: 0 }}
-                onClick={onClose}
-                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
-                title="Volver a Pedidos"
-              >
-                <i className="bi bi-arrow-left text-base"></i>
-                <span className="hidden sm:inline">Volver</span>
-              </button>
-            )}
-            {!asPage && (
-              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-                <i className="bi bi-whatsapp text-green-700 text-xl"></i>
-              </div>
-            )}
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight whitespace-nowrap">
-                {asPage ? 'Historial' : 'WhatsApp Business'}
-              </h3>
-              {(asPage ? unifiedActiveItems.length : pendingList.length) > 0 && (
-                <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-600 text-white shrink-0">
-                  {asPage ? unifiedActiveItems.length : pendingList.length}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {pendingList.length > 0 && (
-              <button
-                type="button"
-                style={{ minHeight: 0 }}
-                onClick={onClearAll}
-                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors whitespace-nowrap"
-                title="Archivar todas las conversaciones pendientes"
-              >
-                <i className="bi bi-archive"></i>
-                <span className="hidden sm:inline">Archivar pendientes</span>
-                <span className="sm:hidden">Archivar</span>
-              </button>
-            )}
+      {/* Top Header */}
+      <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 shrink-0">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
               style={{ minHeight: 0 }}
-              onClick={() => setShowExcludedModal(true)}
-              className="relative p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
-              title="Configuración y números excluidos"
-              aria-label="Configuración y números excluidos"
+              onClick={onClose}
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
+              title="Volver"
             >
-              <i className="bi bi-gear text-sm"></i>
+              <i className="bi bi-arrow-left text-base"></i>
+            </button>
+            <i className="bi bi-clock-history text-slate-700 text-base shrink-0"></i>
+            <h2 className="text-sm sm:text-base font-black text-gray-900 tracking-tight truncate">
+              Historial de mensajes
+            </h2>
+            {unifiedHistoryItems.length > 0 && (
+              <span className="shrink-0 bg-slate-200 text-slate-700 text-xs font-black px-2 py-0.5 rounded-full">
+                {unifiedHistoryItems.length}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0">
+            <button
+              type="button"
+              style={{ minHeight: 0 }}
+              onClick={() => setActiveSection('archived')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                activeSection === 'archived'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Archivados
+            </button>
+            <button
+              type="button"
+              style={{ minHeight: 0 }}
+              onClick={() => setActiveSection('excluded')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+                activeSection === 'excluded'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>Excluidos</span>
               {excludedContacts.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-slate-700 text-white text-[9px] font-bold flex items-center justify-center">
+                <span className="bg-red-100 text-red-700 text-[10px] font-black px-1.5 py-0.2 rounded-full">
                   {excludedContacts.length}
                 </span>
               )}
             </button>
-            {!asPage && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
-                aria-label="Cerrar"
-              >
-                <i className="bi bi-x-lg text-sm"></i>
-              </button>
-            )}
           </div>
         </div>
+      </div>
 
-        {/* Body */}
-        <div
-          className={
-            asPage
-              ? 'w-full max-w-4xl mx-auto px-3 sm:px-6 py-3 space-y-2.5'
-              : 'flex-1 overflow-y-auto p-3.5 space-y-2.5'
-          }
-        >
-          {businessId && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-              {[
-                { key: 'all' as const, label: `Todos (${conversations.length + checkoutDocs.length})` },
-                { key: 'whatsapp' as const, label: `WhatsApp (${conversations.length})` },
-                { key: 'checkout' as const, label: `Checkout (${checkoutDocs.length})` },
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  style={{ minHeight: 0 }}
-                  onClick={() => setSourceFilter(tab.key)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 whitespace-nowrap ${
-                    sourceFilter === tab.key
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {(conversations.length + checkoutDocs.length) > 2 && (
-            <div className="relative">
-              <i className="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar por nombre, celular, producto, mensaje o #orden..."
-                className="w-full pl-9 pr-8 py-2 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-500"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <i className="bi bi-x-circle-fill text-sm"></i>
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Active Items List (WhatsApp + Checkout unified by recency) */}
-          {unifiedActiveItems.length > 0 &&
-            unifiedActiveItems.map((entry) => {
-              if (entry.kind === 'checkout') {
-                return renderCheckoutCard(entry.data)
-              }
-              const conv = entry.data
-              const displayName = cleanConversationTitle(conv)
-              const isRegistered = Boolean(conv.isRegisteredClient)
-              const previewMessages =
-                conv.recentMessages && conv.recentMessages.length > 0
-                  ? conv.recentMessages.slice(-3)
-                  : conv.lastMessage
-                    ? [conv.lastMessage]
-                    : []
-
-              return (
-                <div
-                  key={conv.docId || conv.id}
-                  onClick={() => onSelectConversation(conv)}
-                  className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs hover:border-green-300 hover:shadow-sm transition-all cursor-pointer"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                          isRegistered ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                        }`}
-                      >
-                        <i className={`bi ${isRegistered ? 'bi-person-fill' : 'bi-person-plus-fill'} text-lg`}></i>
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-extrabold text-sm text-slate-900 truncate max-w-[200px]">
-                            {displayName}
-                          </span>
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                              isRegistered
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}
-                          >
-                            {isRegistered ? 'En Fuddi' : 'Nuevo'}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span
-                            className={`inline-flex items-center gap-1 text-xs font-bold ${
-                              conv.phone ? 'text-emerald-600' : 'text-slate-500'
-                            }`}
-                          >
-                            <i className="bi bi-telephone text-[11px]"></i>
-                            {conv.phone || 'Buscar por nombre'}
-                          </span>
-                          <span className="text-slate-300 text-xs">•</span>
-                          <span className="text-[11px] text-slate-500">
-                            {formatRelativeTime(conv.timestampMillis)}
-                          </span>
-                          {(conv.unreadCount || 0) > 1 && (
-                            <span className="px-1.5 py-0.5 rounded-full bg-green-600 text-white text-[10px] font-bold">
-                              {conv.unreadCount} msj
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenMenuDocId(openMenuDocId === conv.docId ? null : conv.docId)
-                        }
-                        className="p-1 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100"
-                        title="Más opciones"
-                        aria-label="Más opciones"
-                      >
-                        <i className="bi bi-three-dots-vertical text-sm"></i>
-                      </button>
-                      {openMenuDocId === conv.docId && (
-                        <div className="absolute right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30">
-                          {onExcludeConversation && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOpenMenuDocId(null)
-                                onExcludeConversation(conv)
-                              }}
-                              className="w-full px-3 py-2 text-left hover:bg-red-50 flex items-start gap-2 transition-colors"
-                            >
-                              <i className="bi bi-slash-circle text-red-600 text-xs mt-0.5"></i>
-                              <div>
-                                <p className="text-xs font-bold text-red-600">Excluir</p>
-                                <p className="text-[10px] text-slate-500">
-                                  No notificar de este número
-                                </p>
-                              </div>
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenMenuDocId(null)
-                              handleCloseWithoutOrder(conv.docId)
-                            }}
-                            className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-xs font-semibold text-slate-700 transition-colors"
-                          >
-                            <i className="bi bi-archive text-slate-500"></i>
-                            <span>Archivar</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {previewMessages.length > 0 && (
-                    <div className="mt-2 rounded-lg bg-slate-100 px-2.5 py-2 space-y-1">
-                      {previewMessages.map((msg, idx) => (
-                        <p key={idx} className="text-xs text-slate-700 line-clamp-2 leading-snug">
-                          💬 {msg}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="mt-2.5 flex items-center justify-between gap-2 flex-wrap">
-                    <div>
-                      {conv.detectedLocationLink && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-100 text-sky-800 text-[11px] font-bold">
-                          <i className="bi bi-geo-alt-fill text-sky-600"></i>
-                          Ubicación incluida
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1.5 ml-auto">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleCloseWithoutOrder(conv.docId)
-                        }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
-                        title="Archivar conversación"
-                      >
-                        <i className="bi bi-archive"></i>
-                        <span>Archivar</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onSelectConversation(conv)
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors"
-                      >
-                        <i className="bi bi-cart-plus-fill"></i>
-                        <span>Crear pedido</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-
-          {/* Collapsible Section at the End: Confirmed, Closed & Abandoned (WhatsApp + Checkout) */}
-          {(resolvedList.length + archivedCheckouts.length) > 0 && (
-            <div className="pt-2">
-              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
-                <button
-                  type="button"
-                  onClick={() => setResolvedExpanded((prev) => !prev)}
-                  className="w-full px-3.5 py-3 flex items-center justify-between gap-2 bg-slate-50/80 hover:bg-slate-100/80 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    <i className="bi bi-archive text-slate-600 text-sm"></i>
-                    <span className="text-xs font-extrabold text-slate-800">
-                      Historial gestionado ({unifiedArchivedItems.length})
-                    </span>
-                    {confirmedList.length > 0 && sourceFilter !== 'checkout' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                        <i className="bi bi-check-circle-fill text-emerald-600"></i>
-                        {confirmedList.length} confirmada{confirmedList.length !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                    {closedList.length > 0 && sourceFilter !== 'checkout' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
-                        {closedList.length} archivada{closedList.length !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                    {archivedCheckouts.length > 0 && sourceFilter !== 'whatsapp' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-                        {archivedCheckouts.length} checkout{archivedCheckouts.length !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </div>
-                  <i
-                    className={`bi bi-chevron-${resolvedExpanded ? 'up' : 'down'} text-slate-500 text-xs shrink-0`}
-                  ></i>
-                </button>
-
-                {resolvedExpanded && (
-                  <div className="p-3 space-y-2.5 border-t border-slate-200 bg-slate-50/40">
-                    {confirmedList.length > 0 && (closedList.length + archivedCheckouts.length) > 0 && (
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => setResolvedFilter('all')}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
-                            resolvedFilter === 'all'
-                              ? 'bg-slate-800 text-white'
-                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          Todas ({resolvedList.length + archivedCheckouts.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setResolvedFilter('confirmed')}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
-                            resolvedFilter === 'confirmed'
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          Confirmadas ({confirmedList.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setResolvedFilter('closed')}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
-                            resolvedFilter === 'closed'
-                              ? 'bg-slate-600 text-white'
-                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          Sin pedido ({closedList.length + archivedCheckouts.filter(c => c.status !== 'completed').length})
-                        </button>
-                      </div>
-                    )}
-
-                    {unifiedArchivedItems.map((entry) => {
-                      if (entry.kind === 'checkout') {
-                        return renderCheckoutCard(entry.data)
-                      }
-                      const conv = entry.data
-                      const isConfirmed = conv.status === 'confirmed'
-                      const displayName = cleanConversationTitle(conv)
-                      const linkedOrder = conv.confirmedOrderId
-                        ? ordersById.get(String(conv.confirmedOrderId))
-                        : undefined
-                      const orderStatusMeta = getOrderStatusMeta(linkedOrder?.status)
-                      const isTraceOpen = expandedTraceDocId === conv.docId
-                      const orderTotal =
-                        typeof linkedOrder?.total === 'number'
-                          ? linkedOrder.total
-                          : typeof conv.confirmedOrderTotal === 'number'
-                            ? conv.confirmedOrderTotal
-                            : null
-                      const orderSummary =
-                        (Array.isArray(linkedOrder?.items) && linkedOrder.items.length > 0
-                          ? linkedOrder.items
-                              .map((it: any) => `${it.quantity || 1}x ${it.productName || it.name || 'Producto'}`)
-                              .join(', ')
-                          : conv.confirmedOrderSummary) || ''
-                      const previewMessages =
-                        conv.recentMessages && conv.recentMessages.length > 0
-                          ? conv.recentMessages.slice(-2)
-                          : conv.lastMessage
-                            ? [conv.lastMessage]
-                            : []
-
-                      return (
-                        <div
-                          key={conv.docId || conv.id}
-                          onClick={() => {
-                            if (isConfirmed && conv.confirmedOrderId) {
-                              setExpandedTraceDocId(isTraceOpen ? null : conv.docId)
-                            }
-                          }}
-                          className={`rounded-xl border p-3 bg-white transition-all ${
-                            isConfirmed ? 'border-emerald-200 cursor-pointer hover:border-emerald-300' : 'border-slate-200 opacity-90'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              <div
-                                className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
-                                  isConfirmed
-                                    ? 'bg-emerald-100 text-emerald-700'
-                                    : 'bg-slate-200 text-slate-600'
-                                }`}
-                              >
-                                <i
-                                  className={`bi ${
-                                    isConfirmed ? 'bi-bag-check-fill' : 'bi-chat-square-text'
-                                  } text-base`}
-                                ></i>
-                              </div>
-
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-extrabold text-sm text-slate-900 truncate max-w-[180px]">
-                                    {displayName}
-                                  </span>
-                                  {isConfirmed ? (
-                                    <>
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                        ✓ Confirmada
-                                      </span>
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                        {conv.confirmedOrderSource === 'checkout' ? 'Checkout' : 'Manual'}
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
-                                      Archivada
-                                    </span>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap text-[11px] text-slate-500">
-                                  {conv.phone && (
-                                    <span className="font-bold text-slate-600">
-                                      <i className="bi bi-telephone mr-1"></i>
-                                      {conv.phone}
-                                    </span>
-                                  )}
-                                  <span>•</span>
-                                  <span>
-                                    {formatRelativeTime(
-                                      conv.resolvedAtMillis ||
-                                        conv.confirmedAtMillis ||
-                                        conv.closedAtMillis ||
-                                        conv.timestampMillis
-                                    )}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="relative shrink-0">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setOpenMenuDocId(openMenuDocId === `res_${conv.docId}` ? null : `res_${conv.docId}`)
-                                }
-                                className="p-1 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100"
-                                title="Más opciones"
-                                aria-label="Más opciones"
-                              >
-                                <i className="bi bi-three-dots-vertical text-sm"></i>
-                              </button>
-                              {openMenuDocId === `res_${conv.docId}` && (
-                                <div className="absolute right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30">
-                                  {onExcludeConversation && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setOpenMenuDocId(null)
-                                        onExcludeConversation(conv)
-                                      }}
-                                      className="w-full px-3 py-2 text-left hover:bg-red-50 flex items-start gap-2 transition-colors"
-                                    >
-                                      <i className="bi bi-slash-circle text-red-600 text-xs mt-0.5"></i>
-                                      <div>
-                                        <p className="text-xs font-bold text-red-600">Excluir</p>
-                                        <p className="text-[10px] text-slate-500">
-                                          No notificar de este número
-                                        </p>
-                                      </div>
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenMenuDocId(null)
-                                      onRemoveConversation(conv.docId)
-                                    }}
-                                    className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-xs font-semibold text-slate-700 transition-colors"
-                                  >
-                                    <i className="bi bi-trash3 text-slate-500"></i>
-                                    <span>Eliminar del historial</span>
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Order Trail Block for Confirmed Conversations */}
-                          {isConfirmed && conv.confirmedOrderId && (
-                            <div className="mt-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200/80 p-2.5">
-                              <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span
-                                    className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${orderStatusMeta.className}`}
-                                  >
-                                    {orderStatusMeta.label}
-                                  </span>
-                                  {orderTotal !== null && (
-                                    <span className="text-xs font-extrabold text-emerald-800">
-                                      ${Number(orderTotal).toFixed(2)}
-                                    </span>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                  {onInspectOrder && (
-                                    <button
-                                      type="button"
-                                      onClick={() => onInspectOrder(String(conv.confirmedOrderId), linkedOrder)}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors"
-                                    >
-                                      <i className="bi bi-box-arrow-up-right"></i>
-                                      <span>Ver orden</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              {orderSummary && (
-                                <p className="text-[11px] text-emerald-900 mt-1.5 line-clamp-2">
-                                  🛍️ {orderSummary}
-                                </p>
-                              )}
-
-                              {isTraceOpen && (
-                                <div className="mt-2 pt-2 border-t border-emerald-200/80 space-y-1.5 text-[11px] text-slate-700">
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-semibold text-slate-500">Origen de venta:</span>
-                                    <span className="font-bold text-slate-800">
-                                      {conv.confirmedOrderSource === 'checkout'
-                                        ? 'Checkout Web (Cliente)'
-                                        : 'Pedido Manual (Tienda)'}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-semibold text-slate-500">Mensaje WhatsApp:</span>
-                                    <span>{formatRelativeTime(conv.timestampMillis)}</span>
-                                  </div>
-                                  {conv.confirmedAtMillis && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="font-semibold text-slate-500">Confirmada:</span>
-                                      <span>{formatRelativeTime(conv.confirmedAtMillis)}</span>
-                                    </div>
-                                  )}
-                                  {linkedOrder?.delivery?.type && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="font-semibold text-slate-500">Entrega:</span>
-                                      <span className="font-bold">
-                                        {linkedOrder.delivery.type === 'pickup' ? 'Retiro en tienda' : 'Domicilio'}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(linkedOrder?.delivery?.assignedDeliveryData?.nombres ||
-                                    linkedOrder?.delivery?.assignedDeliveryData?.name) && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="font-semibold text-slate-500">Repartidor:</span>
-                                      <span className="font-bold text-emerald-800">
-                                        🛵{' '}
-                                        {linkedOrder.delivery.assignedDeliveryData.nombres ||
-                                          linkedOrder.delivery.assignedDeliveryData.name}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {linkedOrder?.payment?.method && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="font-semibold text-slate-500">Pago:</span>
-                                      <span className="font-bold capitalize">
-                                        {linkedOrder.payment.method} (
-                                        {linkedOrder.payment.paymentStatus === 'paid' ? 'Pagado' : 'Pendiente'})
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {previewMessages.length > 0 && (
-                            <div className="mt-2 rounded-lg bg-slate-100 px-2.5 py-1.5 space-y-0.5">
-                              {previewMessages.map((msg, idx) => (
-                                <p key={idx} className="text-[11px] text-slate-600 line-clamp-1">
-                                  💬 {msg}
-                                </p>
-                              ))}
-                            </div>
-                          )}
-
-                          <div className="mt-2.5 flex items-center justify-end gap-2">
-                            {onReopenConversation && !isConfirmed && (
-                              <button
-                                type="button"
-                                onClick={() => onReopenConversation(conv.docId)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition-colors"
-                              >
-                                <i className="bi bi-arrow-counterclockwise"></i>
-                                <span>Reabrir</span>
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => onSelectConversation(conv)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-bold transition-colors"
-                            >
-                              <i className="bi bi-cart-plus"></i>
-                              <span>{isConfirmed ? 'Pide algo más' : 'Crear pedido'}</span>
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
+      {/* Search Bar */}
+      <div className="bg-white/80 border-b border-slate-200/70 px-3 sm:px-6 py-2 shrink-0">
+        <div className="max-w-3xl mx-auto relative">
+          <i className="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={
+              activeSection === 'archived'
+                ? 'Buscar por cliente, teléfono o mensaje...'
+                : 'Buscar número excluido...'
+            }
+            className="w-full h-9 pl-8 pr-8 bg-slate-100/80 hover:bg-slate-100 focus:bg-white border border-transparent focus:border-slate-300 rounded-xl text-xs font-medium text-slate-800 placeholder:text-slate-400 outline-none transition-all"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              style={{ minHeight: 0, minWidth: 0 }}
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+              title="Limpiar búsqueda"
+            >
+              <i className="bi bi-x-circle-fill text-xs"></i>
+            </button>
           )}
         </div>
       </div>
 
-      {showExcludedModal && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4"
-          onClick={() => setShowExcludedModal(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <i className="bi bi-gear text-slate-700"></i>
-                <h4 className="text-sm font-extrabold text-slate-900">
-                  Números excluidos ({excludedContacts.length})
-                </h4>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowExcludedModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100"
-              >
-                <i className="bi bi-x-lg text-xs"></i>
-              </button>
-            </div>
-            <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
-              <p className="text-xs text-slate-500 mb-2">
-                Los contactos en esta lista no generan notificaciones ni aparecen en Mensajes de WhatsApp.
-              </p>
-              {excludedContacts.length === 0 ? (
-                <div className="py-6 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-slate-200">
-                  No hay números excluidos. Usa el botón de 3 puntos en cualquier tarjeta para excluir a quien no sea cliente.
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto w-full p-3 sm:p-5 space-y-3 pb-24">
+          {activeSection === 'archived' ? (
+            unifiedHistoryItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-white rounded-2xl border border-slate-200/80 shadow-2xs">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center mb-3">
+                  <i className="bi bi-archive text-xl"></i>
                 </div>
-              ) : (
-                excludedContacts.map((ex) => (
-                  <div
-                    key={ex.docId}
-                    className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-900 truncate">
-                        {ex.displayName || ex.phone || 'Contacto excluido'}
-                      </p>
-                      {ex.phone && ex.phone !== ex.displayName && (
-                        <p className="text-[11px] text-slate-500">{ex.phone}</p>
+                <p className="text-sm font-black text-gray-900 tracking-tight mb-1">
+                  {searchQuery ? 'Sin resultados' : 'No hay conversaciones archivadas'}
+                </p>
+                <p className="text-xs font-medium text-gray-500 max-w-xs leading-relaxed">
+                  {searchQuery
+                    ? 'Intenta con otro nombre, número o palabra clave.'
+                    : 'Cuando archives un chat, entregues un pedido o cierre un checkout, aparecerá aquí.'}
+                </p>
+              </div>
+            ) : (
+              unifiedHistoryItems.map((item) => {
+                if (item.kind === 'checkout') {
+                  const session = item.session
+                  const docKey = item.key
+                  const displayName =
+                    (session.customerData?.name || '').trim() ||
+                    formatEcuadorPhoneDisplay(session.customerData?.phone || '') ||
+                    'Cliente en checkout'
+                  const cartItems = Array.isArray(session.cartItems)
+                    ? session.cartItems
+                    : []
+                  const total = cartItems.reduce(
+                    (sum: number, it: any) => sum + Number(it.price || 0) * Number(it.quantity || 1),
+                    0
+                  )
+                  const timeLabel = formatWhatsAppTime(item.sortAt)
+                  const activeOrder = findOrderForCheckout(session)
+                  const isOrderExpanded = Boolean(expandedOrderDocIds[docKey])
+
+                  return (
+                    <div
+                      key={docKey}
+                      className="bg-white rounded-xl shadow-xs border border-gray-200/90 transition-all hover:border-blue-300"
+                    >
+                      <div className="p-3 sm:p-3.5 bg-white rounded-xl space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <i className="bi bi-cart-check-fill text-blue-600 text-sm shrink-0"></i>
+                            <span className="font-bold text-sm text-gray-900 truncate">
+                              {displayName}
+                            </span>
+                            {session.status === 'completed' ? (
+                              <span className="shrink-0 inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                Completado
+                              </span>
+                            ) : session.status === 'abandoned' ? (
+                              <span className="shrink-0 inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                Abandonado
+                              </span>
+                            ) : (
+                              <span className="shrink-0 inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                Checkout
+                              </span>
+                            )}
+                          </div>
+                          {timeLabel && (
+                            <span className="text-[11px] font-medium text-gray-400 shrink-0">
+                              {timeLabel}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2.5">
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            {cartItems.length > 0 ? (
+                              <p className="text-xs text-gray-600 line-clamp-2 leading-snug">
+                                {cartItems
+                                  .map((it: any) => `${it.quantity || 1}× ${it.name || it.productName || 'Producto'}`)
+                                  .join(', ')}
+                                {total > 0 ? ` · $${total.toFixed(2)}` : ''}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-gray-400 italic">
+                                Paso {session.currentStep} del checkout
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="shrink-0 flex items-center gap-1.5">
+                            {activeOrder ? (
+                              <button
+                                type="button"
+                                style={{ minHeight: 0, minWidth: 0 }}
+                                onClick={() => {
+                                  if (renderOrderCard) {
+                                    setExpandedOrderDocIds((prev) => ({
+                                      ...prev,
+                                      [docKey]: !prev[docKey],
+                                    }))
+                                  } else {
+                                    onInspectOrder?.(activeOrder.id, activeOrder)
+                                  }
+                                }}
+                                title={isOrderExpanded ? 'Ocultar pedido' : 'Ver pedido asociado'}
+                                className="w-9 h-9 min-h-0 min-w-0 p-0 inline-flex items-center justify-center rounded-full shrink-0 cursor-pointer active:scale-95 transition-transform"
+                              >
+                                <span
+                                  className={`w-8 h-8 rounded-full inline-flex items-center justify-center text-white shadow-xs transition-colors ${
+                                    isOrderExpanded
+                                      ? 'bg-blue-700 ring-2 ring-blue-300'
+                                      : 'bg-blue-600 hover:bg-blue-700'
+                                  }`}
+                                >
+                                  <i className="bi bi-bag-check-fill text-xs"></i>
+                                </span>
+                              </button>
+                            ) : onCompleteCheckout ? (
+                              <button
+                                type="button"
+                                style={{ minHeight: 0 }}
+                                onClick={() => onCompleteCheckout(session)}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                title="Completar pedido manualmente"
+                              >
+                                Crear pedido
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      {activeOrder && isOrderExpanded && renderOrderCard && (
+                        <div
+                          className="px-2.5 pb-2.5 pt-1 bg-slate-50/80 border-t border-blue-100 rounded-b-xl"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {renderOrderCard(activeOrder)}
+                        </div>
                       )}
                     </div>
-                    {onUnexcludeContact && (
-                      <button
-                        type="button"
-                        onClick={() => onUnexcludeContact(ex.docId)}
-                        className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-[11px] font-bold text-slate-700 shrink-0"
+                  )
+                }
+
+                const conv = item.conv
+                const docKey = conv.docId || conv.id
+                const displayName = cleanConversationTitle(conv)
+                const previewMessages = getPreviewMessages(conv)
+                const activeOrder = findOrderForConv(conv)
+                const isOrderExpanded = Boolean(expandedOrderDocIds[docKey])
+                const timeLabel = formatWhatsAppTime(
+                  conv.closedAtMillis || conv.resolvedAtMillis || conv.timestampMillis
+                )
+                const isMenuOpen = openMenuDocId === docKey
+
+                return (
+                  <div
+                    key={docKey}
+                    className="bg-white rounded-xl shadow-xs border border-gray-200/90 transition-all hover:border-slate-300"
+                  >
+                    <div
+                      className="p-3 sm:p-3.5 bg-white rounded-xl cursor-pointer hover:bg-slate-50/70 transition-colors space-y-2"
+                      onClick={() => {
+                        if (onOpenChatView) {
+                          onOpenChatView(conv, undefined, undefined, activeOrder)
+                        } else {
+                          onSelectConversation(conv)
+                        }
+                      }}
+                    >
+                      {/* Top row: Name + status badge + time */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <i className="bi bi-whatsapp text-green-600 text-sm shrink-0"></i>
+                          <span className="font-bold text-sm text-gray-900 truncate">
+                            {displayName}
+                          </span>
+                          {activeOrder ? (() => {
+                            const badge = getOrderStatusBadge(activeOrder.status)
+                            return (
+                              <span className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${badge.className}`}>
+                                {badge.label}
+                              </span>
+                            )
+                          })() : conv.status === 'confirmed' || conv.confirmedOrderId ? (
+                            <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Confirmado
+                            </span>
+                          ) : (
+                            <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                              Archivado
+                            </span>
+                          )}
+                        </div>
+                        {timeLabel && (
+                          <span className="text-[11px] font-medium text-gray-400 shrink-0">
+                            {timeLabel}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Second row: Last messages + action buttons */}
+                      <div className="flex items-center justify-between gap-2.5">
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          {previewMessages.length > 0 ? (
+                            previewMessages.map((msg, idx) => (
+                              <p
+                                key={idx}
+                                className={`text-[11px] leading-snug line-clamp-1 ${
+                                  msg.fromMe ? 'text-gray-400' : 'text-gray-600'
+                                }`}
+                              >
+                                {msg.fromMe && (
+                                  <span className="font-bold text-gray-500 mr-1">Tú:</span>
+                                )}
+                                {formatWhatsAppMessageText(msg.text)}
+                              </p>
+                            ))
+                          ) : (
+                            <p className="text-[11px] text-gray-400 italic">Sin mensajes recientes</p>
+                          )}
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-1.5">
+                          {onReopenConversation && (
+                            <button
+                              type="button"
+                              style={{ minHeight: 0, minWidth: 0 }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onReopenConversation(conv.docId)
+                              }}
+                              className="w-8 h-8 min-h-0 min-w-0 p-0 inline-flex items-center justify-center bg-gray-50 hover:bg-emerald-50 text-gray-500 hover:text-emerald-700 border border-gray-200/90 hover:border-emerald-200 rounded-full transition-all shrink-0 cursor-pointer"
+                              title="Mover a Clientes comprando ahora"
+                              aria-label="Reabrir conversación"
+                            >
+                              <i className="bi bi-arrow-counterclockwise text-xs"></i>
+                            </button>
+                          )}
+
+                          {activeOrder && (
+                            <button
+                              type="button"
+                              style={{ minHeight: 0, minWidth: 0 }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (renderOrderCard) {
+                                  setExpandedOrderDocIds((prev) => ({
+                                    ...prev,
+                                    [docKey]: !prev[docKey],
+                                  }))
+                                } else {
+                                  onInspectOrder?.(activeOrder.id, activeOrder)
+                                }
+                              }}
+                              title={isOrderExpanded ? 'Ocultar pedido' : 'Ver pedido asociado'}
+                              aria-label={isOrderExpanded ? 'Ocultar pedido' : 'Ver pedido asociado'}
+                              className="w-9 h-9 min-h-0 min-w-0 p-0 inline-flex items-center justify-center rounded-full shrink-0 cursor-pointer active:scale-95 transition-transform"
+                            >
+                              <span
+                                className={`w-8 h-8 rounded-full inline-flex items-center justify-center text-white shadow-xs transition-colors ${
+                                  isOrderExpanded
+                                    ? 'bg-blue-700 ring-2 ring-blue-300'
+                                    : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
+                              >
+                                <i className="bi bi-bag-check-fill text-xs"></i>
+                              </span>
+                            </button>
+                          )}
+
+                          <div className="relative">
+                            <button
+                              type="button"
+                              style={{ minHeight: 0, minWidth: 0 }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setOpenMenuDocId(isMenuOpen ? null : docKey)
+                              }}
+                              className="w-8 h-8 min-h-0 min-w-0 p-0 inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+                              title="Más opciones"
+                              aria-label="Más opciones"
+                            >
+                              <i className="bi bi-three-dots-vertical text-xs"></i>
+                            </button>
+
+                            {isMenuOpen && (
+                              <div
+                                className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {onExcludeConversation && (
+                                  <button
+                                    type="button"
+                                    style={{ minHeight: 0 }}
+                                    onClick={() => {
+                                      setOpenMenuDocId(null)
+                                      onExcludeConversation(conv)
+                                    }}
+                                    className="w-full px-3 py-2 text-left hover:bg-red-50 flex items-center gap-2 text-xs font-bold text-red-600 transition-colors"
+                                  >
+                                    <i className="bi bi-slash-circle text-xs"></i>
+                                    <span>Excluir número</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  style={{ minHeight: 0 }}
+                                  onClick={() => {
+                                    setOpenMenuDocId(null)
+                                    onRemoveConversation(conv.docId)
+                                  }}
+                                  className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-xs font-semibold text-slate-700 transition-colors"
+                                >
+                                  <i className="bi bi-trash3 text-slate-500 text-xs"></i>
+                                  <span>Eliminar del historial</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {activeOrder && isOrderExpanded && renderOrderCard && (
+                      <div
+                        className="px-2.5 pb-2.5 pt-1 bg-slate-50/80 border-t border-blue-100 rounded-b-xl"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        Sacar
-                      </button>
+                        {renderOrderCard(activeOrder)}
+                      </div>
                     )}
                   </div>
-                ))
-              )}
+                )
+              })
+            )
+          ) : filteredExcluded.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-white rounded-2xl border border-slate-200/80 shadow-2xs">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mb-3">
+                <i className="bi bi-slash-circle text-xl"></i>
+              </div>
+              <p className="text-sm font-black text-gray-900 tracking-tight mb-1">
+                {searchQuery ? 'Sin resultados' : 'No hay números excluidos'}
+              </p>
+              <p className="text-xs font-medium text-gray-500 max-w-xs leading-relaxed">
+                Los números que excluyas desde un chat dejarán de notificar en Clientes comprando ahora.
+              </p>
             </div>
-            <div className="px-4 py-3 border-t border-slate-100 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowExcludedModal(false)}
-                className="px-4 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold"
+          ) : (
+            filteredExcluded.map((contact) => (
+              <div
+                key={contact.docId || contact.id}
+                className="bg-white rounded-xl shadow-xs border border-gray-200/90 p-3 sm:p-3.5 flex items-center justify-between gap-3"
               >
-                Listo
-              </button>
-            </div>
-          </div>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                    <i className="bi bi-slash-circle text-sm"></i>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-900 truncate">
+                      {contact.displayName || formatEcuadorPhoneDisplay(contact.phone)}
+                    </p>
+                    <p className="text-xs font-medium text-gray-500 truncate">
+                      {formatEcuadorPhoneDisplay(contact.phone)}
+                    </p>
+                  </div>
+                </div>
+                {onUnexcludeContact && (
+                  <button
+                    type="button"
+                    style={{ minHeight: 0 }}
+                    onClick={() => onUnexcludeContact(contact.docId)}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Reactivar
+                  </button>
+                )}
+              </div>
+            ))
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

@@ -13,6 +13,7 @@ import { getLastStoreCloseMillis } from '@/lib/store-utils';
 import { Motorbike } from 'lucide-react';
 import { usePersistedPreorderState, buildBasePreorderState } from '@/hooks/usePersistedPreorderState';
 import { WhatsAppBaileysModal, type BaileysStatus } from '@/components/WhatsAppBaileysModal';
+import { formatWhatsAppMessageText } from '@/lib/whatsapp-format';
 
 export interface WhatsAppPreorderDraftItem {
     productId: string;
@@ -111,7 +112,10 @@ interface LiveCheckoutsPanelProps {
     ) => void;
     onSelectWhatsAppConversation?: (conv: PendingWhatsAppConversation, draft?: WhatsAppPreorderDraft) => void;
     onCloseWhatsAppConversation?: (docId: string) => void;
+    renderOrderCard?: (order: any) => React.ReactNode;
     isVisible?: boolean | null;
+    fullScreen?: boolean;
+    onBack?: () => void;
 }
 
 export function LiveCheckoutsPanel({
@@ -129,7 +133,10 @@ export function LiveCheckoutsPanel({
     onOpenWhatsAppChat,
     onSelectWhatsAppConversation,
     onCloseWhatsAppConversation,
+    renderOrderCard,
     isVisible = null,
+    fullScreen = false,
+    onBack,
 }: LiveCheckoutsPanelProps) {
     const [rawCheckouts, setRawCheckouts] = useState<CheckoutSession[]>([]);
     const [rawCheckoutsFromServer, setRawCheckoutsFromServer] = useState(false);
@@ -141,6 +148,30 @@ export function LiveCheckoutsPanel({
     const [nowMillis, setNowMillis] = useState<number>(() => Date.now());
     const autoClosedCheckoutIdsRef = useRef<Set<string>>(new Set());
     const autoClosedWhatsAppIdsRef = useRef<Set<string>>(new Set());
+    const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+    const closedByPopStateRef = useRef(false);
+    const onBackRef = useRef(onBack);
+    onBackRef.current = onBack;
+
+    // Interceptar gesto/botón de retroceso del navegador cuando está en pantalla completa
+    useEffect(() => {
+        if (!fullScreen || typeof window === 'undefined') return;
+        closedByPopStateRef.current = false;
+        if (!window.history.state?.liveCheckoutsFullScreen) {
+            window.history.pushState({ liveCheckoutsFullScreen: true }, '');
+        }
+
+        const handlePopState = () => {
+            if (window.history.state?.liveCheckoutsFullScreen) return;
+            closedByPopStateRef.current = true;
+            onBackRef.current?.();
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [fullScreen]);
 
     // Reloj reactivo cada 30s para detectar el instante exacto de cierre de la tienda
     useEffect(() => {
@@ -474,16 +505,172 @@ export function LiveCheckoutsPanel({
         onCountChange?.(unifiedEntries.length);
     }, [unifiedEntries.length, onCountChange]);
 
+    const entriesListNodes = unifiedEntries.map(entry =>
+        entry.kind === 'whatsapp' ? (
+            <WhatsAppConversationCard
+                key={entry.key}
+                businessId={businessId}
+                conversation={entry.conversation}
+                resolvedProfile={resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]}
+                activeOrder={findActiveOrderForClient(
+                    resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]?.clientPhone ||
+                        entry.conversation.phone ||
+                        entry.conversation.rawPhone,
+                    resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]?.clientId ||
+                        entry.conversation.fuddiClientId
+                )}
+                onInspectOrder={onInspectOrder}
+                renderOrderCard={renderOrderCard}
+                onOpenChatView={onOpenWhatsAppChat}
+                products={products}
+                onSelect={onSelectWhatsAppConversation}
+                onClose={onCloseWhatsAppConversation}
+                onClientRegistered={(profile) => {
+                    const convKey = entry.conversation.docId || entry.conversation.id;
+                    if (!convKey) return;
+                    setResolvedClientsByConvKey(prev => ({
+                        ...prev,
+                        [convKey]: profile,
+                    }));
+                }}
+            />
+        ) : (
+            <CheckoutSessionCard
+                key={entry.key}
+                session={entry.session}
+                onOpenManualOrder={onOpenManualOrder}
+                linkedWhatsApp={entry.linkedWhatsApp}
+                onCloseWhatsApp={onCloseWhatsAppConversation}
+                onCloseCheckout={() => handleCloseCheckout(entry.session, entry.linkedWhatsApp)}
+            />
+        )
+    );
+
+    if (fullScreen) {
+        return (
+            <div
+                className="fixed inset-0 z-40 h-[100dvh] w-full flex flex-col bg-slate-50 overflow-hidden animate-in fade-in slide-in-from-right-3 duration-150"
+                onTouchStart={(e) => {
+                    const t = e.touches[0];
+                    if (t) touchStartRef.current = { x: t.clientX, y: t.clientY };
+                }}
+                onTouchEnd={(e) => {
+                    const start = touchStartRef.current;
+                    touchStartRef.current = null;
+                    if (!start || !onBack) return;
+                    const t = e.changedTouches[0];
+                    if (!t) return;
+                    const dx = t.clientX - start.x;
+                    const dy = t.clientY - start.y;
+                    if (dx > 70 && Math.abs(dy) < 55) {
+                        onBack();
+                    }
+                }}
+            >
+                <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 shrink-0">
+                    <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                            {onBack && (
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0 }}
+                                    onClick={onBack}
+                                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
+                                    title="Volver"
+                                >
+                                    <i className="bi bi-arrow-left text-base"></i>
+                                </button>
+                            )}
+                            <span className="relative flex h-2.5 w-2.5 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-600"></span>
+                            </span>
+                            <h2 className="text-sm sm:text-base font-black text-gray-900 tracking-tight truncate">
+                                Clientes comprando ahora
+                            </h2>
+                            {unifiedEntries.length > 0 && (
+                                <span className="shrink-0 bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded-full shadow-xs">
+                                    {unifiedEntries.length}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                            <button
+                                type="button"
+                                style={{ minHeight: 0 }}
+                                onClick={() => setShowBaileysModal(true)}
+                                className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                                title="Configurar WhatsApp como Dispositivo Vinculado (QR)"
+                            >
+                                <span
+                                    className={`w-2 h-2 rounded-full ${
+                                        baileysStatus === 'connected'
+                                            ? 'bg-green-500'
+                                            : baileysStatus === 'qr' || baileysStatus === 'connecting'
+                                                ? 'bg-amber-400 animate-pulse'
+                                                : 'bg-gray-300'
+                                    }`}
+                                ></span>
+                                <i className="bi bi-whatsapp text-green-600"></i>
+                                <span className="hidden sm:inline">
+                                    {baileysStatus === 'connected' ? 'WhatsApp vinculado' : 'Vincular WhatsApp'}
+                                </span>
+                            </button>
+                            {onOpenWhatsApp && (
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0 }}
+                                    onClick={onOpenWhatsApp}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                                >
+                                    <i className="bi bi-clock-history text-xs"></i>
+                                    <span>Historial</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                    <div className="max-w-3xl mx-auto w-full p-3 sm:p-5 space-y-3 pb-24">
+                        {entriesListNodes}
+                        {unifiedEntries.length === 0 && (
+                            <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-white rounded-2xl border border-slate-200/80 shadow-2xs">
+                                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                                    <i className="bi bi-chat-dots text-xl"></i>
+                                </div>
+                                <p className="text-sm font-black text-gray-900 tracking-tight mb-1">
+                                    Sin actividad en este momento
+                                </p>
+                                <p className="text-xs font-medium text-gray-500 max-w-xs leading-relaxed">
+                                    No hay clientes comprando ni mensajes de WhatsApp pendientes en este momento.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <WhatsAppBaileysModal
+                    isOpen={showBaileysModal}
+                    businessId={businessId}
+                    onClose={() => setShowBaileysModal(false)}
+                    onStatusChange={setBaileysStatus}
+                />
+            </div>
+        );
+    }
+
     if (isVisible === false) return null;
     const hasWhatsAppActivity = activeWhatsAppConversations.length > 0 || whatsappPendingCount > 0;
     if (isVisible === null && !hasWhatsAppActivity && (loading || checkouts.length === 0)) return null;
 
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-blue-100/80 mb-6 overflow-hidden transition-all">
+        <div className="bg-white rounded-xl shadow-sm border border-blue-100/80 mb-6 transition-all">
             <button
                 type="button"
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full px-4 py-3 flex justify-between items-center bg-gradient-to-r from-blue-50/80 to-indigo-50/50 hover:from-blue-100/70 hover:to-indigo-100/60 transition-colors text-left"
+                className="w-full px-4 py-3 flex justify-between items-center bg-gradient-to-r from-blue-50/80 to-indigo-50/50 hover:from-blue-100/70 hover:to-indigo-100/60 transition-colors text-left rounded-t-xl"
             >
                 <div className="flex items-center gap-2.5 min-w-0">
                     <span className="relative flex h-3 w-3 shrink-0">
@@ -505,46 +692,8 @@ export function LiveCheckoutsPanel({
             </button>
 
             {isExpanded && (
-                <div className="p-3 sm:p-4 space-y-3 bg-gray-50/40 border-t border-blue-100/60">
-                    {unifiedEntries.map(entry =>
-                        entry.kind === 'whatsapp' ? (
-                            <WhatsAppConversationCard
-                                key={entry.key}
-                                businessId={businessId}
-                                conversation={entry.conversation}
-                                resolvedProfile={resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]}
-                                activeOrder={findActiveOrderForClient(
-                                    resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]?.clientPhone ||
-                                        entry.conversation.phone ||
-                                        entry.conversation.rawPhone,
-                                    resolvedClientsByConvKey[entry.conversation.docId || entry.conversation.id]?.clientId ||
-                                        entry.conversation.fuddiClientId
-                                )}
-                                onInspectOrder={onInspectOrder}
-                                onOpenChatView={onOpenWhatsAppChat}
-                                products={products}
-                                onSelect={onSelectWhatsAppConversation}
-                                onClose={onCloseWhatsAppConversation}
-                                onClientRegistered={(profile) => {
-                                    const convKey = entry.conversation.docId || entry.conversation.id;
-                                    if (!convKey) return;
-                                    setResolvedClientsByConvKey(prev => ({
-                                        ...prev,
-                                        [convKey]: profile,
-                                    }));
-                                }}
-                            />
-                        ) : (
-                            <CheckoutSessionCard
-                                key={entry.key}
-                                session={entry.session}
-                                onOpenManualOrder={onOpenManualOrder}
-                                linkedWhatsApp={entry.linkedWhatsApp}
-                                onCloseWhatsApp={onCloseWhatsAppConversation}
-                                onCloseCheckout={() => handleCloseCheckout(entry.session, entry.linkedWhatsApp)}
-                            />
-                        )
-                    )}
+                <div className="p-3 sm:p-4 space-y-3 bg-gray-50/40 border-t border-blue-100/60 rounded-b-xl">
+                    {entriesListNodes}
                     {unifiedEntries.length === 0 && (
                         <p className="text-center text-xs text-gray-500 py-2">
                             No hay clientes comprando ni mensajes de WhatsApp pendientes en este momento.
@@ -896,6 +1045,7 @@ function WhatsAppConversationCard({
     onSelect,
     onClose,
     onClientRegistered,
+    renderOrderCard,
 }: {
     businessId?: string;
     conversation: PendingWhatsAppConversation;
@@ -912,8 +1062,10 @@ function WhatsAppConversationCard({
     onSelect?: (conv: PendingWhatsAppConversation, draft?: WhatsAppPreorderDraft) => void;
     onClose?: (docId: string) => void;
     onClientRegistered?: (profile: ResolvedWhatsAppClientProfile) => void;
+    renderOrderCard?: (order: any) => React.ReactNode;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [isOrderExpanded, setIsOrderExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState<PreorderTabKey>('delivery');
     const [showLocationsModal, setShowLocationsModal] = useState(false);
 
@@ -1237,10 +1389,10 @@ function WhatsAppConversationCard({
     const completedStepsTooltip = `Crear pedido (${completedStepsCount}/4 pasos completados)`;
 
     return (
-        <div className="bg-white rounded-xl shadow-xs border border-gray-200/90 overflow-hidden transition-all hover:border-green-300 hover:shadow-sm">
+        <div className="bg-white rounded-xl shadow-xs border border-gray-200/90 transition-all hover:border-green-300 hover:shadow-sm">
             {/* Header: Click to open dedicated chat view (or fallback accordion) */}
             <div
-                className="p-3 sm:p-3.5 bg-white cursor-pointer hover:bg-green-50/30 transition-colors space-y-2"
+                className="p-3 sm:p-3.5 bg-white rounded-xl cursor-pointer hover:bg-green-50/30 transition-colors space-y-2"
                 onClick={() => {
                     if (onOpenChatView) {
                         onOpenChatView(enrichedConversation, undefined, resolvedProfile, activeOrder);
@@ -1325,25 +1477,6 @@ function WhatsAppConversationCard({
                                         Nuevo
                                     </button>
                                 )}
-                                {activeOrder && (
-                                    <button
-                                        type="button"
-                                        style={{ minHeight: 0 }}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onInspectOrder?.(activeOrder);
-                                        }}
-                                        className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-all cursor-pointer"
-                                        title={
-                                            activeOrder.timing?.type === 'scheduled' && activeOrder.timing?.scheduledTime
-                                                ? `Orden activa programada (${activeOrder.timing.scheduledTime}) — Clic para ver`
-                                                : 'Este cliente tiene una orden activa — Clic para ver'
-                                        }
-                                    >
-                                        <i className="bi bi-bag-check-fill"></i>
-                                        Orden activa
-                                    </button>
-                                )}
                                 {isConfirmedConversation && !activeOrder && (
                                     <span
                                         className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
@@ -1386,13 +1519,13 @@ function WhatsAppConversationCard({
                             <p
                                 key={idx}
                                 className={`text-[11px] leading-snug line-clamp-1 ${
-                                    msg.fromMe ? 'text-emerald-700/90' : 'text-gray-600'
+                                    msg.fromMe ? 'text-gray-400' : 'text-gray-600'
                                 }`}
                             >
                                 {msg.fromMe && (
-                                    <span className="font-bold text-emerald-700 mr-1">Tú:</span>
+                                    <span className="font-bold text-gray-500 mr-1">Tú:</span>
                                 )}
-                                {msg.text}
+                                {formatWhatsAppMessageText(msg.text)}
                             </p>
                         ))}
                     </div>
@@ -1412,7 +1545,33 @@ function WhatsAppConversationCard({
                                 <i className="bi bi-archive text-xs"></i>
                             </button>
                         )}
-                        {onSelect && (
+                        {activeOrder ? (
+                            <button
+                                type="button"
+                                style={{ minHeight: 0, minWidth: 0 }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (renderOrderCard) {
+                                        setIsOrderExpanded((prev) => !prev);
+                                    } else {
+                                        onInspectOrder?.(activeOrder);
+                                    }
+                                }}
+                                title={isOrderExpanded ? 'Ocultar pedido' : 'Ver pedido creado'}
+                                aria-label={isOrderExpanded ? 'Ocultar pedido' : 'Ver pedido creado'}
+                                className="relative w-11 h-11 min-h-0 min-w-0 p-0 inline-flex items-center justify-center rounded-full shrink-0 cursor-pointer group active:scale-95 transition-transform"
+                            >
+                                <span
+                                    className={`w-9 h-9 rounded-full inline-flex items-center justify-center text-white shadow-xs transition-colors ${
+                                        isOrderExpanded
+                                            ? 'bg-blue-700 ring-2 ring-blue-300'
+                                            : 'bg-blue-600 group-hover:bg-blue-700'
+                                    }`}
+                                >
+                                    <i className="bi bi-bag-check-fill text-sm"></i>
+                                </span>
+                            </button>
+                        ) : onSelect && (
                             <button
                                 type="button"
                                 style={{ minHeight: 0, minWidth: 0 }}
@@ -1792,7 +1951,7 @@ function WhatsAppConversationCard({
                                     title="Toca para pegar en el campo activo"
                                     className="w-full text-left bg-white hover:bg-blue-50/50 border border-gray-200/80 hover:border-blue-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 whitespace-pre-wrap break-words transition-colors cursor-pointer"
                                 >
-                                    {msg}
+                                    {formatWhatsAppMessageText(msg)}
                                 </button>
                             ))}
                         </div>
@@ -1860,6 +2019,15 @@ function WhatsAppConversationCard({
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {activeOrder && isOrderExpanded && renderOrderCard && (
+                <div
+                    className="px-2.5 pb-2.5 pt-1 bg-slate-50/80 border-t border-blue-100 rounded-b-xl"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {renderOrderCard(activeOrder)}
                 </div>
             )}
 
@@ -2273,7 +2441,7 @@ function CheckoutSessionCard({
                                         key={idx}
                                         className="bg-white border border-green-100 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 whitespace-pre-wrap break-words"
                                     >
-                                        {msg}
+                                        {formatWhatsAppMessageText(msg)}
                                     </div>
                                 ))}
                             </div>

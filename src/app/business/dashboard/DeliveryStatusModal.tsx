@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Order, Delivery, Business } from '@/types'
 import { buildDeliveryWhatsAppMessage } from '@/components/WhatsAppUtils'
+import { auth } from '@/lib/firebase'
 
 export interface DeliveryStatusModalProps {
     isOpen: boolean
@@ -40,6 +41,17 @@ export function DeliveryStatusModal({
     const [isEditingDefault, setIsEditingDefault] = useState(false)
     const [isSavingDefault, setIsSavingDefault] = useState(false)
     const [isCopied, setIsCopied] = useState(false)
+    const [isSendingDirect, setIsSendingDirect] = useState(false)
+    const [directSendSuccess, setDirectSendSuccess] = useState(false)
+    const [directSendError, setDirectSendError] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!isOpen) {
+            setDirectSendSuccess(false)
+            setDirectSendError(null)
+            setIsSendingDirect(false)
+        }
+    }, [isOpen, order?.id])
 
     if (!isOpen || !order) return null
 
@@ -83,6 +95,68 @@ export function DeliveryStatusModal({
             setTimeout(() => setIsCopied(false), 2000)
         } catch (e) {
             console.error('Error al copiar mensaje al portapapeles:', e)
+        }
+    }
+
+    const handleSendDirectWhatsApp = async () => {
+        if (!order || isSendingDirect) return
+        const targetBusinessId = business?.id || order.businessId
+        if (!targetBusinessId) {
+            setDirectSendError('No se encontró la tienda asociada al pedido.')
+            return
+        }
+
+        const assignedDeliveryId =
+            order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
+        const assignedDelivery =
+            deliveryAgent || availableDeliveries.find(d => d.id === assignedDeliveryId)
+        const targetPhone =
+            order.delivery?.type === 'delivery'
+                ? assignedDelivery?.celular
+                : business?.phone
+
+        if (!targetPhone) {
+            setDirectSendError('El repartidor no tiene un número de teléfono registrado.')
+            return
+        }
+
+        setIsSendingDirect(true)
+        setDirectSendError(null)
+        setDirectSendSuccess(false)
+
+        try {
+            const message = buildDeliveryWhatsAppMessage(order, business || null)
+            const idToken = await auth.currentUser?.getIdToken()
+            const res = await fetch('/api/whatsapp/bridge', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+                },
+                body: JSON.stringify({
+                    action: 'send',
+                    businessId: targetBusinessId,
+                    docId: '',
+                    phone: targetPhone,
+                    text: message,
+                    replyId: `delivery_${order.id}_${Date.now()}`,
+                }),
+            })
+
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok || !data?.ok) {
+                throw new Error(data?.error || 'No se pudo enviar el mensaje por WhatsApp.')
+            }
+
+            setDirectSendSuccess(true)
+            setTimeout(() => {
+                setDirectSendSuccess(false)
+            }, 2500)
+        } catch (e: any) {
+            console.error('Error al enviar mensaje directo al delivery:', e)
+            setDirectSendError(e?.message || 'Error al enviar el mensaje.')
+        } finally {
+            setIsSendingDirect(false)
         }
     }
 
@@ -266,29 +340,63 @@ export function DeliveryStatusModal({
                             </button>
                         )}
 
-                        {/* 4. Notificar por WhatsApp + Copiar mensaje (si está asignado) */}
+                        {/* 4. Enviar directo + Abrir WhatsApp + Copiar mensaje (si está asignado) */}
                         {order.delivery?.assignedDelivery && (
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={onWhatsApp}
-                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-600 hover:bg-green-700 active:scale-98 text-white rounded-xl font-bold text-xs transition-all shadow-xs"
-                                >
-                                    <i className="bi bi-whatsapp text-sm"></i>
-                                    <span>Notificar por WhatsApp</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleCopyMessage}
-                                    className={`p-2.5 rounded-xl border transition-all active:scale-95 shrink-0 flex items-center justify-center ${
-                                        isCopied
-                                            ? 'bg-emerald-50 border-emerald-300 text-emerald-600'
-                                            : 'bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 hover:text-gray-900'
-                                    }`}
-                                    title={isCopied ? '¡Mensaje copiado!' : 'Copiar mensaje para el delivery'}
-                                >
-                                    <i className={`bi ${isCopied ? 'bi-clipboard-check text-emerald-600' : 'bi-clipboard'} text-sm`}></i>
-                                </button>
+                            <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleCopyMessage}
+                                        className={`p-2.5 rounded-xl border transition-all active:scale-95 shrink-0 flex items-center justify-center ${
+                                            isCopied
+                                                ? 'bg-emerald-50 border-emerald-300 text-emerald-600'
+                                                : 'bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-600 hover:text-gray-900'
+                                        }`}
+                                        title={isCopied ? '¡Mensaje copiado!' : 'Copiar mensaje para el delivery'}
+                                    >
+                                        <i className={`bi ${isCopied ? 'bi-clipboard-check text-emerald-600' : 'bi-clipboard'} text-sm`}></i>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={onWhatsApp}
+                                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-green-50 hover:bg-green-100 active:scale-98 text-green-700 border border-green-200 rounded-xl font-bold text-xs transition-all whitespace-nowrap"
+                                        title="Abrir WhatsApp con el mensaje listo"
+                                    >
+                                        <i className="bi bi-whatsapp text-sm"></i>
+                                        <span>Abrir WhatsApp</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={isSendingDirect}
+                                        onClick={handleSendDirectWhatsApp}
+                                        className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-bold text-xs transition-all shadow-xs active:scale-98 disabled:opacity-70 ${
+                                            directSendSuccess
+                                                ? 'bg-emerald-600 text-white'
+                                                : 'bg-green-600 hover:bg-green-700 text-white'
+                                        }`}
+                                        title="Enviar los datos del pedido directamente por WhatsApp desde la app"
+                                    >
+                                        {isSendingDirect ? (
+                                            <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent" />
+                                        ) : directSendSuccess ? (
+                                            <i className="bi bi-check-lg text-sm"></i>
+                                        ) : (
+                                            <i className="bi bi-send-fill text-xs"></i>
+                                        )}
+                                        <span>
+                                            {isSendingDirect
+                                                ? 'Enviando...'
+                                                : directSendSuccess
+                                                  ? 'Enviado'
+                                                  : 'Enviar'}
+                                        </span>
+                                    </button>
+                                </div>
+                                {directSendError && (
+                                    <p className="text-[11px] font-medium text-red-600 px-1 leading-snug">
+                                        {directSendError}
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>

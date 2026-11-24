@@ -135,7 +135,8 @@ export default function TodayOrdersPage() {
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
-    const [liveCheckoutsVisible, setLiveCheckoutsVisible] = useState<boolean | null>(null)
+    const [activeCheckoutCount, setActiveCheckoutCount] = useState(0)
+    const [liveCheckoutsFullScreenOpen, setLiveCheckoutsFullScreenOpen] = useState(false)
     const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('bluetooth')
     const [showPrinterPopover, setShowPrinterPopover] = useState(false)
     const [printerStatus, setPrinterStatus] = useState({ connected: false, deviceName: null as string | null })
@@ -732,15 +733,9 @@ export default function TodayOrdersPage() {
         }
     }, [business])
 
-    const hasPendingWhatsApp = useMemo(
-        () => whatsappPendingConversations.some(c => (c.status || 'pending') === 'pending'),
-        [whatsappPendingConversations]
-    );
     const showCol1 = useMemo(
-        () => todayOrders.some(o => ['borrador', 'pending'].includes(o.status)) ||
-            liveCheckoutsVisible === true ||
-            (liveCheckoutsVisible !== false && (checkoutCount > 0 || hasPendingWhatsApp)),
-        [todayOrders, checkoutCount, hasPendingWhatsApp, liveCheckoutsVisible]
+        () => todayOrders.some(o => ['borrador', 'pending'].includes(o.status)),
+        [todayOrders]
     );
     const showCol2 = useMemo(() => todayOrders.some(o => o.status === 'confirmed'), [todayOrders]);
     const showCol3 = useMemo(() => todayOrders.some(o => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].includes(o.status)), [todayOrders]);
@@ -2049,6 +2044,29 @@ export default function TodayOrdersPage() {
                     'delivery.acceptanceStatus': 'pending'
                 }), { label: `autoAssignDelivery:${orderId}` })
             }
+
+            if (newStatus === 'delivered' && whatsappPendingConversations.length > 0) {
+                const orderClientId = String(previousOrder.customer?.id || '').trim()
+                const orderPhoneDigits = String(previousOrder.customer?.phone || '').replace(/\D/g, '')
+                const orderPhoneKey = orderPhoneDigits.length >= 9 ? orderPhoneDigits.slice(-9) : orderPhoneDigits
+
+                const matchingConvs = whatsappPendingConversations.filter(conv => {
+                    if (conv.status === 'closed') return false
+                    if (orderClientId && conv.fuddiClientId && String(conv.fuddiClientId).trim() === orderClientId) {
+                        return true
+                    }
+                    if (orderPhoneKey) {
+                        const cDigits = String(conv.phone || conv.rawPhone || '').replace(/\D/g, '')
+                        const cKey = cDigits.length >= 9 ? cDigits.slice(-9) : cDigits
+                        if (cKey && cKey === orderPhoneKey) return true
+                    }
+                    return false
+                })
+
+                for (const conv of matchingConvs) {
+                    void handleCloseWhatsAppConversation(conv.docId)
+                }
+            }
         } catch (error) {
             console.error("Error updating status:", error)
             // Solo alertar y revertir si no fue por desconexión
@@ -2204,6 +2222,32 @@ export default function TodayOrdersPage() {
         () => whatsappPendingConversations.filter((c) => (c.status || 'pending') === 'pending').length,
         [whatsappPendingConversations]
     )
+
+    useEffect(() => {
+        const bizId = business?.id
+        if (!bizId) {
+            setActiveCheckoutCount(0)
+            return
+        }
+        const q = query(
+            collection(db, 'checkoutProgress'),
+            where('businessId', '==', bizId),
+            orderBy('updatedAt', 'desc'),
+            limit(30)
+        )
+        const unsub = onSnapshot(
+            q,
+            (snap) => {
+                const count = snap.docs.filter((d) => {
+                    const data = d.data()
+                    return (data.currentStep || 0) >= 1 && (!data.status || data.status === 'active')
+                }).length
+                setActiveCheckoutCount(count)
+            },
+            () => {}
+        )
+        return () => unsub()
+    }, [business?.id])
 
     const handleCloseWhatsAppConversation = useCallback(async (docId: string) => {
         if (!business?.id || !docId) return
@@ -3011,6 +3055,11 @@ export default function TodayOrdersPage() {
                     ordersSubTab={ordersSubTab}
                     setOrdersSubTab={setOrdersSubTab}
                     currentBusinessName={business?.name || businesses.find(b => b.id === businessId)?.name}
+                    business={business}
+                    businesses={businesses}
+                    loadingBusinesses={loadingBusinesses}
+                    onBusinessChange={handleBusinessChange}
+                    onOpenBusinessSelector={handleToggleBusinessDropdown}
                     userRole={userRole}
                     permissions={currentUserPermissions || undefined}
                     canManageAdmins={canManageAdmins}
@@ -3103,6 +3152,34 @@ export default function TodayOrdersPage() {
                                             printJobs={printJobs}
                                         />
                                     </div>
+
+                                    {/* Clientes comprando ahora (vista pantalla completa) */}
+                                    {business?.id && (() => {
+                                        const liveBadgeCount =
+                                            checkoutCount > 0
+                                                ? checkoutCount
+                                                : whatsappActivePendingCount + activeCheckoutCount
+                                        return (
+                                            <button
+                                                type="button"
+                                                onClick={() => setLiveCheckoutsFullScreenOpen(true)}
+                                                className={`relative p-2 rounded-lg transition-colors ${
+                                                    liveBadgeCount > 0
+                                                        ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                                                        : 'text-gray-500 hover:bg-gray-100'
+                                                }`}
+                                                title="Clientes comprando ahora"
+                                                aria-label="Abrir Clientes comprando ahora"
+                                            >
+                                                <i className={`bi ${liveBadgeCount > 0 ? 'bi-chat-dots-fill' : 'bi-chat-dots'} text-xl`}></i>
+                                                {liveBadgeCount > 0 && (
+                                                    <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white shadow-sm ring-2 ring-white">
+                                                        {liveBadgeCount > 99 ? '99+' : liveBadgeCount}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        )
+                                    })()}
 
                                     {/* Bell */}
                                     {business?.id && (
@@ -3254,124 +3331,6 @@ export default function TodayOrdersPage() {
                                         )}
                                     </div>
 
-                                    {/* Business Selector */}
-                                    <div className="relative business-dropdown-container" ref={businessDropdownRef}>
-                                        <button
-                                            onClick={handleToggleBusinessDropdown}
-                                            className="flex items-center space-x-2 sm:space-x-3 bg-gray-50 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg transition-colors"
-                                            title="Cambiar de tienda"
-                                        >
-                                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
-                                                {business?.image ? (
-                                                    <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center"><i className="bi bi-shop text-gray-400"></i></div>
-                                                )}
-                                            </div>
-                                            {loadingBusinesses ? (
-                                                <i className="bi bi-arrow-repeat animate-spin text-rose-500 text-xs"></i>
-                                            ) : (
-                                                <i className="bi bi-chevron-down text-gray-500 text-xs"></i>
-                                            )}
-                                        </button>
-
-                                        {showBusinessDropdown && (() => {
-                                            const displayBusinesses = businesses.length > 0
-                                                ? businesses
-                                                : (business ? [business] : []);
-
-                                            return (
-                                                <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-[60]">
-                                                    <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
-                                                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tus Tiendas y Sucursales</p>
-                                                        {loadingBusinesses && (
-                                                            <span className="flex items-center text-[10px] font-semibold text-rose-500 gap-1">
-                                                                <i className="bi bi-arrow-repeat animate-spin"></i>
-                                                                <span>Buscando...</span>
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div className="max-h-72 overflow-y-auto">
-                                                        {displayBusinesses.length > 0 ? (
-                                                            displayBusinesses.map((biz) => {
-                                                                const isSelected = business?.id === biz.id
-                                                                return (
-                                                                    <button
-                                                                        key={biz.id}
-                                                                        onClick={() => { handleBusinessChange(biz.id); setShowBusinessDropdown(false); }}
-                                                                        className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-rose-50/50 transition-colors ${isSelected ? 'bg-rose-50/80 font-bold' : ''}`}
-                                                                    >
-                                                                        <div className="w-9 h-9 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200/80">
-                                                                            {biz.image ? <img src={biz.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400"><i className="bi bi-shop"></i></div>}
-                                                                        </div>
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <p className="text-sm font-bold text-gray-900 truncate">
-                                                                                {biz.name}
-                                                                            </p>
-                                                                            {biz.branchName && biz.branchName !== biz.name ? (
-                                                                                <span className="text-[11px] font-semibold text-rose-600 bg-rose-100/60 px-1.5 py-0.2 rounded inline-block truncate max-w-full">
-                                                                                    {biz.branchName}
-                                                                                </span>
-                                                                            ) : biz.isBranch ? (
-                                                                                <span className="text-[11px] font-medium text-gray-500">
-                                                                                    Sucursal
-                                                                                </span>
-                                                                            ) : null}
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                                                            <a
-                                                                                href={`/${biz.username}`}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-100/50 rounded-lg transition-all"
-                                                                                title="Ver tienda pública"
-                                                                            >
-                                                                                <i className="bi bi-box-arrow-up-right text-sm"></i>
-                                                                            </a>
-                                                                            {isSelected && <i className="bi bi-check-circle-fill text-rose-600 text-base"></i>}
-                                                                        </div>
-                                                                    </button>
-                                                                )
-                                                            })
-                                                        ) : loadingBusinesses ? (
-                                                            <div className="p-4 space-y-3">
-                                                                <div className="flex items-center space-x-3 animate-pulse">
-                                                                    <div className="w-9 h-9 bg-gray-200 rounded-xl"></div>
-                                                                    <div className="flex-1 space-y-1.5">
-                                                                        <div className="h-3.5 bg-gray-200 rounded w-3/4"></div>
-                                                                        <div className="h-2.5 bg-gray-100 rounded w-1/2"></div>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center space-x-3 animate-pulse">
-                                                                    <div className="w-9 h-9 bg-gray-200 rounded-xl"></div>
-                                                                    <div className="flex-1 space-y-1.5">
-                                                                        <div className="h-3.5 bg-gray-200 rounded w-2/3"></div>
-                                                                        <div className="h-2.5 bg-gray-100 rounded w-1/3"></div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="px-4 py-4 text-center text-xs text-gray-500 font-medium">
-                                                                No se encontraron tiendas administradas
-                                                            </div>
-                                                        )}
-                                                        {loadingBusinesses && displayBusinesses.length > 0 && (
-                                                            <div className="px-4 py-2 bg-gray-50/80 flex items-center justify-center space-x-2 text-xs font-semibold text-gray-500 border-t border-gray-100">
-                                                                <i className="bi bi-arrow-repeat animate-spin text-rose-500"></i>
-                                                                <span>Buscando otras sucursales...</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <hr className="my-1 border-gray-100" />
-                                                    <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-2.5 text-left hover:bg-rose-50 text-rose-600 text-sm font-bold transition-colors">
-                                                        <i className="bi bi-box-arrow-right text-base"></i>
-                                                        <span>Cerrar Sesión</span>
-                                                    </button>
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -3398,6 +3357,7 @@ export default function TodayOrdersPage() {
                         })
                         return (
                             <WhatsAppChatPreorderView
+                              onExcludeConversation={handleExcludeWhatsAppConversation}
                                 key={activeWhatsAppChatView.docId}
                                 businessId={business?.id}
                                 conversation={liveConv}
@@ -3427,6 +3387,38 @@ export default function TodayOrdersPage() {
                             excludedContacts={whatsappExcludedContacts}
                             orders={[...todayOrders, ...orders, ...historicalOrders]}
                             onClose={() => setWhatsappModalOpen(false)}
+                            onOpenChatView={(conv, initialTab, resolvedProfile, activeOrder) => {
+                                setActiveWhatsAppChatView({
+                                    docId: conv.docId || conv.id,
+                                    conversation: conv,
+                                    initialTab,
+                                    resolvedProfile,
+                                    activeOrder
+                                })
+                            }}
+                            renderOrderCard={(order) => (
+                                <OrderCard
+                                    key={order.id}
+                                    order={order}
+                                    availableDeliveries={availableDeliveries}
+                                    onStatusChange={handleStatusChange}
+                                    onDeliveryAssign={handleDeliveryAssignment}
+                                    onPaymentEdit={handlePaymentClick}
+                                    onWhatsAppDelivery={handleSendWhatsAppToDelivery}
+                                    onPrint={handlePrint}
+                                    onDeliveryStatusClick={handleDeliveryStatusClick}
+                                    onEdit={handleEditOrder}
+                                    onDelete={handleDeleteOrder}
+                                    onCustomerClick={handleCustomerClick}
+                                    onPreparationTimeChange={handleUpdatePreparationTime}
+                                    businessPhone={business?.phone}
+                                    canChangeDelivery={canChangeDelivery}
+                                    canDeleteOrders={canDeleteOrders}
+                                    deliveryTimeMinutes={currentDeliveryTime}
+                                    autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                    customerNote={clientsWithNotes[order.customer?.phone || '']}
+                                />
+                            )}
                             onSelectConversation={(conv) => {
                                 setSelectedWhatsAppConversation(conv)
                                 setSelectedWhatsAppDraft(null)
@@ -3455,6 +3447,62 @@ export default function TodayOrdersPage() {
                                     setManualOrderSidebarOpen(true)
                                 }
                             }}
+                        />
+                    ) : liveCheckoutsFullScreenOpen && businessId ? (
+                        <LiveCheckoutsPanel
+                            fullScreen={true}
+                            onBack={() => setLiveCheckoutsFullScreenOpen(false)}
+                            businessId={businessId}
+                            business={business}
+                            orders={todayOrders}
+                            activeOrders={[...orders, ...historicalOrders]}
+                            products={products}
+                            onCountChange={setCheckoutCount}
+                            onOpenManualOrder={handleOpenManualOrderFromCheckout}
+                            onInspectOrder={handleEditOrder}
+                            renderOrderCard={(order) => (
+                                <OrderCard
+                                    key={order.id}
+                                    order={order}
+                                    availableDeliveries={availableDeliveries}
+                                    onStatusChange={handleStatusChange}
+                                    onDeliveryAssign={handleDeliveryAssignment}
+                                    onPaymentEdit={handlePaymentClick}
+                                    onWhatsAppDelivery={handleSendWhatsAppToDelivery}
+                                    onPrint={handlePrint}
+                                    onDeliveryStatusClick={handleDeliveryStatusClick}
+                                    onEdit={handleEditOrder}
+                                    onDelete={handleDeleteOrder}
+                                    onCustomerClick={handleCustomerClick}
+                                    onPreparationTimeChange={handleUpdatePreparationTime}
+                                    businessPhone={business?.phone}
+                                    canChangeDelivery={canChangeDelivery}
+                                    canDeleteOrders={canDeleteOrders}
+                                    deliveryTimeMinutes={currentDeliveryTime}
+                                    autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                    customerNote={clientsWithNotes[order.customer?.phone || '']}
+                                />
+                            )}
+                            whatsappPendingCount={whatsappActivePendingCount}
+                            whatsappConversations={whatsappPendingConversations}
+                            onOpenWhatsApp={() => setWhatsappModalOpen(true)}
+                            onOpenWhatsAppChat={(conv, initialTab, resolvedProfile, activeOrder) => {
+                                setActiveWhatsAppChatView({
+                                    docId: conv.docId || conv.id,
+                                    conversation: conv,
+                                    initialTab,
+                                    resolvedProfile,
+                                    activeOrder
+                                })
+                            }}
+                            onSelectWhatsAppConversation={(conv, draft) => {
+                                setSelectedWhatsAppConversation(conv)
+                                setSelectedWhatsAppDraft(draft || null)
+                                setSelectedOrderForEdit(null)
+                                setManualSidebarMode('create')
+                                setManualOrderSidebarOpen(true)
+                            }}
+                            onCloseWhatsAppConversation={handleCloseWhatsAppConversation}
                         />
                     ) : activeTab === 'admins' || (activeTab === 'profile' && profileSubTab === 'admins') ? (
                         <div className="p-4 sm:p-6">
@@ -3690,21 +3738,12 @@ export default function TodayOrdersPage() {
                                                             className="text-left group cursor-pointer hover:bg-gray-50 rounded-lg px-1 -mx-1 transition-colors"
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
-                                                                setLiveCheckoutsVisible(prev => !(prev ?? (checkoutCount > 0 || whatsappActivePendingCount > 0)))
+                                                                setLiveCheckoutsFullScreenOpen(true)
                                                             }}
-                                                            title="Mostrar u ocultar Clientes comprando ahora"
+                                                            title="Abrir Clientes comprando ahora"
                                                         >
                                                             <div className="flex items-center gap-1.5 mb-1">
                                                                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider group-hover:text-blue-500 transition-colors">Visitas</p>
-                                                                {checkoutCount > 0 && (
-                                                                    <span
-                                                                        className="inline-flex items-center gap-1 bg-blue-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-2xs"
-                                                                        title={`${checkoutCount} cliente${checkoutCount !== 1 ? 's' : ''} comprando ahora`}
-                                                                    >
-                                                                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
-                                                                        {checkoutCount}
-                                                                    </span>
-                                                                )}
                                                             </div>
                                                             <p className="text-lg font-bold text-gray-900 flex items-center gap-1">
                                                                 <i className="bi bi-people text-gray-400 text-xs"></i>
@@ -3787,39 +3826,6 @@ export default function TodayOrdersPage() {
                                                 {/* Aviso móvil cuando no hay pedidos */}
                                                 {todayOrders.length === 0 && (
                                                     <div className="lg:hidden space-y-4 mb-4">
-                                                        {businessId && (
-                                                            <LiveCheckoutsPanel
-                                                                businessId={businessId}
-                                                                business={business}
-                                                                orders={todayOrders}
-                                                                activeOrders={[...orders, ...historicalOrders]}
-                                                                products={products}
-                                                                onCountChange={setCheckoutCount}
-                                                                onOpenManualOrder={handleOpenManualOrderFromCheckout}
-                                                                onInspectOrder={handleEditOrder}
-                                                                whatsappPendingCount={whatsappActivePendingCount}
-                                                                whatsappConversations={whatsappPendingConversations}
-                                                                onOpenWhatsApp={() => setWhatsappModalOpen(true)}
-                                                                onOpenWhatsAppChat={(conv, initialTab, resolvedProfile, activeOrder) => {
-                                                                    setActiveWhatsAppChatView({
-                                                                        docId: conv.docId || conv.id,
-                                                                        conversation: conv,
-                                                                        initialTab,
-                                                                        resolvedProfile,
-                                                                        activeOrder
-                                                                    })
-                                                                }}
-                                                                onSelectWhatsAppConversation={(conv, draft) => {
-                                                                    setSelectedWhatsAppConversation(conv)
-                                                                    setSelectedWhatsAppDraft(draft || null)
-                                                                    setSelectedOrderForEdit(null)
-                                                                    setManualSidebarMode('create')
-                                                                    setManualOrderSidebarOpen(true)
-                                                                }}
-                                                                onCloseWhatsAppConversation={handleCloseWhatsAppConversation}
-                                                                isVisible={liveCheckoutsVisible}
-                                                            />
-                                                        )}
                                                         <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
                                                             <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
                                                                 <i className="bi bi-inbox text-xl"></i>
@@ -3831,42 +3837,9 @@ export default function TodayOrdersPage() {
                                                 )}
 
                                                 <div className="flex flex-col lg:flex-row gap-6 items-start">
-                                                {/* En escritorio si no hay pedidos, mostrar LiveCheckoutsPanel y estado vacío a la izquierda */}
+                                                {/* En escritorio si no hay pedidos, mostrar estado vacío a la izquierda */}
                                                 {todayOrders.length === 0 ? (
                                                     <div className="hidden lg:block lg:flex-[2] w-full space-y-6">
-                                                        {businessId && (
-                                                            <LiveCheckoutsPanel
-                                                                businessId={businessId}
-                                                                business={business}
-                                                                orders={todayOrders}
-                                                                activeOrders={[...orders, ...historicalOrders]}
-                                                                products={products}
-                                                                onCountChange={setCheckoutCount}
-                                                                onOpenManualOrder={handleOpenManualOrderFromCheckout}
-                                                                onInspectOrder={handleEditOrder}
-                                                                whatsappPendingCount={whatsappActivePendingCount}
-                                                                whatsappConversations={whatsappPendingConversations}
-                                                                onOpenWhatsApp={() => setWhatsappModalOpen(true)}
-                                                                onOpenWhatsAppChat={(conv, initialTab, resolvedProfile, activeOrder) => {
-                                                                    setActiveWhatsAppChatView({
-                                                                        docId: conv.docId || conv.id,
-                                                                        conversation: conv,
-                                                                        initialTab,
-                                                                        resolvedProfile,
-                                                                        activeOrder
-                                                                    })
-                                                                }}
-                                                                onSelectWhatsAppConversation={(conv, draft) => {
-                                                                    setSelectedWhatsAppConversation(conv)
-                                                                    setSelectedWhatsAppDraft(draft || null)
-                                                                    setSelectedOrderForEdit(null)
-                                                                    setManualSidebarMode('create')
-                                                                    setManualOrderSidebarOpen(true)
-                                                                }}
-                                                                onCloseWhatsAppConversation={handleCloseWhatsAppConversation}
-                                                                isVisible={liveCheckoutsVisible}
-                                                            />
-                                                        )}
                                                         <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm w-full animate-in fade-in duration-300">
                                                             <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
                                                                 <i className="bi bi-inbox text-xl"></i>
@@ -3877,41 +3850,8 @@ export default function TodayOrdersPage() {
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        {/* Columna 1: Borrador, Pendiente y Live Checkouts */}
+                                                        {/* Columna 1: Borrador y Pendiente */}
                                                         <div className={`${showCol1 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
-                                                            {businessId && (
-                                                                <LiveCheckoutsPanel
-                                                                    businessId={businessId}
-                                                                    business={business}
-                                                                    orders={todayOrders}
-                                                                    activeOrders={[...orders, ...historicalOrders]}
-                                                                    products={products}
-                                                                    onCountChange={setCheckoutCount}
-                                                                    onOpenManualOrder={handleOpenManualOrderFromCheckout}
-                                                                    onInspectOrder={handleEditOrder}
-                                                                    whatsappPendingCount={whatsappActivePendingCount}
-                                                                    whatsappConversations={whatsappPendingConversations}
-                                                                    onOpenWhatsApp={() => setWhatsappModalOpen(true)}
-                                                                    onOpenWhatsAppChat={(conv, initialTab, resolvedProfile, activeOrder) => {
-                                                                        setActiveWhatsAppChatView({
-                                                                            docId: conv.docId || conv.id,
-                                                                            conversation: conv,
-                                                                            initialTab,
-                                                                            resolvedProfile,
-                                                                            activeOrder
-                                                                        })
-                                                                    }}
-                                                                    onSelectWhatsAppConversation={(conv, draft) => {
-                                                                        setSelectedWhatsAppConversation(conv)
-                                                                        setSelectedWhatsAppDraft(draft || null)
-                                                                        setSelectedOrderForEdit(null)
-                                                                        setManualSidebarMode('create')
-                                                                        setManualOrderSidebarOpen(true)
-                                                                    }}
-                                                                    onCloseWhatsAppConversation={handleCloseWhatsAppConversation}
-                                                                    isVisible={liveCheckoutsVisible}
-                                                                />
-                                                            )}
                                                             <OrderStatusColumn
                                                                 statuses={['borrador', 'pending']}
                                                                 orders={todayOrders}
@@ -3986,21 +3926,12 @@ export default function TodayOrdersPage() {
                                                                 className="text-left group cursor-pointer hover:bg-gray-50 rounded-lg px-1.5 -mx-1.5 transition-colors"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
-                                                                    setLiveCheckoutsVisible(prev => !(prev ?? (checkoutCount > 0 || whatsappActivePendingCount > 0)))
+                                                                    setLiveCheckoutsFullScreenOpen(true)
                                                                 }}
-                                                                title="Mostrar u ocultar Clientes comprando ahora"
+                                                                title="Abrir Clientes comprando ahora"
                                                             >
                                                                 <div className="flex items-center gap-1.5 mb-1">
                                                                     <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider group-hover:text-blue-500 transition-colors">Visitas Hoy</p>
-                                                                    {checkoutCount > 0 && (
-                                                                        <span
-                                                                            className="inline-flex items-center gap-1 bg-blue-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-2xs"
-                                                                            title={`${checkoutCount} cliente${checkoutCount !== 1 ? 's' : ''} comprando ahora`}
-                                                                        >
-                                                                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
-                                                                            {checkoutCount}
-                                                                        </span>
-                                                                    )}
                                                                 </div>
                                                                 <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                                                     <i className="bi bi-people text-gray-400 text-sm"></i>
@@ -4170,41 +4101,42 @@ export default function TodayOrdersPage() {
                                 <i className="bi bi-plus-lg text-2xl"></i>
                             </button>
 
-                            <PaymentManagementModals
-                                isOpen={paymentModalOpen}
-                                onClose={() => setPaymentModalOpen(false)}
-                                order={selectedOrderForPayment}
-                                onOrderUpdated={handleOrderUpdatedFromModal}
-                            />
-
-                            <DeliveryStatusModal
-                                isOpen={deliveryStatusModalOpen}
-                                onClose={() => setDeliveryStatusModalOpen(false)}
-                                order={selectedOrderForStatusModal}
-                                deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
-                                availableDeliveries={availableDeliveries}
-                                canChangeDelivery={canChangeDelivery}
-                                onDeliveryAssign={handleDeliveryAssignment}
-                                deliveryServiceType={business?.deliveryServiceType ?? 'fuddi'}
-                                defaultDeliveryId={business?.defaultDeliveryId}
-                                business={business}
-                                onUpdateDefaultDelivery={handleUpdateDefaultDelivery}
-                                onAutoAssignFuddi={handleAutoAssignFuddi}
-                                onWhatsApp={() => {
-                                    if (selectedOrderForStatusModal) {
-                                        handleSendWhatsAppToDelivery(selectedOrderForStatusModal)
-                                        setDeliveryStatusModalOpen(false)
-                                    }
-                                }}
-                            />
-
-                            <CustomerContactModal
-                                isOpen={customerContactModalOpen}
-                                onClose={() => setCustomerContactModalOpen(false)}
-                                order={selectedOrderForCustomerContact}
-                            />
                         </>
                     )}
+
+                    <PaymentManagementModals
+                        isOpen={paymentModalOpen}
+                        onClose={() => setPaymentModalOpen(false)}
+                        order={selectedOrderForPayment}
+                        onOrderUpdated={handleOrderUpdatedFromModal}
+                    />
+
+                    <DeliveryStatusModal
+                        isOpen={deliveryStatusModalOpen}
+                        onClose={() => setDeliveryStatusModalOpen(false)}
+                        order={selectedOrderForStatusModal}
+                        deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
+                        availableDeliveries={availableDeliveries}
+                        canChangeDelivery={canChangeDelivery}
+                        onDeliveryAssign={handleDeliveryAssignment}
+                        deliveryServiceType={business?.deliveryServiceType ?? 'fuddi'}
+                        defaultDeliveryId={business?.defaultDeliveryId}
+                        business={business}
+                        onUpdateDefaultDelivery={handleUpdateDefaultDelivery}
+                        onAutoAssignFuddi={handleAutoAssignFuddi}
+                        onWhatsApp={() => {
+                            if (selectedOrderForStatusModal) {
+                                handleSendWhatsAppToDelivery(selectedOrderForStatusModal)
+                                setDeliveryStatusModalOpen(false)
+                            }
+                        }}
+                    />
+
+                    <CustomerContactModal
+                        isOpen={customerContactModalOpen}
+                        onClose={() => setCustomerContactModalOpen(false)}
+                        order={selectedOrderForCustomerContact}
+                    />
 
                     <ManualOrderSidebar
                         isOpen={manualOrderSidebarOpen}

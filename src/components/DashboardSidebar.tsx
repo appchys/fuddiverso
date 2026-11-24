@@ -1,7 +1,7 @@
 'use client'
 
-import React from 'react'
-import { BusinessAdministrator } from '@/types'
+import React, { useState } from 'react'
+import { Business, BusinessAdministrator } from '@/types'
 
 interface DashboardSidebarProps {
     sidebarOpen: boolean
@@ -29,6 +29,11 @@ interface DashboardSidebarProps {
     } | null
     onLogout: () => void
     currentBusinessName?: string
+    business?: Business | null
+    businesses?: Business[]
+    loadingBusinesses?: boolean
+    onBusinessChange?: (businessId: string) => void
+    onOpenBusinessSelector?: () => void
     userRole?: 'owner' | 'admin' | 'manager' | 'atencion_cliente' | null
     permissions?: BusinessAdministrator['permissions']
     canManageAdmins?: boolean
@@ -54,10 +59,18 @@ export default function DashboardSidebar({
     ordersSubTab = 'today',
     setOrdersSubTab,
     currentBusinessName,
+    business,
+    businesses = [],
+    loadingBusinesses = false,
+    onBusinessChange,
+    onOpenBusinessSelector,
     userRole,
     permissions,
     canManageAdmins: canManageAdminsProp
 }: DashboardSidebarProps) {
+    const [isBusinessListOpen, setIsBusinessListOpen] = useState(false)
+    const displayBusinesses = businesses.length > 0 ? businesses : (business ? [business] : [])
+
     const isOwner = userRole === 'owner'
     const isAtencionCliente = userRole === 'atencion_cliente'
 
@@ -100,6 +113,101 @@ export default function DashboardSidebar({
                     <i className="bi bi-x-lg text-lg"></i>
                 </button>
             </div>
+
+            {/* Selector de Tiendas y Sucursales */}
+            {onBusinessChange && (business || displayBusinesses.length > 0) && (
+                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/40">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const next = !isBusinessListOpen
+                            setIsBusinessListOpen(next)
+                            if (next) onOpenBusinessSelector?.()
+                        }}
+                        className="w-full flex items-center gap-2.5 bg-white hover:bg-gray-50 border border-gray-200/80 px-2.5 py-2 rounded-xl transition-colors text-left shadow-2xs"
+                        title="Cambiar de tienda"
+                    >
+                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200/70">
+                            {business?.image ? (
+                                <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                    <i className="bi bi-shop text-sm"></i>
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-gray-900 truncate">
+                                {business?.name || currentBusinessName || 'Seleccionar tienda'}
+                            </p>
+                            {business?.branchName && business.branchName !== business.name && (
+                                <p className="text-[10px] font-semibold text-rose-600 truncate">
+                                    {business.branchName}
+                                </p>
+                            )}
+                        </div>
+                        {loadingBusinesses ? (
+                            <i className="bi bi-arrow-repeat animate-spin text-rose-500 text-xs shrink-0"></i>
+                        ) : (
+                            <i className={`bi bi-chevron-${isBusinessListOpen ? 'up' : 'down'} text-gray-400 text-xs shrink-0`}></i>
+                        )}
+                    </button>
+
+                    {isBusinessListOpen && (
+                        <div className="mt-2 bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden max-h-60 overflow-y-auto divide-y divide-gray-100">
+                            {displayBusinesses.map((biz) => {
+                                const isSelected = business?.id === biz.id
+                                return (
+                                    <button
+                                        key={biz.id}
+                                        type="button"
+                                        onClick={() => {
+                                            onBusinessChange(biz.id)
+                                            setIsBusinessListOpen(false)
+                                        }}
+                                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-rose-50/50 transition-colors ${
+                                            isSelected ? 'bg-rose-50/80' : ''
+                                        }`}
+                                    >
+                                        <div className="w-7 h-7 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200/70">
+                                            {biz.image ? (
+                                                <img src={biz.image} alt={biz.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                                    <i className="bi bi-shop text-xs"></i>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className={`text-xs truncate ${isSelected ? 'font-bold text-gray-900' : 'font-medium text-gray-700'}`}>
+                                                {biz.name}
+                                            </p>
+                                            {biz.branchName && biz.branchName !== biz.name && (
+                                                <span className="text-[10px] font-semibold text-rose-600 truncate block">
+                                                    {biz.branchName}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <a
+                                                href={`/${biz.username}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="p-1 text-gray-400 hover:text-rose-600 rounded transition-colors"
+                                                title="Ver tienda pública"
+                                            >
+                                                <i className="bi bi-box-arrow-up-right text-xs"></i>
+                                            </a>
+                                            {isSelected && <i className="bi bi-check-circle-fill text-rose-600 text-sm"></i>}
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Navegación Principal Organizada por Secciones (Tema Claro) */}
             <div
