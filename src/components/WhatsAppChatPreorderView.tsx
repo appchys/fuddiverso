@@ -14,6 +14,7 @@ import { Motorbike } from 'lucide-react'
 import type { WhatsAppPreorderDraft, WhatsAppPreorderDraftItem } from '@/components/LiveCheckoutsPanel'
 import { usePersistedPreorderState, buildBasePreorderState } from '@/hooks/usePersistedPreorderState'
 import { formatWhatsAppMessageText } from '@/lib/whatsapp-format'
+import { WhatsAppOrderNoticeCard } from '@/components/WhatsAppOrderNoticeCard'
 
 export type PreorderTabKey = 'products' | 'timing' | 'delivery' | 'payment'
 
@@ -461,6 +462,8 @@ interface WhatsAppChatPreorderViewProps {
   onCloseConversation?: (docId: string) => void
   onExcludeConversation?: (conv: PendingWhatsAppConversation) => void
   onInspectOrder?: (order: any) => void
+  onAssignDelivery?: (order: any) => void
+  onPrintOrder?: (order: any) => void
   embedded?: boolean
 }
 
@@ -477,6 +480,8 @@ export function WhatsAppChatPreorderView({
   onCloseConversation,
   onExcludeConversation,
   onInspectOrder,
+  onAssignDelivery,
+  onPrintOrder,
   embedded = false,
 }: WhatsAppChatPreorderViewProps) {
   const [activeTab, setActiveTab] = useState<PreorderTabKey | null>(initialTab ?? null)
@@ -1972,67 +1977,19 @@ export function WhatsAppChatPreorderView({
             timelineEntries.map((entry) => {
               if (entry.kind === 'order') {
                 const { order, createdMs } = entry
-                const items = Array.isArray(order.items) ? order.items : []
-                const isPickupOrder = order.delivery?.type === 'pickup'
                 const orderTime = formatWhatsAppTime(createdMs || Date.now())
-                const canInspect = Boolean(onInspectOrder && !order._fallbackSummary)
                 return (
-                  <div
+                  <WhatsAppOrderNoticeCard
                     key={entry.key}
-                    onClick={canInspect ? () => onInspectOrder?.(order) : undefined}
-                    title={canInspect ? 'Clic para ver o editar pedido' : undefined}
-                    className={`self-center my-1 w-full max-w-[88%] sm:max-w-[75%] bg-[#FFF4D2] border border-[#EFE0B0] rounded-xl px-3.5 py-2 text-xs text-amber-950 shadow-2xs space-y-1.5 ${
-                      canInspect ? 'cursor-pointer hover:bg-[#FDECC0] transition-colors' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-black text-amber-950 inline-flex items-center gap-1.5">
-                        <i className="bi bi-bag-check-fill text-amber-700"></i>
-                        Pedido creado
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/80 text-amber-900 border border-[#E8D59C]">
-                        {getOrderStatusLabel(order.status)}
-                      </span>
-                    </div>
-
-                    {items.length > 0 ? (
-                      <div className="space-y-0.5 text-[11px] text-amber-950/90">
-                        {items.map((it: any, i: number) => (
-                          <p key={i} className="leading-snug">
-                            <span className="font-bold">{it.quantity || 1}x</span>{' '}
-                            {it.productName || it.name || 'Producto'}
-                            {(it.variant || it.variantName) ? ` (${it.variant || it.variantName})` : ''}
-                          </p>
-                        ))}
-                      </div>
-                    ) : order._fallbackSummary ? (
-                      <p className="text-[11px] text-amber-950/90 leading-snug">{order._fallbackSummary}</p>
-                    ) : null}
-
-                    {order.delivery && (
-                      <p className="text-[11px] text-amber-900/80 flex items-center gap-1">
-                        <i className={`bi ${isPickupOrder ? 'bi-shop' : 'bi-geo-alt-fill'} shrink-0 text-amber-700`}></i>
-                        <span className="truncate">
-                          {isPickupOrder
-                            ? 'Recoger en tienda'
-                            : (order.delivery.references || order.delivery.address || 'Delivery')}
-                        </span>
-                      </p>
-                    )}
-
-                    <div className="flex items-center justify-between gap-3 pt-1 border-t border-[#EAD9A4]">
-                      {typeof order.total === 'number' ? (
-                        <span className="font-black text-amber-950 text-xs">
-                          Total: ${order.total.toFixed(2)}
-                        </span>
-                      ) : (
-                        <span></span>
-                      )}
-                      <span className="text-[10px] text-amber-900/70 inline-flex items-center gap-1 ml-auto">
-                        {orderTime}
-                      </span>
-                    </div>
-                  </div>
+                    order={order}
+                    timeLabel={orderTime}
+                    defaultExpanded={false}
+                    collapsible={true}
+                    className="self-center my-1 max-w-[88%] sm:max-w-[75%]"
+                    onAssignDelivery={onAssignDelivery}
+                    onPrintOrder={onPrintOrder}
+                    onEditOrder={onInspectOrder}
+                  />
                 )
               }
 
