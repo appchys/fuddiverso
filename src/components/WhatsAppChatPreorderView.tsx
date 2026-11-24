@@ -243,6 +243,30 @@ function formatWhatsAppTime(dateInput: Date | number | undefined | null): string
 
 const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '🙏', '👌']
 
+function autoCapitalizeSentences(prev: string, next: string): string {
+  // Solo auto-capitalizar cuando se añade texto (no al borrar) y respetar atajos / y URLs
+  if (next.length <= prev.length) return next
+  const trimmedStart = next.trimStart()
+  if (
+    trimmedStart.startsWith('/') ||
+    /^https?:\/\//i.test(trimmedStart) ||
+    /^www\./i.test(trimmedStart)
+  ) {
+    return next
+  }
+  return next.replace(
+    /(^|[.!?]\s+|\n)([¡¿"'(]*)([a-záéíóúüñ])/g,
+    (match, prefix: string, opener: string, letter: string, offset: number, full: string) => {
+      // Evitar capitalizar dentro de una URL (ej. "fuddi.shop")
+      const before = full.slice(Math.max(0, offset - 32), offset + prefix.length)
+      if (/https?:\/\/\S*$/i.test(before) || /www\.\S*$/i.test(before)) {
+        return match
+      }
+      return `${prefix}${opener}${letter.toUpperCase()}`
+    }
+  )
+}
+
 function getTodayDateString(): string {
   const now = new Date()
   const yyyy = now.getFullYear()
@@ -1092,12 +1116,20 @@ export function WhatsAppChatPreorderView({
   const cashAmountInputRef = useRef<HTMLInputElement | null>(null)
   const transferAmountInputRef = useRef<HTMLInputElement | null>(null)
 
+  const extractClientIdString = (value: unknown): string => {
+    if (typeof value === 'string') return value.trim()
+    if (value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string') {
+      return (value as { id: string }).id.trim()
+    }
+    return ''
+  }
+
   // Resolver perfil del cliente si no vino precargado
   useEffect(() => {
     if (resolvedProfile) return
     let cancelled = false
     const candidatePhone = (conversation.phone || conversation.rawPhone || '').trim()
-    const existingClientId = (conversation.fuddiClientId || '').trim()
+    const existingClientId = extractClientIdString(conversation.fuddiClientId)
     if (!existingClientId && candidatePhone.replace(/\D/g, '').length < 9) return
 
     ;(async () => {
@@ -1260,10 +1292,14 @@ export function WhatsAppChatPreorderView({
 
     setSavingNewClient(true)
     try {
-      const newClientId = await createClient({
+      const createdClient = await createClient({
         celular: rawPhoneToSave,
         nombres: trimmedName,
       })
+      const newClientId = extractClientIdString(createdClient)
+      if (!newClientId) {
+        throw new Error('No se pudo obtener el ID del cliente creado')
+      }
       if (businessId && conversation.docId) {
         updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
           fuddiClientId: newClientId,
@@ -1628,7 +1664,8 @@ export function WhatsAppChatPreorderView({
     const refText = customLocationReference.trim()
     if (!refText) return
     const clientKey =
-      (resolvedProfile?.clientId || conversation.fuddiClientId || '').trim() ||
+      extractClientIdString(resolvedProfile?.clientId) ||
+      extractClientIdString(conversation.fuddiClientId) ||
       (resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || '').replace(/\D/g, '')
     if (!clientKey) return
 
@@ -3456,9 +3493,12 @@ export function WhatsAppChatPreorderView({
             <input
               ref={replyInputRef}
               type="text"
+              autoCapitalize="sentences"
+              spellCheck={true}
               value={replyText}
               onChange={(e) => {
-                setReplyText(e.target.value)
+                const rawVal = e.target.value
+                setReplyText((prev) => autoCapitalizeSentences(prev, rawVal))
                 setQuickReplyDismissed(false)
               }}
               onKeyDown={(e) => {

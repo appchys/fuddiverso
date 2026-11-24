@@ -41,6 +41,22 @@ export function WhatsAppBaileysModal({
   const [linkMode, setLinkMode] = useState<'qr' | 'phone'>('qr')
   const [pairingPhoneInput, setPairingPhoneInput] = useState('')
   const [copiedCode, setCopiedCode] = useState(false)
+  const [testPhoneInput, setTestPhoneInput] = useState('')
+  const [sendingTest, setSendingTest] = useState(false)
+  const [testFeedback, setTestFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
+  const isAdminSession = businessId === '__fuddi_admin__'
+
+  const buildBridgeHeaders = useCallback(
+    async (withJson = false): Promise<Record<string, string>> => {
+      const headers: Record<string, string> = {}
+      if (withJson) headers['Content-Type'] = 'application/json'
+      const idToken = await auth.currentUser?.getIdToken().catch(() => null)
+      if (idToken) headers.Authorization = `Bearer ${idToken}`
+      if (isAdminSession) headers['x-fuddi-admin'] = 'authenticated'
+      return headers
+    },
+    [isAdminSession]
+  )
 
   const applyApiData = useCallback(
     (data: any) => {
@@ -96,12 +112,12 @@ export function WhatsAppBaileysModal({
     const pollLoop = async () => {
       while (!cancelled) {
         try {
-          const idToken = await auth.currentUser?.getIdToken()
+          const headers = await buildBridgeHeaders(false)
           const res = await fetch(
             `/api/whatsapp/bridge?businessId=${encodeURIComponent(businessId)}&hold=true`,
             {
               cache: 'no-store',
-              headers: idToken ? { Authorization: `Bearer ${idToken}` } : undefined,
+              headers,
             }
           )
           if (res.ok && !cancelled) {
@@ -136,13 +152,10 @@ export function WhatsAppBaileysModal({
     }
     setLoadingAction(true)
     try {
-      const idToken = await auth.currentUser?.getIdToken()
+      const headers = await buildBridgeHeaders(true)
       const res = await fetch('/api/whatsapp/bridge', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-        },
+        headers,
         body: JSON.stringify({
           action: usePhoneCode ? 'pair-code' : 'connect',
           businessId,
@@ -169,19 +182,54 @@ export function WhatsAppBaileysModal({
     if (!businessId || loadingAction) return
     setLoadingAction(true)
     try {
-      const idToken = await auth.currentUser?.getIdToken()
+      const headers = await buildBridgeHeaders(true)
       const res = await fetch('/api/whatsapp/bridge', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-        },
+        headers,
         body: JSON.stringify({ action: 'disconnect', businessId, logout: true }),
       })
       const data = await res.json()
       applyApiData(data)
     } finally {
       setLoadingAction(false)
+    }
+  }
+
+  const handleSendAdminTestMessage = async () => {
+    if (!businessId || !testPhoneInput.trim() || sendingTest) return
+    setSendingTest(true)
+    setTestFeedback(null)
+    try {
+      const headers = await buildBridgeHeaders(true)
+      const res = await fetch('/api/whatsapp/bridge', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          action: 'send',
+          businessId,
+          docId: '',
+          phone: testPhoneInput.trim(),
+          text: '🛵 *[Fuddi Admin]* ¡Notificación de prueba! Tu tienda recibirá por aquí el detalle de cada nuevo pedido automáticamente.',
+          replyId: `admin_test_${Date.now()}`,
+          linkPreview: null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data?.ok) {
+        setTestFeedback({ ok: true, msg: '¡Mensaje de prueba enviado con éxito!' })
+      } else {
+        setTestFeedback({
+          ok: false,
+          msg: data?.error || 'No se pudo enviar el mensaje de prueba.',
+        })
+      }
+    } catch (err: any) {
+      setTestFeedback({
+        ok: false,
+        msg: err?.message || 'Error de red al enviar prueba.',
+      })
+    } finally {
+      setSendingTest(false)
     }
   }
 
@@ -209,10 +257,14 @@ export function WhatsAppBaileysModal({
             </div>
             <div>
               <h3 className="text-sm font-black text-gray-900 tracking-tight leading-tight">
-                Dispositivo vinculado de WhatsApp
+                {isAdminSession
+                  ? 'WhatsApp Administrador (Notificaciones)'
+                  : 'Dispositivo vinculado de WhatsApp'}
               </h3>
               <p className="text-[11px] text-gray-500 font-medium">
-                Recibe y responde mensajes directo desde Fuddi
+                {isAdminSession
+                  ? 'Notifica automáticamente a las tiendas cuando reciben un pedido'
+                  : 'Recibe y responde mensajes directo desde Fuddi'}
               </p>
             </div>
           </div>
@@ -238,14 +290,61 @@ export function WhatsAppBaileysModal({
                     WhatsApp conectado
                   </p>
                   <p className="text-sm font-black text-gray-900 truncate">
-                    {info.connectedName || 'Tienda vinculada'}
+                    {info.connectedName || (isAdminSession ? 'Admin vinculado' : 'Tienda vinculada')}
                     {info.connectedPhone ? ` · ${info.connectedPhone}` : ''}
                   </p>
                 </div>
               </div>
               <p className="text-xs text-emerald-900/80 leading-relaxed">
-                Los mensajes entrantes aparecen automáticamente en <strong>Clientes comprando ahora</strong> y puedes responder desde el chat.
+                {isAdminSession ? (
+                  <>
+                    Cuando una tienda reciba un nuevo pedido, se le enviará automáticamente el resumen completo a su número de WhatsApp configurado (igual que el bot de Telegram).
+                  </>
+                ) : (
+                  <>
+                    Los mensajes entrantes aparecen automáticamente en <strong>Clientes comprando ahora</strong> y puedes responder desde el chat.
+                  </>
+                )}
               </p>
+              {isAdminSession && (
+                <div className="bg-white/90 border border-emerald-200/80 rounded-xl p-3 space-y-2">
+                  <p className="text-[11px] font-bold text-gray-700">
+                    Probar envío a un número de tienda
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="tel"
+                      value={testPhoneInput}
+                      onChange={(e) => setTestPhoneInput(e.target.value)}
+                      placeholder="Ej. 0991234567"
+                      className="flex-1 min-w-0 h-8 px-2.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30 text-gray-900"
+                    />
+                    <button
+                      type="button"
+                      style={{ minHeight: 0 }}
+                      disabled={sendingTest || testPhoneInput.replace(/\D/g, '').length < 9}
+                      onClick={() => void handleSendAdminTestMessage()}
+                      className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                    >
+                      {sendingTest ? (
+                        <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                      ) : (
+                        <i className="bi bi-send-fill text-[11px]"></i>
+                      )}
+                      <span>Probar</span>
+                    </button>
+                  </div>
+                  {testFeedback && (
+                    <p
+                      className={`text-[11px] font-semibold ${
+                        testFeedback.ok ? 'text-emerald-700' : 'text-red-600'
+                      }`}
+                    >
+                      {testFeedback.msg}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="pt-1 flex justify-end">
                 <button
                   type="button"
@@ -368,6 +467,17 @@ export function WhatsAppBaileysModal({
                   <p className="text-xs font-bold text-gray-700">
                     Generando código QR de vinculación...
                   </p>
+                  {!loadingAction && (
+                    <button
+                      type="button"
+                      style={{ minHeight: 0 }}
+                      onClick={() => void handleDisconnect()}
+                      className="h-8 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <i className="bi bi-arrow-counterclockwise"></i>
+                      Cancelar y reintentar
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">

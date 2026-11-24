@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { ensureAdminAuth, ensureAdminDb } from '@/lib/firebase-admin'
-import { getWhatsAppBaileysManager } from '@/lib/whatsapp-baileys-manager'
+import {
+  ADMIN_WHATSAPP_SESSION_ID,
+  getWhatsAppBaileysManager,
+} from '@/lib/whatsapp-baileys-manager'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -8,7 +11,16 @@ export const maxDuration = 60
 
 const WORKER_URL = (process.env.WHATSAPP_WORKER_URL || '').trim().replace(/\/+$/, '')
 const WORKER_SECRET = (process.env.WHATSAPP_WORKER_SECRET || '').trim()
-const ALLOWED_ACTIONS = new Set(['connect', 'pair-code', 'disconnect', 'send', 'react', 'mark-read'])
+const ALLOWED_ACTIONS = new Set([
+  'connect',
+  'pair-code',
+  'disconnect',
+  'send',
+  'react',
+  'mark-read',
+  'notify-store-order',
+  'publish-status',
+])
 const MAX_MESSAGE_LENGTH = 4000
 
 async function verifyBusinessAccess(
@@ -17,6 +29,31 @@ async function verifyBusinessAccess(
 ): Promise<{ ok: true; uid: string } | { ok: false; response: NextResponse }> {
   const adminAuth = ensureAdminAuth()
   const adminDb = ensureAdminDb()
+
+  // Para la sesión global de WhatsApp del Administrador (/admin)
+  if (businessId === ADMIN_WHATSAPP_SESSION_ID) {
+    const adminHeader = (req.headers.get('x-fuddi-admin') || '').trim()
+    if (adminHeader === 'authenticated') {
+      return { ok: true, uid: 'fuddi-admin' }
+    }
+    const authHeader = req.headers.get('authorization') || ''
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+    if (token && adminAuth) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(token)
+        return { ok: true, uid: String(decoded?.uid || 'fuddi-admin') }
+      } catch {
+        // continuar a respuesta 401
+      }
+    }
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'Se requiere sesión de Administrador (/admin) para gestionar este WhatsApp' },
+        { status: 401 }
+      ),
+    }
+  }
 
   if (!adminAuth || !adminDb) {
     return {
@@ -192,6 +229,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (action === 'publish-status') {
+      const text = String(body?.text || '').trim()
+      if (!text || text.length > 700) {
+        return NextResponse.json(
+          { error: 'El estado debe tener entre 1 y 700 caracteres' },
+          { status: 400 }
+        )
+      }
+    }
+
     if (WORKER_URL) {
       return await proxyToWorker('POST', '', body)
     }
@@ -265,6 +312,38 @@ export async function POST(req: NextRequest) {
         phone,
         messageIds
       )
+      return NextResponse.json(result)
+    }
+
+    if (action === 'notify-store-order') {
+      const targetBusinessId = String(body?.targetBusinessId || body?.businessId || '').trim()
+      const orderId = String(body?.orderId || '').trim()
+      const orderData = body?.orderData && typeof body.orderData === 'object' ? body.orderData : undefined
+      const result = await manager.notifyStoreNewOrderViaAdminWhatsApp({
+        businessId: targetBusinessId,
+        orderId,
+        orderData,
+      })
+      return NextResponse.json(result)
+    }
+
+    if (action === 'publish-status') {
+      const text = String(body?.text || '').trim()
+      const url = String(body?.url || '').trim() || undefined
+      const backgroundColor = String(body?.backgroundColor || '').trim() || undefined
+      const font = typeof body?.font === 'number' ? body.font : undefined
+      const linkPreview =
+        body && Object.prototype.hasOwnProperty.call(body, 'linkPreview')
+          ? body.linkPreview
+          : undefined
+
+      const result = await manager.publishStatus(businessId, {
+        text,
+        url,
+        linkPreview,
+        backgroundColor,
+        font,
+      })
       return NextResponse.json(result)
     }
 

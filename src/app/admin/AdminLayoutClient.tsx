@@ -3,6 +3,11 @@
 import { Suspense, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { doc, onSnapshot } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+import { WhatsAppBaileysModal, type BaileysStatus } from '@/components/WhatsAppBaileysModal'
+
+const ADMIN_WHATSAPP_ID = '__fuddi_admin__'
 
 export default function AdminLayoutClient({
   children,
@@ -104,6 +109,28 @@ function AdminLayoutContent({
   const [loading, setLoading] = useState(true)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
+  const [showAdminWaModal, setShowAdminWaModal] = useState(false)
+  const [adminWaStatus, setAdminWaStatus] = useState<BaileysStatus>('disconnected')
+  const [adminWaPhone, setAdminWaPhone] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const unsub = onSnapshot(
+      doc(db, 'businesses', ADMIN_WHATSAPP_ID, 'whatsappConnection', 'status'),
+      (snap) => {
+        if (!snap.exists()) return
+        const data = snap.data() || {}
+        const status: BaileysStatus =
+          data.status === 'connected' || data.status === 'qr' || data.status === 'connecting'
+            ? data.status
+            : 'disconnected'
+        setAdminWaStatus(status)
+        setAdminWaPhone(data.connectedPhone || null)
+      },
+      () => {}
+    )
+    return () => unsub()
+  }, [isAuthenticated])
 
   const navLinks = [
     { href: '/admin', label: 'Negocios', icon: 'bi-shop' },
@@ -186,6 +213,24 @@ function AdminLayoutContent({
 
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
+            onClick={() => setShowAdminWaModal(true)}
+            className="h-9 px-2.5 flex items-center gap-1.5 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded-xl text-xs font-bold transition-colors"
+            title="Vincular WhatsApp Administrador para notificar pedidos a tiendas"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                adminWaStatus === 'connected'
+                  ? 'bg-green-500'
+                  : adminWaStatus === 'qr' || adminWaStatus === 'connecting'
+                    ? 'bg-amber-400 animate-pulse'
+                    : 'bg-gray-300'
+              }`}
+            ></span>
+            <i className="bi bi-whatsapp text-sm"></i>
+            <span>WA Admin</span>
+          </button>
+          <button
             onClick={() => setIsMoreMenuOpen(true)}
             className="w-9 h-9 flex items-center justify-center text-gray-600 active:bg-gray-100 rounded-xl transition-colors"
             title="Más opciones"
@@ -218,7 +263,7 @@ function AdminLayoutContent({
       `}>
         <div className="h-full flex flex-col p-6">
           {/* Logo */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20">
                 <i className="bi bi-rocket-takeoff-fill text-xl text-white"></i>
@@ -235,6 +280,32 @@ function AdminLayoutContent({
               <i className="bi bi-x-lg text-xl"></i>
             </button>
           </div>
+
+          {/* Botón WhatsApp Administrador (siempre visible arriba) */}
+          <button
+            type="button"
+            onClick={() => setShowAdminWaModal(true)}
+            className="w-full mb-5 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-white/5 hover:bg-white/10 text-gray-200 border border-white/10 transition-all duration-200 cursor-pointer"
+            title="Vincular WhatsApp Administrador para enviar notificaciones de pedidos a las tiendas"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <i className="bi bi-whatsapp text-green-400 text-base shrink-0"></i>
+              <span className="truncate">
+                {adminWaStatus === 'connected'
+                  ? `WA Admin${adminWaPhone ? ` · ${adminWaPhone}` : ' vinculado'}`
+                  : 'Vincular WA Admin'}
+              </span>
+            </span>
+            <span
+              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                adminWaStatus === 'connected'
+                  ? 'bg-green-400 shadow-sm shadow-green-400/50'
+                  : adminWaStatus === 'qr' || adminWaStatus === 'connecting'
+                    ? 'bg-amber-400 animate-pulse'
+                    : 'bg-gray-500'
+              }`}
+            ></span>
+          </button>
 
           {/* Navigation */}
           <nav className="flex-1 space-y-1.5 overflow-y-auto pr-1">
@@ -287,6 +358,13 @@ function AdminLayoutContent({
           {children}
         </div>
       </main>
+
+      <WhatsAppBaileysModal
+        isOpen={showAdminWaModal}
+        businessId={ADMIN_WHATSAPP_ID}
+        onClose={() => setShowAdminWaModal(false)}
+        onStatusChange={setAdminWaStatus}
+      />
 
       {/* Bottom Sheet Móvil: Más Opciones */}
       {isMoreMenuOpen && (

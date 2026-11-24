@@ -2103,7 +2103,12 @@ export async function confirmWhatsAppConversationsForOrder(params: {
       snap.docs.forEach((docSnap) => {
         const data = docSnap.data() || {}
         const docPhone = normalizeWhatsAppConversationPhone(data.phone || data.rawPhone)
-        const docClientId = String(data.fuddiClientId || '').trim()
+        const docClientId =
+          typeof data.fuddiClientId === 'string'
+            ? data.fuddiClientId.trim()
+            : data.fuddiClientId && typeof data.fuddiClientId === 'object' && typeof data.fuddiClientId.id === 'string'
+              ? data.fuddiClientId.id.trim()
+              : ''
         const docName = String(data.effectiveName || data.fuddiClientName || data.displayName || '')
           .trim()
           .toLowerCase()

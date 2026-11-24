@@ -5,6 +5,58 @@ import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore'
 import { getMessaging } from 'firebase-admin/messaging'
 import * as fs from 'fs'
 import * as path from 'path'
+import {
+  ADMIN_WHATSAPP_SESSION_ID,
+  getWhatsAppBaileysManager,
+} from '@/lib/whatsapp-baileys-manager'
+
+const WORKER_URL = (process.env.WHATSAPP_WORKER_URL || '').trim().replace(/\/+$/, '')
+const WORKER_SECRET = (process.env.WHATSAPP_WORKER_SECRET || '').trim()
+
+async function triggerStoreWhatsAppOrderNotification(params: {
+  businessId: string
+  orderId?: string
+  orderData?: any
+}) {
+  const { businessId, orderId, orderData } = params
+  if (!businessId || !orderId) return
+
+  if (WORKER_URL) {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (WORKER_SECRET) {
+        headers['x-worker-secret'] = WORKER_SECRET
+      }
+      await fetch(`${WORKER_URL}/bridge`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          action: 'notify-store-order',
+          businessId: ADMIN_WHATSAPP_SESSION_ID,
+          targetBusinessId: businessId,
+          orderId,
+          orderData,
+        }),
+        cache: 'no-store',
+      })
+      return
+    } catch (err) {
+      console.warn('[Notifications] Falló envío vía worker, intentando local:', err)
+    }
+  }
+
+  try {
+    await getWhatsAppBaileysManager().notifyStoreNewOrderViaAdminWhatsApp({
+      businessId,
+      orderId,
+      orderData,
+    })
+  } catch (err) {
+    console.warn('[Notifications] Error notificando orden por WhatsApp Admin:', err)
+  }
+}
 
 // Inicializar Firebase Admin si aún no está inicializado
 let adminDb: any
@@ -172,15 +224,22 @@ export async function POST(request: NextRequest) {
     // Guardar en Firestore usando Firebase Admin SDK
     if (adminDb) {
       if (type === 'new_order' || !type) {
-        await sendHighPriorityFcmForStoreOrder({
-          businessId,
-          orderId,
-          title,
-          message,
-          orderData
-        })
+        await Promise.allSettled([
+          sendHighPriorityFcmForStoreOrder({
+            businessId,
+            orderId,
+            title,
+            message,
+            orderData
+          }),
+          triggerStoreWhatsAppOrderNotification({
+            businessId,
+            orderId,
+            orderData
+          })
+        ])
         return NextResponse.json(
-          { success: true, message: 'FCM push notification sent for new_order' },
+          { success: true, message: 'FCM and WhatsApp store notifications triggered for new_order' },
           { status: 200 }
         )
       }

@@ -35,6 +35,8 @@ export default function LayoutWrapper({
 
   const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isAdminRoute && !isPedidosRoute && !isTmaRoute
 
+  const isFullViewportRoute = isBusinessRoute || isAdminRoute || isDeliveryRoute || isPedidosRoute || isTmaRoute
+
   useEffect(() => {
     // Prevent pinch-to-zoom gestures on mobile devices
     const preventZoom = (e: TouchEvent) => {
@@ -50,23 +52,30 @@ export default function LayoutWrapper({
     document.addEventListener('touchstart', preventZoom, { passive: false })
     document.addEventListener('gesturestart', preventGesture)
 
-    // Attempt to hide mobile browser address bar on load
-    const hideAddressBar = () => {
-      window.scrollTo(0, 1)
-    }
-    const timer = setTimeout(hideAddressBar, 800)
+    // Attempt to hide mobile browser address bar on load (solo en rutas públicas con scroll normal)
+    const timer = !isFullViewportRoute
+      ? setTimeout(() => {
+          window.scrollTo(0, 1)
+        }, 800)
+      : null
 
     return () => {
       document.removeEventListener('touchstart', preventZoom)
       document.removeEventListener('gesturestart', preventGesture)
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
     }
-  }, [])
+  }, [isFullViewportRoute])
 
   return (
     <>
       {showHeader && <Header />}
-      <main className={`min-h-[calc(100vh+1px)] ${showHeader && !isStoreHomePage ? 'pt-16' : ''} ${isStoreHomePage ? 'md:pl-20 lg:pl-64 transition-[padding] duration-300' : ''}`}>
+      <main
+        className={`${
+          isFullViewportRoute ? 'min-h-0' : 'min-h-[calc(100vh+1px)]'
+        } ${showHeader && !isStoreHomePage ? 'pt-16' : ''} ${
+          isStoreHomePage ? 'md:pl-20 lg:pl-64 transition-[padding] duration-300' : ''
+        }`}
+      >
         {children}
       </main>
       <BottomNavigation />

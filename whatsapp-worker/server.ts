@@ -169,6 +169,39 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, result)
         }
 
+        if (action === 'notify-store-order') {
+          const targetBusinessId = String(body?.targetBusinessId || body?.businessId || '').trim()
+          const orderId = String(body?.orderId || '').trim()
+          const orderData =
+            body?.orderData && typeof body.orderData === 'object' ? body.orderData : undefined
+          const result = await manager.notifyStoreNewOrderViaAdminWhatsApp({
+            businessId: targetBusinessId,
+            orderId,
+            orderData,
+          })
+          return sendJson(res, 200, result)
+        }
+
+        if (action === 'publish-status') {
+          const text = String(body?.text || '').trim()
+          const url = String(body?.url || '').trim() || undefined
+          const backgroundColor = String(body?.backgroundColor || '').trim() || undefined
+          const font = typeof body?.font === 'number' ? body.font : undefined
+          const linkPreview =
+            body && Object.prototype.hasOwnProperty.call(body, 'linkPreview')
+              ? body.linkPreview
+              : undefined
+
+          const result = await manager.publishStatus(businessId, {
+            text,
+            url,
+            linkPreview,
+            backgroundColor,
+            font,
+          })
+          return sendJson(res, 200, result)
+        }
+
         return sendJson(res, 400, { error: 'Acción no soportada' })
       }
     }

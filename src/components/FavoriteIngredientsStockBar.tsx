@@ -265,18 +265,18 @@ export default function FavoriteIngredientsStockBar({
 
   return (
     <div className="relative" ref={containerRef}>
-      {/* Botón Disparador (Ícono en la esquina superior derecha) */}
+      {/* Botón Disparador (Ícono en el header) */}
       <button
         onClick={(e) => {
           e.stopPropagation()
           setIsOpen(!isOpen)
         }}
-        className={`relative p-1.5 sm:p-2 rounded-lg transition-all duration-200 flex items-center justify-center ${
+        className={`relative p-2 rounded-lg transition-colors ${
           isOpen
-            ? 'bg-amber-100/80 text-amber-800 shadow-sm'
+            ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'
             : stats.hasOutOfStock
-            ? 'text-rose-600 bg-rose-50 hover:bg-rose-100/80'
-            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+            ? 'text-rose-600 bg-rose-50 hover:bg-rose-100'
+            : 'text-gray-500 hover:bg-gray-100'
         }`}
         title={
           stats.hasOutOfStock
@@ -288,7 +288,7 @@ export default function FavoriteIngredientsStockBar({
         aria-label="Stock de ingredientes favoritos"
         aria-expanded={isOpen}
       >
-        <i className="bi bi-boxes text-lg sm:text-xl"></i>
+        <i className="bi bi-boxes text-xl"></i>
 
         {/* Punto de Notificación: Si hay al menos un producto sin stock */}
         {stats.hasOutOfStock ? (

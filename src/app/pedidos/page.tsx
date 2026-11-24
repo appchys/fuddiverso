@@ -1247,53 +1247,7 @@ export default function AdminPedidosPage() {
         try {
             let assignmentUpdate: any = {};
 
-            const isScheduled = previousOrder.timing?.type === 'scheduled';
-            const isDelivery = previousOrder.delivery?.type === 'delivery';
-            const hasNoDeliveryAssigned = !previousOrder.delivery?.assignedDelivery;
-            // Usar la tienda dueña de la orden (primero business activo o businesses en memoria;
-            // solo consultar Firestore si es delivery sin repartidor asignado)
-            let orderBusiness: Business | undefined =
-                (business?.id === previousOrder.businessId ? business : businessesRef.current.find(b => b.id === previousOrder.businessId)) || undefined;
-            if (!orderBusiness && isDelivery && hasNoDeliveryAssigned && previousOrder.businessId) {
-                orderBusiness = (await getBusiness(previousOrder.businessId)) || undefined;
-            }
-            const isAutoAssignMode = orderBusiness?.deliveryAssignmentMode !== 'manual';
-
-            if (isDelivery && hasNoDeliveryAssigned && isAutoAssignMode) {
-                if (previousOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, orderBusiness);
-                    if (assignedId) {
-                        assignmentUpdate['delivery.assignedDelivery'] = assignedId;
-                        const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);
-                        if (dData) {
-                            assignmentUpdate['delivery.assignedDeliveryData'] = {
-                                id: dData.id,
-                                nombres: dData.nombres,
-                                celular: dData.celular || '',
-                                fotoUrl: dData.fotoUrl || '',
-                                email: dData.email || ''
-                            };
-                        }
-                    }
-                }
-                else if (previousOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
-                    const assignedId = await autoAssignDeliveryForOrder(previousOrder, orderBusiness);
-                    if (assignedId) {
-                        assignmentUpdate['delivery.assignedDelivery'] = assignedId;
-                        const dData = availableDeliveries.find(d => d.id === assignedId) || await getDelivery(assignedId);
-                        if (dData) {
-                            assignmentUpdate['delivery.assignedDeliveryData'] = {
-                                id: dData.id,
-                                nombres: dData.nombres,
-                                celular: dData.celular || '',
-                                fotoUrl: dData.fotoUrl || '',
-                                email: dData.email || ''
-                            };
-                        }
-                    }
-                }
-            }
-
+            // La asignación de repartidor siempre es manual (no se auto-asigna al confirmar ni al preparar)
             await updateOrderStatus(orderId, newStatus, reason, 'app')
 
             if (Object.keys(assignmentUpdate).length > 0) {

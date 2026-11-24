@@ -157,7 +157,11 @@ export function WhatsAppOrderNoticeCard({
               className="flex-1 min-w-[110px] inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/90 hover:bg-white border border-[#E5D095] text-amber-950 text-[11px] font-bold shadow-2xs transition-colors cursor-pointer"
             >
               <i className={`bi bi-scooter ${hasDeliveryAssigned ? 'text-emerald-600' : 'text-amber-700'}`}></i>
-              <span>{hasDeliveryAssigned ? 'Cambiar delivery' : 'Asignar delivery'}</span>
+              <span className="truncate">
+                {hasDeliveryAssigned
+                  ? (String(order.delivery?.assignedDeliveryData?.nombres || '').trim() || 'Delivery asignado')
+                  : 'Asignar delivery'}
+              </span>
             </button>
           )}
           {onPrintOrder && (

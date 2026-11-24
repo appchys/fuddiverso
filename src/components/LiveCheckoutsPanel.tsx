@@ -371,7 +371,13 @@ export function LiveCheckoutsPanel({
             if (resolvedClientsByConvKey[convKey] || resolvingConvKeysRef.current.has(convKey)) return;
 
             const candidatePhone = (conv.phone || conv.rawPhone || '').trim();
-            const existingClientId = (conv.fuddiClientId || '').trim();
+            const rawFuddiClientId = conv.fuddiClientId as unknown;
+            const existingClientId =
+                typeof rawFuddiClientId === 'string'
+                    ? rawFuddiClientId.trim()
+                    : rawFuddiClientId && typeof rawFuddiClientId === 'object' && typeof (rawFuddiClientId as { id?: unknown }).id === 'string'
+                        ? (rawFuddiClientId as { id: string }).id.trim()
+                        : '';
             if (!existingClientId && candidatePhone.replace(/\D/g, '').length < 9) return;
 
             resolvingConvKeysRef.current.add(convKey);
@@ -581,12 +587,9 @@ export function LiveCheckoutsPanel({
                                     <i className="bi bi-arrow-left text-base"></i>
                                 </button>
                             )}
-                            <span className="relative flex h-2.5 w-2.5 shrink-0">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-600"></span>
-                            </span>
+                            <i className="bi bi-chat-dots-fill text-blue-600 text-base shrink-0"></i>
                             <h2 className="text-sm sm:text-base font-black text-gray-900 tracking-tight truncate">
-                                Clientes comprando ahora
+                                Mensajes
                             </h2>
                             {unifiedEntries.length > 0 && (
                                 <span className="shrink-0 bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded-full shadow-xs">
@@ -666,19 +669,16 @@ export function LiveCheckoutsPanel({
     if (isVisible === null && !hasWhatsAppActivity && (loading || checkouts.length === 0)) return null;
 
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-blue-100/80 mb-6 transition-all">
+        <div className={`bg-white rounded-xl shadow-sm border border-blue-100/80 mb-6 lg:mb-0 transition-all flex flex-col ${isExpanded ? 'flex-1 h-full min-h-0' : ''}`}>
             <button
                 type="button"
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full px-4 py-3 flex justify-between items-center bg-gradient-to-r from-blue-50/80 to-indigo-50/50 hover:from-blue-100/70 hover:to-indigo-100/60 transition-colors text-left rounded-t-xl"
+                className="shrink-0 w-full px-4 py-3 flex justify-between items-center bg-gradient-to-r from-blue-50/80 to-indigo-50/50 hover:from-blue-100/70 hover:to-indigo-100/60 transition-colors text-left rounded-t-xl"
             >
                 <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="relative flex h-3 w-3 shrink-0">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600 shadow-sm shadow-blue-300"></span>
-                    </span>
+                    <i className="bi bi-chat-dots-fill text-blue-600 text-base shrink-0"></i>
                     <h3 className="font-black text-gray-900 text-sm sm:text-base tracking-tight truncate">
-                        Clientes comprando ahora
+                        Mensajes
                     </h3>
                     {unifiedEntries.length > 0 && (
                         <span className="shrink-0 bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded-full shadow-xs">
@@ -692,14 +692,16 @@ export function LiveCheckoutsPanel({
             </button>
 
             {isExpanded && (
-                <div className="p-3 sm:p-4 space-y-3 bg-gray-50/40 border-t border-blue-100/60 rounded-b-xl">
-                    {entriesListNodes}
-                    {unifiedEntries.length === 0 && (
-                        <p className="text-center text-xs text-gray-500 py-2">
-                            No hay clientes comprando ni mensajes de WhatsApp pendientes en este momento.
-                        </p>
-                    )}
-                    <div className="flex items-center justify-between pt-1">
+                <div className="flex-1 min-h-0 flex flex-col bg-gray-50/40 border-t border-blue-100/60 rounded-b-xl">
+                    <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3">
+                        {entriesListNodes}
+                        {unifiedEntries.length === 0 && (
+                            <p className="text-center text-xs text-gray-500 py-2">
+                                No hay clientes comprando ni mensajes de WhatsApp pendientes en este momento.
+                            </p>
+                        )}
+                    </div>
+                    <div className="shrink-0 flex items-center justify-between px-3 sm:px-4 py-2.5 border-t border-blue-100/50 bg-white/70 rounded-b-xl">
                         <button
                             type="button"
                             style={{ minHeight: 0 }}
@@ -1265,10 +1267,19 @@ function WhatsAppConversationCard({
 
         setSavingNewClient(true);
         try {
-            const newClientId = await createClient({
+            const createdClient = await createClient({
                 celular: rawPhoneToSave,
                 nombres: trimmedName,
             });
+            const newClientId =
+                typeof createdClient === 'string'
+                    ? createdClient.trim()
+                    : createdClient && typeof createdClient === 'object' && typeof createdClient.id === 'string'
+                        ? createdClient.id.trim()
+                        : '';
+            if (!newClientId) {
+                throw new Error('No se pudo obtener el ID del cliente creado');
+            }
 
             if (businessId && conversation.docId) {
                 updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {

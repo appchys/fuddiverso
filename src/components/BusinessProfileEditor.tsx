@@ -34,7 +34,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         isHidden: business.isHidden ?? false,
         deliveryTime: business.defaultDeliveryTime ?? business.deliveryTime ?? 30,
         defaultDeliveryId: business.defaultDeliveryId || '',
-        deliveryAssignmentMode: (business.deliveryAssignmentMode || 'auto') as 'auto' | 'manual',
+        deliveryAssignmentMode: (business.deliveryAssignmentMode || 'manual') as 'auto' | 'manual',
         groupId: business.groupId || '',
         zoneId: business.zoneId || '',
         pickupSettings: business.pickupSettings 

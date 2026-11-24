@@ -2130,6 +2130,16 @@ export default function TodayOrdersPage() {
                     toRevive.push({ docId: d.id, timestampMillis })
                 }
 
+                // Normalizar fuddiClientId: si por un bug anterior se guardó el objeto completo del cliente, extraer solo .id y reparar en Firestore
+                const rawFuddiClientId = data.fuddiClientId
+                let normalizedFuddiClientId = ''
+                if (typeof rawFuddiClientId === 'string') {
+                    normalizedFuddiClientId = rawFuddiClientId.trim()
+                } else if (rawFuddiClientId && typeof rawFuddiClientId === 'object') {
+                    normalizedFuddiClientId = typeof rawFuddiClientId.id === 'string' ? rawFuddiClientId.id.trim() : ''
+                    updateDoc(d.ref, { fuddiClientId: normalizedFuddiClientId }).catch(() => {})
+                }
+
                 return {
                     docId: d.id,
                     id: data.id || d.id,
@@ -2138,7 +2148,7 @@ export default function TodayOrdersPage() {
                     displayName: data.displayName || '',
                     effectiveName: data.effectiveName || '',
                     fuddiClientName: data.fuddiClientName || '',
-                    fuddiClientId: data.fuddiClientId || '',
+                    fuddiClientId: normalizedFuddiClientId,
                     fuddiClientEmail: data.fuddiClientEmail || '',
                     fuddiClientNotes: data.fuddiClientNotes || '',
                     isRegisteredClient: Boolean(data.isRegisteredClient),
@@ -2419,7 +2429,7 @@ export default function TodayOrdersPage() {
             if (!needsOrderSync) return
 
             const convPhone = normalizeWhatsAppConversationPhone(conv.phone || conv.rawPhone)
-            const convClientId = (conv.fuddiClientId || '').trim()
+            const convClientId = typeof conv.fuddiClientId === 'string' ? conv.fuddiClientId.trim() : ''
 
             const matchedOrder = validTodayOrders.find((o: any) => {
                 const orderPhone = normalizeWhatsAppConversationPhone(o.customer?.phone)
@@ -3050,9 +3060,13 @@ export default function TodayOrdersPage() {
         const convPhoneKey = normalizeWhatsAppConversationPhone(
             activeWhatsAppChatView.resolvedProfile?.clientPhone || liveConv.phone || liveConv.rawPhone
         )
-        const convClientId = (
-            activeWhatsAppChatView.resolvedProfile?.clientId || liveConv.fuddiClientId || ''
-        ).trim()
+        const rawActiveClientId = activeWhatsAppChatView.resolvedProfile?.clientId || liveConv.fuddiClientId || ''
+        const convClientId =
+            typeof rawActiveClientId === 'string'
+                ? rawActiveClientId.trim()
+                : typeof (rawActiveClientId as any)?.id === 'string'
+                    ? (rawActiveClientId as any).id.trim()
+                    : ''
         const matchedClientOrders = [...orders, ...historicalOrders].filter((o) => {
             if (!o) return false
             if (liveConv.confirmedOrderId && String(o.id) === String(liveConv.confirmedOrderId)) return true

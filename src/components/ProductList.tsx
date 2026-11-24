@@ -8,6 +8,7 @@ import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
 import { evaluateProductStock, checkVariantStockAvailability, isProductEffectivelyAvailable as checkProductEffectiveAvailability } from '@/lib/stock-utils'
 import StockConfigModal from '@/components/StockConfigModal'
+import WhatsAppStatusModal from '@/components/WhatsAppStatusModal'
 
 export const EXAMPLE_MENU_JSON = [
   {
@@ -374,6 +375,7 @@ export default function ProductList({
   const [hasVariants, setHasVariants] = useState(false)
   const [availableBranches, setAvailableBranches] = useState<Business[]>([])
   const [stockConfigIngredient, setStockConfigIngredient] = useState<IngredientStockSummary | null>(null)
+  const [statusModalProduct, setStatusModalProduct] = useState<Product | null>(null)
 
   // Cargar resumen de stock de ingredientes (entradas, salidas, límites y mínimos)
   const loadStockSummary = useCallback(async () => {
@@ -2668,6 +2670,17 @@ export default function ProductList({
                         >
                           <i className="bi bi-link-45deg text-purple-600"></i>
                           Copiar link
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setActiveMenu(null)
+                            setStatusModalProduct(product)
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-emerald-50/70 flex items-center gap-3 transition-colors text-gray-700"
+                        >
+                          <i className="bi bi-whatsapp text-emerald-600"></i>
+                          Publicar como estado
                         </button>
                         <div className="border-t border-gray-50 my-1"></div>
                         <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
@@ -5339,6 +5352,13 @@ export default function ProductList({
         />,
         document.body
       )}
+
+      <WhatsAppStatusModal
+        isOpen={Boolean(statusModalProduct)}
+        product={statusModalProduct}
+        business={business || null}
+        onClose={() => setStatusModalProduct(null)}
+      />
 
       {/* Botón flotante para nuevo producto */}
       {activeSection === 'mis-productos' && (

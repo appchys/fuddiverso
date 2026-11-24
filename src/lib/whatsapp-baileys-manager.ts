@@ -28,6 +28,9 @@ async function loadBaileys(): Promise<BaileysModule> {
 
 export type BaileysConnectionStatus = 'disconnected' | 'connecting' | 'qr' | 'connected'
 
+/** ID reservado para la sesión de WhatsApp del Administrador (/admin) que notifica pedidos a las tiendas */
+export const ADMIN_WHATSAPP_SESSION_ID = '__fuddi_admin__'
+
 export interface BaileysBusinessState {
   businessId: string
   status: BaileysConnectionStatus
@@ -50,6 +53,8 @@ interface ManagedSession {
   sentByBridgeMsgIds: Set<string>
   baileysHistoryByDoc: Map<string, any[]>
   repairingDocIds: Set<string>
+  knownContactJids: Set<string>
+  contactsPersistTimer: ReturnType<typeof setTimeout> | null
   reconnectTimer: ReturnType<typeof setTimeout> | null
   reconnectAttempts: number
   outgoingSendTimestamps: number[]
@@ -988,7 +993,7 @@ async function useFirestoreAuthState(businessId: string): Promise<{
   }
 }
 
-const MANAGER_VERSION = 34
+const MANAGER_VERSION = 36
 
 // Neutralizar timers huérfanos de instancias anteriores (v1..v6) tras Hot Reload en Next.js dev
 const globalForTimerPatch = globalThis as unknown as {
@@ -1125,6 +1130,8 @@ class WhatsAppBaileysManager {
         sentByBridgeMsgIds: new Set(),
         baileysHistoryByDoc: new Map(),
         repairingDocIds: new Set(),
+        knownContactJids: new Set(),
+        contactsPersistTimer: null,
         reconnectTimer: null,
         reconnectAttempts: 0,
         outgoingSendTimestamps: [],
@@ -1229,6 +1236,45 @@ class WhatsAppBaileysManager {
   private setupFirestoreListeners(session: ManagedSession) {
     const db = ensureAdminDb()
     if (!db) return
+
+    // Para la sesión del Administrador (__fuddi_admin__), escuchar nuevas órdenes en Firestore
+    // para notificar automáticamente por WhatsApp a la tienda (igual que el bot de Telegram)
+    if (session.businessId === ADMIN_WHATSAPP_SESSION_ID) {
+      if (!session.firestoreUnsub) {
+        const listenSince = new Date()
+        session.firestoreUnsub = db
+          .collection('orders')
+          .where('createdAt', '>=', listenSince)
+          .onSnapshot(
+            (snap) => {
+              snap.docChanges().forEach((change) => {
+                if (change.type !== 'added') return
+                const orderData = change.doc.data() || {}
+                const orderId = change.doc.id
+                const targetBizIds = Array.from(
+                  new Set(
+                    [
+                      orderData.businessId,
+                      ...(Array.isArray(orderData.businessIds) ? orderData.businessIds : []),
+                    ].filter(Boolean)
+                  )
+                )
+                for (const targetBizId of targetBizIds) {
+                  void this.notifyStoreNewOrderViaAdminWhatsApp({
+                    businessId: String(targetBizId),
+                    orderId,
+                    orderData,
+                  })
+                }
+              })
+            },
+            (err) => {
+              console.warn('[Baileys Admin] Error en listener de nuevas órdenes:', err)
+            }
+          )
+      }
+      return
+    }
 
     if (!session.excludedUnsub) {
       session.excludedUnsub = db
@@ -1535,6 +1581,7 @@ class WhatsAppBaileysManager {
       })
 
       sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
         if (type !== 'notify' && type !== 'append') return
         for (const msg of messages) {
           try {
@@ -1545,7 +1592,47 @@ class WhatsAppBaileysManager {
         }
       })
 
+      // Recolectar contactos de WhatsApp para poder dirigir estados (status@broadcast) a la audiencia de la tienda
+      sock.ev.on('contacts.upsert', (contacts) => {
+        if (session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
+        if (!Array.isArray(contacts) || contacts.length === 0) return
+        const jids = contacts
+          .map((c: any) => String(c?.id || c?.jid || c?.phoneNumber || '').trim())
+          .filter(Boolean)
+        this.recordKnownContactJids(session, jids)
+      })
+
+      sock.ev.on('contacts.update', (contacts) => {
+        if (session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
+        if (!Array.isArray(contacts) || contacts.length === 0) return
+        const jids = contacts
+          .map((c: any) => String(c?.id || c?.jid || c?.phoneNumber || '').trim())
+          .filter(Boolean)
+        this.recordKnownContactJids(session, jids)
+      })
+
+      sock.ev.on('messaging-history.set', (history: any) => {
+        if (session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
+        const jids: string[] = []
+        if (Array.isArray(history?.contacts)) {
+          for (const c of history.contacts) {
+            const candidate = String(c?.id || c?.jid || c?.phoneNumber || '').trim()
+            if (candidate) jids.push(candidate)
+          }
+        }
+        if (Array.isArray(history?.chats)) {
+          for (const ch of history.chats) {
+            const candidate = String(ch?.id || '').trim()
+            if (candidate) jids.push(candidate)
+          }
+        }
+        if (jids.length > 0) {
+          this.recordKnownContactJids(session, jids)
+        }
+      })
+
       sock.ev.on('messages.reaction', async (reactions) => {
+        if (session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
         for (const item of reactions) {
           try {
             const targetKey = item?.key
@@ -2147,21 +2234,55 @@ class WhatsAppBaileysManager {
 
     const db = ensureAdminDb()
     let docRef: FirebaseFirestore.DocumentReference | null = null
+    let resolvedDocId = String(docId || '').trim()
+    let existingDocExists = false
     let existingDocData: Record<string, any> = {}
 
-    if (db && docId) {
-      docRef = db
+    if (db && businessId !== ADMIN_WHATSAPP_SESSION_ID) {
+      const colRef = db
         .collection('businesses')
         .doc(businessId)
         .collection('whatsappPending')
-        .doc(docId)
-      try {
-        const snap = await docRef.get()
-        if (snap.exists) {
-          existingDocData = snap.data() || {}
+
+      if (resolvedDocId) {
+        docRef = colRef.doc(resolvedDocId)
+        try {
+          const snap = await docRef.get()
+          if (snap.exists) {
+            existingDocExists = true
+            existingDocData = snap.data() || {}
+          }
+        } catch {
+          // Ignorar
         }
-      } catch {
-        // Ignorar
+      } else {
+        // Si se envía un mensaje directo sin docId (ej. al repartidor), resolver o crear su conversación por teléfono
+        const normPhone = normalizeEcuadorPhone(phone)
+        if (normPhone) {
+          try {
+            const colonSnap = await colRef.doc(`phone:${normPhone}`).get()
+            if (colonSnap.exists) {
+              resolvedDocId = colonSnap.id
+              docRef = colonSnap.ref
+              existingDocExists = true
+              existingDocData = colonSnap.data() || {}
+            } else {
+              const underscoreSnap = await colRef.doc(`phone_${normPhone}`).get()
+              if (underscoreSnap.exists) {
+                resolvedDocId = underscoreSnap.id
+                docRef = underscoreSnap.ref
+                existingDocExists = true
+                existingDocData = underscoreSnap.data() || {}
+              } else {
+                resolvedDocId = `phone:${normPhone}`
+                docRef = colRef.doc(resolvedDocId)
+              }
+            }
+          } catch {
+            resolvedDocId = `phone:${normPhone}`
+            docRef = colRef.doc(resolvedDocId)
+          }
+        }
       }
     }
 
@@ -2296,22 +2417,33 @@ class WhatsAppBaileysManager {
             siteName: resolvedPreview.siteName,
           }
         }
-        recordBaileysHistoryEntry(session, docId, outgoingEntry)
+        recordBaileysHistoryEntry(session, resolvedDocId || docId, outgoingEntry)
         const nextHistory = [
           ...currentHistory.filter((h) => h?.id !== replyId),
           outgoingEntry,
         ].slice(-MAX_CHAT_HISTORY)
 
-        await docRef.set(
-          {
-            whatsappJid: jid,
-            sentReplies: nextReplies,
-            chatHistory: nextHistory,
-            pendingReply: null,
-            canReplyDirectly: true,
-          },
-          { merge: true }
-        )
+        const normPhoneForDoc = normalizeEcuadorPhone(rawCandidatePhone)
+        const docPayload: Record<string, any> = {
+          whatsappJid: jid,
+          sentReplies: nextReplies,
+          chatHistory: nextHistory,
+          pendingReply: null,
+          canReplyDirectly: true,
+          lastMessage: cleanText,
+          timestampMillis: nowOut,
+        }
+        if (!existingDocExists) {
+          docPayload.id = resolvedDocId
+          docPayload.phone = normPhoneForDoc || rawCandidatePhone
+          docPayload.rawPhone = rawCandidatePhone
+          docPayload.displayName = normPhoneForDoc || rawCandidatePhone || 'WhatsApp'
+          docPayload.unreadCount = 0
+          docPayload.status = 'pending'
+          docPayload.recentMessages = []
+        }
+
+        await docRef.set(docPayload, { merge: true })
       }
 
       return { ok: true }
@@ -2355,21 +2487,55 @@ class WhatsAppBaileysManager {
 
     const db = ensureAdminDb()
     let docRef: FirebaseFirestore.DocumentReference | null = null
+    let resolvedDocId = String(docId || '').trim()
+    let existingDocExists = false
     let existingDocData: Record<string, any> = {}
 
-    if (db && docId) {
-      docRef = db
+    if (db && businessId !== ADMIN_WHATSAPP_SESSION_ID) {
+      const colRef = db
         .collection('businesses')
         .doc(businessId)
         .collection('whatsappPending')
-        .doc(docId)
-      try {
-        const snap = await docRef.get()
-        if (snap.exists) {
-          existingDocData = snap.data() || {}
+
+      if (resolvedDocId) {
+        docRef = colRef.doc(resolvedDocId)
+        try {
+          const snap = await docRef.get()
+          if (snap.exists) {
+            existingDocExists = true
+            existingDocData = snap.data() || {}
+          }
+        } catch {
+          // Ignorar
         }
-      } catch {
-        // Ignorar
+      } else {
+        // Si se envía un mensaje directo sin docId (ej. al repartidor), resolver o crear su conversación por teléfono
+        const normPhone = normalizeEcuadorPhone(phone)
+        if (normPhone) {
+          try {
+            const colonSnap = await colRef.doc(`phone:${normPhone}`).get()
+            if (colonSnap.exists) {
+              resolvedDocId = colonSnap.id
+              docRef = colonSnap.ref
+              existingDocExists = true
+              existingDocData = colonSnap.data() || {}
+            } else {
+              const underscoreSnap = await colRef.doc(`phone_${normPhone}`).get()
+              if (underscoreSnap.exists) {
+                resolvedDocId = underscoreSnap.id
+                docRef = underscoreSnap.ref
+                existingDocExists = true
+                existingDocData = underscoreSnap.data() || {}
+              } else {
+                resolvedDocId = `phone:${normPhone}`
+                docRef = colRef.doc(resolvedDocId)
+              }
+            }
+          } catch {
+            resolvedDocId = `phone:${normPhone}`
+            docRef = colRef.doc(resolvedDocId)
+          }
+        }
       }
     }
 
@@ -2545,6 +2711,316 @@ class WhatsAppBaileysManager {
     }
   }
 
+  private normalizeStatusRecipientJid(raw?: string | null): string | null {
+    const clean = String(raw || '').trim()
+    if (!clean) return null
+    if (
+      clean === 'status@broadcast' ||
+      clean.endsWith('@broadcast') ||
+      clean.endsWith('@g.us') ||
+      clean.endsWith('@newsletter')
+    ) {
+      return null
+    }
+    if (clean.endsWith('@s.whatsapp.net')) {
+      const base = clean.split('@')[0].split(':')[0].replace(/\D/g, '')
+      return base.length >= 9 ? `${base}@s.whatsapp.net` : null
+    }
+    if (clean.endsWith('@lid')) {
+      return null
+    }
+    const intl = ecuadorPhoneToIntlDigits(clean)
+    return intl && intl.length >= 9 ? `${intl}@s.whatsapp.net` : null
+  }
+
+  private recordKnownContactJids(session: ManagedSession, rawJids: string[]) {
+    let added = 0
+    for (const raw of rawJids) {
+      const normalized = this.normalizeStatusRecipientJid(raw)
+      if (!normalized) continue
+      if (!session.knownContactJids.has(normalized)) {
+        session.knownContactJids.add(normalized)
+        added++
+      }
+      if (session.knownContactJids.size >= 800) break
+    }
+    if (added === 0) return
+
+    if (session.contactsPersistTimer) {
+      clearTimeout(session.contactsPersistTimer)
+    }
+    session.contactsPersistTimer = setTimeout(() => {
+      session.contactsPersistTimer = null
+      const db = ensureAdminDb()
+      if (!db || session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
+      const list = Array.from(session.knownContactJids).slice(0, 800)
+      void db
+        .collection('businesses')
+        .doc(session.businessId)
+        .collection('whatsappConnection')
+        .doc('contacts')
+        .set(
+          {
+            jids: list,
+            updatedAtMillis: Date.now(),
+          },
+          { merge: true }
+        )
+        .catch(() => {
+          // Ignorar error de persistencia secundaria
+        })
+    }, 3000)
+  }
+
+  private async collectStatusRecipientJids(
+    session: ManagedSession,
+    activeSocket: WASocket
+  ): Promise<string[]> {
+    const MAX_STATUS_RECIPIENTS = 500
+    const jidSet = new Set<string>()
+
+    const addIfAllowed = (raw?: string | null) => {
+      if (jidSet.size >= MAX_STATUS_RECIPIENTS) return
+      const normalized = this.normalizeStatusRecipientJid(raw)
+      if (!normalized) return
+      const normPhone = normalizeEcuadorPhone(normalized.split('@')[0])
+      if (normPhone && session.excludedPhones.has(normPhone)) return
+      jidSet.add(normalized)
+    }
+
+    // 1. Incluir el propio JID de la tienda para que el estado aparezca en su teléfono
+    const meRawId = String(activeSocket?.user?.id || session.state.connectedPhone || '').trim()
+    const ownJid = this.normalizeStatusRecipientJid(meRawId)
+    if (ownJid) {
+      jidSet.add(ownJid)
+    }
+
+    // 2. Contactos sincronizados en memoria desde Baileys
+    for (const jid of session.knownContactJids) {
+      addIfAllowed(jid)
+    }
+
+    const db = ensureAdminDb()
+    if (db) {
+      try {
+        const [contactsSnap, pendingSnap, ordersSnap] = await Promise.all([
+          db
+            .collection('businesses')
+            .doc(session.businessId)
+            .collection('whatsappConnection')
+            .doc('contacts')
+            .get()
+            .catch(() => null),
+          db
+            .collection('businesses')
+            .doc(session.businessId)
+            .collection('whatsappPending')
+            .limit(300)
+            .get()
+            .catch(() => null),
+          db
+            .collection('orders')
+            .where('businessId', '==', session.businessId)
+            .limit(300)
+            .get()
+            .catch(() => null),
+        ])
+
+        if (contactsSnap?.exists) {
+          const savedJids = contactsSnap.data()?.jids
+          if (Array.isArray(savedJids)) {
+            for (const jid of savedJids) addIfAllowed(String(jid || ''))
+          }
+        }
+
+        if (pendingSnap && !pendingSnap.empty) {
+          for (const docSnap of pendingSnap.docs) {
+            const d = docSnap.data() || {}
+            addIfAllowed(d.whatsappJid || d.phone || d.rawPhone || '')
+          }
+        }
+
+        if (ordersSnap && !ordersSnap.empty) {
+          for (const docSnap of ordersSnap.docs) {
+            const d = docSnap.data() || {}
+            const phone =
+              d.customer?.phone ||
+              d.clientPhone ||
+              d.phone ||
+              d.customerPhone ||
+              ''
+            addIfAllowed(phone)
+          }
+        }
+      } catch (err) {
+        console.warn('[Baileys] Error recolectando destinatarios de estado:', err)
+      }
+    }
+
+    return Array.from(jidSet)
+  }
+
+  public async publishStatus(
+    businessId: string,
+    params: {
+      text: string
+      url?: string
+      linkPreview?: LinkPreviewData | null
+      backgroundColor?: string
+      font?: number
+    }
+  ): Promise<{
+    ok: boolean
+    messageId?: string | null
+    recipientsCount?: number
+    linkPreview?: LinkPreviewData | null
+    error?: string
+  }> {
+    const cleanText = String(params.text || '').trim()
+    if (!cleanText) {
+      return { ok: false, error: 'El texto del estado no puede estar vacío' }
+    }
+    if (cleanText.length > 700) {
+      return { ok: false, error: 'El estado no puede superar los 700 caracteres' }
+    }
+
+    const session = this.getOrCreateSession(businessId)
+
+    // Rate limit básico
+    const now = Date.now()
+    session.outgoingSendTimestamps = session.outgoingSendTimestamps.filter((t) => now - t < 60_000)
+    if (session.outgoingSendTimestamps.length >= MAX_OUTGOING_PER_MINUTE) {
+      return { ok: false, error: 'Límite de envíos por minuto alcanzado. Espera unos segundos.' }
+    }
+    session.outgoingSendTimestamps.push(now)
+
+    if (session.state.status !== 'connected' || !session.socket) {
+      const { hasExistingCreds } = await useFirestoreAuthState(businessId)
+      if (hasExistingCreds) {
+        await this.connect(businessId, { waitMs: 12000 })
+      }
+    }
+
+    if (session.state.status !== 'connected' || !session.socket) {
+      return {
+        ok: false,
+        error: 'El WhatsApp de la tienda no está conectado. Vincula tu WhatsApp primero.',
+      }
+    }
+
+    try {
+      const targetUrl = String(params.url || extractFirstUrlFromText(cleanText) || '').trim()
+
+      // Resolver metatags OpenGraph + miniatura JPEG para vista previa enriquecida en el estado
+      let resolvedPreview: LinkPreviewData | null = null
+      if (params.linkPreview !== null) {
+        if (params.linkPreview && params.linkPreview.url) {
+          resolvedPreview = params.linkPreview
+        } else if (targetUrl) {
+          resolvedPreview = await fetchLinkPreviewMetadata(targetUrl)
+        }
+      }
+
+      const jpegThumbnail = resolvedPreview?.image
+        ? await fetchLinkPreviewJpegThumbnail(resolvedPreview.image)
+        : undefined
+
+      const matchedText =
+        resolvedPreview?.matchedText ||
+        extractFirstUrlFromText(cleanText) ||
+        targetUrl ||
+        resolvedPreview?.url ||
+        ''
+
+      const baileysStatusPayload: any = {
+        text: cleanText,
+        ...(resolvedPreview
+          ? {
+              linkPreview: {
+                'canonical-url': resolvedPreview.url || targetUrl,
+                'matched-text': matchedText,
+                title: resolvedPreview.title || resolvedPreview.siteName,
+                description: resolvedPreview.description || '',
+                ...(jpegThumbnail ? { jpegThumbnail } : {}),
+              },
+            }
+          : {}),
+      }
+
+      const rawBg = String(params.backgroundColor || '#1F2937').trim()
+      const backgroundColor = /^#[0-9A-Fa-f]{6}$/.test(rawBg) ? rawBg : '#1F2937'
+      const rawFont = Number(params.font)
+      const font = Number.isInteger(rawFont) && rawFont >= 0 && rawFont <= 5 ? rawFont : 1
+
+      let sentMsg: any
+      let lastSendErr: any = null
+      let statusJidList: string[] = []
+
+      for (let sendAttempt = 0; sendAttempt < 2; sendAttempt++) {
+        let activeSocket = session.socket
+        if (!activeSocket || session.state.status !== 'connected') {
+          await this.connect(businessId, { waitMs: 12000 })
+          activeSocket = session.socket
+        }
+        if (!activeSocket) {
+          lastSendErr = new Error('Socket de WhatsApp no disponible')
+          continue
+        }
+
+        statusJidList = await this.collectStatusRecipientJids(session, activeSocket)
+        if (statusJidList.length === 0) {
+          return {
+            ok: false,
+            error: 'No se encontraron contactos disponibles para publicar el estado.',
+          }
+        }
+
+        try {
+          sentMsg = await activeSocket.sendMessage('status@broadcast', baileysStatusPayload, {
+            backgroundColor,
+            font,
+            statusJidList,
+            broadcast: true,
+          })
+          lastSendErr = null
+          break
+        } catch (err: any) {
+          lastSendErr = err
+          const msg = String(err?.message || '').toLowerCase()
+          if (
+            sendAttempt === 0 &&
+            (msg.includes('closed') || msg.includes('connection') || msg.includes('null'))
+          ) {
+            await this.connect(businessId, { waitMs: 12000 })
+            continue
+          }
+          throw err
+        }
+      }
+
+      if (lastSendErr) {
+        throw lastSendErr
+      }
+
+      console.log(
+        `[Baileys] Estado publicado business=${businessId} msgId=${sentMsg?.key?.id || 'n/a'} recipients=${statusJidList.length} preview=${Boolean(resolvedPreview)}`
+      )
+
+      return {
+        ok: true,
+        messageId: sentMsg?.key?.id || null,
+        recipientsCount: statusJidList.length,
+        linkPreview: resolvedPreview,
+      }
+    } catch (err: any) {
+      console.error('[Baileys] Error publicando estado:', err)
+      return {
+        ok: false,
+        error: err?.message || 'Error al publicar el estado en WhatsApp',
+      }
+    }
+  }
+
   public getActiveSessionsSummary(): Array<{
     businessId: string
     status: BaileysConnectionStatus
@@ -2563,6 +3039,301 @@ class WhatsAppBaileysManager {
     }))
   }
 
+  private notifiedStoreOrderKeys = new Set<string>()
+
+  private buildStoreOrderWhatsAppMessage(
+    orderData: Record<string, any>,
+    orderId: string,
+    businessData: Record<string, any>
+  ): string {
+    const businessName = String(businessData?.name || orderData?.businessName || 'Tienda').trim()
+    const timingType = orderData?.timing?.type === 'scheduled' ? 'Programado' : 'Inmediato'
+    const timingIcon = timingType === 'Inmediato' ? '⚡' : '⏰'
+    const scheduledTime = String(orderData?.timing?.scheduledTime || '').trim()
+    const timingLabel =
+      timingType === 'Programado' && scheduledTime
+        ? `${timingIcon} Programado (${scheduledTime})`
+        : `${timingIcon} Inmediato`
+
+    const customerName = String(orderData?.customer?.name || 'No especificado').trim()
+    const customerPhone = String(orderData?.customer?.phone || '').trim()
+
+    const isPickup = orderData?.delivery?.type === 'pickup'
+    const deliverySector = String(
+      orderData?.delivery?.sector || orderData?.delivery?.zoneName || ''
+    ).trim()
+    const deliveryRef = String(
+      orderData?.delivery?.references ||
+        orderData?.delivery?.reference ||
+        orderData?.delivery?.address ||
+        ''
+    ).trim()
+
+    let mapsLink = ''
+    const latlong = String(orderData?.delivery?.latlong || '').trim()
+    if (latlong && latlong.includes(',')) {
+      const [lat, lng] = latlong.split(',').map((s) => s.trim())
+      if (lat && lng) {
+        mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+      }
+    }
+
+    const items: any[] = Array.isArray(orderData?.items) ? orderData.items : []
+    const groupedItems: Record<string, any[]> = {}
+    for (const item of items) {
+      const pName = String(item?.name || item?.productName || 'Producto').trim()
+      if (!groupedItems[pName]) groupedItems[pName] = []
+      groupedItems[pName].push(item)
+    }
+
+    const itemLines: string[] = []
+    for (const [productName, group] of Object.entries(groupedItems)) {
+      const hasVariants = group.some((it) => String(it?.variant || '').trim() !== '')
+      if (hasVariants) {
+        itemLines.push(`*${productName}*`)
+        for (const it of group) {
+          const qty = Number(it?.quantity) || 1
+          const vName = String(it?.variant || productName).trim()
+          itemLines.push(`( ${qty} ) ${vName}`)
+        }
+      } else {
+        for (const it of group) {
+          const qty = Number(it?.quantity) || 1
+          itemLines.push(`( ${qty} ) ${productName}`)
+        }
+      }
+    }
+
+    const subtotal =
+      typeof orderData?.subtotal === 'number'
+        ? orderData.subtotal
+        : items.reduce(
+            (sum, it) => sum + (Number(it?.price) || 0) * (Number(it?.quantity) || 1),
+            0
+          )
+    const commissionAmount =
+      typeof orderData?.totalCommission === 'number'
+        ? orderData.totalCommission
+        : typeof orderData?.commissionTotal === 'number'
+          ? orderData.commissionTotal
+          : items.reduce(
+              (sum, it) => sum + (Number(it?.commission) || 0) * (Number(it?.quantity) || 1),
+              0
+            )
+    const storeSubtotal =
+      items.length > 0
+        ? items.reduce((sum, it) => {
+            const unitStore =
+              it?.storeReceives !== undefined
+                ? Number(it.storeReceives)
+                : it?.basePrice !== undefined
+                  ? Number(it.basePrice)
+                  : (Number(it?.price) || 0) - (Number(it?.commission) || 0)
+            return sum + unitStore * (Number(it?.quantity) || 1)
+          }, 0)
+        : Math.max(0, subtotal - commissionAmount)
+
+    const deliveryCost = Number(
+      orderData?.delivery?.deliveryCost ?? orderData?.deliveryCost ?? 0
+    )
+    const creditUsed = Number(orderData?.creditUsed || 0)
+    const total =
+      typeof orderData?.total === 'number'
+        ? orderData.total
+        : Math.max(0, subtotal + deliveryCost - creditUsed)
+
+    const paymentMethod = String(orderData?.payment?.method || 'cash').toLowerCase()
+    const paymentMethodText =
+      paymentMethod === 'cash'
+        ? '💵 Efectivo'
+        : paymentMethod === 'transfer'
+          ? '🏦 Transferencia'
+          : paymentMethod === 'mixed'
+            ? '💳 Mixto'
+            : '💳 Pago'
+
+    const lines: string[] = []
+    lines.push(`🛵 *[${businessName}]* ¡Tienes un nuevo pedido!`)
+    lines.push(`Orden: *#${orderId}*`)
+    lines.push(`Hora estimada: ${timingLabel}`)
+    lines.push('')
+    lines.push(`👤 *Cliente:* ${customerName}`)
+    lines.push(`📱 *WhatsApp:* ${customerPhone || 'No registrado'}`)
+    lines.push('')
+    lines.push('*Datos de entrega*')
+    if (isPickup) {
+      lines.push('🏪 Retiro en tienda')
+    } else {
+      lines.push('🛵 Delivery a domicilio')
+      if (deliverySector) lines.push(`📍 Sector: ${deliverySector}`)
+      if (deliveryRef) lines.push(`📝 Referencia: ${deliveryRef}`)
+      if (mapsLink) lines.push(`🗺️ Mapa: ${mapsLink}`)
+    }
+
+    if (itemLines.length > 0) {
+      lines.push('')
+      lines.push('*Detalles del pedido*')
+      lines.push(...itemLines)
+    }
+
+    lines.push('')
+    lines.push('*Detalles del pago*')
+    lines.push(`Pedido: $${storeSubtotal.toFixed(2)}`)
+    if (commissionAmount > 0) {
+      lines.push(`Comisión: $${commissionAmount.toFixed(2)}`)
+    }
+    lines.push(`Delivery: $${deliveryCost.toFixed(2)}`)
+    if (creditUsed > 0) {
+      lines.push(`🎁 Crédito aplicado: -$${creditUsed.toFixed(2)}`)
+    }
+    lines.push(`${paymentMethodText}`)
+    if (paymentMethod === 'cash') {
+      lines.push(`💰 *Valor a cobrar: $${total.toFixed(2)}*`)
+    } else if (paymentMethod === 'mixed') {
+      const cashAmount = Number(orderData?.payment?.cashAmount || 0)
+      if (cashAmount > 0) {
+        lines.push(`💰 *Valor a cobrar: $${cashAmount.toFixed(2)}*`)
+      }
+    }
+
+    lines.push('')
+    lines.push('👉 Gestionar en Fuddi: https://fuddi.shop/business/dashboard')
+
+    return lines.join('\n')
+  }
+
+  /**
+   * Envía la notificación de nuevo pedido a la tienda desde el WhatsApp vinculado del Administrador (__fuddi_admin__),
+   * replicando el flujo del bot de Telegram para tiendas.
+   */
+  public async notifyStoreNewOrderViaAdminWhatsApp(params: {
+    businessId: string
+    orderId: string
+    orderData?: Record<string, any>
+  }): Promise<{ ok: boolean; sentTo?: string[]; skippedReason?: string; error?: string }> {
+    const businessId = String(params.businessId || '').trim()
+    const orderId = String(params.orderId || '').trim()
+    if (!businessId || !orderId) {
+      return { ok: false, error: 'businessId y orderId son requeridos' }
+    }
+
+    const dedupKey = `${businessId}:${orderId}`
+    if (this.notifiedStoreOrderKeys.has(dedupKey)) {
+      return { ok: true, skippedReason: 'already_notified_in_memory' }
+    }
+
+    const db = ensureAdminDb()
+    if (!db) {
+      return { ok: false, error: 'Firestore Admin no disponible' }
+    }
+
+    try {
+      const [bizSnap, orderSnap] = await Promise.all([
+        db.collection('businesses').doc(businessId).get(),
+        db.collection('orders').doc(orderId).get(),
+      ])
+
+      if (!bizSnap.exists) {
+        return { ok: false, skippedReason: 'business_not_found' }
+      }
+
+      const businessData = { id: bizSnap.id, ...(bizSnap.data() || {}) } as Record<string, any>
+      const orderData = {
+        ...(params.orderData || {}),
+        ...(orderSnap.exists ? orderSnap.data() || {} : {}),
+      } as Record<string, any>
+
+      if (orderData.whatsappStoreNotifiedAt) {
+        this.notifiedStoreOrderKeys.add(dedupKey)
+        return { ok: true, skippedReason: 'already_notified_in_firestore' }
+      }
+
+      if (orderData.status === 'borrador') {
+        return { ok: false, skippedReason: 'borrador' }
+      }
+
+      const notifyManual =
+        businessData.notificationSettings?.telegramOrderManual === true ||
+        businessData.notificationSettings?.whatsappOrderManual === true
+      if (orderData.createdByAdmin && !notifyManual) {
+        return { ok: false, skippedReason: 'created_by_admin' }
+      }
+
+      if (businessData.notificationSettings?.whatsappStoreOrderNotification === false) {
+        return { ok: false, skippedReason: 'disabled_by_store' }
+      }
+
+      const candidatePhones: string[] = Array.isArray(businessData.whatsappNotificationPhones)
+        ? businessData.whatsappNotificationPhones
+            .map((p: any) => String(p || '').trim())
+            .filter(Boolean)
+        : []
+
+      if (candidatePhones.length === 0) {
+        const primaryPhone = String(businessData.whatsapp || businessData.phone || '').trim()
+        if (primaryPhone) candidatePhones.push(primaryPhone)
+      }
+
+      const validPhones = Array.from(
+        new Set(
+          candidatePhones
+            .map((p) => normalizeEcuadorPhone(p))
+            .filter((p) => p.replace(/\D/g, '').length >= 9)
+        )
+      )
+
+      if (validPhones.length === 0) {
+        return { ok: false, skippedReason: 'no_store_phone' }
+      }
+
+      this.notifiedStoreOrderKeys.add(dedupKey)
+      const messageText = this.buildStoreOrderWhatsAppMessage(orderData, orderId, businessData)
+      const sentTo: string[] = []
+      let lastError = ''
+
+      for (const targetPhone of validPhones) {
+        const res = await this.sendOutgoingMessage(
+          ADMIN_WHATSAPP_SESSION_ID,
+          '',
+          targetPhone,
+          messageText,
+          `admin_store_order_${orderId}_${Date.now()}`,
+          null
+        )
+        if (res.ok) {
+          sentTo.push(targetPhone)
+        } else if (res.error) {
+          lastError = res.error
+        }
+      }
+
+      if (sentTo.length > 0) {
+        if (orderSnap.exists) {
+          await orderSnap.ref
+            .update({
+              whatsappStoreNotifiedAt: Date.now(),
+              whatsappStoreNotifiedPhones: sentTo,
+            })
+            .catch(() => {})
+        }
+        console.log(
+          `[Baileys Admin] Notificación de orden #${orderId} enviada a tienda ${businessData.name || businessId} (${sentTo.join(', ')})`
+        )
+        return { ok: true, sentTo }
+      }
+
+      this.notifiedStoreOrderKeys.delete(dedupKey)
+      return {
+        ok: false,
+        error: lastError || 'No se pudo enviar la notificación desde el WhatsApp Administrador',
+      }
+    } catch (err: any) {
+      this.notifiedStoreOrderKeys.delete(dedupKey)
+      console.error(`[Baileys Admin] Error notificando orden #${orderId} a tienda:`, err)
+      return { ok: false, error: err?.message || 'Error interno al notificar a la tienda' }
+    }
+  }
+
   public async autoConnectRegisteredBusinesses(): Promise<string[]> {
     const db = ensureAdminDb()
     if (!db) {
@@ -2572,8 +3343,10 @@ class WhatsAppBaileysManager {
     const connectedIds: string[] = []
     try {
       const businessesSnap = await db.collection('businesses').select().get()
-      for (const bizDoc of businessesSnap.docs) {
-        const businessId = bizDoc.id
+      const candidateIds = Array.from(
+        new Set([ADMIN_WHATSAPP_SESSION_ID, ...businessesSnap.docs.map((d) => d.id)])
+      )
+      for (const businessId of candidateIds) {
         try {
           const { hasExistingCreds } = await useFirestoreAuthState(businessId)
           if (hasExistingCreds) {
