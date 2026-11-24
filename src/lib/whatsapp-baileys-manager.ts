@@ -1407,6 +1407,8 @@ class WhatsAppBaileysManager {
         printQRInTerminal: false,
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
         syncFullHistory: false,
+        shouldSyncHistoryMessage: () => false,
+        fireInitQueries: false,
         markOnlineOnConnect: false,
       })
 
@@ -2595,7 +2597,9 @@ class WhatsAppBaileysManager {
         session.state.status === 'disconnected' &&
         !session.isConnecting &&
         !session.manualDisconnect &&
-        session.state.lastError !== 'Sesión cerrada desde el teléfono'
+        session.state.lastError !== 'Sesión cerrada desde el teléfono' &&
+        session.state.lastError !== 'Conflict (440)' &&
+        !(session.state.lastError || '').startsWith('Sesión rechazada')
       ) {
         try {
           const { hasExistingCreds } = await useFirestoreAuthState(session.businessId)
