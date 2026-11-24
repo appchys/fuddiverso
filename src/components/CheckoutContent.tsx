@@ -1152,60 +1152,7 @@ export function CheckoutContent({
         // Filtrar estrictamente solo ubicaciones con coordenadas válidas para el cliente
         const locations = (rawLocations || []).filter(l => isValidLatLong(l?.latlong))
         setClientLocations(locations)
-
-        if (locations && locations.length > 0) {
-          let matched: ClientLocation | null = null
-
-          // 1. Prioridad máxima: Ubicación marcada como favorita
-          const favoriteLoc = locations.find(l => l.isFavorite)
-          if (favoriteLoc) {
-            matched = favoriteLoc
-          }
-
-          // 2. Intentar por userSelectedLocationId
-          if (!matched) {
-            const savedId = localStorage.getItem('userSelectedLocationId')
-            if (savedId) {
-              matched = locations.find(l => l.id === savedId) || null
-            }
-          }
-
-          // 3. Intentar por userSelectedLocation (JSON)
-          if (!matched) {
-            const savedLocStr = localStorage.getItem('userSelectedLocation')
-            if (savedLocStr) {
-              try {
-                const savedLoc = JSON.parse(savedLocStr)
-                matched = locations.find(l => l.id === savedLoc.id || (l.referencia === savedLoc.referencia && l.latlong === savedLoc.latlong)) || null
-              } catch (e) {}
-            }
-          }
-
-          // 4. Intentar coincidencia de coordenadas (userCoordinates)
-          if (!matched) {
-            const storedCoordsStr = localStorage.getItem('userCoordinates')
-            if (storedCoordsStr) {
-              try {
-                const stored = JSON.parse(storedCoordsStr)
-                matched = locations.find(l => {
-                  if (!isValidLatLong(l.latlong)) return false
-                  const [lat, lng] = l.latlong.split(',').map((n: string) => parseFloat(n.trim()))
-                  return Math.abs(lat - stored.lat) < 0.0001 && Math.abs(lng - stored.lng) < 0.0001
-                }) || null
-              } catch (e) {}
-            }
-          }
-
-          // 5. Fallback a la primera ubicación guardada válida
-          if (!matched && locations.length > 0) {
-            matched = locations[0]
-          }
-
-          if (matched && (!selectedLocation || !isValidLatLong(selectedLocation.latlong) || (favoriteLoc && selectedLocation.id !== favoriteLoc.id))) {
-            handleLocationSelect(matched)
-          }
-        }
-
+        // No auto-seleccionar ninguna ubicación: el cliente debe escogerla explícitamente
       } catch (error) {
         console.error('Error loading user locations:', error)
         setClientLocations([])
@@ -1229,12 +1176,11 @@ export function CheckoutContent({
           return parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]);
         })
         setClientLocations(locations)
-        const favoriteLoc = locations.find(l => l.isFavorite)
-        const savedId = localStorage.getItem('userSelectedLocationId')
-        const matched = (savedId ? locations.find(l => l.id === savedId) : null) || favoriteLoc || locations[0]
-        if (matched) {
-          handleLocationSelect(matched)
-        }
+        // Solo actualizar si el cliente ya seleccionó explícitamente una ubicación en este checkout
+        setSelectedLocation(prev => {
+          if (!prev) return null
+          return locations.find(l => l.id === prev.id) || null
+        })
       } catch (e) {
         console.error('Error handling location-changed in checkout:', e)
       }
@@ -3395,27 +3341,17 @@ export function CheckoutContent({
                         return;
                       }
 
-                      const savedId = typeof window !== 'undefined' ? localStorage.getItem('userSelectedLocationId') : null;
-                      const validLocs = clientLocations.filter(l => {
-                        if (!l?.latlong || typeof l.latlong !== 'string' || l.latlong.startsWith('pluscode:')) return false;
-                        const [lat, lng] = l.latlong.split(',').map(coord => parseFloat(coord.trim()));
-                        return !isNaN(lat) && !isNaN(lng);
-                      });
-                      const favoriteLoc = validLocs.find(l => l.isFavorite);
-                      const matched = (savedId ? validLocs.find(l => l.id === savedId) : null) || favoriteLoc || validLocs[0];
-                      const targetLoc = (selectedLocation && selectedLocation.latlong && !selectedLocation.latlong.startsWith('pluscode:')) ? selectedLocation : matched;
+                      const validSelectedLoc = (selectedLocation && selectedLocation.latlong && !selectedLocation.latlong.startsWith('pluscode:')) ? selectedLocation : null;
 
                       setDeliveryData(prev => ({
                         ...prev,
                         type: 'delivery',
-                        address: targetLoc?.referencia || prev.address,
-                        references: targetLoc ? `${targetLoc.sector || ''} - ${targetLoc.latlong || ''}` : prev.references,
-                        tarifa: targetLoc?.tarifa || '0'
+                        address: validSelectedLoc?.referencia || '',
+                        references: validSelectedLoc ? `${validSelectedLoc.sector || ''} - ${validSelectedLoc.latlong || ''}` : '',
+                        tarifa: validSelectedLoc?.tarifa || '0'
                       }));
 
-                      if (!selectedLocation && matched) {
-                        handleLocationSelect(matched);
-                      } else if (!selectedLocation && !matched) {
+                      if (!validSelectedLoc) {
                         openLocationModal();
                       }
                     }}
@@ -4423,7 +4359,7 @@ export function CheckoutContent({
             })();
             if (hasCoords) {
               setClientLocations(prev => prev.map(l => l.id === updatedLoc.id ? updatedLoc : (updatedLoc.isFavorite ? { ...l, isFavorite: false } : l)));
-              if (updatedLoc.isFavorite || selectedLocation?.id === updatedLoc.id) {
+              if (selectedLocation?.id === updatedLoc.id) {
                 handleLocationSelect(updatedLoc);
               }
             } else {

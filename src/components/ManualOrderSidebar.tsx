@@ -621,7 +621,7 @@ export default function ManualOrderSidebar({
         })
       }
     })
-  }, [manualOrderData.selectedLocation, manualOrderData.deliveryType, useCredits, creditsAmount, effectiveAvailableCredits])
+  }, [manualOrderData.selectedLocation, manualOrderData.deliveryType, manualOrderData.customDeliveryCost, useCredits, creditsAmount, effectiveAvailableCredits])
 
   // Eliminar el useEffect que calculaba tarifa automáticamente al cambiar deliveryType
   // Ahora el cálculo se hace explícitamente al seleccionar o crear una ubicación
@@ -654,9 +654,13 @@ export default function ManualOrderSidebar({
         deliveriesList?.find(d => d.id === id) || null
 
       const deliveryType = eo.delivery?.type || ''
-      const savedLoc = eo.delivery?.selectedLocation
+      const rawSavedLoc = eo.delivery?.selectedLocation as any
+      const savedLoc = rawSavedLoc && typeof rawSavedLoc === 'object' ? rawSavedLoc : null
+      const savedLocId = typeof rawSavedLoc === 'string' && rawSavedLoc.trim()
+        ? rawSavedLoc.trim()
+        : (savedLoc?.id || 'from-order')
       const selectedLocation = deliveryType === 'delivery' ? {
-        id: savedLoc?.id || 'from-order',
+        id: savedLocId,
         id_cliente: savedLoc?.id_cliente || '',
         latlong: (() => {
           const ll = savedLoc?.latlong || (eo.delivery as any)?.latlong as string | undefined
@@ -793,7 +797,9 @@ export default function ManualOrderSidebar({
         notas: eo.notas || '',
         notaImageUrl: eo.notaImageUrl || '',
         receiptImageUrl: eo.payment?.receiptImageUrl || '',
-        customDeliveryCost: eo.delivery?.deliveryCost !== undefined ? eo.delivery.deliveryCost : (parseFloat(eo.delivery?.tarifa || eo.delivery?.selectedLocation?.tarifa || '0') || null)
+        customDeliveryCost: deliveryType === 'delivery'
+          ? (eo.delivery?.deliveryCost !== undefined ? eo.delivery.deliveryCost : (parseFloat(eo.delivery?.tarifa || eo.delivery?.selectedLocation?.tarifa || '0') || null))
+          : null
       }))
       setNotaImageFile(null)
       setNotaImagePreview(eo.notaImageUrl || '')
@@ -1007,7 +1013,11 @@ export default function ManualOrderSidebar({
 
   // Manejar selección de delivery
   const handleDeliverySelect = () => {
-    setManualOrderData(prev => ({ ...prev, deliveryType: 'delivery' }))
+    setManualOrderData(prev => ({
+      ...prev,
+      deliveryType: 'delivery',
+      ...(prev.deliveryType !== 'delivery' ? { customDeliveryCost: null } : {})
+    }))
     setShowLocationModal(true)
     if (manualOrderData.customerId && manualOrderData.customerLocations.length === 0) {
       void reloadClientLocations()
@@ -2013,7 +2023,8 @@ export default function ManualOrderSidebar({
     setManualOrderData(prev => ({
       ...prev,
       customerLocations: [...prev.customerLocations, optimisticLocation],
-      selectedLocation: optimisticLocation
+      selectedLocation: optimisticLocation,
+      customDeliveryCost: null
     }));
 
     // Calcular tarifa de forma optimista si hay coordenadas
@@ -2225,7 +2236,7 @@ export default function ManualOrderSidebar({
       return {
         ...prev,
         customerLocations: updatedLocs,
-        ...(isSelected && { selectedLocation: optimisticLocation })
+        ...(isSelected && { selectedLocation: optimisticLocation, customDeliveryCost: null })
       };
     });
 
@@ -4141,7 +4152,10 @@ export default function ManualOrderSidebar({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setManualOrderData(prev => ({ ...prev, deliveryType: 'pickup' }))}
+                  onClick={() => {
+                    setManualOrderData(prev => ({ ...prev, deliveryType: 'pickup', customDeliveryCost: null }))
+                    setIsEditingDeliveryCost(false)
+                  }}
                   className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.deliveryType === 'pickup'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
                     : 'border-gray-300 hover:border-gray-400'
@@ -5347,9 +5361,8 @@ export default function ManualOrderSidebar({
                   const currentFee = (hasNoCoords || isLegacyOne) ? '1.25' : rawFee
                   const initialSelected = { ...location, tarifa: currentFee } as ClientLocation
 
-                  setManualOrderData(prev => ({ ...prev, selectedLocation: initialSelected }))
+                  setManualOrderData(prev => ({ ...prev, selectedLocation: initialSelected, customDeliveryCost: null }))
                   setShowLocationModal(false)
-                  calculateTotal(manualOrderData.selectedProducts)
 
                   // 2. Si no tiene coordenadas válidas o es pluscode, no calcular tarifa por mapa
                   if (!location.latlong || location.latlong.startsWith('pluscode:')) {
@@ -5374,7 +5387,6 @@ export default function ManualOrderSidebar({
                         }
                         return prev
                       })
-                      calculateTotal(manualOrderData.selectedProducts)
                     })
                     .catch(error => {
                       console.error('Error calculating delivery fee in background:', error)
