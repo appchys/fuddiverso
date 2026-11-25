@@ -551,6 +551,11 @@ export function WhatsAppChatPreorderView({
     image: string | null
     siteName: string
   } | null>(null)
+  const [draftMediaAttachment, setDraftMediaAttachment] = useState<{
+    url: string
+    type: 'image'
+    label?: string
+  } | null>(null)
   const [loadingLinkPreview, setLoadingLinkPreview] = useState<boolean>(false)
   const [dismissedPreviewUrl, setDismissedPreviewUrl] = useState<string | null>(null)
   const [previewImageModal, setPreviewImageModal] = useState<{ url: string; caption?: string } | null>(null)
@@ -599,7 +604,7 @@ export function WhatsAppChatPreorderView({
     }
   }, [resolvedLocStorageKey])
   const [customQuickReplies, setCustomQuickReplies] = useState<
-    Array<{ id: string; shortcut: string; message: string; isDefault?: boolean }>
+    Array<{ id: string; shortcut: string; message: string; isDefault?: boolean; mediaUrl?: string }>
   >([])
   const [quickReplySelectedIdx, setQuickReplySelectedIdx] = useState<number>(0)
   const [quickReplyDismissed, setQuickReplyDismissed] = useState<boolean>(false)
@@ -607,13 +612,23 @@ export function WhatsAppChatPreorderView({
   const [editingQuickReplyId, setEditingQuickReplyId] = useState<string | null>(null)
   const [newQuickShortcut, setNewQuickShortcut] = useState<string>('')
   const [newQuickMessage, setNewQuickMessage] = useState<string>('')
+  const [newQuickMediaUrl, setNewQuickMediaUrl] = useState<string>('')
   const [savingQuickReply, setSavingQuickReply] = useState<boolean>(false)
   const [openReactionMsgKey, setOpenReactionMsgKey] = useState<string | null>(null)
   const [optimisticReactions, setOptimisticReactions] = useState<Record<string, string | null>>({})
   const [appliedCatalogMsgKeys, setAppliedCatalogMsgKeys] = useState<Record<string, boolean>>({})
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
   const attachMenuRef = useRef<HTMLDivElement | null>(null)
-  const replyInputRef = useRef<HTMLInputElement | null>(null)
+  const replyInputRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    const el = replyInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const maxHeight = 64 // ~3 líneas con text-xs leading-4 + padding
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  }, [replyText])
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const isInitialScrollPendingRef = useRef<boolean>(true)
 
@@ -705,10 +720,11 @@ export function WhatsAppChatPreorderView({
             const data = d.data() || {}
             const shortcut = String(data.shortcut || '').trim().replace(/^\/+/, '').toLowerCase()
             const message = String(data.message || '').trim()
+            const mediaUrl = String(data.mediaUrl || '').trim() || undefined
             if (!shortcut || !message) return null
-            return { id: d.id, shortcut, message }
+            return { id: d.id, shortcut, message, ...(mediaUrl ? { mediaUrl } : {}) }
           })
-          .filter(Boolean) as Array<{ id: string; shortcut: string; message: string }>
+          .filter(Boolean) as Array<{ id: string; shortcut: string; message: string; mediaUrl?: string }>
         setCustomQuickReplies(list)
       },
       () => {}
@@ -716,8 +732,65 @@ export function WhatsAppChatPreorderView({
     return () => unsub()
   }, [businessId])
 
+  const quickReplyTemplates = useMemo(() => {
+    const accounts =
+      businessData?.bankAccounts && businessData.bankAccounts.length > 0
+        ? businessData.bankAccounts
+        : businessData?.bankAccount
+          ? [businessData.bankAccount]
+          : []
+
+    const transferMessage =
+      accounts.length > 0
+        ? [
+            '🏦 *Datos para transferencia:*',
+            ...accounts.map((acc) => {
+              const lines = [
+                `• *Banco:* ${acc.bankName}`,
+                `  *Tipo:* ${acc.accountType}`,
+                `  *Cuenta:* ${acc.accountNumber}`,
+                `  *Titular:* ${acc.accountHolder}`,
+              ]
+              if (acc.idNumber) lines.push(`  *Cédula/RUC:* ${acc.idNumber}`)
+              if (acc.email) lines.push(`  *Correo:* ${acc.email}`)
+              return lines.join('\n')
+            }),
+          ].join('\n\n')
+        : ''
+
+    const storeAddress =
+      businessData?.pickupSettings?.references?.trim() ||
+      businessData?.address?.trim() ||
+      businessData?.references?.trim() ||
+      ''
+
+    const pickupCoords = businessData?.pickupSettings?.latlong?.trim()
+    const mapCoords =
+      businessData?.mapLocation?.lat && businessData?.mapLocation?.lng
+        ? `${businessData.mapLocation.lat},${businessData.mapLocation.lng}`
+        : ''
+    const coordsForMaps = pickupCoords || mapCoords
+
+    const pickupMessage =
+      storeAddress || coordsForMaps
+        ? [
+            '📍 *Dirección de retiro:*',
+            storeAddress || null,
+            coordsForMaps ? `https://maps.google.com/?q=${encodeURIComponent(coordsForMaps)}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : ''
+
+    const storePhotoUrl = businessData?.pickupSettings?.storePhotoUrl?.trim() || ''
+
+    return { transferMessage, pickupMessage, storePhotoUrl }
+  }, [businessData])
+
   const defaultQuickReplies = useMemo(() => {
-    const defaults: Array<{ id: string; shortcut: string; message: string; isDefault?: boolean }> = [
+    const { transferMessage, pickupMessage, storePhotoUrl } = quickReplyTemplates
+
+    const defaults: Array<{ id: string; shortcut: string; message: string; isDefault?: boolean; mediaUrl?: string }> = [
       {
         id: 'def-hola',
         shortcut: 'hola',
@@ -746,6 +819,27 @@ export function WhatsAppChatPreorderView({
         message: '¿Tu pago sería en efectivo 💵 o transferencia bancaria 🏦?',
         isDefault: true,
       },
+      ...(transferMessage
+        ? [
+            {
+              id: 'def-transferencia',
+              shortcut: 'transferencia',
+              message: transferMessage,
+              isDefault: true,
+            },
+          ]
+        : []),
+      ...(pickupMessage
+        ? [
+            {
+              id: 'def-retiro',
+              shortcut: 'retiro',
+              message: pickupMessage,
+              isDefault: true,
+              ...(storePhotoUrl ? { mediaUrl: storePhotoUrl } : {}),
+            },
+          ]
+        : []),
       {
         id: 'def-gracias',
         shortcut: 'gracias',
@@ -754,7 +848,7 @@ export function WhatsAppChatPreorderView({
       },
     ]
     return defaults
-  }, [businessUsername])
+  }, [businessUsername, quickReplyTemplates])
 
   const allQuickReplies = useMemo(() => {
     if (customQuickReplies.length > 0) return customQuickReplies
@@ -793,8 +887,11 @@ export function WhatsAppChatPreorderView({
   }, [slashMatch?.query, Boolean(slashMatch)])
 
   const applyQuickReply = useCallback(
-    (message: string) => {
+    (message: string, mediaUrl?: string) => {
       setDismissedPreviewUrl(null)
+      setDraftMediaAttachment(
+        mediaUrl ? { url: mediaUrl, type: 'image', label: 'Foto de referencia del local' } : null
+      )
       setReplyText((prev) => {
         const m = prev.match(/(^|\s)\/([^\s]*)$/)
         if (!m) return message
@@ -823,23 +920,29 @@ export function WhatsAppChatPreorderView({
         await updateDoc(doc(db, 'businesses', businessId, 'quickReplies', editingQuickReplyId), {
           shortcut: cleanShortcut,
           message: cleanMessage,
+          mediaUrl: newQuickMediaUrl || null,
           updatedAtMillis: now,
         })
       } else if (customQuickReplies.length === 0) {
         // Primera vez que se crea o edita una predeterminada: sembrar todas en Firestore aplicando el cambio
-        const toSeed = defaultQuickReplies.map((item) =>
+        const toSeed: Array<{ shortcut: string; message: string; mediaUrl?: string }> = defaultQuickReplies.map((item) =>
           item.id === editingQuickReplyId
-            ? { shortcut: cleanShortcut, message: cleanMessage }
-            : { shortcut: item.shortcut, message: item.message }
+            ? { shortcut: cleanShortcut, message: cleanMessage, ...(newQuickMediaUrl ? { mediaUrl: newQuickMediaUrl } : {}) }
+            : { shortcut: item.shortcut, message: item.message, ...(item.mediaUrl ? { mediaUrl: item.mediaUrl } : {}) }
         )
         if (!editingQuickReplyId) {
-          toSeed.push({ shortcut: cleanShortcut, message: cleanMessage })
+          toSeed.push({
+            shortcut: cleanShortcut,
+            message: cleanMessage,
+            ...(newQuickMediaUrl ? { mediaUrl: newQuickMediaUrl } : {}),
+          })
         }
         await Promise.all(
           toSeed.map((entry, idx) =>
             addDoc(colRef, {
               shortcut: entry.shortcut,
               message: entry.message,
+              ...(entry.mediaUrl ? { mediaUrl: entry.mediaUrl } : {}),
               createdAtMillis: now + idx,
             })
           )
@@ -848,6 +951,7 @@ export function WhatsAppChatPreorderView({
         await addDoc(colRef, {
           shortcut: cleanShortcut,
           message: cleanMessage,
+          ...(newQuickMediaUrl ? { mediaUrl: newQuickMediaUrl } : {}),
           createdAtMillis: now,
         })
       }
@@ -855,6 +959,7 @@ export function WhatsAppChatPreorderView({
       setEditingQuickReplyId(null)
       setNewQuickShortcut('')
       setNewQuickMessage('')
+      setNewQuickMediaUrl('')
       setShowNewQuickReplyForm(false)
     } catch (err) {
       console.error('[QuickReplies] Error guardando respuesta rápida:', err)
@@ -863,10 +968,11 @@ export function WhatsAppChatPreorderView({
     }
   }
 
-  const handleStartEditQuickReply = (item: { id: string; shortcut: string; message: string }) => {
+  const handleStartEditQuickReply = (item: { id: string; shortcut: string; message: string; mediaUrl?: string }) => {
     setEditingQuickReplyId(item.id)
     setNewQuickShortcut(item.shortcut)
     setNewQuickMessage(item.message)
+    setNewQuickMediaUrl(item.mediaUrl || '')
     setShowNewQuickReplyForm(true)
   }
 
@@ -882,6 +988,7 @@ export function WhatsAppChatPreorderView({
             addDoc(colRef, {
               shortcut: entry.shortcut,
               message: entry.message,
+              ...(entry.mediaUrl ? { mediaUrl: entry.mediaUrl } : {}),
               createdAtMillis: now + idx,
             })
           )
@@ -1010,12 +1117,14 @@ export function WhatsAppChatPreorderView({
 
   const handleSendDirectReply = async () => {
     const cleanText = replyText.trim()
-    if (!cleanText || !businessId || !conversation.docId || sendingReply) return
+    const attachmentToSend = draftMediaAttachment
+    if ((!cleanText && !attachmentToSend) || !businessId || !conversation.docId || sendingReply) return
     const previewToSend = dismissedPreviewUrl
       ? null
       : draftLinkPreview || undefined
     setReplyText('')
     setDraftLinkPreview(null)
+    setDraftMediaAttachment(null)
     setLoadingLinkPreview(false)
     setDismissedPreviewUrl(null)
     setSendingReply(true)
@@ -1041,6 +1150,7 @@ export function WhatsAppChatPreorderView({
             phone: targetPhone,
             text: cleanText,
             replyId,
+            ...(attachmentToSend ? { mediaUrl: attachmentToSend.url } : {}),
             ...(previewToSend !== undefined ? { linkPreview: previewToSend } : {}),
           }),
         })
@@ -3129,6 +3239,29 @@ export function WhatsAppChatPreorderView({
           </div>
 
           {/* Vista previa de enlace en vivo al escribir una URL (igual que WhatsApp) */}
+          {draftMediaAttachment && (
+            <div className="mb-2 flex items-center gap-2.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs">
+              <img
+                src={draftMediaAttachment.url}
+                alt={draftMediaAttachment.label || 'Imagen adjunta'}
+                className="h-10 w-10 rounded object-cover border border-gray-200 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-gray-800 truncate">
+                  {draftMediaAttachment.label || 'Imagen adjunta'}
+                </p>
+                <p className="text-[11px] text-gray-500">Se enviará como archivo de imagen</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDraftMediaAttachment(null)}
+                className="p-1 text-gray-400 hover:text-gray-700 rounded"
+                title="Quitar imagen adjunta"
+              >
+                <i className="bi bi-x-lg text-xs"></i>
+              </button>
+            </div>
+          )}
           {(loadingLinkPreview || draftLinkPreview) && (
             <div className="flex items-stretch gap-2.5 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden animate-in fade-in slide-in-from-bottom-1 duration-150">
               {loadingLinkPreview && !draftLinkPreview ? (
@@ -3226,6 +3359,41 @@ export function WhatsAppChatPreorderView({
 
                 {showNewQuickReplyForm ? (
                   <div className="p-3 space-y-2 bg-white">
+                    {!editingQuickReplyId && (quickReplyTemplates.pickupMessage || quickReplyTemplates.storePhotoUrl || quickReplyTemplates.transferMessage) && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Plantilla:</span>
+                        {(quickReplyTemplates.pickupMessage || quickReplyTemplates.storePhotoUrl) && (
+                          <button
+                            type="button"
+                            style={{ minHeight: 0 }}
+                            onClick={() => {
+                              setNewQuickShortcut('retiro')
+                              setNewQuickMessage(quickReplyTemplates.pickupMessage || '📍 *Dirección de retiro:*')
+                              setNewQuickMediaUrl(quickReplyTemplates.storePhotoUrl || '')
+                            }}
+                            className="h-6 px-2 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <i className="bi bi-geo-alt-fill text-[10px]"></i>
+                            Dirección con foto
+                          </button>
+                        )}
+                        {quickReplyTemplates.transferMessage && (
+                          <button
+                            type="button"
+                            style={{ minHeight: 0 }}
+                            onClick={() => {
+                              setNewQuickShortcut('transferencia')
+                              setNewQuickMessage(quickReplyTemplates.transferMessage)
+                              setNewQuickMediaUrl('')
+                            }}
+                            className="h-6 px-2 text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-md cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <i className="bi bi-bank text-[10px]"></i>
+                            Datos para transferencias
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-slate-400">/</span>
                       <input
@@ -3237,18 +3405,40 @@ export function WhatsAppChatPreorderView({
                       />
                     </div>
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={newQuickMessage}
                       onChange={(e) => setNewQuickMessage(e.target.value)}
                       placeholder="Texto de la respuesta rápida..."
                       className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none"
                     />
+                    {newQuickMediaUrl && (
+                      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+                        <img
+                          src={newQuickMediaUrl}
+                          alt="Foto de referencia"
+                          className="h-8 w-8 rounded object-cover border border-slate-200 shrink-0"
+                        />
+                        <span className="flex-1 truncate text-[11px] font-medium text-slate-600">
+                          Foto de referencia adjunta
+                        </span>
+                        <button
+                          type="button"
+                          style={{ minHeight: 0 }}
+                          onClick={() => setNewQuickMediaUrl('')}
+                          className="p-0.5 text-slate-400 hover:text-slate-700"
+                          title="Quitar foto"
+                        >
+                          <i className="bi bi-x text-sm"></i>
+                        </button>
+                      </div>
+                    )}
                     <div className="flex justify-end gap-1.5">
                       <button
                         type="button"
                         style={{ minHeight: 0 }}
                         onClick={() => {
                           setEditingQuickReplyId(null)
+                          setNewQuickMediaUrl('')
                           setShowNewQuickReplyForm(false)
                         }}
                         className="h-7 px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
@@ -3299,15 +3489,24 @@ export function WhatsAppChatPreorderView({
                               type="button"
                               style={{ minHeight: 0 }}
                               onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => applyQuickReply(item.message)}
-                              className="flex-1 min-w-0 text-left px-2.5 py-2 cursor-pointer"
+                              onClick={() => applyQuickReply(item.message, item.mediaUrl)}
+                              className="flex-1 min-w-0 text-left px-2.5 py-2 cursor-pointer flex items-start gap-2.5"
                             >
-                              <span className="inline-block text-[11px] font-black text-emerald-700">
-                                /{item.shortcut}
-                              </span>
-                              <p className="text-xs text-slate-600 line-clamp-2 leading-snug mt-0.5">
-                                {item.message}
-                              </p>
+                              {item.mediaUrl && (
+                                <img
+                                  src={item.mediaUrl}
+                                  alt={`/${item.shortcut}`}
+                                  className="w-9 h-9 rounded-md object-cover border border-slate-200 shrink-0 mt-0.5"
+                                />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <span className="inline-block text-[11px] font-black text-emerald-700">
+                                  /{item.shortcut}
+                                </span>
+                                <p className="text-xs text-slate-600 line-clamp-2 leading-snug mt-0.5">
+                                  {item.message}
+                                </p>
+                              </div>
                             </button>
                             <div className="flex items-center gap-0.5 p-1.5 shrink-0">
                               <button
@@ -3513,51 +3712,69 @@ export function WhatsAppChatPreorderView({
               )}
             </div>
 
-            <input
-              ref={replyInputRef}
-              type="text"
-              autoCapitalize="sentences"
-              spellCheck={true}
-              value={replyText}
-              onChange={(e) => {
-                const rawVal = e.target.value
-                setReplyText((prev) => autoCapitalizeSentences(prev, rawVal))
-                setQuickReplyDismissed(false)
-              }}
-              onKeyDown={(e) => {
-                if (isQuickReplyMenuOpen && !showNewQuickReplyForm && filteredQuickReplies.length > 0) {
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault()
-                    setQuickReplySelectedIdx((prev) => (prev + 1) % filteredQuickReplies.length)
-                    return
+            <div className="relative flex-1 min-w-0 flex items-center">
+              <textarea
+                ref={replyInputRef}
+                rows={1}
+                autoCapitalize="sentences"
+                spellCheck={true}
+                value={replyText}
+                onChange={(e) => {
+                  const rawVal = e.target.value
+                  setReplyText((prev) => autoCapitalizeSentences(prev, rawVal))
+                  setQuickReplyDismissed(false)
+                }}
+                onKeyDown={(e) => {
+                  if (isQuickReplyMenuOpen && !showNewQuickReplyForm && filteredQuickReplies.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setQuickReplySelectedIdx((prev) => (prev + 1) % filteredQuickReplies.length)
+                      return
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setQuickReplySelectedIdx(
+                        (prev) => (prev - 1 + filteredQuickReplies.length) % filteredQuickReplies.length
+                      )
+                      return
+                    }
+                    if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault()
+                      const chosen = filteredQuickReplies[quickReplySelectedIdx] || filteredQuickReplies[0]
+                      if (chosen) applyQuickReply(chosen.message, (chosen as { mediaUrl?: string }).mediaUrl)
+                      return
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setQuickReplyDismissed(true)
+                      return
+                    }
                   }
-                  if (e.key === 'ArrowUp') {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
-                    setQuickReplySelectedIdx(
-                      (prev) => (prev - 1 + filteredQuickReplies.length) % filteredQuickReplies.length
-                    )
-                    return
+                    void handleSendDirectReply()
                   }
-                  if (e.key === 'Enter' || e.key === 'Tab') {
-                    e.preventDefault()
-                    const chosen = filteredQuickReplies[quickReplySelectedIdx] || filteredQuickReplies[0]
-                    if (chosen) applyQuickReply(chosen.message)
-                    return
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setQuickReplyDismissed(true)
-                    return
-                  }
-                }
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void handleSendDirectReply()
-                }
-              }}
-              placeholder="Escribe un mensaje o / para respuestas rápidas..."
-              className="flex-1 min-w-0 h-8 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400"
-            />
+                }}
+                placeholder="Escribe un mensaje o / para respuestas rápidas..."
+                className={`w-full min-h-[32px] max-h-[64px] py-1.5 pl-3 ${replyText ? 'pr-7' : 'pr-3'} text-xs leading-4 resize-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400`}
+              />
+              {replyText && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplyText('')
+                    setDraftLinkPreview(null)
+                    setDismissedPreviewUrl(null)
+                    setQuickReplyDismissed(false)
+                    replyInputRef.current?.focus()
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-200/70 transition-colors"
+                  title="Borrar texto"
+                >
+                  <i className="bi bi-x text-sm leading-none"></i>
+                </button>
+              )}
+            </div>
             {replyText.trim() ? (
               <button
                 type="button"

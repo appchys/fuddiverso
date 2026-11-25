@@ -118,6 +118,7 @@ const server = http.createServer(async (req, res) => {
           const docId = String(body?.docId || '').trim()
           const phone = String(body?.phone || '').trim()
           const text = String(body?.text || '').trim()
+          const mediaUrl = String(body?.mediaUrl || '').trim() || undefined
           const replyId = String(body?.replyId || `web_${Date.now()}`).trim()
           const linkPreview =
             body && Object.prototype.hasOwnProperty.call(body, 'linkPreview')
@@ -130,7 +131,8 @@ const server = http.createServer(async (req, res) => {
             phone,
             text,
             replyId,
-            linkPreview
+            linkPreview,
+            mediaUrl
           )
           return sendJson(res, 200, result)
         }

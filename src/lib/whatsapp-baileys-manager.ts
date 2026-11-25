@@ -2186,10 +2186,12 @@ class WhatsAppBaileysManager {
     phone: string,
     text: string,
     replyId = `baileys_${Date.now()}`,
-    linkPreview?: LinkPreviewData | null
+    linkPreview?: LinkPreviewData | null,
+    mediaUrl?: string | null
   ): Promise<{ ok: boolean; error?: string }> {
     const cleanText = text.trim()
-    if (!cleanText) return { ok: false, error: 'Mensaje vacío' }
+    const cleanMediaUrl = String(mediaUrl || '').trim()
+    if (!cleanText && !cleanMediaUrl) return { ok: false, error: 'Mensaje vacío' }
     if (cleanText.length > MAX_OUTGOING_TEXT_LENGTH) {
       return { ok: false, error: `El mensaje excede el límite de ${MAX_OUTGOING_TEXT_LENGTH} caracteres` }
     }
@@ -2324,22 +2326,46 @@ class WhatsAppBaileysManager {
         ? await fetchLinkPreviewJpegThumbnail(resolvedPreview.image)
         : undefined
 
-      const baileysMessagePayload: any = {
-        text: cleanText,
-        ...(resolvedPreview
-          ? {
-              linkPreview: {
-                'canonical-url': resolvedPreview.url,
-                'matched-text':
-                  resolvedPreview.matchedText ||
-                  extractFirstUrlFromText(cleanText) ||
-                  resolvedPreview.url,
-                title: resolvedPreview.title || resolvedPreview.siteName,
-                description: resolvedPreview.description || '',
-                ...(jpegThumbnail ? { jpegThumbnail } : {}),
-              },
+      let baileysMessagePayload: any
+      if (cleanMediaUrl) {
+        let imageMedia: Buffer | { url: string } = { url: cleanMediaUrl }
+        let mimetype: string | undefined
+        try {
+          const imgRes = await fetch(cleanMediaUrl, { signal: AbortSignal.timeout(15000) })
+          if (imgRes.ok) {
+            const ct = imgRes.headers.get('content-type') || ''
+            if (ct.startsWith('image/')) mimetype = ct.split(';')[0].trim()
+            const arrBuf = await imgRes.arrayBuffer()
+            if (arrBuf.byteLength > 0) {
+              imageMedia = Buffer.from(arrBuf)
             }
-          : {}),
+          }
+        } catch {
+          // Fallback a { url: cleanMediaUrl } si falla la descarga previa
+        }
+        baileysMessagePayload = {
+          image: imageMedia,
+          ...(mimetype ? { mimetype } : {}),
+          ...(cleanText ? { caption: cleanText } : {}),
+        }
+      } else {
+        baileysMessagePayload = {
+          text: cleanText,
+          ...(resolvedPreview
+            ? {
+                linkPreview: {
+                  'canonical-url': resolvedPreview.url,
+                  'matched-text':
+                    resolvedPreview.matchedText ||
+                    extractFirstUrlFromText(cleanText) ||
+                    resolvedPreview.url,
+                  title: resolvedPreview.title || resolvedPreview.siteName,
+                  description: resolvedPreview.description || '',
+                  ...(jpegThumbnail ? { jpegThumbnail } : {}),
+                },
+              }
+            : {}),
+        }
       }
 
       let sentMsg: any
@@ -2403,6 +2429,7 @@ class WhatsAppBaileysManager {
           id: replyId,
           ...(sentMsg?.key?.id ? { waMsgId: sentMsg.key.id } : {}),
           text: cleanText,
+          ...(cleanMediaUrl ? { mediaUrl: cleanMediaUrl, mediaType: 'image' } : {}),
           timestampMillis: nowOut,
           fromMe: true,
           source: 'baileys',
@@ -2430,7 +2457,7 @@ class WhatsAppBaileysManager {
           chatHistory: nextHistory,
           pendingReply: null,
           canReplyDirectly: true,
-          lastMessage: cleanText,
+          lastMessage: cleanText || (cleanMediaUrl ? '📷 Imagen' : ''),
           timestampMillis: nowOut,
         }
         if (!existingDocExists) {

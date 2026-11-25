@@ -221,7 +221,8 @@ export async function POST(req: NextRequest) {
 
     if (action === 'send') {
       const text = String(body?.text || '').trim()
-      if (!text || text.length > MAX_MESSAGE_LENGTH) {
+      const mediaUrl = String(body?.mediaUrl || '').trim()
+      if ((!text && !mediaUrl) || text.length > MAX_MESSAGE_LENGTH) {
         return NextResponse.json(
           { error: `El mensaje debe tener entre 1 y ${MAX_MESSAGE_LENGTH} caracteres` },
           { status: 400 }
@@ -264,6 +265,7 @@ export async function POST(req: NextRequest) {
       const docId = String(body?.docId || '').trim()
       const phone = String(body?.phone || '').trim()
       const text = String(body?.text || '').trim()
+      const mediaUrl = String(body?.mediaUrl || '').trim() || undefined
       const replyId = String(body?.replyId || `web_${Date.now()}`).trim()
       const linkPreview =
         body && Object.prototype.hasOwnProperty.call(body, 'linkPreview')
@@ -276,7 +278,8 @@ export async function POST(req: NextRequest) {
         phone,
         text,
         replyId,
-        linkPreview
+        linkPreview,
+        mediaUrl
       )
       return NextResponse.json(result)
     }
