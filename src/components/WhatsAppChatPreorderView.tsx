@@ -719,7 +719,7 @@ export function WhatsAppChatPreorderView({
           .map((d) => {
             const data = d.data() || {}
             const shortcut = String(data.shortcut || '').trim().replace(/^\/+/, '').toLowerCase()
-            const message = String(data.message || '').trim()
+            const message = String(data.message || data.text || '').trim()
             const mediaUrl = String(data.mediaUrl || '').trim() || undefined
             if (!shortcut || !message) return null
             return { id: d.id, shortcut, message, ...(mediaUrl ? { mediaUrl } : {}) }
@@ -2204,6 +2204,27 @@ export function WhatsAppChatPreorderView({
 
               const bubbleNode = msg.fromMe ? (
                 <div className="bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs space-y-1.5">
+                  {msg.mediaUrl && (!msg.mediaType || msg.mediaType === 'image') && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setPreviewImageModal({ url: msg.mediaUrl!, caption: msg.text || undefined })
+                      }}
+                      className="rounded-lg overflow-hidden border border-emerald-200/80 bg-white/60 cursor-pointer"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={msg.mediaUrl}
+                        alt="Imagen enviada"
+                        onLoad={() => {
+                          if (isInitialScrollPendingRef.current) {
+                            scrollMessagesToBottom(false)
+                          }
+                        }}
+                        className="w-full max-h-56 object-cover"
+                      />
+                    </div>
+                  )}
                   {msg.linkPreview && (msg.linkPreview.title || msg.linkPreview.image) && (
                     <a
                       href={msg.linkPreview.url}
