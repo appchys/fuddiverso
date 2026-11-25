@@ -3204,10 +3204,7 @@ export default function TodayOrdersPage() {
 
                                     {/* Clientes comprando ahora (vista pantalla completa) */}
                                     {business?.id && (() => {
-                                        const liveBadgeCount =
-                                            checkoutCount > 0
-                                                ? checkoutCount
-                                                : whatsappUnreadChatsCount + activeCheckoutCount
+                                        const liveBadgeCount = whatsappUnreadChatsCount + activeCheckoutCount
                                         return (
                                             <button
                                                 type="button"

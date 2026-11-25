@@ -90,7 +90,10 @@ export default function WhatsAppStatusModal({
 
   const [publishing, setPublishing] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [successInfo, setSuccessInfo] = useState<{ recipientsCount: number } | null>(null)
+  const [successInfo, setSuccessInfo] = useState<{
+    recipientsCount: number
+    pending?: boolean
+  } | null>(null)
 
   const productUrl = useMemo(
     () => buildProductPublicUrl(business, product),
@@ -243,6 +246,7 @@ export default function WhatsAppStatusModal({
 
       setSuccessInfo({
         recipientsCount: Number(data?.recipientsCount || 0),
+        pending: Boolean(data?.pending),
       })
     } catch (err: any) {
       setErrorMsg(err?.message || 'Error de red al publicar el estado en WhatsApp.')
@@ -506,11 +510,19 @@ export default function WhatsAppStatusModal({
               <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-3 text-xs text-emerald-800 font-medium flex items-start gap-2">
                 <i className="bi bi-check-circle-fill text-emerald-600 text-sm mt-0.5"></i>
                 <div>
-                  <p className="font-bold">¡Estado publicado en WhatsApp!</p>
+                  <p className="font-bold">
+                    {successInfo.pending
+                      ? '¡Estado en proceso de publicación!'
+                      : '¡Estado publicado en WhatsApp!'}
+                  </p>
                   <p className="text-emerald-700 mt-0.5">
-                    Enviado a {successInfo.recipientsCount}{' '}
-                    {successInfo.recipientsCount === 1 ? 'contacto' : 'contactos'} (quienes tengan
-                    guardado el número de tu tienda podrán verlo).
+                    {successInfo.pending
+                      ? `Se está enviando a ${successInfo.recipientsCount} ${
+                          successInfo.recipientsCount === 1 ? 'contacto' : 'contactos'
+                        } en segundo plano. Aparecerá en tus estados de WhatsApp en unos momentos.`
+                      : `Enviado a ${successInfo.recipientsCount} ${
+                          successInfo.recipientsCount === 1 ? 'contacto' : 'contactos'
+                        } (quienes tengan guardado el número de tu tienda podrán verlo).`}
                   </p>
                 </div>
               </div>

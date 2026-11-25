@@ -511,6 +511,8 @@ export function WhatsAppChatPreorderView({
   const [activeTab, setActiveTab] = useState<PreorderTabKey | null>(initialTab ?? null)
   const [resolvedProfile, setResolvedProfile] = useState<ResolvedWhatsAppClientProfile | undefined>(initialProfile)
   const [showLocationsModal, setShowLocationsModal] = useState(false)
+  const [expandOrderCardTrigger, setExpandOrderCardTrigger] = useState<{ orderId: string; count: number } | null>(null)
+  const [creatingQuickOrder, setCreatingQuickOrder] = useState(false)
 
   // Estado de preorden
   const [draftItems, setDraftItems] = useState<WhatsAppPreorderDraftItem[]>([])
@@ -2135,6 +2137,7 @@ export function WhatsAppChatPreorderView({
                       order={order}
                       timeLabel={orderTime}
                       defaultExpanded={false}
+                      expandTrigger={expandOrderCardTrigger?.orderId === String(order.id) ? expandOrderCardTrigger.count : 0}
                       collapsible={true}
                       onAssignDelivery={onAssignDelivery}
                       onPrintOrder={onPrintOrder}
@@ -3238,25 +3241,36 @@ export function WhatsAppChatPreorderView({
                 </button>
               )
             })}
-            {headerActiveOrders.length > 0 && (
-              <button
-                type="button"
-                style={{ minHeight: 0, minWidth: 0 }}
-                onClick={() => {
+            <button
+              type="button"
+              style={{ minHeight: 0, minWidth: 0 }}
+              onClick={() => {
+                if (headerActiveOrders.length > 0) {
                   if (activeTab) setActiveTab(null)
                   const latestActiveOrder = headerActiveOrders[headerActiveOrders.length - 1]
                   if (!latestActiveOrder?.id) return
+                  const targetOrderId = String(latestActiveOrder.id)
+                  setExpandOrderCardTrigger((prev) => ({
+                    orderId: targetOrderId,
+                    count: (prev?.count || 0) + 1,
+                  }))
                   setTimeout(() => {
-                    const el = document.getElementById(`wa-order-card-${latestActiveOrder.id}`)
+                    const el = document.getElementById(`wa-order-card-${targetOrderId}`)
                     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
                   }, 30)
-                }}
-                title="Ir al pedido activo"
-                className="w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer bg-[#FFF4D2] border border-[#E8D59C] text-amber-800 hover:bg-[#FDECC0] hover:ring-2 hover:ring-amber-300"
-              >
-                <i className="bi bi-receipt"></i>
-              </button>
-            )}
+                } else {
+                  onCreateOrder(conversation, buildDraft())
+                }
+              }}
+              title={headerActiveOrders.length > 0 ? 'Ver pedido activo' : 'Crear pedido manual'}
+              className={`w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer ${
+                headerActiveOrders.length > 0
+                  ? 'bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100 hover:ring-2 hover:ring-blue-300'
+                  : 'bg-gray-100 border border-gray-200 text-gray-500 hover:bg-gray-200 hover:ring-2 hover:ring-gray-300'
+              }`}
+            >
+              <i className="bi bi-receipt"></i>
+            </button>
           </div>
 
           {/* Vista previa de enlace en vivo al escribir una URL (igual que WhatsApp) */}
@@ -3811,8 +3825,66 @@ export function WhatsAppChatPreorderView({
               <button
                 type="button"
                 style={{ minHeight: 0, minWidth: 0 }}
-                onClick={() => onCreateOrder(enrichedConversation, buildDraft())}
-                className={`w-8 h-8 min-h-0 min-w-0 p-0 shrink-0 rounded-full text-white shadow-xs transition-all active:scale-95 inline-flex items-center justify-center cursor-pointer ${
+                disabled={creatingQuickOrder}
+                onClick={() => {
+                  if (allStepsComplete) {
+                    if (creatingQuickOrder || !businessId) return
+                    const draft = buildDraft()
+                    const items = draft.items ?? []
+                    const subtotal = items.reduce((acc, it) => acc + it.price * it.quantity, 0)
+                    const deliveryCost = 0
+                    const total = subtotal + deliveryCost
+                    setCreatingQuickOrder(true)
+                    void addDoc(collection(db, 'orders'), {
+                      businessId,
+                      customer: {
+                        id: resolvedProfile?.clientId || '',
+                        name: cleanPhone || conversation.phone || 'Cliente',
+                        phone: cleanPhone || conversation.phone || '',
+                      },
+                      items: items.map((it) => ({
+                        productId: it.productId,
+                        variantName: it.variant || null,
+                        name: it.name,
+                        quantity: it.quantity,
+                        price: it.price,
+                        subtotal: it.price * it.quantity,
+                      })),
+                      delivery: {
+                        type: draft.deliveryType === 'pickup' ? 'pickup' : 'delivery',
+                        cost: deliveryCost,
+                        references: draft.customLocationReference || '',
+                        latlng: draft.customLocationInput || '',
+                      },
+                      timing: {
+                        type: draft.timingType === 'scheduled' ? 'scheduled' : 'immediate',
+                        scheduledDate: draft.scheduledDate || '',
+                        scheduledTime: draft.scheduledTime || '',
+                      },
+                      payment: {
+                        method: draft.paymentMethod || 'cash',
+                        paymentStatus: 'pending',
+                        total,
+                      },
+                      subtotal,
+                      total,
+                      status: 'confirmed',
+                      createdByAdmin: true,
+                      source: 'whatsapp_chat',
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                    })
+                      .catch((err) => {
+                        console.error('Error creando pedido rápido desde chat:', err)
+                      })
+                      .finally(() => {
+                        setCreatingQuickOrder(false)
+                      })
+                  } else {
+                    onCreateOrder(enrichedConversation, buildDraft())
+                  }
+                }}
+                className={`w-8 h-8 min-h-0 min-w-0 p-0 shrink-0 rounded-full text-white shadow-xs transition-all active:scale-95 inline-flex items-center justify-center cursor-pointer disabled:opacity-50 ${
                   allStepsComplete
                     ? 'bg-emerald-600 hover:bg-emerald-700'
                     : 'bg-rose-600 hover:bg-rose-700'

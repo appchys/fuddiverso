@@ -1,11 +1,12 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 export interface WhatsAppOrderNoticeCardProps {
   order: any
   timeLabel?: string
   defaultExpanded?: boolean
+  expandTrigger?: number
   collapsible?: boolean
   className?: string
   onAssignDelivery?: (order: any) => void
@@ -51,6 +52,7 @@ export function WhatsAppOrderNoticeCard({
   order,
   timeLabel,
   defaultExpanded = false,
+  expandTrigger = 0,
   collapsible = true,
   className = '',
   onAssignDelivery,
@@ -58,6 +60,12 @@ export function WhatsAppOrderNoticeCard({
   onEditOrder,
 }: WhatsAppOrderNoticeCardProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
+
+  useEffect(() => {
+    if (expandTrigger > 0) {
+      setIsExpanded(true)
+    }
+  }, [expandTrigger])
 
   if (!order) return null
 

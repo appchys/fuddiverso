@@ -131,11 +131,12 @@ async function verifyBusinessAccess(
 async function proxyToWorker(
   method: 'GET' | 'POST',
   queryString: string,
-  body?: unknown
+  body?: unknown,
+  timeoutMs = 35_000
 ): Promise<NextResponse> {
   const targetUrl = `${WORKER_URL}/bridge${queryString ? `?${queryString}` : ''}`
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 35_000)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const headers: Record<string, string> = {}
@@ -166,6 +167,18 @@ async function proxyToWorker(
     }
   } catch (err: any) {
     console.error(`[API ${method} /api/whatsapp/bridge] Error conectando al worker:`, err)
+    const isAbort =
+      err?.name === 'AbortError' ||
+      String(err?.message || '').toLowerCase().includes('aborted')
+    if (isAbort) {
+      return NextResponse.json(
+        {
+          error:
+            'La solicitud tardó demasiado en responder el servidor de WhatsApp. Intenta nuevamente en unos segundos.',
+        },
+        { status: 504 }
+      )
+    }
     return NextResponse.json(
       { error: err?.message || 'No se pudo conectar con el servidor de WhatsApp' },
       { status: 502 }
@@ -241,7 +254,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (WORKER_URL) {
-      return await proxyToWorker('POST', '', body)
+      const timeoutMs = action === 'publish-status' ? 55_000 : 35_000
+      return await proxyToWorker('POST', '', body, timeoutMs)
     }
 
     const manager = getWhatsAppBaileysManager()

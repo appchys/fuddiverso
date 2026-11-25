@@ -2803,7 +2803,8 @@ class WhatsAppBaileysManager {
     session: ManagedSession,
     activeSocket: WASocket
   ): Promise<string[]> {
-    const MAX_STATUS_RECIPIENTS = 500
+    // Limitar destinatarios para evitar timeouts al establecer sesiones Signal (USync + pre-keys)
+    const MAX_STATUS_RECIPIENTS = 150
     const jidSet = new Set<string>()
 
     const addIfAllowed = (raw?: string | null) => {
@@ -2822,15 +2823,17 @@ class WhatsAppBaileysManager {
       jidSet.add(ownJid)
     }
 
-    // 2. Contactos sincronizados en memoria desde Baileys
-    for (const jid of session.knownContactJids) {
-      addIfAllowed(jid)
-    }
-
     const db = ensureAdminDb()
     if (db) {
       try {
-        const [contactsSnap, pendingSnap, ordersSnap] = await Promise.all([
+        const [pendingSnap, contactsSnap, ordersSnap] = await Promise.all([
+          db
+            .collection('businesses')
+            .doc(session.businessId)
+            .collection('whatsappPending')
+            .limit(150)
+            .get()
+            .catch(() => null),
           db
             .collection('businesses')
             .doc(session.businessId)
@@ -2839,20 +2842,32 @@ class WhatsAppBaileysManager {
             .get()
             .catch(() => null),
           db
-            .collection('businesses')
-            .doc(session.businessId)
-            .collection('whatsappPending')
-            .limit(300)
-            .get()
-            .catch(() => null),
-          db
             .collection('orders')
             .where('businessId', '==', session.businessId)
-            .limit(300)
+            .limit(150)
             .get()
             .catch(() => null),
         ])
 
+        // 2. Priorizar conversaciones reales recientes de WhatsApp (ya suelen tener sesión Signal)
+        if (pendingSnap && !pendingSnap.empty) {
+          const sortedPending = [...pendingSnap.docs].sort((a, b) => {
+            const ta = Number(a.data()?.lastMessageAtMillis || a.data()?.updatedAtMillis || 0)
+            const tb = Number(b.data()?.lastMessageAtMillis || b.data()?.updatedAtMillis || 0)
+            return tb - ta
+          })
+          for (const docSnap of sortedPending) {
+            const d = docSnap.data() || {}
+            addIfAllowed(d.whatsappJid || d.phone || d.rawPhone || '')
+          }
+        }
+
+        // 3. Contactos sincronizados en memoria desde Baileys
+        for (const jid of session.knownContactJids) {
+          addIfAllowed(jid)
+        }
+
+        // 4. Contactos persistidos de WhatsApp
         if (contactsSnap?.exists) {
           const savedJids = contactsSnap.data()?.jids
           if (Array.isArray(savedJids)) {
@@ -2860,14 +2875,8 @@ class WhatsAppBaileysManager {
           }
         }
 
-        if (pendingSnap && !pendingSnap.empty) {
-          for (const docSnap of pendingSnap.docs) {
-            const d = docSnap.data() || {}
-            addIfAllowed(d.whatsappJid || d.phone || d.rawPhone || '')
-          }
-        }
-
-        if (ordersSnap && !ordersSnap.empty) {
+        // 5. Clientes de pedidos recientes como respaldo hasta completar el cupo
+        if (ordersSnap && !ordersSnap.empty && jidSet.size < MAX_STATUS_RECIPIENTS) {
           for (const docSnap of ordersSnap.docs) {
             const d = docSnap.data() || {}
             const phone =
@@ -2881,6 +2890,13 @@ class WhatsAppBaileysManager {
         }
       } catch (err) {
         console.warn('[Baileys] Error recolectando destinatarios de estado:', err)
+        for (const jid of session.knownContactJids) {
+          addIfAllowed(jid)
+        }
+      }
+    } else {
+      for (const jid of session.knownContactJids) {
+        addIfAllowed(jid)
       }
     }
 
@@ -2898,6 +2914,7 @@ class WhatsAppBaileysManager {
     }
   ): Promise<{
     ok: boolean
+    pending?: boolean
     messageId?: string | null
     recipientsCount?: number
     linkPreview?: LinkPreviewData | null
@@ -2982,6 +2999,7 @@ class WhatsAppBaileysManager {
       let sentMsg: any
       let lastSendErr: any = null
       let statusJidList: string[] = []
+      let completedInBackground = false
 
       for (let sendAttempt = 0; sendAttempt < 2; sendAttempt++) {
         let activeSocket = session.socket
@@ -3003,12 +3021,46 @@ class WhatsAppBaileysManager {
         }
 
         try {
-          sentMsg = await activeSocket.sendMessage('status@broadcast', baileysStatusPayload, {
+          const sendPromise = activeSocket.sendMessage('status@broadcast', baileysStatusPayload, {
             backgroundColor,
             font,
             statusJidList,
             broadcast: true,
           })
+
+          // Si el establecimiento de sesiones Signal para muchos contactos supera 22s,
+          // devolvemos respuesta al cliente para evitar abortos HTTP mientras el worker concluye el envío.
+          let bgTimer: ReturnType<typeof setTimeout> | null = null
+          const raceResult = await Promise.race([
+            sendPromise.then((res) => ({ timedOut: false as const, res })),
+            new Promise<{ timedOut: true }>((resolve) => {
+              bgTimer = setTimeout(() => resolve({ timedOut: true }), 22_000)
+            }),
+          ])
+          if (bgTimer) clearTimeout(bgTimer)
+
+          if (raceResult.timedOut) {
+            completedInBackground = true
+            console.log(
+              `[Baileys] Publicación de estado en curso en segundo plano business=${businessId} recipients=${statusJidList.length}`
+            )
+            void sendPromise
+              .then((res) => {
+                console.log(
+                  `[Baileys] Estado publicado (segundo plano) business=${businessId} msgId=${res?.key?.id || 'n/a'} recipients=${statusJidList.length}`
+                )
+              })
+              .catch((bgErr) => {
+                console.error(
+                  `[Baileys] Error publicando estado en segundo plano business=${businessId}:`,
+                  bgErr
+                )
+              })
+            lastSendErr = null
+            break
+          }
+
+          sentMsg = raceResult.res
           lastSendErr = null
           break
         } catch (err: any) {
@@ -3029,12 +3081,15 @@ class WhatsAppBaileysManager {
         throw lastSendErr
       }
 
-      console.log(
-        `[Baileys] Estado publicado business=${businessId} msgId=${sentMsg?.key?.id || 'n/a'} recipients=${statusJidList.length} preview=${Boolean(resolvedPreview)}`
-      )
+      if (!completedInBackground) {
+        console.log(
+          `[Baileys] Estado publicado business=${businessId} msgId=${sentMsg?.key?.id || 'n/a'} recipients=${statusJidList.length} preview=${Boolean(resolvedPreview)}`
+        )
+      }
 
       return {
         ok: true,
+        pending: completedInBackground || undefined,
         messageId: sentMsg?.key?.id || null,
         recipientsCount: statusJidList.length,
         linkPreview: resolvedPreview,
