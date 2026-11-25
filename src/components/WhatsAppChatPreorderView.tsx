@@ -2016,17 +2016,21 @@ export function WhatsAppChatPreorderView({
                 const { order, createdMs } = entry
                 const orderTime = formatWhatsAppTime(createdMs || Date.now())
                 return (
-                  <WhatsAppOrderNoticeCard
+                  <div
                     key={entry.key}
-                    order={order}
-                    timeLabel={orderTime}
-                    defaultExpanded={false}
-                    collapsible={true}
-                    className="self-center my-1 max-w-[88%] sm:max-w-[75%]"
-                    onAssignDelivery={onAssignDelivery}
-                    onPrintOrder={onPrintOrder}
-                    onEditOrder={onInspectOrder}
-                  />
+                    id={`wa-order-card-${order.id}`}
+                    className="self-center my-1 w-full max-w-[88%] sm:max-w-[75%]"
+                  >
+                    <WhatsAppOrderNoticeCard
+                      order={order}
+                      timeLabel={orderTime}
+                      defaultExpanded={false}
+                      collapsible={true}
+                      onAssignDelivery={onAssignDelivery}
+                      onPrintOrder={onPrintOrder}
+                      onEditOrder={onInspectOrder}
+                    />
+                  </div>
                 )
               }
 
@@ -3103,6 +3107,25 @@ export function WhatsAppChatPreorderView({
                 </button>
               )
             })}
+            {headerActiveOrders.length > 0 && (
+              <button
+                type="button"
+                style={{ minHeight: 0, minWidth: 0 }}
+                onClick={() => {
+                  if (activeTab) setActiveTab(null)
+                  const latestActiveOrder = headerActiveOrders[headerActiveOrders.length - 1]
+                  if (!latestActiveOrder?.id) return
+                  setTimeout(() => {
+                    const el = document.getElementById(`wa-order-card-${latestActiveOrder.id}`)
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }, 30)
+                }}
+                title="Ir al pedido activo"
+                className="w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full inline-flex items-center justify-center text-xs leading-none transition-all cursor-pointer bg-[#FFF4D2] border border-[#E8D59C] text-amber-800 hover:bg-[#FDECC0] hover:ring-2 hover:ring-amber-300"
+              >
+                <i className="bi bi-receipt"></i>
+              </button>
+            )}
           </div>
 
           {/* Vista previa de enlace en vivo al escribir una URL (igual que WhatsApp) */}

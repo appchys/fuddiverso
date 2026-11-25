@@ -797,6 +797,85 @@ exports.onBusinessWritten = onDocumentWritten("businesses/{businessId}", async (
   }
 });
 
+/**
+ * Cloud Function: Push FCM de alta prioridad a la app Android de la tienda cuando entra
+ * un mensaje nuevo de WhatsApp (escrito por el worker de Baileys en whatsappPending).
+ * Se envía como mensaje solo-datos para que la app construya la notificación (con sonido,
+ * agrupada por conversación y deduplicada contra el listener local de Firestore).
+ */
+exports.onWhatsAppPendingWritten = onDocumentWritten("businesses/{businessId}/whatsappPending/{docId}", async (event) => {
+  const { businessId, docId } = event.params;
+  const before = event.data.before ? event.data.before.data() : null;
+  const after = event.data.after ? event.data.after.data() : null;
+  if (!after) return;
+
+  const beforeUnread = typeof before?.unreadCount === 'number' ? before.unreadCount : 0;
+  const afterUnread = typeof after.unreadCount === 'number' ? after.unreadCount : 0;
+  if (afterUnread <= beforeUnread) return;
+
+  const history = Array.isArray(after.chatHistory) ? after.chatHistory : [];
+  const lastIncoming = [...history].reverse().find((h) => h && h.fromMe !== true);
+  if (!lastIncoming) return;
+
+  const msgTs = Number(lastIncoming.timestampMillis || after.timestampMillis || 0);
+  if (msgTs > 0 && Date.now() - msgTs > 120000) return; // ignorar históricos / sincronizaciones
+
+  const mediaLabels = {
+    image: '📷 Foto',
+    video: '🎥 Video',
+    audio: '🎤 Nota de voz',
+    ptt: '🎤 Nota de voz',
+    sticker: 'Sticker',
+    document: `📄 ${lastIncoming.fileName || 'Documento'}`,
+    location: '📍 Ubicación'
+  };
+  const rawText = String(lastIncoming.text || '').trim();
+  const body = (rawText || mediaLabels[String(lastIncoming.mediaType || '').toLowerCase()] || '📎 Mensaje nuevo').slice(0, 300);
+  const title = String(after.fuddiClientName || after.displayName || after.phone || 'Nuevo mensaje').trim();
+  const msgId = String(lastIncoming.id || msgTs || Date.now());
+
+  const dataPayload = {
+    type: 'whatsapp_message',
+    businessId: String(businessId),
+    docId: String(docId),
+    conversationId: String(after.id || docId),
+    phone: String(after.phone || ''),
+    messageKey: `${docId}_${msgId}`,
+    title,
+    body
+  };
+  const androidConfig = { priority: 'high', ttl: 120 * 1000 };
+
+  const messaging = admin.messaging();
+  let deliveredDirectly = false;
+  try {
+    const bizDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+    const bizData = bizDoc.exists ? (bizDoc.data() || {}) : {};
+    const tokens = [...new Set(
+      (Array.isArray(bizData.fcmTokens) ? bizData.fcmTokens : [])
+        .filter((t) => typeof t === 'string' && t.trim().length > 0)
+        .map((t) => t.trim())
+    )];
+    if (tokens.length > 0) {
+      const multiRes = await messaging.sendEachForMulticast({ tokens, data: dataPayload, android: androidConfig });
+      deliveredDirectly = multiRes.successCount > 0;
+      console.log(`✅ [FCM WhatsApp] Push de mensaje enviado a ${tokens.length} dispositivos (éxitos: ${multiRes.successCount}) business=${businessId} doc=${docId}`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ [FCM WhatsApp] Error enviando a tokens directos para negocio ${businessId}:`, err.message);
+  }
+
+  if (!deliveredDirectly) {
+    const topic = `store_${String(businessId).trim().replace(/[^a-zA-Z0-9-_.~%]/g, '_')}`;
+    try {
+      await messaging.send({ topic, data: dataPayload, android: androidConfig });
+      console.log(`✅ [FCM WhatsApp] Push de mensaje enviado a topic ${topic}`);
+    } catch (err) {
+      console.warn(`⚠️ [FCM WhatsApp] Error enviando a topic ${topic}:`, err.message);
+    }
+  }
+});
+
 async function sendStoreFcmPushOnScheduledReminder(order, orderId, scheduledTime, customerName, previewItems) {
   const businessId = order.businessId || order.businessSnapshot?.id;
   if (!businessId) {
