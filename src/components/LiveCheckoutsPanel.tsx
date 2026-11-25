@@ -506,10 +506,13 @@ export function LiveCheckoutsPanel({
         return entries;
     }, [checkouts, activeWhatsAppConversations]);
 
-    // Notify parent of count changes (unified total)
+    // Notify parent of count changes (only unread WhatsApp chats + active checkouts)
+    const unreadOrCheckoutCount = unifiedEntries.filter(
+        (entry) => entry.kind === 'checkout' || (entry.conversation.unreadCount || 0) > 0
+    ).length;
     useEffect(() => {
-        onCountChange?.(unifiedEntries.length);
-    }, [unifiedEntries.length, onCountChange]);
+        onCountChange?.(unreadOrCheckoutCount);
+    }, [unreadOrCheckoutCount, onCountChange]);
 
     const entriesListNodes = unifiedEntries.map(entry =>
         entry.kind === 'whatsapp' ? (

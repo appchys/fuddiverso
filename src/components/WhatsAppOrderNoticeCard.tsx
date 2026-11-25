@@ -65,6 +65,9 @@ export function WhatsAppOrderNoticeCard({
   const isPickupOrder = order.delivery?.type === 'pickup'
   const hasDeliveryAssigned = Boolean(order.delivery?.assignedDelivery)
   const displayTime = timeLabel ?? resolveOrderTimeLabel(order)
+  const authorLabel = order?.createdByAdmin
+    ? (order?.businessSnapshot?.name?.trim() || order?.businessName?.trim() || 'Tienda')
+    : (order?.customer?.name?.trim() || order?.customerName?.trim() || order?.clientName?.trim() || 'Cliente')
   const canManageOrder = Boolean(
     !order._fallbackSummary && (onEditOrder || onAssignDelivery || onPrintOrder)
   )
@@ -88,19 +91,38 @@ export function WhatsAppOrderNoticeCard({
     >
       <div className="flex items-center justify-between gap-3">
         <span className="font-black text-amber-950 inline-flex items-center gap-1.5">
-          <i className="bi bi-bag-check-fill text-amber-700"></i>
-          Pedido creado
+          {order.timing?.type === 'scheduled' ? (
+            <>
+              <i className="bi bi-clock text-amber-700"></i>
+              <span>
+                {order.timing?.scheduledTime
+                  ? `Programado para ${order.timing.scheduledTime}`
+                  : 'Programado'}
+              </span>
+            </>
+          ) : (
+            <>
+              <i className="bi bi-lightning-fill text-amber-600"></i>
+              <span>Inmediato</span>
+            </>
+          )}
         </span>
         <div className="inline-flex items-center gap-1.5">
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/80 text-amber-900 border border-[#E8D59C]">
             {getOrderStatusLabel(order.status)}
           </span>
-          {collapsible && canManageOrder && (
-            <i
-              className={`bi bi-chevron-down text-[11px] text-amber-800/80 transition-transform duration-200 ${
-                isExpanded ? 'rotate-180' : ''
-              }`}
-            ></i>
+          {onPrintOrder && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onPrintOrder(order)
+              }}
+              title="Imprimir pedido"
+              className="inline-flex items-center justify-center p-1 text-amber-900/80 hover:text-amber-950 transition-colors cursor-pointer"
+            >
+              <i className="bi bi-printer text-base leading-none"></i>
+            </button>
           )}
         </div>
       </div>
@@ -130,7 +152,7 @@ export function WhatsAppOrderNoticeCard({
         </p>
       )}
 
-      <div className="flex items-center justify-between gap-3 pt-1 border-t border-[#EAD9A4]">
+      <div className="flex items-center justify-between gap-3 pt-0.5">
         {typeof order.total === 'number' ? (
           <span className="font-black text-amber-950 text-xs">
             Total: ${order.total.toFixed(2)}
@@ -138,11 +160,13 @@ export function WhatsAppOrderNoticeCard({
         ) : (
           <span></span>
         )}
-        {displayTime && (
-          <span className="text-[10px] text-amber-900/70 inline-flex items-center gap-1 ml-auto">
-            {displayTime}
-          </span>
-        )}
+        <div className="text-[10px] text-amber-900/70 inline-flex items-center gap-1 ml-auto">
+          {authorLabel && (
+            <span className="max-w-[120px] truncate">{authorLabel}</span>
+          )}
+          {authorLabel && displayTime && <span>·</span>}
+          {displayTime && <span>{displayTime}</span>}
+        </div>
       </div>
 
       {showActions && (
@@ -162,16 +186,6 @@ export function WhatsAppOrderNoticeCard({
                   ? (String(order.delivery?.assignedDeliveryData?.nombres || '').trim() || 'Delivery asignado')
                   : 'Asignar delivery'}
               </span>
-            </button>
-          )}
-          {onPrintOrder && (
-            <button
-              type="button"
-              onClick={() => onPrintOrder(order)}
-              className="flex-1 min-w-[90px] inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/90 hover:bg-white border border-[#E5D095] text-amber-950 text-[11px] font-bold shadow-2xs transition-colors cursor-pointer"
-            >
-              <i className="bi bi-printer-fill text-slate-700"></i>
-              <span>Imprimir</span>
             </button>
           )}
           {onEditOrder && (

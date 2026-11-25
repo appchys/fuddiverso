@@ -2244,6 +2244,11 @@ export default function TodayOrdersPage() {
         [whatsappPendingConversations]
     )
 
+    const whatsappUnreadChatsCount = useMemo(
+        () => whatsappPendingConversations.filter((c) => (c.status || 'pending') !== 'closed' && (c.unreadCount || 0) > 0).length,
+        [whatsappPendingConversations]
+    )
+
     useEffect(() => {
         const bizId = business?.id
         if (!bizId) {
@@ -3202,7 +3207,7 @@ export default function TodayOrdersPage() {
                                         const liveBadgeCount =
                                             checkoutCount > 0
                                                 ? checkoutCount
-                                                : whatsappActivePendingCount + activeCheckoutCount
+                                                : whatsappUnreadChatsCount + activeCheckoutCount
                                         return (
                                             <button
                                                 type="button"
