@@ -19,6 +19,8 @@ Copy-Item (Join-Path $PSScriptRoot "server.ts") $BundleDir
 Copy-Item (Join-Path $RootDir "src\lib\whatsapp-baileys-manager.ts") (Join-Path $BundleDir "src\lib")
 Copy-Item (Join-Path $RootDir "src\lib\firebase-admin.ts") (Join-Path $BundleDir "src\lib")
 Copy-Item (Join-Path $RootDir "src\lib\link-preview.ts") (Join-Path $BundleDir "src\lib")
+Copy-Item (Join-Path $RootDir "src\lib\store-utils.ts") (Join-Path $BundleDir "src\lib")
+if (Test-Path (Join-Path $RootDir "src\types")) { Copy-Item -Recurse (Join-Path $RootDir "src\types") (Join-Path $BundleDir "src\types") }
 
 if (Test-Path $ArchivePath) { Remove-Item -Force $ArchivePath }
 tar -czf $ArchivePath -C $BundleDir .

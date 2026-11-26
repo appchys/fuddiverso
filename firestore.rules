@@ -66,6 +66,17 @@ service cloud.firestore {
         allow read: if isBusinessMember(businessId);
         allow write: if false;
       }
+
+      // Estado de vinculación de Instagram DM: lectura solo miembros, escritura solo servidor Admin SDK
+      match /instagramConnection/{docId} {
+        allow read: if isBusinessMember(businessId);
+        allow write: if false;
+      }
+
+      // Reglas de mensajes automáticos (WhatsApp e Instagram)
+      match /whatsappAutoReplies/{ruleId} {
+        allow read, write: if isBusinessMember(businessId);
+      }
       
       // Subcolección de biblioteca de ingredientes
       match /ingredientLibrary/{ingredientId} {
