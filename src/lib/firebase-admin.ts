@@ -73,6 +73,11 @@ export function ensureAdminDb(): Firestore | null {
   if (!app) return null
 
   adminDb = getFirestore(app)
+  try {
+    adminDb.settings({ ignoreUndefinedProperties: true })
+  } catch {
+    // Ya inicializado previamente
+  }
   return adminDb
 }
 

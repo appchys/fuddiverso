@@ -82,8 +82,24 @@ export async function GET(req: NextRequest) {
       )}`
     )
     const meData = await meRes.json().catch(() => ({}))
-    const igAccountId = String(meData?.user_id || meData?.id || tokenData?.user_id || '').trim()
+    const igUserId = String(meData?.user_id || '').trim()
+    const igScopedId = String(meData?.id || tokenData?.user_id || '').trim()
+    const igAccountId = igUserId || igScopedId
     const igUsername = String(meData?.username || '').trim()
+
+    // 4. Suscribir la cuenta de Instagram al webhook de mensajes (obligatorio en Meta para recibir DMs)
+    try {
+      const subRes = await fetch(
+        `https://graph.instagram.com/v21.0/me/subscribed_apps?subscribed_fields=messages&access_token=${encodeURIComponent(
+          finalToken
+        )}`,
+        { method: 'POST' }
+      )
+      const subData = await subRes.json().catch(() => ({}))
+      console.log('[Instagram OAuth] subscribed_apps:', subRes.status, JSON.stringify(subData))
+    } catch (subErr) {
+      console.warn('[Instagram OAuth] Error en subscribed_apps:', subErr)
+    }
 
     const db = ensureAdminDb()
     if (!db || !igAccountId) {
@@ -91,6 +107,7 @@ export async function GET(req: NextRequest) {
     }
 
     const nowMs = Date.now()
+    const indexIds = Array.from(new Set([igUserId, igScopedId].filter(Boolean)))
     await Promise.all([
       db
         .collection('businesses')
@@ -101,6 +118,7 @@ export async function GET(req: NextRequest) {
           {
             status: 'connected',
             instagramAccountId: igAccountId,
+            instagramScopedId: igScopedId || null,
             instagramUsername: igUsername || null,
             accessToken: finalToken,
             tokenExpiresAtMillis: nowMs + expiresInSec * 1000,
@@ -108,13 +126,15 @@ export async function GET(req: NextRequest) {
           },
           { merge: true }
         ),
-      db.collection('instagramAccountsIndex').doc(igAccountId).set(
-        {
-          businessId,
-          instagramUsername: igUsername || null,
-          updatedAtMillis: nowMs,
-        },
-        { merge: true }
+      ...indexIds.map((idxId) =>
+        db.collection('instagramAccountsIndex').doc(idxId).set(
+          {
+            businessId,
+            instagramUsername: igUsername || null,
+            updatedAtMillis: nowMs,
+          },
+          { merge: true }
+        )
       ),
     ])
 

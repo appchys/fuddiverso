@@ -43,7 +43,9 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = JSON.parse(rawBody || '{}')
+    console.log('[Instagram Webhook] POST recibido:', JSON.stringify(payload).slice(0, 600))
     const result = await processIncomingInstagramWebhook(payload)
+    console.log('[Instagram Webhook] Procesados:', result.processed)
     return NextResponse.json({ ok: true, processed: result.processed })
   } catch (err: any) {
     console.error('[Instagram Webhook] Error:', err)

@@ -88,6 +88,47 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    if (action === 'resubscribe') {
+      const prevSnap = await connRef.get().catch(() => null)
+      const prevData = prevSnap?.data() || {}
+      const token = String(prevData.accessToken || '').trim()
+      if (!token) {
+        return NextResponse.json({ ok: false, error: 'No hay token guardado para suscribir.' }, { status: 400 })
+      }
+      const meRes = await fetch(
+        `https://graph.instagram.com/v21.0/me?fields=id,user_id,username&access_token=${encodeURIComponent(token)}`,
+        { cache: 'no-store' }
+      )
+      const meData = await meRes.json().catch(() => ({}))
+      const subRes = await fetch(
+        `https://graph.instagram.com/v21.0/me/subscribed_apps?subscribed_fields=messages&access_token=${encodeURIComponent(token)}`,
+        { method: 'POST' }
+      )
+      const subData = await subRes.json().catch(() => ({}))
+      const indexIds = Array.from(
+        new Set([String(meData?.user_id || '').trim(), String(meData?.id || '').trim(), String(prevData.instagramAccountId || '').trim()].filter(Boolean))
+      )
+      const nowMs = Date.now()
+      await Promise.all(
+        indexIds.map((idxId) =>
+          db.collection('instagramAccountsIndex').doc(idxId).set(
+            {
+              businessId,
+              instagramUsername: meData?.username || prevData.instagramUsername || null,
+              updatedAtMillis: nowMs,
+            },
+            { merge: true }
+          )
+        )
+      )
+      return NextResponse.json({
+        ok: subRes.ok,
+        subscribed: subData,
+        indexedIds: indexIds,
+        error: subRes.ok ? undefined : subData?.error?.message || 'Error al suscribir webhooks',
+      })
+    }
+
     const accessToken = String(body?.accessToken || '').trim()
     if (!accessToken) {
       return NextResponse.json(

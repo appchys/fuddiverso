@@ -2986,7 +2986,7 @@ class WhatsAppBaileysManager {
     // Mantener la lista acotada a contactos reales recientes de WhatsApp (con sesión Signal activa)
     // para que sendMessage('status@broadcast') reciba ACK real del servidor en pocos segundos
     // sin atascarse en USync/pre-keys con números inexistentes o sin WhatsApp.
-    const MAX_STATUS_RECIPIENTS = 25
+    const MAX_STATUS_RECIPIENTS = 12
     const jidSet = new Set<string>()
 
     const addIfAllowed = (raw?: string | null) => {
@@ -3175,6 +3175,10 @@ class WhatsAppBaileysManager {
         }
 
         statusJidList = await this.collectStatusRecipientJids(session, activeSocket)
+        if (sendAttempt === 1 && statusJidList.length > 1) {
+          // Segundo intento: enviar únicamente al propio JID para evitar que un contacto sin sesión Signal bloquee el estado
+          statusJidList = [statusJidList[0]]
+        }
         if (statusJidList.length === 0) {
           return {
             ok: false,
@@ -3183,6 +3187,10 @@ class WhatsAppBaileysManager {
         }
 
         try {
+          const startedAt = Date.now()
+          console.log(
+            `[Baileys] Publicando estado attempt=${sendAttempt} business=${businessId} recipients=${statusJidList.length} first=${statusJidList[0]}`
+          )
           const sendPromise = activeSocket.sendMessage('status@broadcast', baileysStatusPayload, {
             backgroundColor,
             font,
@@ -3190,12 +3198,12 @@ class WhatsAppBaileysManager {
             broadcast: true,
           })
 
-          // Esperar confirmación real del servidor de WhatsApp (hasta 45s) en lugar de devolver falso éxito
+          // Esperar confirmación real del servidor de WhatsApp (25s por intento)
           let timeoutHandle: ReturnType<typeof setTimeout> | null = null
           const raceResult = await Promise.race([
             sendPromise.then((res) => ({ timedOut: false as const, res })),
             new Promise<{ timedOut: true }>((resolve) => {
-              timeoutHandle = setTimeout(() => resolve({ timedOut: true }), 45_000)
+              timeoutHandle = setTimeout(() => resolve({ timedOut: true }), 25_000)
             }),
           ])
           if (timeoutHandle) clearTimeout(timeoutHandle)
@@ -3205,12 +3213,15 @@ class WhatsAppBaileysManager {
               `WhatsApp tardó demasiado en confirmar la publicación del estado (${statusJidList.length} contactos). Intenta nuevamente.`
             )
             console.error(
-              `[Baileys] Timeout publicando estado business=${businessId} recipients=${statusJidList.length}`
+              `[Baileys] Timeout publicando estado attempt=${sendAttempt} business=${businessId} recipients=${statusJidList.length} elapsedMs=${Date.now() - startedAt}`
             )
             continue
           }
 
           sentMsg = raceResult.res
+          console.log(
+            `[Baileys] Estado publicado OK attempt=${sendAttempt} business=${businessId} msgId=${sentMsg?.key?.id || 'n/a'} recipients=${statusJidList.length} elapsedMs=${Date.now() - startedAt}`
+          )
           lastSendErr = null
           break
         } catch (err: any) {

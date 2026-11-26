@@ -175,6 +175,35 @@ export function InstagramConnectModal({
               <button
                 type="button"
                 disabled={loading}
+                onClick={async () => {
+                  if (!businessId) return
+                  setLoading(true)
+                  setFeedback(null)
+                  try {
+                    const res = await fetch('/api/instagram/connect', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ businessId, action: 'resubscribe' }),
+                    })
+                    const data = await res.json().catch(() => ({}))
+                    if (res.ok && data?.ok) {
+                      setFeedback({ ok: true, msg: 'Recepción de mensajes (Webhook) activada correctamente.' })
+                    } else {
+                      setFeedback({ ok: false, msg: data?.error || 'No se pudo activar la recepción de mensajes.' })
+                    }
+                  } catch {
+                    setFeedback({ ok: false, msg: 'Error de red activando recepción de mensajes.' })
+                  } finally {
+                    setLoading(false)
+                  }
+                }}
+                className="w-full py-2 rounded-xl bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {loading ? 'Activando...' : 'Activar recepción de mensajes'}
+              </button>
+              <button
+                type="button"
+                disabled={loading}
                 onClick={() => void handleDisconnect()}
                 className="w-full py-2 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
               >
