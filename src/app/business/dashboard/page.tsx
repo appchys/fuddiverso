@@ -2143,6 +2143,9 @@ export default function TodayOrdersPage() {
                 return {
                     docId: d.id,
                     id: data.id || d.id,
+                    channel: (data.channel === 'instagram' || data.sourcePackage === 'instagram' || d.id.startsWith('ig:')) ? 'instagram' : 'whatsapp',
+                    instagramSenderId: data.instagramSenderId || '',
+                    instagramUsername: data.instagramUsername || null,
                     phone: data.phone || '',
                     rawPhone: data.rawPhone || '',
                     displayName: data.displayName || '',
@@ -2356,6 +2359,9 @@ export default function TodayOrdersPage() {
                 return {
                     docId: d.id,
                     id: data.id || d.id,
+                    channel: (data.channel === 'instagram' || data.sourcePackage === 'instagram' || d.id.startsWith('ig:')) ? 'instagram' : 'whatsapp',
+                    instagramSenderId: data.instagramSenderId || '',
+                    instagramUsername: data.instagramUsername || null,
                     phone: data.phone || '',
                     displayName: data.displayName || '',
                     excludedAtMillis: typeof data.excludedAtMillis === 'number' ? data.excludedAtMillis : Date.now()

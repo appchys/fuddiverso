@@ -8,6 +8,7 @@ import type {
 import pino from 'pino'
 import QRCode from 'qrcode'
 import { ensureAdminDb, uploadWhatsAppMediaToStorage } from '@/lib/firebase-admin'
+import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
 import {
   extractFirstUrlFromText,
   fetchLinkPreviewMetadata,
@@ -58,6 +59,7 @@ interface ManagedSession {
   reconnectTimer: ReturnType<typeof setTimeout> | null
   reconnectAttempts: number
   outgoingSendTimestamps: number[]
+  autoReplyCooldowns: Map<string, number>
   isConnecting: boolean
   manualDisconnect: boolean
   stateWaiters: Array<() => void>
@@ -1135,6 +1137,7 @@ class WhatsAppBaileysManager {
         reconnectTimer: null,
         reconnectAttempts: 0,
         outgoingSendTimestamps: [],
+        autoReplyCooldowns: new Map(),
         isConnecting: false,
         manualDisconnect: false,
         stateWaiters: [],
@@ -2178,6 +2181,183 @@ class WhatsAppBaileysManager {
     console.log(
       `[Baileys] Mensaje entrante guardado business=${session.businessId} doc=${docId} phone=${normPhone} media=${mediaType || 'text'}`
     )
+
+    // Evaluar y enviar mensajes automáticos configurados para esta tienda (sin bloquear la recepción)
+    void this.processAutoRepliesForIncomingMessage(
+      session,
+      docRef,
+      docId,
+      normPhone,
+      remoteJid,
+      existing || {}
+    ).catch((err) => {
+      console.warn('[Baileys] Error evaluando mensajes automáticos:', err)
+    })
+  }
+
+  private isWithinAutoReplySchedule(
+    daysOfWeek: number[],
+    startTime: string,
+    endTime: string,
+    now: Date = new Date()
+  ): boolean {
+    const parseHHMM = (val: string): number | null => {
+      const match = String(val || '').trim().match(/^(\d{1,2}):(\d{2})$/)
+      if (!match) return null
+      const h = parseInt(match[1], 10)
+      const m = parseInt(match[2], 10)
+      if (h < 0 || h > 23 || m < 0 || m > 59) return null
+      return h * 60 + m
+    }
+    const startMin = parseHHMM(startTime)
+    const endMin = parseHHMM(endTime)
+    if (startMin === null || endMin === null) return false
+
+    const { dayOfWeekIndex, hours, minutes } = getEcuadorDate(now)
+    const normalizedHours = hours === 24 ? 0 : hours
+    const nowMin = normalizedHours * 60 + minutes
+    const activeDays = Array.isArray(daysOfWeek) && daysOfWeek.length > 0 ? daysOfWeek : [0, 1, 2, 3, 4, 5, 6]
+
+    if (startMin <= endMin) {
+      // Rango dentro del mismo día (ej. 09:00 a 18:00)
+      return activeDays.includes(dayOfWeekIndex) && nowMin >= startMin && nowMin <= endMin
+    } else {
+      // Rango que cruza medianoche (ej. 22:00 a 08:00)
+      const prevDayIndex = (dayOfWeekIndex + 6) % 7
+      if (nowMin >= startMin) {
+        return activeDays.includes(dayOfWeekIndex)
+      }
+      if (nowMin <= endMin) {
+        return activeDays.includes(prevDayIndex)
+      }
+      return false
+    }
+  }
+
+  private async processAutoRepliesForIncomingMessage(
+    session: ManagedSession,
+    docRef: FirebaseFirestore.DocumentReference,
+    docId: string,
+    normPhone: string,
+    remoteJid: string,
+    existingDocData: Record<string, any>
+  ) {
+    if (!session.businessId || session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
+    if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return
+    if (session.state.status !== 'connected' || !session.socket) return
+
+    const db = ensureAdminDb()
+    if (!db) return
+
+    const rulesSnap = await db
+      .collection('businesses')
+      .doc(session.businessId)
+      .collection('whatsappAutoReplies')
+      .where('enabled', '==', true)
+      .get()
+
+    if (rulesSnap.empty) return
+
+    const rules = rulesSnap.docs
+      .map((d): Record<string, any> => ({ id: d.id, ...(d.data() as Record<string, any>) }))
+      .filter((r) => String(r.message || '').trim().length > 0)
+      .sort((a, b) => Number(a.order ?? a.createdAtMillis ?? 0) - Number(b.order ?? b.createdAtMillis ?? 0))
+
+    if (rules.length === 0) return
+
+    const needsStoreStatus = rules.some(
+      (r) => r.triggerMode === 'store_open' || r.triggerMode === 'store_closed'
+    )
+    let storeIsOpenCached: boolean | null = null
+    if (needsStoreStatus) {
+      try {
+        const bizSnap = await db.collection('businesses').doc(session.businessId).get()
+        if (bizSnap.exists) {
+          storeIsOpenCached = isStoreOpen({ id: bizSnap.id, ...(bizSnap.data() as any) })
+        }
+      } catch (err) {
+        console.warn('[Baileys] No se pudo consultar estado de tienda para auto-respuestas:', err)
+      }
+    }
+
+    const now = new Date()
+    const nowMs = now.getTime()
+    const persistedLastSent: Record<string, number> =
+      existingDocData?.autoReplyLastSent && typeof existingDocData.autoReplyLastSent === 'object'
+        ? existingDocData.autoReplyLastSent
+        : {}
+
+    const sentUpdates: Record<string, number> = {}
+
+    for (const rule of rules) {
+      const mode = String(rule.triggerMode || 'always')
+      let matchesCondition = false
+
+      if (mode === 'always') {
+        matchesCondition = true
+      } else if (mode === 'store_open') {
+        matchesCondition = storeIsOpenCached === true
+      } else if (mode === 'store_closed') {
+        matchesCondition = storeIsOpenCached === false
+      } else if (mode === 'schedule') {
+        matchesCondition = this.isWithinAutoReplySchedule(
+          Array.isArray(rule.daysOfWeek) ? rule.daysOfWeek : [0, 1, 2, 3, 4, 5, 6],
+          String(rule.startTime || '00:00'),
+          String(rule.endTime || '23:59'),
+          now
+        )
+      }
+
+      if (!matchesCondition) continue
+
+      const cooldownHours = Math.max(0, Number(rule.cooldownHours ?? 12))
+      const cooldownMs = cooldownHours * 60 * 60 * 1000
+      const memKey = `${docId}::${rule.id}`
+      const lastSentMs = Math.max(
+        Number(persistedLastSent[rule.id] || 0),
+        Number(session.autoReplyCooldowns.get(memKey) || 0)
+      )
+
+      if (cooldownMs > 0 && nowMs - lastSentMs < cooldownMs) {
+        continue
+      }
+
+      // Reservar cooldown en memoria antes de enviar para evitar duplicados por mensajes en ráfaga
+      session.autoReplyCooldowns.set(memKey, nowMs)
+
+      const res = await this.sendOutgoingMessage(
+        session.businessId,
+        docId,
+        normPhone,
+        String(rule.message).trim(),
+        `auto_${rule.id}_${nowMs}`
+      )
+
+      if (res.ok) {
+        sentUpdates[`autoReplyLastSent.${rule.id}`] = nowMs
+        console.log(
+          `[Baileys] Auto-respuesta enviada business=${session.businessId} rule=${rule.id} (${rule.name || mode}) doc=${docId}`
+        )
+      } else {
+        // Liberar reserva si falló el envío
+        if (lastSentMs > 0) {
+          session.autoReplyCooldowns.set(memKey, lastSentMs)
+        } else {
+          session.autoReplyCooldowns.delete(memKey)
+        }
+      }
+    }
+
+    if (Object.keys(sentUpdates).length > 0) {
+      await docRef.update(sentUpdates).catch(async () => {
+        const nested: Record<string, number> = {}
+        for (const [k, v] of Object.entries(sentUpdates)) {
+          const ruleId = k.replace(/^autoReplyLastSent\./, '')
+          nested[ruleId] = v
+        }
+        await docRef.set({ autoReplyLastSent: nested }, { merge: true }).catch(() => {})
+      })
+    }
   }
 
   public async sendOutgoingMessage(
@@ -2803,8 +2983,10 @@ class WhatsAppBaileysManager {
     session: ManagedSession,
     activeSocket: WASocket
   ): Promise<string[]> {
-    // Limitar destinatarios para evitar timeouts al establecer sesiones Signal (USync + pre-keys)
-    const MAX_STATUS_RECIPIENTS = 150
+    // Mantener la lista acotada a contactos reales recientes de WhatsApp (con sesión Signal activa)
+    // para que sendMessage('status@broadcast') reciba ACK real del servidor en pocos segundos
+    // sin atascarse en USync/pre-keys con números inexistentes o sin WhatsApp.
+    const MAX_STATUS_RECIPIENTS = 50
     const jidSet = new Set<string>()
 
     const addIfAllowed = (raw?: string | null) => {
@@ -2816,7 +2998,7 @@ class WhatsAppBaileysManager {
       jidSet.add(normalized)
     }
 
-    // 1. Incluir el propio JID de la tienda para que el estado aparezca en su teléfono
+    // 1. Incluir siempre primero el propio JID de la tienda para que el estado aparezca en su teléfono principal
     const meRawId = String(activeSocket?.user?.id || session.state.connectedPhone || '').trim()
     const ownJid = this.normalizeStatusRecipientJid(meRawId)
     if (ownJid) {
@@ -2826,12 +3008,12 @@ class WhatsAppBaileysManager {
     const db = ensureAdminDb()
     if (db) {
       try {
-        const [pendingSnap, contactsSnap, ordersSnap] = await Promise.all([
+        const [pendingSnap, contactsSnap] = await Promise.all([
           db
             .collection('businesses')
             .doc(session.businessId)
             .collection('whatsappPending')
-            .limit(150)
+            .limit(80)
             .get()
             .catch(() => null),
           db
@@ -2841,19 +3023,13 @@ class WhatsAppBaileysManager {
             .doc('contacts')
             .get()
             .catch(() => null),
-          db
-            .collection('orders')
-            .where('businessId', '==', session.businessId)
-            .limit(150)
-            .get()
-            .catch(() => null),
         ])
 
-        // 2. Priorizar conversaciones reales recientes de WhatsApp (ya suelen tener sesión Signal)
+        // 2. Priorizar conversaciones reales recientes de WhatsApp (ya tienen sesión Signal)
         if (pendingSnap && !pendingSnap.empty) {
           const sortedPending = [...pendingSnap.docs].sort((a, b) => {
-            const ta = Number(a.data()?.lastMessageAtMillis || a.data()?.updatedAtMillis || 0)
-            const tb = Number(b.data()?.lastMessageAtMillis || b.data()?.updatedAtMillis || 0)
+            const ta = Number(a.data()?.timestampMillis || a.data()?.lastMessageAtMillis || a.data()?.updatedAtMillis || 0)
+            const tb = Number(b.data()?.timestampMillis || b.data()?.lastMessageAtMillis || b.data()?.updatedAtMillis || 0)
             return tb - ta
           })
           for (const docSnap of sortedPending) {
@@ -2872,20 +3048,6 @@ class WhatsAppBaileysManager {
           const savedJids = contactsSnap.data()?.jids
           if (Array.isArray(savedJids)) {
             for (const jid of savedJids) addIfAllowed(String(jid || ''))
-          }
-        }
-
-        // 5. Clientes de pedidos recientes como respaldo hasta completar el cupo
-        if (ordersSnap && !ordersSnap.empty && jidSet.size < MAX_STATUS_RECIPIENTS) {
-          for (const docSnap of ordersSnap.docs) {
-            const d = docSnap.data() || {}
-            const phone =
-              d.customer?.phone ||
-              d.clientPhone ||
-              d.phone ||
-              d.customerPhone ||
-              ''
-            addIfAllowed(phone)
           }
         }
       } catch (err) {
@@ -3028,36 +3190,24 @@ class WhatsAppBaileysManager {
             broadcast: true,
           })
 
-          // Si el establecimiento de sesiones Signal para muchos contactos supera 22s,
-          // devolvemos respuesta al cliente para evitar abortos HTTP mientras el worker concluye el envío.
-          let bgTimer: ReturnType<typeof setTimeout> | null = null
+          // Esperar confirmación real del servidor de WhatsApp (hasta 45s) en lugar de devolver falso éxito
+          let timeoutHandle: ReturnType<typeof setTimeout> | null = null
           const raceResult = await Promise.race([
             sendPromise.then((res) => ({ timedOut: false as const, res })),
             new Promise<{ timedOut: true }>((resolve) => {
-              bgTimer = setTimeout(() => resolve({ timedOut: true }), 22_000)
+              timeoutHandle = setTimeout(() => resolve({ timedOut: true }), 45_000)
             }),
           ])
-          if (bgTimer) clearTimeout(bgTimer)
+          if (timeoutHandle) clearTimeout(timeoutHandle)
 
           if (raceResult.timedOut) {
-            completedInBackground = true
-            console.log(
-              `[Baileys] Publicación de estado en curso en segundo plano business=${businessId} recipients=${statusJidList.length}`
+            lastSendErr = new Error(
+              `WhatsApp tardó demasiado en confirmar la publicación del estado (${statusJidList.length} contactos). Intenta nuevamente.`
             )
-            void sendPromise
-              .then((res) => {
-                console.log(
-                  `[Baileys] Estado publicado (segundo plano) business=${businessId} msgId=${res?.key?.id || 'n/a'} recipients=${statusJidList.length}`
-                )
-              })
-              .catch((bgErr) => {
-                console.error(
-                  `[Baileys] Error publicando estado en segundo plano business=${businessId}:`,
-                  bgErr
-                )
-              })
-            lastSendErr = null
-            break
+            console.error(
+              `[Baileys] Timeout publicando estado business=${businessId} recipients=${statusJidList.length}`
+            )
+            continue
           }
 
           sentMsg = raceResult.res

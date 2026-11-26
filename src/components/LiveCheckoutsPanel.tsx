@@ -13,6 +13,8 @@ import { getLastStoreCloseMillis } from '@/lib/store-utils';
 import { Motorbike } from 'lucide-react';
 import { usePersistedPreorderState, buildBasePreorderState } from '@/hooks/usePersistedPreorderState';
 import { WhatsAppBaileysModal, type BaileysStatus } from '@/components/WhatsAppBaileysModal';
+import { WhatsAppAutoRepliesModal } from '@/components/WhatsAppAutoRepliesModal';
+import { InstagramConnectModal } from '@/components/InstagramConnectModal';
 import { formatWhatsAppMessageText } from '@/lib/whatsapp-format';
 
 export interface WhatsAppPreorderDraftItem {
@@ -144,6 +146,22 @@ export function LiveCheckoutsPanel({
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(true);
     const [showBaileysModal, setShowBaileysModal] = useState(false);
+    const [showAutoRepliesModal, setShowAutoRepliesModal] = useState(false);
+    const [showInstagramModal, setShowInstagramModal] = useState(false);
+    const [instagramConnected, setInstagramConnected] = useState(false);
+    const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+
+    useEffect(() => {
+        if (!businessId) return;
+        const unsub = onSnapshot(
+            doc(db, 'businesses', businessId, 'instagramConnection', 'status'),
+            (snap) => {
+                setInstagramConnected(snap.exists() && snap.data()?.status === 'connected');
+            },
+            () => {}
+        );
+        return () => unsub();
+    }, [businessId]);
     const [baileysStatus, setBaileysStatus] = useState<BaileysStatus>('disconnected');
     const [nowMillis, setNowMillis] = useState<number>(() => Date.now());
     const autoClosedCheckoutIdsRef = useRef<Set<string>>(new Set());
@@ -601,38 +619,97 @@ export function LiveCheckoutsPanel({
                             )}
                         </div>
 
-                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                        <div className="relative flex items-center shrink-0">
                             <button
                                 type="button"
-                                style={{ minHeight: 0 }}
-                                onClick={() => setShowBaileysModal(true)}
-                                className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-slate-100 transition-colors cursor-pointer"
-                                title="Configurar WhatsApp como Dispositivo Vinculado (QR)"
+                                style={{ minHeight: 0, minWidth: 0 }}
+                                onClick={() => setShowSettingsMenu((prev) => !prev)}
+                                className="w-8 h-8 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                                title="Configuración de mensajes"
+                                aria-label="Configuración de mensajes"
                             >
-                                <span
-                                    className={`w-2 h-2 rounded-full ${
-                                        baileysStatus === 'connected'
-                                            ? 'bg-green-500'
-                                            : baileysStatus === 'qr' || baileysStatus === 'connecting'
-                                                ? 'bg-amber-400 animate-pulse'
-                                                : 'bg-gray-300'
-                                    }`}
-                                ></span>
-                                <i className="bi bi-whatsapp text-green-600"></i>
-                                <span className="hidden sm:inline">
-                                    {baileysStatus === 'connected' ? 'WhatsApp vinculado' : 'Vincular WhatsApp'}
-                                </span>
+                                <i className="bi bi-gear text-sm"></i>
                             </button>
-                            {onOpenWhatsApp && (
-                                <button
-                                    type="button"
-                                    style={{ minHeight: 0 }}
-                                    onClick={onOpenWhatsApp}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-                                >
-                                    <i className="bi bi-clock-history text-xs"></i>
-                                    <span>Historial</span>
-                                </button>
+                            {showSettingsMenu && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-30"
+                                        onClick={() => setShowSettingsMenu(false)}
+                                    />
+                                    <div className="absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl bg-white shadow-lg border border-slate-200 py-1.5 text-left">
+                                        <button
+                                            type="button"
+                                            style={{ minHeight: 0 }}
+                                            onClick={() => {
+                                                setShowSettingsMenu(false);
+                                                setShowAutoRepliesModal(true);
+                                            }}
+                                            className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                        >
+                                            <i className="bi bi-robot text-indigo-600 text-sm"></i>
+                                            <span>Mensajes automáticos</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            style={{ minHeight: 0 }}
+                                            onClick={() => {
+                                                setShowSettingsMenu(false);
+                                                setShowBaileysModal(true);
+                                            }}
+                                            className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                        >
+                                            <span
+                                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                                    baileysStatus === 'connected'
+                                                        ? 'bg-green-500'
+                                                        : baileysStatus === 'qr' || baileysStatus === 'connecting'
+                                                            ? 'bg-amber-400 animate-pulse'
+                                                            : 'bg-gray-300'
+                                                }`}
+                                            ></span>
+                                            <i className="bi bi-whatsapp text-green-600 text-sm"></i>
+                                            <span>
+                                                {baileysStatus === 'connected' ? 'WhatsApp vinculado' : 'Vincular WhatsApp'}
+                                            </span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            style={{ minHeight: 0 }}
+                                            onClick={() => {
+                                                setShowSettingsMenu(false);
+                                                setShowInstagramModal(true);
+                                            }}
+                                            className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                        >
+                                            <span
+                                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                                    instagramConnected ? 'bg-pink-500' : 'bg-gray-300'
+                                                }`}
+                                            ></span>
+                                            <i className="bi bi-instagram text-pink-600 text-sm"></i>
+                                            <span>
+                                                {instagramConnected ? 'Instagram conectado' : 'Vincular Instagram'}
+                                            </span>
+                                        </button>
+                                        {onOpenWhatsApp && (
+                                            <>
+                                                <div className="my-1 border-t border-slate-100" />
+                                                <button
+                                                    type="button"
+                                                    style={{ minHeight: 0 }}
+                                                    onClick={() => {
+                                                        setShowSettingsMenu(false);
+                                                        onOpenWhatsApp();
+                                                    }}
+                                                    className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                                >
+                                                    <i className="bi bi-clock-history text-slate-500 text-sm"></i>
+                                                    <span>Historial de mensajes</span>
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </>
                             )}
                         </div>
                     </div>
@@ -663,6 +740,16 @@ export function LiveCheckoutsPanel({
                     onClose={() => setShowBaileysModal(false)}
                     onStatusChange={setBaileysStatus}
                 />
+                <WhatsAppAutoRepliesModal
+                    isOpen={showAutoRepliesModal}
+                    businessId={businessId}
+                    onClose={() => setShowAutoRepliesModal(false)}
+                />
+                <InstagramConnectModal
+                    isOpen={showInstagramModal}
+                    businessId={businessId}
+                    onClose={() => setShowInstagramModal(false)}
+                />
             </div>
         );
     }
@@ -673,12 +760,12 @@ export function LiveCheckoutsPanel({
 
     return (
         <div className={`bg-white rounded-xl shadow-sm border border-blue-100/80 mb-6 lg:mb-0 transition-all flex flex-col ${isExpanded ? 'flex-1 h-full min-h-0' : ''}`}>
-            <button
-                type="button"
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="shrink-0 w-full px-4 py-3 flex justify-between items-center bg-gradient-to-r from-blue-50/80 to-indigo-50/50 hover:from-blue-100/70 hover:to-indigo-100/60 transition-colors text-left rounded-t-xl"
-            >
-                <div className="flex items-center gap-2.5 min-w-0">
+            <div className="shrink-0 w-full px-4 py-3 flex justify-between items-center bg-gradient-to-r from-blue-50/80 to-indigo-50/50 hover:from-blue-100/70 hover:to-indigo-100/60 transition-colors rounded-t-xl">
+                <button
+                    type="button"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="flex items-center gap-2.5 min-w-0 flex-1 text-left bg-transparent border-0 p-0 cursor-pointer"
+                >
                     <i className="bi bi-chat-dots-fill text-blue-600 text-base shrink-0"></i>
                     <h3 className="font-black text-gray-900 text-sm sm:text-base tracking-tight truncate">
                         Mensajes
@@ -688,11 +775,110 @@ export function LiveCheckoutsPanel({
                             {unifiedEntries.length}
                         </span>
                     )}
+                </button>
+                <div className="relative flex items-center gap-1 shrink-0 ml-2">
+                    <button
+                        type="button"
+                        style={{ minHeight: 0, minWidth: 0 }}
+                        onClick={() => setShowSettingsMenu((prev) => !prev)}
+                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white/70 transition-colors cursor-pointer"
+                        title="Configuración de mensajes"
+                        aria-label="Configuración de mensajes"
+                    >
+                        <i className="bi bi-gear text-xs"></i>
+                    </button>
+                    {showSettingsMenu && (
+                        <>
+                            <div
+                                className="fixed inset-0 z-30"
+                                onClick={() => setShowSettingsMenu(false)}
+                            />
+                            <div className="absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl bg-white shadow-lg border border-slate-200 py-1.5 text-left">
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0 }}
+                                    onClick={() => {
+                                        setShowSettingsMenu(false);
+                                        setShowAutoRepliesModal(true);
+                                    }}
+                                    className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                >
+                                    <i className="bi bi-robot text-indigo-600 text-sm"></i>
+                                    <span>Mensajes automáticos</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0 }}
+                                    onClick={() => {
+                                        setShowSettingsMenu(false);
+                                        setShowBaileysModal(true);
+                                    }}
+                                    className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                >
+                                    <span
+                                        className={`w-2 h-2 rounded-full shrink-0 ${
+                                            baileysStatus === 'connected'
+                                                ? 'bg-green-500'
+                                                : baileysStatus === 'qr' || baileysStatus === 'connecting'
+                                                    ? 'bg-amber-400 animate-pulse'
+                                                    : 'bg-gray-300'
+                                        }`}
+                                    ></span>
+                                    <i className="bi bi-whatsapp text-green-600 text-sm"></i>
+                                    <span>
+                                        {baileysStatus === 'connected' ? 'WhatsApp vinculado' : 'Vincular WhatsApp'}
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0 }}
+                                    onClick={() => {
+                                        setShowSettingsMenu(false);
+                                        setShowInstagramModal(true);
+                                    }}
+                                    className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                >
+                                    <span
+                                        className={`w-2 h-2 rounded-full shrink-0 ${
+                                            instagramConnected ? 'bg-pink-500' : 'bg-gray-300'
+                                        }`}
+                                    ></span>
+                                    <i className="bi bi-instagram text-pink-600 text-sm"></i>
+                                    <span>
+                                        {instagramConnected ? 'Instagram conectado' : 'Vincular Instagram'}
+                                    </span>
+                                </button>
+                                {onOpenWhatsApp && (
+                                    <>
+                                        <div className="my-1 border-t border-slate-100" />
+                                        <button
+                                            type="button"
+                                            style={{ minHeight: 0 }}
+                                            onClick={() => {
+                                                setShowSettingsMenu(false);
+                                                onOpenWhatsApp();
+                                            }}
+                                            className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                        >
+                                            <i className="bi bi-clock-history text-slate-500 text-sm"></i>
+                                            <span>Historial de mensajes</span>
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </>
+                    )}
+                    <button
+                        type="button"
+                        style={{ minHeight: 0, minWidth: 0 }}
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-white/70 transition-colors cursor-pointer"
+                        aria-label={isExpanded ? 'Contraer' : 'Expandir'}
+                    >
+                        <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-xs transition-transform duration-200`}></i>
+                    </button>
                 </div>
-                <div className="shrink-0 ml-2 text-gray-500 hover:text-gray-700">
-                    <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-sm transition-transform duration-200`}></i>
-                </div>
-            </button>
+            </div>
 
             {isExpanded && (
                 <div className="flex-1 min-h-0 flex flex-col bg-gray-50/40 border-t border-blue-100/60 rounded-b-xl">
@@ -704,39 +890,6 @@ export function LiveCheckoutsPanel({
                             </p>
                         )}
                     </div>
-                    <div className="shrink-0 flex items-center justify-between px-3 sm:px-4 py-2.5 border-t border-blue-100/50 bg-white/70 rounded-b-xl">
-                        <button
-                            type="button"
-                            style={{ minHeight: 0 }}
-                            onClick={() => setShowBaileysModal(true)}
-                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-colors cursor-pointer bg-transparent border-0 p-0"
-                            title="Configurar WhatsApp como Dispositivo Vinculado (QR)"
-                        >
-                            <span
-                                className={`w-2 h-2 rounded-full ${
-                                    baileysStatus === 'connected'
-                                        ? 'bg-green-500'
-                                        : baileysStatus === 'qr' || baileysStatus === 'connecting'
-                                            ? 'bg-amber-400 animate-pulse'
-                                            : 'bg-gray-300'
-                                }`}
-                            ></span>
-                            <i className="bi bi-whatsapp text-green-600"></i>
-                            <span>
-                                {baileysStatus === 'connected' ? 'WhatsApp vinculado' : 'Vincular WhatsApp'}
-                            </span>
-                        </button>
-                        {onOpenWhatsApp && (
-                            <button
-                                type="button"
-                                style={{ minHeight: 0 }}
-                                onClick={onOpenWhatsApp}
-                                className="text-xs font-semibold text-gray-500 hover:text-gray-800 hover:underline transition-colors cursor-pointer bg-transparent border-0 p-0 ml-auto"
-                            >
-                                Historial
-                            </button>
-                        )}
-                    </div>
                 </div>
             )}
             <WhatsAppBaileysModal
@@ -744,6 +897,16 @@ export function LiveCheckoutsPanel({
                 businessId={businessId}
                 onClose={() => setShowBaileysModal(false)}
                 onStatusChange={setBaileysStatus}
+            />
+            <WhatsAppAutoRepliesModal
+                isOpen={showAutoRepliesModal}
+                businessId={businessId}
+                onClose={() => setShowAutoRepliesModal(false)}
+            />
+            <InstagramConnectModal
+                isOpen={showInstagramModal}
+                businessId={businessId}
+                onClose={() => setShowInstagramModal(false)}
             />
         </div>
     );
@@ -1418,7 +1581,13 @@ function WhatsAppConversationCard({
                 {/* Top row: Name (or inline name editor) left, WhatsApp-style time top-right */}
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                        <i className="bi bi-whatsapp text-green-600 shrink-0 text-sm"></i>
+                        {conversation.channel === 'instagram' ||
+                        conversation.sourcePackage === 'instagram' ||
+                        conversation.docId?.startsWith('ig:') ? (
+                            <i className="bi bi-instagram text-pink-600 shrink-0 text-sm" title="Instagram DM"></i>
+                        ) : (
+                            <i className="bi bi-whatsapp text-green-600 shrink-0 text-sm" title="WhatsApp"></i>
+                        )}
                         {isEditingClientName ? (
                             <div
                                 className="flex items-center gap-1 flex-1 min-w-0"

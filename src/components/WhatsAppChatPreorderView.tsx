@@ -1135,6 +1135,32 @@ export function WhatsAppChatPreorderView({
     const targetPhone =
       resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || ''
     try {
+      const isInstagramConversation =
+        conversation.channel === 'instagram' ||
+        conversation.sourcePackage === 'instagram' ||
+        conversation.docId?.startsWith('ig:')
+
+      if (isInstagramConversation) {
+        const recipientId =
+          conversation.instagramSenderId || conversation.docId.replace(/^ig:/, '')
+        const res = await fetch('/api/instagram/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId,
+            docId: conversation.docId,
+            recipientId,
+            text: cleanText,
+            ...(attachmentToSend ? { mediaUrl: attachmentToSend.url } : {}),
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data?.ok) {
+          console.error('[Instagram] Error enviando DM:', data?.error)
+        }
+        return
+      }
+
       // 1. Intentar envío directo por el puente multi-dispositivo (Baileys) autenticado con Firebase ID Token
       let sentViaBaileys = false
       try {
@@ -1959,7 +1985,13 @@ export function WhatsAppChatPreorderView({
               <i className="bi bi-arrow-left text-base"></i>
             </button>
 
-            <i className="bi bi-whatsapp text-green-600 shrink-0 text-base"></i>
+            {conversation.channel === 'instagram' ||
+            conversation.sourcePackage === 'instagram' ||
+            conversation.docId?.startsWith('ig:') ? (
+              <i className="bi bi-instagram text-pink-600 shrink-0 text-base" title="Instagram DM"></i>
+            ) : (
+              <i className="bi bi-whatsapp text-green-600 shrink-0 text-base" title="WhatsApp"></i>
+            )}
 
             {isEditingClientName ? (
               <div className="flex items-center gap-1 flex-1 min-w-0">

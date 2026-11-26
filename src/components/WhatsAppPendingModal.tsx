@@ -19,6 +19,10 @@ export interface ExcludedWhatsAppContact {
 export interface PendingWhatsAppConversation {
   docId: string
   id: string
+  channel?: 'whatsapp' | 'instagram'
+  sourcePackage?: string
+  instagramSenderId?: string
+  instagramUsername?: string | null
   phone: string
   rawPhone?: string
   displayName?: string
