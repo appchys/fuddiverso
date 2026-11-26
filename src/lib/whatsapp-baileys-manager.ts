@@ -2986,7 +2986,7 @@ class WhatsAppBaileysManager {
     // Mantener la lista acotada a contactos reales recientes de WhatsApp (con sesión Signal activa)
     // para que sendMessage('status@broadcast') reciba ACK real del servidor en pocos segundos
     // sin atascarse en USync/pre-keys con números inexistentes o sin WhatsApp.
-    const MAX_STATUS_RECIPIENTS = 50
+    const MAX_STATUS_RECIPIENTS = 25
     const jidSet = new Set<string>()
 
     const addIfAllowed = (raw?: string | null) => {

@@ -8,6 +8,7 @@ import {
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
+export const maxDuration = 60
 
 const WORKER_URL = (process.env.WHATSAPP_WORKER_URL || '').trim().replace(/\/+$/, '')
 const WORKER_SECRET = (process.env.WHATSAPP_WORKER_SECRET || '').trim()
@@ -132,7 +133,7 @@ async function proxyToWorker(
   method: 'GET' | 'POST',
   queryString: string,
   body?: unknown,
-  timeoutMs = 35_000
+  timeoutMs = 55_000
 ): Promise<NextResponse> {
   const targetUrl = `${WORKER_URL}/bridge${queryString ? `?${queryString}` : ''}`
   const controller = new AbortController()
