@@ -72,7 +72,7 @@ export interface GenerateAiReplyResult {
 
 const MAX_CATALOG_ITEMS = 60
 const MAX_HISTORY_MESSAGES = 14
-const MAX_REPLY_CHARS = 900
+const MAX_REPLY_CHARS = 1500
 
 function getProviderKey(provider: Exclude<AiProviderId, 'auto'>): string {
   switch (provider) {
@@ -487,7 +487,10 @@ async function callGemini(
           contents,
           generationConfig: {
             temperature: 0.45,
-            maxOutputTokens: 320,
+            maxOutputTokens: 1024,
+            thinkingConfig: {
+              thinkingBudget: 0,
+            },
           },
         }),
         signal: controller.signal,
@@ -546,7 +549,7 @@ async function callOpenAiCompatible(params: {
           ...params.messages,
         ],
         temperature: 0.45,
-        max_tokens: 320,
+        max_tokens: 800,
       }),
       signal: controller.signal,
     })
