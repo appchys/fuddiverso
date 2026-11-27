@@ -143,6 +143,7 @@ function AdminLayoutContent({
     { href: '/admin/confirmations', label: 'Origen Confirmaciones', icon: 'bi-check-all' },
     { href: '/admin/coverage-groups', label: 'Grupos de Cobertura', icon: 'bi-tags-fill' },
     { href: '/admin/coverage-zones', label: 'Zonas de Cobertura', icon: 'bi-geo-alt-fill' },
+    { href: '/admin/ai-agent', label: 'Agente de IA', icon: 'bi-stars' },
     { href: '/admin/logs', label: 'Logs del Sistema', icon: 'bi-journal-text' },
   ]
 
@@ -155,6 +156,7 @@ function AdminLayoutContent({
     { href: '/admin/confirmations', label: 'Confirmaciones WhatsApp', desc: 'Orígenes y mensajes', icon: 'bi-check-all' },
     { href: '/admin/coverage-groups', label: 'Grupos de Cobertura', desc: 'Ciudades y zonas agrupadas', icon: 'bi-tags-fill' },
     { href: '/admin/coverage-zones', label: 'Zonas de Cobertura', desc: 'Polígonos y tarifas por zona', icon: 'bi-geo-alt-fill' },
+    { href: '/admin/ai-agent', label: 'Agente de IA', desc: 'Instrucciones globales del bot', icon: 'bi-stars' },
     { href: '/admin/logs', label: 'Logs del Sistema', desc: 'Registro de eventos técnicos', icon: 'bi-journal-text' },
   ]
 
