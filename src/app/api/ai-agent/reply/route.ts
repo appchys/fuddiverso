@@ -91,6 +91,8 @@ export async function POST(req: NextRequest) {
     const testMessage = typeof body?.testMessage === 'string' ? body.testMessage.trim() : ''
     const channel: 'whatsapp' | 'instagram' = body?.channel === 'instagram' ? 'instagram' : 'whatsapp'
     let customerName = typeof body?.customerName === 'string' ? body.customerName.trim() : ''
+    let customerPhone = typeof body?.customerPhone === 'string' ? body.customerPhone.trim() : ''
+    let customerClientId = typeof body?.customerClientId === 'string' ? body.customerClientId.trim() : ''
     let chatHistory: ChatHistoryEntry[] = Array.isArray(body?.chatHistory) ? body.chatHistory : []
 
     if (!businessId) {
@@ -100,8 +102,8 @@ export async function POST(req: NextRequest) {
     const authCheck = await verifyBusinessAccess(req, businessId)
     if (!authCheck.ok) return authCheck.response
 
-    // Si no se pasó chatHistory desde el cliente, leerlo de Firestore usando docId
-    if (chatHistory.length === 0 && docId) {
+    // Si faltan datos o historial, leerlos de Firestore usando docId
+    if ((chatHistory.length === 0 || !customerPhone || !customerClientId) && docId) {
       const adminDb = ensureAdminDb()
       if (adminDb) {
         const convSnap = await adminDb
@@ -113,11 +115,17 @@ export async function POST(req: NextRequest) {
           .catch(() => null)
         if (convSnap?.exists) {
           const data = convSnap.data() || {}
-          if (Array.isArray(data.chatHistory)) {
+          if (chatHistory.length === 0 && Array.isArray(data.chatHistory)) {
             chatHistory = data.chatHistory
           }
           if (!customerName) {
             customerName = String(data.fuddiClientName || data.effectiveName || data.displayName || '').trim()
+          }
+          if (!customerPhone) {
+            customerPhone = String(data.phone || data.rawPhone || '').trim()
+          }
+          if (!customerClientId) {
+            customerClientId = String(data.fuddiClientId || '').trim()
           }
         }
       }
@@ -127,6 +135,8 @@ export async function POST(req: NextRequest) {
       businessId,
       chatHistory,
       customerName: customerName || undefined,
+      customerPhone: customerPhone || undefined,
+      customerClientId: customerClientId || undefined,
       channel,
       configOverride: body?.configOverride && typeof body.configOverride === 'object' ? body.configOverride : undefined,
       testMessage: testMessage || undefined,

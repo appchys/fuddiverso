@@ -2050,7 +2050,20 @@ class WhatsAppBaileysManager {
     if (fromMe) {
       if (!existing) return
       const currentReplies: any[] = Array.isArray(existing.sentReplies) ? existing.sentReplies : []
-      if (currentReplies.some((r) => r?.id === msgId || r?.text === text)) return
+      const currentHistory: any[] = Array.isArray(existing.chatHistory) ? existing.chatHistory : []
+      if (
+        currentReplies.some((r) => r?.id === msgId || r?.text === text) ||
+        currentHistory.some(
+          (h) =>
+            h?.id === msgId ||
+            h?.waMsgId === msgId ||
+            (h?.fromMe === true &&
+              h?.text === text &&
+              Math.abs(Number(h?.timestampMillis || 0) - msgMillis) < 20_000)
+        )
+      ) {
+        return
+      }
       const nextReplies = [
         ...currentReplies,
         {
@@ -2060,7 +2073,6 @@ class WhatsAppBaileysManager {
           source: 'whatsapp',
         },
       ].slice(-MAX_RECENT_MESSAGES)
-      const currentHistory: any[] = Array.isArray(existing.chatHistory) ? existing.chatHistory : []
       const nextHistory = [
         ...currentHistory,
         {
@@ -2183,32 +2195,43 @@ class WhatsAppBaileysManager {
       `[Baileys] Mensaje entrante guardado business=${session.businessId} doc=${docId} phone=${normPhone} media=${mediaType || 'text'}`
     )
 
-    // Evaluar y enviar mensajes automáticos configurados para esta tienda (sin bloquear la recepción)
-    void this.processAutoRepliesForIncomingMessage(
-      session,
-      docRef,
-      docId,
-      normPhone,
-      remoteJid,
-      existing || {}
-    ).catch((err) => {
-      console.warn('[Baileys] Error evaluando mensajes automáticos:', err)
-    })
+    // Evaluar mensajes automáticos y Agente de IA de forma secuencial (sin carreras de escritura en chatHistory)
+    void (async () => {
+      try {
+        await this.processAutoRepliesForIncomingMessage(
+          session,
+          docRef,
+          docId,
+          normPhone,
+          remoteJid,
+          existing || {}
+        )
+      } catch (err) {
+        console.warn('[Baileys] Error evaluando mensajes automáticos:', err)
+      }
 
-    // Evaluar y enviar respuesta del Agente de IA si está activo en modo automático
-    void this.processAiAutoReplyForIncomingMessage(
-      session,
-      docRef,
-      docId,
-      normPhone,
-      remoteJid,
-      existing || {},
-      nextHistory,
-      text,
-      fuddiClientName || effectiveName
-    ).catch((err) => {
-      console.warn('[Baileys] Error evaluando agente de IA:', err)
-    })
+      try {
+        // Leer estado actualizado por si se envió una auto-respuesta estática recién
+        const freshSnap = await docRef.get().catch(() => null)
+        const freshData = freshSnap?.exists ? freshSnap.data() || {} : existing || {}
+        const freshHistory = Array.isArray(freshData.chatHistory) ? freshData.chatHistory : nextHistory
+
+        await this.processAiAutoReplyForIncomingMessage(
+          session,
+          docRef,
+          docId,
+          normPhone,
+          remoteJid,
+          freshData,
+          freshHistory,
+          text,
+          fuddiClientName || effectiveName,
+          fuddiClientId
+        )
+      } catch (err) {
+        console.warn('[Baileys] Error evaluando agente de IA:', err)
+      }
+    })()
   }
 
   private isWithinAutoReplySchedule(
@@ -2385,7 +2408,8 @@ class WhatsAppBaileysManager {
     existingDocData: Record<string, any>,
     chatHistory: any[],
     incomingText: string,
-    customerName?: string
+    customerName?: string,
+    customerClientId?: string
   ) {
     if (!session.businessId || session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
     if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return
@@ -2405,6 +2429,8 @@ class WhatsAppBaileysManager {
       chatHistory,
       incomingText,
       customerName,
+      customerPhone: normPhone,
+      customerClientId,
     })
 
     if (!aiResult?.ok || !aiResult.reply) {
@@ -2676,13 +2702,18 @@ class WhatsAppBaileysManager {
           ? existingDocData.sentReplies
           : []
         const nowOut = Date.now()
+        const resolvedSource = replyId.startsWith('ai_')
+          ? 'ai_agent'
+          : replyId.startsWith('auto_')
+          ? 'auto_reply'
+          : 'baileys'
         const nextReplies = [
           ...currentReplies.filter((r) => r?.id !== replyId),
           {
             id: replyId,
             text: cleanText,
             timestampMillis: nowOut,
-            source: 'baileys',
+            source: resolvedSource,
           },
         ].slice(-MAX_RECENT_MESSAGES)
 
@@ -2696,7 +2727,7 @@ class WhatsAppBaileysManager {
           ...(cleanMediaUrl ? { mediaUrl: cleanMediaUrl, mediaType: 'image' } : {}),
           timestampMillis: nowOut,
           fromMe: true,
-          source: 'baileys',
+          source: resolvedSource,
         }
         if (resolvedPreview) {
           outgoingEntry.linkPreview = {

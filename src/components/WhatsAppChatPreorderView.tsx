@@ -1147,6 +1147,15 @@ export function WhatsAppChatPreorderView({
             conversation.effectiveName ||
             conversation.displayName ||
             '',
+          customerPhone:
+            resolvedProfile?.clientPhone ||
+            conversation.phone ||
+            conversation.rawPhone ||
+            '',
+          customerClientId:
+            resolvedProfile?.clientId ||
+            conversation.fuddiClientId ||
+            '',
           chatHistory: conversation.chatHistory || [],
         }),
       })
