@@ -9,6 +9,7 @@ const DYNAMIC_CONTEXT_ITEMS = [
   { icon: 'bi-bank', title: 'Cuentas para transferencia', desc: 'Cuentas propias de la tienda o cuentas oficiales de Fuddi según su configuración.' },
   { icon: 'bi-geo-alt', title: 'Ubicación, pickup y zonas de envío', desc: 'Dirección, Google Maps del local y tarifas de envío personalizadas por zona.' },
   { icon: 'bi-person-vcard', title: 'Identificación del cliente', desc: 'Nombre registrado, celular y ubicaciones guardadas del cliente con su tarifa real.' },
+  { icon: 'bi-image', title: 'Lectura de imágenes', desc: 'Analiza comprobantes de pago, capturas de productos o mapas enviados en el chat.' },
 ]
 
 export default function AdminAiAgentPage() {
