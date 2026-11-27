@@ -390,6 +390,21 @@ export interface OrderRatingSnapshot {
   createdAt?: any
 }
 
+export type ChatImageCategory =
+  | 'receipt'
+  | 'location_reference'
+  | 'product_capture'
+  | 'order_capture'
+  | 'other'
+
+export interface ChatImageClassification {
+  category: ChatImageCategory
+  label: string
+  summary?: string
+  analyzedAtMillis: number
+  model?: string
+}
+
 export interface PaymentAiValidation {
   status: 'pre_validated' | 'validating' | 'rejected'
   isReceipt: boolean

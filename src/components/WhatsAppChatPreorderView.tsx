@@ -2708,10 +2708,64 @@ export function WhatsAppChatPreorderView({
 
                     const isDetectedReceipt = Boolean(
                       validation?.isReceipt ||
+                        msgAny.imageClassification?.category === 'receipt' ||
                         matchedOrder?.payment?.receiptImageUrl === msg.mediaUrl ||
                         conversation.receiptAttachment?.imageUrl === msg.mediaUrl
                     )
-                    if (!isDetectedReceipt) return null
+
+                    if (!isDetectedReceipt) {
+                      const cls = msgAny.imageClassification as
+                        | import('@/types').ChatImageClassification
+                        | undefined
+                      if (!cls || cls.category === 'other') return null
+
+                      const catMeta: Record<
+                        string,
+                        { icon: string; badgeClass: string; iconClass: string; defaultLabel: string }
+                      > = {
+                        location_reference: {
+                          icon: 'bi-geo-alt-fill',
+                          badgeClass: 'bg-sky-100 text-sky-800 border-sky-200',
+                          iconClass: 'text-sky-600',
+                          defaultLabel: 'Referencia de ubicación',
+                        },
+                        product_capture: {
+                          icon: 'bi-bag-heart-fill',
+                          badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
+                          iconClass: 'text-amber-600',
+                          defaultLabel: 'Captura de producto',
+                        },
+                        order_capture: {
+                          icon: 'bi-card-checklist',
+                          badgeClass: 'bg-teal-100 text-teal-800 border-teal-200',
+                          iconClass: 'text-teal-600',
+                          defaultLabel: 'Captura de orden',
+                        },
+                      }
+                      const meta = catMeta[cls.category]
+                      if (!meta) return null
+
+                      return (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200/90 max-w-[240px] space-y-0.5"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <i className={`bi ${meta.icon} text-[11px] ${meta.iconClass}`}></i>
+                            <span
+                              className={`inline-flex items-center px-1.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${meta.badgeClass}`}
+                            >
+                              {cls.label || meta.defaultLabel}
+                            </span>
+                          </div>
+                          {cls.summary && (
+                            <p className="text-[10px] font-medium text-slate-500 leading-snug">
+                              {cls.summary}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    }
 
                     const rawStatus =
                       matchedOrder?.payment?.paymentStatus ||

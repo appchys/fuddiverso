@@ -50,6 +50,7 @@ export interface PendingWhatsAppConversation {
     mediaUrl?: string
     mediaType?: 'image' | 'document' | 'audio' | 'order' | 'contact' | 'location'
     fileName?: string
+    imageClassification?: import('@/types').ChatImageClassification
     receiptValidation?: import('@/types').PaymentAiValidation
     linkedOrderId?: string | null
     reactions?: Array<{

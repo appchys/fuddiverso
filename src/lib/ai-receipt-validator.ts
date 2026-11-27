@@ -1,5 +1,13 @@
 import { ensureAdminDb } from '@/lib/firebase-admin'
-import type { PaymentAiValidation } from '@/types'
+import type { ChatImageCategory, ChatImageClassification, PaymentAiValidation } from '@/types'
+
+const IMAGE_CATEGORY_LABELS: Record<ChatImageCategory, string> = {
+  receipt: 'Comprobante de transferencia',
+  location_reference: 'Referencia de ubicación',
+  product_capture: 'Captura de producto',
+  order_capture: 'Captura de orden',
+  other: 'Imagen',
+}
 
 const MAX_RECEIPT_IMAGE_BYTES = 4 * 1024 * 1024
 
@@ -92,13 +100,18 @@ function normalizePhoneDigits(raw?: string): string {
   return digits
 }
 
-export async function validateTransferReceiptImage(params: {
+export interface AnalyzedChatImageResult {
+  classification: ChatImageClassification
+  receiptValidation?: PaymentAiValidation
+}
+
+export async function analyzeChatImage(params: {
   businessId: string
   imageUrl: string
   expectedAmount?: number | null
   source?: 'whatsapp' | 'instagram' | 'checkout' | 'manual'
   excludeOrderId?: string
-}): Promise<PaymentAiValidation | null> {
+}): Promise<AnalyzedChatImageResult | null> {
   const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '').trim()
   if (!apiKey || !params.imageUrl) return null
 
@@ -130,18 +143,27 @@ export async function validateTransferReceiptImage(params: {
   }).format(new Date())
 
   const prompt = [
-    'Eres un auditor estricto de comprobantes de transferencias bancarias de Ecuador (Banco Pichincha, Guayaquil, Pacífico, Produbanco, Deuna!, Bolivariano, JEP, etc.).',
+    'Eres un clasificador y auditor estricto de imágenes enviadas por clientes a una tienda de comida/delivery en Ecuador.',
     'Analiza la imagen adjunta y responde ÚNICAMENTE con un objeto JSON válido (sin markdown ni texto adicional).',
+    '',
+    'Clasifica la imagen en EXACTAMENTE una de estas categorías ("imageCategory"):',
+    '1. "receipt": Comprobante o captura de transferencia bancaria / Deuna! / pago móvil.',
+    '2. "location_reference": Foto de fachada de casa, edificio, calle, negocio cercano o captura de mapa/Google Maps para indicar una ubicación de entrega.',
+    '3. "product_capture": Captura de pantalla o foto de un producto del catálogo, menú, plato o historia/post de Instagram/redes.',
+    '4. "order_capture": Captura de pantalla del resumen/confirmación de una orden o carrito de pedido recién realizado.',
+    '5. "other": Cualquier otra imagen que no encaje en las 4 anteriores.',
     '',
     `Fecha actual en Ecuador: ${todayEc}`,
     params.expectedAmount && params.expectedAmount > 0
-      ? `Monto esperado de la transferencia: $${params.expectedAmount.toFixed(2)}`
-      : 'Monto esperado: no especificado todavía.',
-    'Cuentas destino válidas para esta tienda:',
+      ? `Monto esperado si fuera transferencia: $${params.expectedAmount.toFixed(2)}`
+      : 'Monto esperado si fuera transferencia: no especificado todavía.',
+    'Cuentas destino válidas para esta tienda (solo aplica si imageCategory == "receipt"):',
     accountsText,
     '',
     'Devuelve exactamente este JSON:',
     '{',
+    '  "imageCategory": "receipt|location_reference|product_capture|order_capture|other",',
+    '  "shortSummary": "descripción muy corta en español (máx 10 palabras) de lo que se ve en la imagen",',
     '  "isReceipt": true/false,',
     '  "amount": numero_o_null,',
     '  "bankName": "nombre del banco o app (ej. Banco Pichincha, Deuna!, Banco Guayaquil) o null",',
@@ -151,11 +173,12 @@ export async function validateTransferReceiptImage(params: {
     '  "dateStr": "fecha visible en el comprobante o null",',
     '  "accountMatches": true/false/null,',
     '  "isRecentDate": true/false/null,',
-    '  "reasons": ["lista corta de observaciones o problemas detectados en español"]',
+    '  "reasons": ["lista corta de observaciones o problemas detectados si es comprobante"]',
     '}',
     '',
     'Reglas estrictas:',
-    '- Si la imagen NO es un comprobante de pago/transferencia bancaria (ej. es foto de comida, mapa, selfie, meme), pon "isReceipt": false.',
+    '- Si imageCategory es "receipt", pon "isReceipt": true y completa los campos bancarios.',
+    '- Si imageCategory NO es "receipt", pon "isReceipt": false y deja los campos bancarios en null.',
     '- accountMatches debe ser true si la cuenta o el titular destino coincide con alguna de las cuentas válidas listadas arriba (incluso si el banco enmascara dígitos como ****7517); false si claramente pertenece a OTRA persona/cuenta distinta; null si el comprobante no muestra cuenta ni titular destino.',
     '- isRecentDate debe ser true si la fecha es de hoy o ayer; false si es de hace varios días/meses; null si no se ve fecha.',
   ].join('\n')
@@ -229,7 +252,38 @@ export async function validateTransferReceiptImage(params: {
 
   if (!parsed) return null
 
-  const isReceipt = parsed.isReceipt === true
+  const rawCat = String(parsed.imageCategory || '').trim()
+  const validCategories: ChatImageCategory[] = [
+    'receipt',
+    'location_reference',
+    'product_capture',
+    'order_capture',
+    'other',
+  ]
+  const category: ChatImageCategory = validCategories.includes(rawCat as ChatImageCategory)
+    ? (rawCat as ChatImageCategory)
+    : parsed.isReceipt === true
+    ? 'receipt'
+    : 'other'
+
+  const shortSummary =
+    typeof parsed.shortSummary === 'string' && parsed.shortSummary.trim()
+      ? parsed.shortSummary.trim().slice(0, 120)
+      : undefined
+
+  const classification: ChatImageClassification = {
+    category,
+    label: IMAGE_CATEGORY_LABELS[category],
+    ...(shortSummary ? { summary: shortSummary } : {}),
+    analyzedAtMillis: Date.now(),
+    model: usedModel,
+  }
+
+  const isReceipt = category === 'receipt' || parsed.isReceipt === true
+  if (!isReceipt) {
+    return { classification }
+  }
+
   const amount =
     typeof parsed.amount === 'number' && Number.isFinite(parsed.amount) && parsed.amount > 0
       ? Math.round(parsed.amount * 100) / 100
@@ -251,17 +305,6 @@ export async function validateTransferReceiptImage(params: {
   const reasons: string[] = Array.isArray(parsed.reasons)
     ? parsed.reasons.map((r: any) => String(r || '').trim()).filter(Boolean)
     : []
-
-  if (!isReceipt) {
-    return {
-      status: 'validating',
-      isReceipt: false,
-      validatedByAi: true,
-      validatedAtMillis: Date.now(),
-      model: usedModel,
-      source: params.source,
-    }
-  }
 
   // Verificar duplicado por número de comprobante en órdenes de la tienda
   let isDuplicate = false
@@ -325,22 +368,36 @@ export async function validateTransferReceiptImage(params: {
       : `Requiere revisión manual${summaryParts.length ? ` (${summaryParts.join(' · ')})` : ''}`
 
   return {
-    status,
-    isReceipt: true,
-    amount,
-    bankName,
-    destinationAccount,
-    destinationHolder,
-    referenceNumber,
-    dateStr,
-    summary,
-    reasons,
-    isDuplicate,
-    validatedByAi: true,
-    validatedAtMillis: Date.now(),
-    model: usedModel,
-    source: params.source,
+    classification,
+    receiptValidation: {
+      status,
+      isReceipt: true,
+      amount,
+      bankName,
+      destinationAccount,
+      destinationHolder,
+      referenceNumber,
+      dateStr,
+      summary,
+      reasons,
+      isDuplicate,
+      validatedByAi: true,
+      validatedAtMillis: Date.now(),
+      model: usedModel,
+      source: params.source,
+    },
   }
+}
+
+export async function validateTransferReceiptImage(params: {
+  businessId: string
+  imageUrl: string
+  expectedAmount?: number | null
+  source?: 'whatsapp' | 'instagram' | 'checkout' | 'manual'
+  excludeOrderId?: string
+}): Promise<PaymentAiValidation | null> {
+  const analyzed = await analyzeChatImage(params)
+  return analyzed?.receiptValidation || null
 }
 
 /**
@@ -428,7 +485,7 @@ export async function processChatImageReceiptForBusiness(params: {
     }
   }
 
-  const validation = await validateTransferReceiptImage({
+  const analyzed = await analyzeChatImage({
     businessId: params.businessId,
     imageUrl: params.imageUrl,
     expectedAmount,
@@ -436,11 +493,14 @@ export async function processChatImageReceiptForBusiness(params: {
     excludeOrderId: matchedOrderDoc?.id,
   })
 
-  if (!validation || !validation.isReceipt) return null
+  if (!analyzed) return null
 
-  // 2. Vincular a la orden activa si existe
+  const { classification, receiptValidation: validation } = analyzed
+  const isReceipt = Boolean(validation?.isReceipt)
+
+  // 2. Si es comprobante, vincular a la orden activa si existe
   let linkedOrderId: string | undefined
-  if (matchedOrderDoc) {
+  if (isReceipt && validation && matchedOrderDoc) {
     linkedOrderId = matchedOrderDoc.id
     const o = matchedOrderDoc.data() || {}
     const updatePayload: Record<string, any> = {
@@ -456,8 +516,9 @@ export async function processChatImageReceiptForBusiness(params: {
     })
   }
 
-  // 3. Guardar también en el documento de la conversación (y en la entrada correspondiente de chatHistory)
-  if (params.docId) {
+  // 3. Guardar siempre la clasificación de la imagen en chatHistory (aunque se esté respondiendo manualmente)
+  // y guardar receiptAttachment cuando sea comprobante
+  if (params.docId && classification.category !== 'other') {
     const convRef = db
       .collection('businesses')
       .doc(params.businessId)
@@ -471,8 +532,13 @@ export async function processChatImageReceiptForBusiness(params: {
       entry?.mediaUrl === params.imageUrl
         ? {
             ...entry,
-            receiptValidation: validation,
-            linkedOrderId: linkedOrderId || null,
+            imageClassification: classification,
+            ...(isReceipt && validation
+              ? {
+                  receiptValidation: validation,
+                  linkedOrderId: linkedOrderId || null,
+                }
+              : {}),
           }
         : entry
     )
@@ -481,16 +547,37 @@ export async function processChatImageReceiptForBusiness(params: {
       .set(
         {
           ...(prevHistory.length > 0 ? { chatHistory: updatedHistory } : {}),
-          receiptAttachment: {
-            imageUrl: params.imageUrl,
-            validation,
-            linkedOrderId: linkedOrderId || null,
-            receivedAtMillis: Date.now(),
-          },
+          ...(isReceipt && validation
+            ? {
+                receiptAttachment: {
+                  imageUrl: params.imageUrl,
+                  validation,
+                  linkedOrderId: linkedOrderId || null,
+                  receivedAtMillis: Date.now(),
+                },
+              }
+            : {}),
         },
         { merge: true }
       )
       .catch(() => {})
+  }
+
+  if (!isReceipt || !validation) {
+    if (classification.category === 'other') return null
+    return {
+      validation: {
+        status: 'validating',
+        isReceipt: false,
+        validatedByAi: true,
+        validatedAtMillis: classification.analyzedAtMillis,
+        model: classification.model,
+        source: params.channel,
+      },
+      chatContextNote: `IMAGEN CLASIFICADA COMO: ${classification.label}${
+        classification.summary ? ` (${classification.summary})` : ''
+      }`,
+    }
   }
 
   const noteParts = [
