@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { ensureAdminDb } from '@/lib/firebase-admin'
 import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
 import { evaluateAndGenerateAutoAiReply } from '@/lib/ai-chat-agent'
+import { processChatImageReceiptForBusiness } from '@/lib/ai-receipt-validator'
 
 export interface InstagramConnectionInfo {
   status: 'connected' | 'disconnected'
@@ -446,6 +447,26 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
 
       if (!isEcho) {
         void (async () => {
+          let receiptValidationNote: string | undefined
+          if (mediaType === 'image' && mediaUrl) {
+            try {
+              const receiptRes = await processChatImageReceiptForBusiness({
+                businessId,
+                docId,
+                imageUrl: mediaUrl,
+                channel: 'instagram',
+                customerPhone: String(existing.phone || '').trim() || undefined,
+                customerClientId: String(existing.fuddiClientId || '').trim() || undefined,
+                existingPreorderState: existing?.preorderState || null,
+              })
+              if (receiptRes?.chatContextNote) {
+                receiptValidationNote = receiptRes.chatContextNote
+              }
+            } catch {
+              // Ignorar error de validación de imagen
+            }
+          }
+
           const sentStatic = await processAutoRepliesForInstagramMessage(
             businessId,
             docRef,
@@ -464,6 +485,7 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
             chatHistory: nextHistory,
             incomingText: text,
             customerName: effectiveName,
+            receiptValidationNote,
           }).catch(() => null)
 
           if (!aiResult?.ok || !aiResult.reply) return

@@ -390,11 +390,30 @@ export interface OrderRatingSnapshot {
   createdAt?: any
 }
 
+export interface PaymentAiValidation {
+  status: 'pre_validated' | 'validating' | 'rejected'
+  isReceipt: boolean
+  amount?: number | null
+  bankName?: string | null
+  destinationAccount?: string | null
+  destinationHolder?: string | null
+  referenceNumber?: string | null
+  dateStr?: string | null
+  summary?: string
+  reasons?: string[]
+  isDuplicate?: boolean
+  validatedByAi: boolean
+  validatedAtMillis: number
+  model?: string
+  source?: 'whatsapp' | 'instagram' | 'checkout' | 'manual'
+}
+
 export interface PaymentInfo {
   method: 'cash' | 'transfer' | 'mixed'
   selectedBank?: string
   receiptImageUrl?: string
-  paymentStatus?: 'pending' | 'validating' | 'paid' | 'rejected'
+  paymentStatus?: 'pending' | 'validating' | 'pre_validated' | 'paid' | 'rejected'
+  aiValidation?: PaymentAiValidation
   // Campos para pago mixto
   cashAmount?: number
   transferAmount?: number

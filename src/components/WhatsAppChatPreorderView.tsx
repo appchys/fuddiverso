@@ -2033,6 +2033,14 @@ export function WhatsAppChatPreorderView({
     paymentMethod: paymentMethod || undefined,
     cashAmount: paymentMethod === 'mixed' ? parsedCashAmount : undefined,
     transferAmount: paymentMethod === 'mixed' ? parsedTransferAmount : undefined,
+    ...(conversation.receiptAttachment?.imageUrl
+      ? {
+          receiptImageUrl: conversation.receiptAttachment.imageUrl,
+          paymentStatus: conversation.receiptAttachment.validation?.status || 'validating',
+          selectedBank: conversation.receiptAttachment.validation?.bankName || undefined,
+          aiValidation: conversation.receiptAttachment.validation,
+        }
+      : {}),
   })
 
   const stepIndicators: Array<{

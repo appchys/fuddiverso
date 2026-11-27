@@ -18,6 +18,7 @@ Copy-Item (Join-Path $PSScriptRoot "tsconfig.json") $BundleDir
 Copy-Item (Join-Path $PSScriptRoot "server.ts") $BundleDir
 Copy-Item (Join-Path $RootDir "src\lib\whatsapp-baileys-manager.ts") (Join-Path $BundleDir "src\lib")
 Copy-Item (Join-Path $RootDir "src\lib\ai-chat-agent.ts") (Join-Path $BundleDir "src\lib")
+Copy-Item (Join-Path $RootDir "src\lib\ai-receipt-validator.ts") (Join-Path $BundleDir "src\lib")
 Copy-Item (Join-Path $RootDir "src\lib\firebase-admin.ts") (Join-Path $BundleDir "src\lib")
 Copy-Item (Join-Path $RootDir "src\lib\link-preview.ts") (Join-Path $BundleDir "src\lib")
 Copy-Item (Join-Path $RootDir "src\lib\store-utils.ts") (Join-Path $BundleDir "src\lib")

@@ -139,7 +139,8 @@ interface ManualOrderData {
   scheduledTime: string
   paymentMethod: '' | 'cash' | 'transfer' | 'mixed'
   selectedBank: string
-  paymentStatus: 'pending' | 'validating' | 'paid'
+  paymentStatus: 'pending' | 'validating' | 'pre_validated' | 'paid' | 'rejected'
+  aiValidation?: import('@/types').PaymentAiValidation
   cashAmount: number
   transferAmount: number
   total: number
@@ -207,7 +208,7 @@ export default function ManualOrderSidebar({
     scheduledTime: '',
     paymentMethod: '',
     selectedBank: '',
-    paymentStatus: 'pending',
+    paymentStatus: 'validating',
     cashAmount: 0,
     transferAmount: 0,
     total: 0,
@@ -788,7 +789,8 @@ export default function ManualOrderSidebar({
         scheduledTime,
         paymentMethod: eo.payment?.method || '',
         selectedBank: normalizeBankName(eo.payment?.bankAccount?.bankName || eo.payment?.selectedBank || ''),
-        paymentStatus: eo.payment?.paymentStatus || 'pending',
+        paymentStatus: (eo.payment?.paymentStatus === 'pending' ? 'validating' : eo.payment?.paymentStatus) || 'validating',
+        aiValidation: eo.payment?.aiValidation,
         cashAmount: (eo.payment as any)?.cashAmount || 0,
         transferAmount: (eo.payment as any)?.transferAmount || 0,
         total: eo.total || 0,
@@ -917,6 +919,10 @@ export default function ManualOrderSidebar({
           ? null
           : (draftSelectedLocation || prev.selectedLocation),
       paymentMethod: draft?.paymentMethod || prev.paymentMethod,
+      selectedBank: draft?.selectedBank ? normalizeBankName(draft.selectedBank) : prev.selectedBank,
+      paymentStatus: draft?.paymentStatus || prev.paymentStatus,
+      receiptImageUrl: draft?.receiptImageUrl || prev.receiptImageUrl,
+      aiValidation: draft?.aiValidation || prev.aiValidation,
       cashAmount: draft?.paymentMethod === 'mixed' && typeof draft.cashAmount === 'number'
         ? draft.cashAmount
         : prev.cashAmount,
@@ -3240,6 +3246,7 @@ export default function ManualOrderSidebar({
             paymentStatus: manualOrderData.paymentStatus,
             selectedBank: isTransferOrMixed ? normalizedSelectedBank : '',
             ...(resolvedReceiptImageUrl ? { receiptImageUrl: resolvedReceiptImageUrl } : {}),
+            ...(manualOrderData.aiValidation ? { aiValidation: manualOrderData.aiValidation } : existingPayment?.aiValidation ? { aiValidation: existingPayment.aiValidation } : {}),
             ...(resolvedBankAccount ? { bankAccount: resolvedBankAccount } : {}),
             ...(manualOrderData.paymentMethod === 'mixed' && {
               cashAmount: manualOrderData.cashAmount || 0,
@@ -4427,8 +4434,9 @@ export default function ManualOrderSidebar({
                 role="button"
                 onClick={() => {
                   if (manualOrderData.paymentMethod === 'cash') {
-                    const statuses: ('pending' | 'validating' | 'paid')[] = ['paid', 'pending', 'validating'];
-                    const currentIndex = statuses.indexOf(manualOrderData.paymentStatus);
+                    const statuses: ('paid' | 'pre_validated' | 'validating' | 'rejected')[] = ['paid', 'pre_validated', 'validating', 'rejected'];
+                    const normalizedCurrent = manualOrderData.paymentStatus === 'pending' ? 'validating' : manualOrderData.paymentStatus;
+                    const currentIndex = statuses.indexOf(normalizedCurrent);
                     const nextStatus = statuses[(currentIndex + 1) % statuses.length];
                     setManualOrderData(prev => ({ ...prev, paymentStatus: nextStatus }));
                   } else {
@@ -4451,8 +4459,9 @@ export default function ManualOrderSidebar({
                 <span className="text-xs font-medium">Efectivo</span>
                 {manualOrderData.paymentMethod === 'cash' && (
                   <span className="text-[10px] font-bold uppercase mt-1">
-                    {manualOrderData.paymentStatus === 'paid' ? 'Pagado' : 
-                     manualOrderData.paymentStatus === 'pending' ? 'Pendiente' : 
+                    {manualOrderData.paymentStatus === 'paid' ? 'Pagado' :
+                     manualOrderData.paymentStatus === 'pre_validated' ? 'Pre validado' :
+                     manualOrderData.paymentStatus === 'rejected' ? 'Rechazado' :
                      'Validando'}
                   </span>
                 )}
@@ -4462,15 +4471,16 @@ export default function ManualOrderSidebar({
                 role="button"
                 onClick={() => {
                   if (manualOrderData.paymentMethod === 'transfer') {
-                    const statuses: ('pending' | 'validating' | 'paid')[] = ['paid', 'pending', 'validating'];
-                    const currentIndex = statuses.indexOf(manualOrderData.paymentStatus);
+                    const statuses: ('paid' | 'pre_validated' | 'validating' | 'rejected')[] = ['paid', 'pre_validated', 'validating', 'rejected'];
+                    const normalizedCurrent = manualOrderData.paymentStatus === 'pending' ? 'validating' : manualOrderData.paymentStatus;
+                    const currentIndex = statuses.indexOf(normalizedCurrent);
                     const nextStatus = statuses[(currentIndex + 1) % statuses.length];
                     setManualOrderData(prev => ({ ...prev, paymentStatus: nextStatus }));
                   } else {
                     setManualOrderData(prev => ({
                       ...prev,
                       paymentMethod: 'transfer',
-                      paymentStatus: 'paid',
+                      paymentStatus: prev.aiValidation?.status || 'validating',
                       cashAmount: 0,
                       transferAmount: 0
                     }));
@@ -4486,8 +4496,9 @@ export default function ManualOrderSidebar({
                 {manualOrderData.paymentMethod === 'transfer' && (
                   <div className="flex flex-col items-center mt-1">
                     <span className="text-[10px] font-bold uppercase">
-                      {manualOrderData.paymentStatus === 'paid' ? 'Pagado' : 
-                       manualOrderData.paymentStatus === 'pending' ? 'Pendiente' : 
+                      {manualOrderData.paymentStatus === 'paid' ? 'Pagado' :
+                       manualOrderData.paymentStatus === 'pre_validated' ? 'Pre validado' :
+                       manualOrderData.paymentStatus === 'rejected' ? 'Rechazado' :
                        'Validando'}
                     </span>
                     {manualOrderData.receiptImageUrl && (

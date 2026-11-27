@@ -66,6 +66,12 @@ export interface PendingWhatsAppConversation {
   canReplyDirectly?: boolean
   aiPaused?: boolean
   aiLastRepliedAtMillis?: number
+  receiptAttachment?: {
+    imageUrl: string
+    validation?: import('@/types').PaymentAiValidation
+    linkedOrderId?: string | null
+    receivedAtMillis?: number
+  }
   pendingReply?: {
     id: string
     text: string

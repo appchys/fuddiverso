@@ -1156,6 +1156,7 @@ function buildSystemPrompt(params: {
   customerName?: string
   channel?: 'whatsapp' | 'instagram'
   extractPreorder?: boolean
+  receiptValidationNote?: string
 }): string {
   const {
     storeName,
@@ -1166,6 +1167,7 @@ function buildSystemPrompt(params: {
     customerName,
     channel,
     extractPreorder,
+    receiptValidationNote,
   } = params
 
   const toneGuide =
@@ -1203,6 +1205,10 @@ function buildSystemPrompt(params: {
 
   if (config.customInstructions.trim()) {
     parts.push('', '=== INSTRUCCIONES PERSONALIZADAS DEL NEGOCIO ===', config.customInstructions.trim())
+  }
+
+  if (receiptValidationNote && receiptValidationNote.trim()) {
+    parts.push('', '=== AUDITORÍA AUTOMÁTICA DEL COMPROBANTE RECIÉN ENVIADO ===', receiptValidationNote.trim())
   }
 
   if (extractPreorder) {
@@ -1695,6 +1701,7 @@ export async function generateAiChatReply(params: {
   configOverride?: Partial<AiAgentConfig>
   testMessage?: string
   extractPreorder?: boolean
+  receiptValidationNote?: string
 }): Promise<GenerateAiReplyResult> {
   const baseConfig = await getAiAgentConfig(params.businessId)
   const config = params.configOverride
@@ -1734,6 +1741,7 @@ export async function generateAiChatReply(params: {
     customerName: resolvedName || params.customerName,
     channel: params.channel,
     extractPreorder: shouldExtractPreorder,
+    receiptValidationNote: params.receiptValidationNote,
   })
 
   const messages = formatConversationMessages(params.chatHistory, params.testMessage)
@@ -1835,6 +1843,7 @@ export async function evaluateAndGenerateAutoAiReply(params: {
   customerName?: string
   customerPhone?: string
   customerClientId?: string
+  receiptValidationNote?: string
 }): Promise<GenerateAiReplyResult | null> {
   const {
     businessId,
@@ -1845,6 +1854,7 @@ export async function evaluateAndGenerateAutoAiReply(params: {
     customerName,
     customerPhone,
     customerClientId,
+    receiptValidationNote,
   } = params
 
   if (!businessId || !incomingText.trim()) return null
@@ -1922,5 +1932,6 @@ export async function evaluateAndGenerateAutoAiReply(params: {
     channel,
     configOverride: config,
     extractPreorder: true,
+    receiptValidationNote,
   })
 }

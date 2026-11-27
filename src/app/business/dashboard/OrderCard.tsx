@@ -769,9 +769,11 @@ export const OrderCard = memo(function OrderCard({
                                 onClick={() => onPaymentEdit(order)}
                                 className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium transition-colors ${order.payment?.paymentStatus === 'paid'
                                     ? 'bg-green-100 text-green-700'
-                                    : order.payment?.paymentStatus === 'validating'
-                                        ? 'bg-yellow-100 text-yellow-700'
-                                        : 'bg-red-100 text-red-700'
+                                    : order.payment?.paymentStatus === 'pre_validated'
+                                        ? 'bg-violet-100 text-violet-700'
+                                        : order.payment?.paymentStatus === 'rejected'
+                                            ? 'bg-red-100 text-red-700'
+                                            : 'bg-yellow-100 text-yellow-700'
                                     }`}
                             >
                                 <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' :

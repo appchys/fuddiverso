@@ -10,6 +10,7 @@ import QRCode from 'qrcode'
 import { ensureAdminDb, uploadWhatsAppMediaToStorage } from '@/lib/firebase-admin'
 import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
 import { evaluateAndGenerateAutoAiReply } from '@/lib/ai-chat-agent'
+import { processChatImageReceiptForBusiness } from '@/lib/ai-receipt-validator'
 import {
   extractFirstUrlFromText,
   fetchLinkPreviewMetadata,
@@ -2195,9 +2196,29 @@ class WhatsAppBaileysManager {
       `[Baileys] Mensaje entrante guardado business=${session.businessId} doc=${docId} phone=${normPhone} media=${mediaType || 'text'}`
     )
 
-    // Evaluar mensajes automáticos y Agente de IA de forma secuencial:
+    // Evaluar mensajes automáticos, validador de comprobantes y Agente de IA de forma secuencial:
     // Si ya se envió un mensaje automático fijo (ej. Bienvenida), omitir el Agente de IA en este mensaje para ahorrar cuota y evitar doble respuesta.
     void (async () => {
+      let receiptValidationNote: string | undefined
+      if (mediaType === 'image' && mediaUrl) {
+        try {
+          const receiptRes = await processChatImageReceiptForBusiness({
+            businessId: session.businessId,
+            docId,
+            imageUrl: mediaUrl,
+            channel: 'whatsapp',
+            customerPhone: normPhone,
+            customerClientId: fuddiClientId || undefined,
+            existingPreorderState: existing?.preorderState || null,
+          })
+          if (receiptRes?.chatContextNote) {
+            receiptValidationNote = receiptRes.chatContextNote
+          }
+        } catch (err) {
+          console.warn('[Baileys] Error validando comprobante de imagen:', err)
+        }
+      }
+
       let sentStaticAutoReply = false
       try {
         sentStaticAutoReply = await this.processAutoRepliesForIncomingMessage(
@@ -2231,7 +2252,8 @@ class WhatsAppBaileysManager {
           freshHistory,
           text,
           fuddiClientName || effectiveName,
-          fuddiClientId
+          fuddiClientId,
+          receiptValidationNote
         )
       } catch (err) {
         console.warn('[Baileys] Error evaluando agente de IA:', err)
@@ -2416,7 +2438,8 @@ class WhatsAppBaileysManager {
     chatHistory: any[],
     incomingText: string,
     customerName?: string,
-    customerClientId?: string
+    customerClientId?: string,
+    receiptValidationNote?: string
   ) {
     if (!session.businessId || session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
     if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return
@@ -2438,6 +2461,7 @@ class WhatsAppBaileysManager {
       customerName,
       customerPhone: normPhone,
       customerClientId,
+      receiptValidationNote,
     })
 
     if (!aiResult?.ok || !aiResult.reply) {

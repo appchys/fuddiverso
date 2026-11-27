@@ -46,6 +46,10 @@ export interface WhatsAppPreorderDraft {
     paymentMethod?: '' | 'cash' | 'transfer' | 'mixed';
     cashAmount?: number;
     transferAmount?: number;
+    receiptImageUrl?: string;
+    paymentStatus?: 'pending' | 'validating' | 'pre_validated' | 'paid' | 'rejected';
+    selectedBank?: string;
+    aiValidation?: import('@/types').PaymentAiValidation;
 }
 
 interface ResolvedWhatsAppClientProfile {

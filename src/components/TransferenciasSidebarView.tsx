@@ -88,7 +88,7 @@ export default function TransferenciasSidebarView({
     const [daysToShow, setDaysToShow] = useState<number>(30)
     const [orders, setOrders] = useState<Order[]>([])
     const [loading, setLoading] = useState<boolean>(true)
-    const [statusFilter, setStatusFilter] = useState<'pending' | 'paid' | 'all'>('pending')
+    const [statusFilter, setStatusFilter] = useState<'pending' | 'pre_validated' | 'paid' | 'all'>('pending')
     const [selectedBusinessFilter, setSelectedBusinessFilter] = useState<string>(selectedBusinessId || 'all')
     const [receiptModalOrder, setReceiptModalOrder] = useState<Order | null>(null)
     const [validatingOrderId, setValidatingOrderId] = useState<string | null>(null)
@@ -158,8 +158,11 @@ export default function TransferenciasSidebarView({
             
             if (!isTransferMethod) return false
 
-            const isPaid = o.payment?.paymentStatus === 'paid'
+            const pStatus = o.payment?.paymentStatus
+            const isPaid = pStatus === 'paid'
+            const isPreValidated = pStatus === 'pre_validated'
             if (statusFilter === 'pending' && isPaid) return false
+            if (statusFilter === 'pre_validated' && !isPreValidated) return false
             if (statusFilter === 'paid' && !isPaid) return false
 
             return true
@@ -223,6 +226,7 @@ export default function TransferenciasSidebarView({
     const summaryStats = useMemo(() => {
         let totalCount = 0
         let pendingCount = 0
+        let preValidatedCount = 0
         let totalAmount = 0
         let pendingAmount = 0
 
@@ -236,13 +240,16 @@ export default function TransferenciasSidebarView({
             totalCount++
             totalAmount += amount
 
+            if (o.payment?.paymentStatus === 'pre_validated') {
+                preValidatedCount++
+            }
             if (o.payment?.paymentStatus !== 'paid') {
                 pendingCount++
                 pendingAmount += amount
             }
         })
 
-        return { totalCount, pendingCount, totalAmount, pendingAmount }
+        return { totalCount, pendingCount, preValidatedCount, totalAmount, pendingAmount }
     }, [orders])
 
     // Validar pago individual
@@ -264,7 +271,7 @@ export default function TransferenciasSidebarView({
         }
     }
 
-    // Cambiar estado a pendiente
+    // Cambiar estado a validando
     const handleUnvalidatePayment = async (order: Order) => {
         if (!order.id) return
         setValidatingOrderId(order.id)
@@ -272,12 +279,31 @@ export default function TransferenciasSidebarView({
             const orderRef = doc(db, 'orders', order.id)
             const updatedPayment = {
                 ...order.payment,
-                paymentStatus: 'pending' as const
+                paymentStatus: 'validating' as const
             }
             await updateDoc(orderRef, { payment: updatedPayment })
         } catch (error) {
             console.error("Error al desmarcar pago:", error)
             alert("No se pudo cambiar el estado de la transferencia.")
+        } finally {
+            setValidatingOrderId(null)
+        }
+    }
+
+    // Rechazar comprobante
+    const handleRejectPayment = async (order: Order) => {
+        if (!order.id) return
+        setValidatingOrderId(order.id)
+        try {
+            const orderRef = doc(db, 'orders', order.id)
+            const updatedPayment = {
+                ...order.payment,
+                paymentStatus: 'rejected' as const
+            }
+            await updateDoc(orderRef, { payment: updatedPayment })
+        } catch (error) {
+            console.error("Error al rechazar pago:", error)
+            alert("No se pudo rechazar la transferencia.")
         } finally {
             setValidatingOrderId(null)
         }
@@ -406,17 +432,17 @@ export default function TransferenciasSidebarView({
                 </div>
 
                 {/* Pestañas de Estado (Estilo de subpestañas Cierre de Caja) */}
-                <div className="flex bg-slate-200/60 p-1 rounded-xl shadow-2xs border border-slate-200/40 text-xs">
+                <div className="flex bg-slate-200/60 p-1 rounded-xl shadow-2xs border border-slate-200/40 text-[11px] gap-0.5">
                     <button
                         type="button"
                         onClick={() => setStatusFilter('pending')}
-                        className={`flex-1 py-1.5 px-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer ${
+                        className={`flex-1 py-1.5 px-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-1 cursor-pointer ${
                             statusFilter === 'pending'
                                 ? 'bg-white text-slate-900 shadow-2xs font-black'
                                 : 'text-slate-500 hover:text-slate-800'
                         }`}
                     >
-                        <span>Por Validar</span>
+                        <span>Validando</span>
                         {summaryStats.pendingCount > 0 && (
                             <span className="px-1.5 py-0.2 text-[9px] font-black rounded-full bg-amber-500 text-white shadow-2xs">
                                 {summaryStats.pendingCount}
@@ -425,14 +451,31 @@ export default function TransferenciasSidebarView({
                     </button>
                     <button
                         type="button"
+                        onClick={() => setStatusFilter('pre_validated')}
+                        className={`flex-1 py-1.5 px-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-1 cursor-pointer ${
+                            statusFilter === 'pre_validated'
+                                ? 'bg-white text-violet-700 shadow-2xs font-black'
+                                : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                        <i className="bi bi-stars text-[10px] text-violet-600"></i>
+                        <span>Pre val.</span>
+                        {summaryStats.preValidatedCount > 0 && (
+                            <span className="px-1.5 py-0.2 text-[9px] font-black rounded-full bg-violet-600 text-white shadow-2xs">
+                                {summaryStats.preValidatedCount}
+                            </span>
+                        )}
+                    </button>
+                    <button
+                        type="button"
                         onClick={() => setStatusFilter('paid')}
-                        className={`flex-1 py-1.5 px-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer ${
+                        className={`flex-1 py-1.5 px-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-1 cursor-pointer ${
                             statusFilter === 'paid'
                                 ? 'bg-white text-slate-900 shadow-2xs font-black'
                                 : 'text-slate-500 hover:text-slate-800'
                         }`}
                     >
-                        <span>Validadas</span>
+                        <span>Pagado</span>
                         <span className="px-1.5 py-0.2 text-[9px] font-semibold rounded-full bg-emerald-100 text-emerald-800">
                             {summaryStats.totalCount - summaryStats.pendingCount}
                         </span>
@@ -440,16 +483,13 @@ export default function TransferenciasSidebarView({
                     <button
                         type="button"
                         onClick={() => setStatusFilter('all')}
-                        className={`flex-1 py-1.5 px-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer ${
+                        className={`py-1.5 px-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-1 cursor-pointer ${
                             statusFilter === 'all'
                                 ? 'bg-white text-slate-900 shadow-2xs font-black'
                                 : 'text-slate-500 hover:text-slate-800'
                         }`}
                     >
                         <span>Todas</span>
-                        <span className="px-1.5 py-0.2 text-[9px] font-semibold rounded-full bg-slate-200 text-slate-700">
-                            {summaryStats.totalCount}
-                        </span>
                     </button>
                 </div>
             </div>
@@ -599,17 +639,60 @@ export default function TransferenciasSidebarView({
                                                                 <p className="font-black text-base text-slate-900 tracking-tight">
                                                                     ${transferAmt.toFixed(2)}
                                                                 </p>
-                                                                <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mt-0.5 ${
+                                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mt-0.5 ${
                                                                     isPaid
                                                                         ? 'bg-emerald-100 text-emerald-800'
-                                                                        : order.payment?.paymentStatus === 'validating'
-                                                                        ? 'bg-amber-100 text-amber-800'
-                                                                        : 'bg-slate-100 text-slate-700'
+                                                                        : order.payment?.paymentStatus === 'pre_validated'
+                                                                        ? 'bg-violet-100 text-violet-800'
+                                                                        : order.payment?.paymentStatus === 'rejected'
+                                                                        ? 'bg-rose-100 text-rose-800'
+                                                                        : 'bg-amber-100 text-amber-800'
                                                                 }`}>
-                                                                    {isPaid ? 'Validada' : order.payment?.paymentStatus === 'validating' ? 'Validando' : 'Por Validar'}
+                                                                    {order.payment?.paymentStatus === 'pre_validated' && (
+                                                                        <i className="bi bi-stars text-[9px]"></i>
+                                                                    )}
+                                                                    {isPaid
+                                                                        ? 'Pagado'
+                                                                        : order.payment?.paymentStatus === 'pre_validated'
+                                                                        ? 'Pre validado'
+                                                                        : order.payment?.paymentStatus === 'rejected'
+                                                                        ? 'Rechazado'
+                                                                        : 'Validando'}
                                                                 </span>
                                                             </div>
                                                         </div>
+
+                                                        {/* Resultado de validación por Agente de IA */}
+                                                        {order.payment?.aiValidation?.validatedByAi && (
+                                                            <div className={`px-2.5 py-2 rounded-xl border text-[11px] space-y-0.5 ${
+                                                                order.payment.aiValidation.status === 'pre_validated'
+                                                                    ? 'bg-violet-50/80 border-violet-200 text-violet-900'
+                                                                    : order.payment.aiValidation.status === 'rejected'
+                                                                    ? 'bg-rose-50/80 border-rose-200 text-rose-900'
+                                                                    : 'bg-amber-50/80 border-amber-200 text-amber-900'
+                                                            }`}>
+                                                                <div className="flex items-center justify-between gap-2 font-bold">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        <i className="bi bi-robot text-xs"></i>
+                                                                        {order.payment.aiValidation.status === 'pre_validated'
+                                                                            ? 'Validado por Agente IA'
+                                                                            : order.payment.aiValidation.status === 'rejected'
+                                                                            ? 'Observación del Agente IA'
+                                                                            : 'Revisado por Agente IA'}
+                                                                    </span>
+                                                                    {order.payment.aiValidation.referenceNumber && (
+                                                                        <span className="text-[10px] font-mono opacity-80">
+                                                                            #{order.payment.aiValidation.referenceNumber}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                {order.payment.aiValidation.summary && (
+                                                                    <p className="text-[10px] font-medium opacity-90 leading-snug">
+                                                                        {order.payment.aiValidation.summary}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        )}
 
                                                         {/* Comprobante Adjunto si existe */}
                                                         {order.payment?.receiptImageUrl && (
@@ -638,24 +721,37 @@ export default function TransferenciasSidebarView({
                                                         {/* Acciones de Validación (Estilo de botones Cierre de Caja) */}
                                                         <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
                                                             {!isPaid ? (
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={isValidatingThis}
-                                                                    onClick={() => handleValidatePayment(order)}
-                                                                    className="flex-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer disabled:opacity-50"
-                                                                >
-                                                                    {isValidatingThis ? (
-                                                                        <>
-                                                                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                                                            <span>Guardando...</span>
-                                                                        </>
-                                                                    ) : (
-                                                                        <>
-                                                                            <i className="bi bi-check-circle-fill text-xs"></i>
-                                                                            <span>Validar Pago</span>
-                                                                        </>
+                                                                <>
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={isValidatingThis}
+                                                                        onClick={() => handleValidatePayment(order)}
+                                                                        className="flex-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer disabled:opacity-50"
+                                                                    >
+                                                                        {isValidatingThis ? (
+                                                                            <>
+                                                                                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                                                                <span>Guardando...</span>
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <i className="bi bi-check-circle-fill text-xs"></i>
+                                                                                <span>Marcar Pagado</span>
+                                                                            </>
+                                                                        )}
+                                                                    </button>
+                                                                    {order.payment?.paymentStatus !== 'rejected' && (
+                                                                        <button
+                                                                            type="button"
+                                                                            disabled={isValidatingThis}
+                                                                            onClick={() => handleRejectPayment(order)}
+                                                                            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer disabled:opacity-50"
+                                                                            title="Rechazar comprobante"
+                                                                        >
+                                                                            <i className="bi bi-x-circle"></i>
+                                                                        </button>
                                                                     )}
-                                                                </button>
+                                                                </>
                                                             ) : (
                                                                 <button
                                                                     type="button"
@@ -730,6 +826,28 @@ export default function TransferenciasSidebarView({
                                 className="max-w-full max-h-[60vh] object-contain rounded-lg shadow-md"
                             />
                         </div>
+
+                        {/* Resumen de validación por IA dentro del modal */}
+                        {receiptModalOrder.payment?.aiValidation?.validatedByAi && (
+                            <div className={`px-4 py-2.5 border-t text-xs space-y-0.5 shrink-0 ${
+                                receiptModalOrder.payment.aiValidation.status === 'pre_validated'
+                                    ? 'bg-violet-50 border-violet-100 text-violet-900'
+                                    : receiptModalOrder.payment.aiValidation.status === 'rejected'
+                                    ? 'bg-rose-50 border-rose-100 text-rose-900'
+                                    : 'bg-amber-50 border-amber-100 text-amber-900'
+                            }`}>
+                                <p className="font-bold flex items-center gap-1.5">
+                                    <i className="bi bi-robot"></i>
+                                    <span>{receiptModalOrder.payment.aiValidation.summary || 'Evaluado por Agente de IA'}</span>
+                                </p>
+                                {Array.isArray(receiptModalOrder.payment.aiValidation.reasons) &&
+                                    receiptModalOrder.payment.aiValidation.reasons.length > 0 && (
+                                        <p className="text-[11px] opacity-90">
+                                            {receiptModalOrder.payment.aiValidation.reasons.join(' · ')}
+                                        </p>
+                                    )}
+                            </div>
+                        )}
 
                         {/* Footer del Modal con Acción de Validación */}
                         <div className="p-4 bg-white border-t border-slate-100 flex items-center justify-between gap-3 shrink-0">
