@@ -14,6 +14,7 @@ import { Motorbike } from 'lucide-react';
 import { usePersistedPreorderState, buildBasePreorderState } from '@/hooks/usePersistedPreorderState';
 import { WhatsAppBaileysModal, type BaileysStatus } from '@/components/WhatsAppBaileysModal';
 import { WhatsAppAutoRepliesModal } from '@/components/WhatsAppAutoRepliesModal';
+import { AiAgentConfigModal } from '@/components/AiAgentConfigModal';
 import { InstagramConnectModal } from '@/components/InstagramConnectModal';
 import { formatWhatsAppMessageText } from '@/lib/whatsapp-format';
 
@@ -147,6 +148,8 @@ export function LiveCheckoutsPanel({
     const [isExpanded, setIsExpanded] = useState(true);
     const [showBaileysModal, setShowBaileysModal] = useState(false);
     const [showAutoRepliesModal, setShowAutoRepliesModal] = useState(false);
+    const [showAiAgentModal, setShowAiAgentModal] = useState(false);
+    const [aiAgentEnabled, setAiAgentEnabled] = useState(false);
     const [showInstagramModal, setShowInstagramModal] = useState(false);
     const [instagramConnected, setInstagramConnected] = useState(false);
     const [showSettingsMenu, setShowSettingsMenu] = useState(false);
@@ -642,6 +645,23 @@ export function LiveCheckoutsPanel({
                                             style={{ minHeight: 0 }}
                                             onClick={() => {
                                                 setShowSettingsMenu(false);
+                                                setShowAiAgentModal(true);
+                                            }}
+                                            className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-violet-50/70 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                        >
+                                            <span
+                                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                                    aiAgentEnabled ? 'bg-violet-600' : 'bg-gray-300'
+                                                }`}
+                                            ></span>
+                                            <i className="bi bi-stars text-violet-600 text-sm"></i>
+                                            <span>Agente de IA</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            style={{ minHeight: 0 }}
+                                            onClick={() => {
+                                                setShowSettingsMenu(false);
                                                 setShowAutoRepliesModal(true);
                                             }}
                                             className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition-colors"
@@ -745,6 +765,12 @@ export function LiveCheckoutsPanel({
                     businessId={businessId}
                     onClose={() => setShowAutoRepliesModal(false)}
                 />
+                <AiAgentConfigModal
+                    isOpen={showAiAgentModal}
+                    businessId={businessId}
+                    onClose={() => setShowAiAgentModal(false)}
+                    onStatusChange={setAiAgentEnabled}
+                />
                 <InstagramConnectModal
                     isOpen={showInstagramModal}
                     businessId={businessId}
@@ -794,6 +820,23 @@ export function LiveCheckoutsPanel({
                                 onClick={() => setShowSettingsMenu(false)}
                             />
                             <div className="absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl bg-white shadow-lg border border-slate-200 py-1.5 text-left">
+                                <button
+                                    type="button"
+                                    style={{ minHeight: 0 }}
+                                    onClick={() => {
+                                        setShowSettingsMenu(false);
+                                        setShowAiAgentModal(true);
+                                    }}
+                                    className="w-full px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-violet-50/70 flex items-center gap-2.5 cursor-pointer transition-colors"
+                                >
+                                    <span
+                                        className={`w-2 h-2 rounded-full shrink-0 ${
+                                            aiAgentEnabled ? 'bg-violet-600' : 'bg-gray-300'
+                                        }`}
+                                    ></span>
+                                    <i className="bi bi-stars text-violet-600 text-sm"></i>
+                                    <span>Agente de IA</span>
+                                </button>
                                 <button
                                     type="button"
                                     style={{ minHeight: 0 }}
@@ -902,6 +945,12 @@ export function LiveCheckoutsPanel({
                 isOpen={showAutoRepliesModal}
                 businessId={businessId}
                 onClose={() => setShowAutoRepliesModal(false)}
+            />
+            <AiAgentConfigModal
+                isOpen={showAiAgentModal}
+                businessId={businessId}
+                onClose={() => setShowAiAgentModal(false)}
+                onStatusChange={setAiAgentEnabled}
             />
             <InstagramConnectModal
                 isOpen={showInstagramModal}

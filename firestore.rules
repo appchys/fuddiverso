@@ -77,6 +77,11 @@ service cloud.firestore {
       match /whatsappAutoReplies/{ruleId} {
         allow read, write: if isBusinessMember(businessId);
       }
+
+      // Configuración del Agente de IA para el chat de la tienda
+      match /aiAgentConfig/{docId} {
+        allow read, write: if isBusinessMember(businessId);
+      }
       
       // Subcolección de biblioteca de ingredientes
       match /ingredientLibrary/{ingredientId} {

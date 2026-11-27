@@ -533,6 +533,9 @@ export function WhatsAppChatPreorderView({
   const [savingNewClient, setSavingNewClient] = useState<boolean>(false)
   const [replyText, setReplyText] = useState<string>('')
   const [sendingReply, setSendingReply] = useState<boolean>(false)
+  const [generatingAiReply, setGeneratingAiReply] = useState<boolean>(false)
+  const [aiReplyError, setAiReplyError] = useState<string | null>(null)
+  const [togglingAiPause, setTogglingAiPause] = useState<boolean>(false)
   const [optimisticReply, setOptimisticReply] = useState<{
     id: string
     text: string
@@ -1114,6 +1117,66 @@ export function WhatsAppChatPreorderView({
       })
     } catch {
       // Ignorar fallo transitorio de red
+    }
+  }
+
+  const handleGenerateAiSuggestion = async () => {
+    if (!businessId || !conversation.docId || generatingAiReply) return
+    setGeneratingAiReply(true)
+    setAiReplyError(null)
+    try {
+      const idToken = await auth.currentUser?.getIdToken()
+      const isInstagramConversation =
+        conversation.channel === 'instagram' ||
+        conversation.sourcePackage === 'instagram' ||
+        conversation.docId?.startsWith('ig:')
+
+      const res = await fetch('/api/ai-agent/reply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({
+          businessId,
+          docId: conversation.docId,
+          channel: isInstagramConversation ? 'instagram' : 'whatsapp',
+          customerName:
+            resolvedProfile?.clientName ||
+            conversation.fuddiClientName ||
+            conversation.effectiveName ||
+            conversation.displayName ||
+            '',
+          chatHistory: conversation.chatHistory || [],
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.ok || !data?.reply) {
+        throw new Error(data?.error || 'No se pudo generar la respuesta con IA.')
+      }
+
+      setReplyText(String(data.reply))
+      setTimeout(() => replyInputRef.current?.focus(), 30)
+    } catch (err: any) {
+      setAiReplyError(err?.message || 'Error al generar respuesta con IA.')
+    } finally {
+      setGeneratingAiReply(false)
+    }
+  }
+
+  const handleToggleConversationAiPause = async () => {
+    if (!businessId || !conversation.docId || togglingAiPause) return
+    setTogglingAiPause(true)
+    try {
+      const nextPaused = !Boolean(conversation.aiPaused)
+      await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
+        aiPaused: nextPaused,
+      })
+    } catch (err) {
+      console.error('[WhatsAppChatView] Error cambiando pausa de IA:', err)
+    } finally {
+      setTogglingAiPause(false)
     }
   }
 
@@ -2064,6 +2127,19 @@ export function WhatsAppChatPreorderView({
 
           {!isEditingClientName && (
             <div className="shrink-0 flex items-center gap-1.5">
+              {conversation.aiPaused && (
+                <button
+                  type="button"
+                  style={{ minHeight: 0 }}
+                  onClick={() => void handleToggleConversationAiPause()}
+                  disabled={togglingAiPause}
+                  title="IA pausada en este chat. Clic para reactivar."
+                  className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 cursor-pointer transition-colors"
+                >
+                  <i className="bi bi-pause-circle-fill"></i>
+                  <span>IA pausada</span>
+                </button>
+              )}
               {headerActiveOrders.length > 0 && (
                 <div className="flex items-center gap-1 flex-wrap justify-end">
                   {headerActiveOrders.map((ord) => (
@@ -2105,6 +2181,21 @@ export function WhatsAppChatPreorderView({
                           <i className="bi bi-whatsapp text-sm"></i>
                           Chat en WhatsApp
                         </a>
+                      )}
+                      {businessId && conversation.docId && (
+                        <button
+                          type="button"
+                          style={{ minHeight: 0 }}
+                          disabled={togglingAiPause}
+                          onClick={() => {
+                            setShowHeaderMenu(false)
+                            void handleToggleConversationAiPause()
+                          }}
+                          className="w-full h-8 px-2.5 bg-white hover:bg-violet-50 text-violet-700 text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-2 cursor-pointer"
+                        >
+                          <i className={`bi ${conversation.aiPaused ? 'bi-play-circle' : 'bi-pause-circle'} text-sm`}></i>
+                          {conversation.aiPaused ? 'Reactivar IA aquí' : 'Pausar IA aquí'}
+                        </button>
                       )}
                       {onCloseConversation && (
                         <button
@@ -3780,6 +3871,20 @@ export function WhatsAppChatPreorderView({
             </div>
 
             <div className="relative flex-1 min-w-0 flex items-center">
+              {aiReplyError && (
+                <div className="absolute left-0 right-0 bottom-full mb-1.5 z-40 px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-medium flex items-center justify-between gap-2 shadow-sm">
+                  <span className="truncate">{aiReplyError}</span>
+                  <button
+                    type="button"
+                    style={{ minHeight: 0, minWidth: 0 }}
+                    onClick={() => setAiReplyError(null)}
+                    className="shrink-0 text-rose-500 hover:text-rose-800 cursor-pointer"
+                    aria-label="Cerrar error"
+                  >
+                    <i className="bi bi-x text-sm"></i>
+                  </button>
+                </div>
+              )}
               <textarea
                 ref={replyInputRef}
                 rows={1}
@@ -3842,6 +3947,21 @@ export function WhatsAppChatPreorderView({
                 </button>
               )}
             </div>
+            <button
+              type="button"
+              style={{ minHeight: 0, minWidth: 0 }}
+              disabled={generatingAiReply || sendingReply}
+              onClick={() => void handleGenerateAiSuggestion()}
+              className="w-8 h-8 min-h-0 min-w-0 p-0 shrink-0 rounded-full bg-violet-50 hover:bg-violet-100 disabled:opacity-50 text-violet-600 border border-violet-200/80 transition-colors inline-flex items-center justify-center cursor-pointer"
+              title="Sugerir respuesta con IA"
+              aria-label="Sugerir respuesta con IA"
+            >
+              <i
+                className={`bi ${
+                  generatingAiReply ? 'bi-arrow-repeat animate-spin' : 'bi-stars'
+                } text-xs`}
+              ></i>
+            </button>
             {replyText.trim() ? (
               <button
                 type="button"

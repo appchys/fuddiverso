@@ -9,6 +9,7 @@ import pino from 'pino'
 import QRCode from 'qrcode'
 import { ensureAdminDb, uploadWhatsAppMediaToStorage } from '@/lib/firebase-admin'
 import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
+import { evaluateAndGenerateAutoAiReply } from '@/lib/ai-chat-agent'
 import {
   extractFirstUrlFromText,
   fetchLinkPreviewMetadata,
@@ -2193,6 +2194,21 @@ class WhatsAppBaileysManager {
     ).catch((err) => {
       console.warn('[Baileys] Error evaluando mensajes automáticos:', err)
     })
+
+    // Evaluar y enviar respuesta del Agente de IA si está activo en modo automático
+    void this.processAiAutoReplyForIncomingMessage(
+      session,
+      docRef,
+      docId,
+      normPhone,
+      remoteJid,
+      existing || {},
+      nextHistory,
+      text,
+      fuddiClientName || effectiveName
+    ).catch((err) => {
+      console.warn('[Baileys] Error evaluando agente de IA:', err)
+    })
   }
 
   private isWithinAutoReplySchedule(
@@ -2357,6 +2373,74 @@ class WhatsAppBaileysManager {
         }
         await docRef.set({ autoReplyLastSent: nested }, { merge: true }).catch(() => {})
       })
+    }
+  }
+
+  private async processAiAutoReplyForIncomingMessage(
+    session: ManagedSession,
+    docRef: FirebaseFirestore.DocumentReference,
+    docId: string,
+    normPhone: string,
+    remoteJid: string,
+    existingDocData: Record<string, any>,
+    chatHistory: any[],
+    incomingText: string,
+    customerName?: string
+  ) {
+    if (!session.businessId || session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
+    if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return
+    if (session.state.status !== 'connected' || !session.socket) return
+
+    const memKey = `${docId}::__ai_agent__`
+    const nowMs = Date.now()
+    const lastMemMs = Number(session.autoReplyCooldowns.get(memKey) || 0)
+    if (nowMs - lastMemMs < 5000) return
+
+    session.autoReplyCooldowns.set(memKey, nowMs)
+
+    const aiResult = await evaluateAndGenerateAutoAiReply({
+      businessId: session.businessId,
+      channel: 'whatsapp',
+      existingDocData,
+      chatHistory,
+      incomingText,
+      customerName,
+    })
+
+    if (!aiResult?.ok || !aiResult.reply) {
+      if (lastMemMs > 0) {
+        session.autoReplyCooldowns.set(memKey, lastMemMs)
+      } else {
+        session.autoReplyCooldowns.delete(memKey)
+      }
+      return
+    }
+
+    const sendRes = await this.sendOutgoingMessage(
+      session.businessId,
+      docId,
+      normPhone,
+      aiResult.reply,
+      `ai_${Date.now()}`
+    )
+
+    if (sendRes.ok) {
+      await docRef
+        .set(
+          {
+            aiLastRepliedAtMillis: Date.now(),
+            aiLastProvider: aiResult.provider || null,
+          },
+          { merge: true }
+        )
+        .catch(() => {})
+      console.log(
+        `[Baileys] Agente IA respondió business=${session.businessId} doc=${docId} provider=${aiResult.provider}`
+      )
+    } else if (lastMemMs > 0) {
+      session.autoReplyCooldowns.set(memKey, lastMemMs)
+    } else {
+      session.autoReplyCooldowns.delete(memKey)
     }
   }
 

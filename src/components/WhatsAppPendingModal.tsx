@@ -64,6 +64,8 @@ export interface PendingWhatsAppConversation {
     } | null
   }>
   canReplyDirectly?: boolean
+  aiPaused?: boolean
+  aiLastRepliedAtMillis?: number
   pendingReply?: {
     id: string
     text: string

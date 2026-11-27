@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { ensureAdminDb } from '@/lib/firebase-admin'
 import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
+import { evaluateAndGenerateAutoAiReply } from '@/lib/ai-chat-agent'
 
 export interface InstagramConnectionInfo {
   status: 'connected' | 'disconnected'
@@ -94,6 +95,7 @@ export async function sendInstagramDirectMessage(params: {
   recipientId: string
   text: string
   mediaUrl?: string | null
+  sourceOverride?: string
 }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
   const { businessId, recipientId, text, mediaUrl } = params
   const cleanText = String(text || '').trim()
@@ -171,11 +173,11 @@ export async function sendInstagramDirectMessage(params: {
     const prevHistory: any[] = Array.isArray(existing.chatHistory) ? existing.chatHistory : []
 
     const outgoingEntry = {
-      id: sentMsgId,
+      id: params.sourceOverride === 'ai_agent' ? `ai_${sentMsgId}` : sentMsgId,
       text: cleanText || (cleanMediaUrl ? '📷 Imagen enviada' : ''),
       timestampMillis: nowMs,
       fromMe: true,
-      source: 'instagram',
+      source: params.sourceOverride || 'instagram',
       ...(cleanMediaUrl ? { mediaUrl: cleanMediaUrl, mediaType: 'image' } : {}),
     }
 
@@ -448,6 +450,37 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
           customerIgId,
           existing
         ).catch(() => {})
+
+        void evaluateAndGenerateAutoAiReply({
+          businessId,
+          channel: 'instagram',
+          existingDocData: existing,
+          chatHistory: nextHistory,
+          incomingText: text,
+          customerName: effectiveName,
+        })
+          .then(async (aiResult) => {
+            if (!aiResult?.ok || !aiResult.reply) return
+            const sendRes = await sendInstagramDirectMessage({
+              businessId,
+              docId,
+              recipientId: customerIgId,
+              text: aiResult.reply,
+              sourceOverride: 'ai_agent',
+            })
+            if (sendRes.ok) {
+              await docRef
+                .set(
+                  {
+                    aiLastRepliedAtMillis: Date.now(),
+                    aiLastProvider: aiResult.provider || null,
+                  },
+                  { merge: true }
+                )
+                .catch(() => {})
+            }
+          })
+          .catch(() => {})
       }
     }
   }
