@@ -755,6 +755,7 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
   const methods: string[] = []
   if (acceptsCash) methods.push('Efectivo')
   if (acceptsTransfer) methods.push('Transferencia bancaria')
+  if (acceptsCash && acceptsTransfer) methods.push('Pago mixto (parte en efectivo y parte por transferencia)')
   if (methods.length > 0) {
     lines.push(`Métodos de pago aceptados: ${methods.join(', ')}`)
   }
@@ -1208,10 +1209,11 @@ function buildSystemPrompt(params: {
       '',
       '=== EXTRACCIÓN INTERNA DE PREORDEN (OCULTA AL CLIENTE) ===',
       'Si el cliente está armando, modificando o cancelando un pedido en la conversación, agrega AL FINAL de tu respuesta (después del mensaje para el cliente) un bloque exacto con este formato:',
-      '<PREORDER_JSON>{"hasOrderIntent":true,"cancelled":false,"items":[{"productId":"ID_DEL_CATALOGO","variantName":"NOMBRE_VARIANTE_SI_APLICA","quantity":1}],"timingType":"immediate|scheduled|","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:mm","deliveryType":"delivery|pickup|","selectedLocationId":"ID_DE_UBICACION_GUARDADA_O_NULL","customLocationInput":"DIRECCION_O_LINK_SI_ES_NUEVA","customLocationReference":"REFERENCIA_SI_DIO","paymentMethod":"cash|transfer|mixed|"}</PREORDER_JSON>',
+      '<PREORDER_JSON>{"hasOrderIntent":true,"cancelled":false,"items":[{"productId":"ID_DEL_CATALOGO","variantName":"NOMBRE_VARIANTE_SI_APLICA","quantity":1}],"timingType":"immediate|scheduled|","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:mm","deliveryType":"delivery|pickup|","selectedLocationId":"ID_DE_UBICACION_GUARDADA_O_NULL","customLocationInput":"DIRECCION_O_LINK_SI_ES_NUEVA","customLocationReference":"REFERENCIA_SI_DIO","paymentMethod":"cash|transfer|mixed|","cashAmount":0,"transferAmount":0}</PREORDER_JSON>',
       'Reglas del bloque <PREORDER_JSON>:',
       '- Si el cliente SOLO preguntó por un producto, horario o precio sin pedir nada todavía, NO agregues el bloque (o pon "hasOrderIntent":false).',
       '- Incluye SIEMPRE el estado ACTUAL COMPLETO del pedido según toda la conversación: si el cliente cambió de producto, cantidad, hora, entrega (delivery/pickup), dirección o método de pago, refleja ÚNICAMENTE la decisión final más reciente.',
+      '- Si el cliente elige pago mixto ("mixed"), asegúrate de confirmar cuánto pagará en efectivo y cuánto por transferencia (la suma de ambos debe ser exactamente igual al total del pedido incluyendo envío si aplica) y coloca esos valores en cashAmount y transferAmount.',
       '- Usa únicamente los [id:...] del catálogo para productId y los [locId:...] del cliente para selectedLocationId.',
       '- Si el cliente canceló todo el pedido, devuelve {"hasOrderIntent":true,"cancelled":true,"items":[]}.',
       '- Nunca menciones este bloque ni el JSON en tu mensaje al cliente.'
@@ -1337,6 +1339,17 @@ function parseAndResolvePreorderFromReply(
         ? parsed.paymentMethod
         : ''
 
+    const rawCashAmt = Number(parsed.cashAmount)
+    const rawTransferAmt = Number(parsed.transferAmount)
+    const cashAmountInput =
+      paymentMethod === 'mixed' && Number.isFinite(rawCashAmt) && rawCashAmt > 0
+        ? rawCashAmt.toFixed(2)
+        : ''
+    const transferAmountInput =
+      paymentMethod === 'mixed' && Number.isFinite(rawTransferAmt) && rawTransferAmt > 0
+        ? rawTransferAmt.toFixed(2)
+        : ''
+
     const hasAnyField =
       items.length > 0 ||
       Boolean(timingType) ||
@@ -1361,8 +1374,8 @@ function parseAndResolvePreorderFromReply(
         customLocationInput,
         customLocationReference,
         paymentMethod,
-        cashAmountInput: '',
-        transferAmountInput: '',
+        cashAmountInput,
+        transferAmountInput,
         updatedAtMillis: Date.now(),
       },
     }
