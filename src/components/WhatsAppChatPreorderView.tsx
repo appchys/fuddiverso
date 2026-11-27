@@ -537,15 +537,20 @@ export function WhatsAppChatPreorderView({
   const [aiReplyError, setAiReplyError] = useState<string | null>(null)
   const [togglingAiPause, setTogglingAiPause] = useState<boolean>(false)
   const [aiStoreAutoReplyActive, setAiStoreAutoReplyActive] = useState<boolean>(false)
+  const [aiPausedInChat, setAiPausedInChat] = useState<boolean>(Boolean(conversation.aiPaused))
   const [showPauseAiModal, setShowPauseAiModal] = useState<boolean>(false)
   const [isAiGeneratedDraft, setIsAiGeneratedDraft] = useState<boolean>(false)
+
+  useEffect(() => {
+    setAiPausedInChat(Boolean(conversation.aiPaused))
+  }, [conversation.docId, conversation.aiPaused])
 
   useEffect(() => {
     if (!businessId) {
       setAiStoreAutoReplyActive(false)
       return
     }
-    const unsub = onSnapshot(
+    const unsubConfig = onSnapshot(
       doc(db, 'businesses', businessId, 'aiAgentConfig', 'settings'),
       (snap) => {
         if (!snap.exists()) {
@@ -566,10 +571,25 @@ export function WhatsAppChatPreorderView({
         setAiStoreAutoReplyActive(false)
       }
     )
-    return () => unsub()
+
+    const unsubConv = conversation.docId
+      ? onSnapshot(
+          doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId),
+          (snap) => {
+            if (!snap.exists()) return
+            setAiPausedInChat(snap.data()?.aiPaused === true)
+          },
+          () => {}
+        )
+      : undefined
+
+    return () => {
+      unsubConfig()
+      unsubConv?.()
+    }
   }, [businessId, conversation.channel, conversation.sourcePackage, conversation.docId])
 
-  const isAiActiveInChat = aiStoreAutoReplyActive && !Boolean(conversation.aiPaused)
+  const isAiActiveInChat = aiStoreAutoReplyActive && !aiPausedInChat
   const lockComposerForAi = isAiActiveInChat && !isAiGeneratedDraft
   const [optimisticReply, setOptimisticReply] = useState<{
     id: string
@@ -1209,14 +1229,16 @@ export function WhatsAppChatPreorderView({
   const handleConfirmPauseAiFromModal = async () => {
     if (!businessId || !conversation.docId || togglingAiPause) return
     setTogglingAiPause(true)
+    setAiPausedInChat(true)
+    setShowPauseAiModal(false)
     try {
       await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
         aiPaused: true,
       })
-      setShowPauseAiModal(false)
-      setTimeout(() => replyInputRef.current?.focus(), 60)
+      setTimeout(() => replyInputRef.current?.focus(), 80)
     } catch (err) {
       console.error('[WhatsAppChatView] Error pausando IA:', err)
+      setAiPausedInChat(false)
     } finally {
       setTogglingAiPause(false)
     }
@@ -1225,13 +1247,15 @@ export function WhatsAppChatPreorderView({
   const handleToggleConversationAiPause = async () => {
     if (!businessId || !conversation.docId || togglingAiPause) return
     setTogglingAiPause(true)
+    const nextPaused = !aiPausedInChat
+    setAiPausedInChat(nextPaused)
     try {
-      const nextPaused = !Boolean(conversation.aiPaused)
       await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
         aiPaused: nextPaused,
       })
     } catch (err) {
       console.error('[WhatsAppChatView] Error cambiando pausa de IA:', err)
+      setAiPausedInChat(!nextPaused)
     } finally {
       setTogglingAiPause(false)
     }
@@ -2290,8 +2314,8 @@ export function WhatsAppChatPreorderView({
                           }}
                           className="w-full h-8 px-2.5 bg-white hover:bg-violet-50 text-violet-700 text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-2 cursor-pointer"
                         >
-                          <i className={`bi ${conversation.aiPaused ? 'bi-play-circle' : 'bi-pause-circle'} text-sm`}></i>
-                          {conversation.aiPaused ? 'Reactivar IA aquí' : 'Pausar IA aquí'}
+                          <i className={`bi ${aiPausedInChat ? 'bi-play-circle' : 'bi-pause-circle'} text-sm`}></i>
+                          {aiPausedInChat ? 'Reactivar IA aquí' : 'Pausar IA aquí'}
                         </button>
                       )}
                       {onCloseConversation && (
