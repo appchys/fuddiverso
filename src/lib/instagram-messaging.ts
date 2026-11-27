@@ -308,7 +308,10 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
     if (!igAccountId) continue
 
     const indexSnap = await db.collection('instagramAccountsIndex').doc(igAccountId).get()
-    if (!indexSnap.exists) continue
+    if (!indexSnap.exists) {
+      console.warn(`[Instagram Webhook] igAccountId=${igAccountId} no encontrado en instagramAccountsIndex`)
+      continue
+    }
     const businessId = String(indexSnap.data()?.businessId || '').trim()
     if (!businessId) continue
 
@@ -320,7 +323,16 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
       .get()
     const accessToken = String(connSnap.data()?.accessToken || '').trim()
 
-    const messagingList = Array.isArray(entry.messaging) ? entry.messaging : []
+    // Soportar tanto entry.messaging[] como entry.changes[] (field === 'messages')
+    const messagingFromChanges = Array.isArray(entry.changes)
+      ? entry.changes
+          .filter((c: any) => c?.field === 'messages' && c?.value)
+          .map((c: any) => c.value)
+      : []
+    const messagingList = [
+      ...(Array.isArray(entry.messaging) ? entry.messaging : []),
+      ...messagingFromChanges,
+    ]
     for (const event of messagingList) {
       const msg = event?.message
       if (!msg) continue
