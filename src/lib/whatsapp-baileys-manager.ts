@@ -2195,10 +2195,12 @@ class WhatsAppBaileysManager {
       `[Baileys] Mensaje entrante guardado business=${session.businessId} doc=${docId} phone=${normPhone} media=${mediaType || 'text'}`
     )
 
-    // Evaluar mensajes automáticos y Agente de IA de forma secuencial (sin carreras de escritura en chatHistory)
+    // Evaluar mensajes automáticos y Agente de IA de forma secuencial:
+    // Si ya se envió un mensaje automático fijo (ej. Bienvenida), omitir el Agente de IA en este mensaje para ahorrar cuota y evitar doble respuesta.
     void (async () => {
+      let sentStaticAutoReply = false
       try {
-        await this.processAutoRepliesForIncomingMessage(
+        sentStaticAutoReply = await this.processAutoRepliesForIncomingMessage(
           session,
           docRef,
           docId,
@@ -2210,8 +2212,11 @@ class WhatsAppBaileysManager {
         console.warn('[Baileys] Error evaluando mensajes automáticos:', err)
       }
 
+      if (sentStaticAutoReply) {
+        return
+      }
+
       try {
-        // Leer estado actualizado por si se envió una auto-respuesta estática recién
         const freshSnap = await docRef.get().catch(() => null)
         const freshData = freshSnap?.exists ? freshSnap.data() || {} : existing || {}
         const freshHistory = Array.isArray(freshData.chatHistory) ? freshData.chatHistory : nextHistory
@@ -2280,13 +2285,13 @@ class WhatsAppBaileysManager {
     normPhone: string,
     remoteJid: string,
     existingDocData: Record<string, any>
-  ) {
-    if (!session.businessId || session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
-    if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return
-    if (session.state.status !== 'connected' || !session.socket) return
+  ): Promise<boolean> {
+    if (!session.businessId || session.businessId === ADMIN_WHATSAPP_SESSION_ID) return false
+    if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return false
+    if (session.state.status !== 'connected' || !session.socket) return false
 
     const db = ensureAdminDb()
-    if (!db) return
+    if (!db) return false
 
     const rulesSnap = await db
       .collection('businesses')
@@ -2295,14 +2300,14 @@ class WhatsAppBaileysManager {
       .where('enabled', '==', true)
       .get()
 
-    if (rulesSnap.empty) return
+    if (rulesSnap.empty) return false
 
     const rules = rulesSnap.docs
       .map((d): Record<string, any> => ({ id: d.id, ...(d.data() as Record<string, any>) }))
       .filter((r) => String(r.message || '').trim().length > 0)
       .sort((a, b) => Number(a.order ?? a.createdAtMillis ?? 0) - Number(b.order ?? b.createdAtMillis ?? 0))
 
-    if (rules.length === 0) return
+    if (rules.length === 0) return false
 
     const needsStoreStatus = rules.some(
       (r) => r.triggerMode === 'store_open' || r.triggerMode === 'store_closed'
@@ -2396,7 +2401,9 @@ class WhatsAppBaileysManager {
         }
         await docRef.set({ autoReplyLastSent: nested }, { merge: true }).catch(() => {})
       })
+      return true
     }
+    return false
   }
 
   private async processAiAutoReplyForIncomingMessage(

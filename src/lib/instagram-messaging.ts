@@ -213,9 +213,9 @@ async function processAutoRepliesForInstagramMessage(
   docId: string,
   senderId: string,
   existingDocData: Record<string, any>
-) {
+): Promise<boolean> {
   const db = ensureAdminDb()
-  if (!db) return
+  if (!db) return false
 
   const rulesSnap = await db
     .collection('businesses')
@@ -224,14 +224,14 @@ async function processAutoRepliesForInstagramMessage(
     .where('enabled', '==', true)
     .get()
 
-  if (rulesSnap.empty) return
+  if (rulesSnap.empty) return false
 
   const rules = rulesSnap.docs
     .map((d): Record<string, any> => ({ id: d.id, ...(d.data() as Record<string, any>) }))
     .filter((r) => String(r.message || '').trim().length > 0)
     .sort((a, b) => Number(a.order ?? a.createdAtMillis ?? 0) - Number(b.order ?? b.createdAtMillis ?? 0))
 
-  if (rules.length === 0) return
+  if (rules.length === 0) return false
 
   const needsStoreStatus = rules.some(
     (r) => r.triggerMode === 'store_open' || r.triggerMode === 'store_closed'
@@ -292,7 +292,9 @@ async function processAutoRepliesForInstagramMessage(
 
   if (Object.keys(sentUpdates).length > 0) {
     await docRef.update(sentUpdates).catch(() => {})
+    return true
   }
+  return false
 }
 
 export async function processIncomingInstagramWebhook(body: any): Promise<{ processed: number }> {
@@ -443,47 +445,50 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
       processed++
 
       if (!isEcho) {
-        void processAutoRepliesForInstagramMessage(
-          businessId,
-          docRef,
-          docId,
-          customerIgId,
-          existing
-        ).catch(() => {})
+        void (async () => {
+          const sentStatic = await processAutoRepliesForInstagramMessage(
+            businessId,
+            docRef,
+            docId,
+            customerIgId,
+            existing
+          ).catch(() => false)
 
-        void evaluateAndGenerateAutoAiReply({
-          businessId,
-          channel: 'instagram',
-          existingDocData: existing,
-          chatHistory: nextHistory,
-          incomingText: text,
-          customerName: effectiveName,
-        })
-          .then(async (aiResult) => {
-            if (!aiResult?.ok || !aiResult.reply) return
-            const sendRes = await sendInstagramDirectMessage({
-              businessId,
-              docId,
-              recipientId: customerIgId,
-              text: aiResult.reply,
-              sourceOverride: 'ai_agent',
-            })
-            if (sendRes.ok) {
-              await docRef
-                .set(
-                  {
-                    aiLastRepliedAtMillis: Date.now(),
-                    aiLastProvider: aiResult.provider || null,
-                    ...(aiResult.preorderState !== undefined
-                      ? { preorderState: aiResult.preorderState }
-                      : {}),
-                  },
-                  { merge: true }
-                )
-                .catch(() => {})
-            }
+          // Si ya respondió un mensaje automático fijo (ej. Bienvenida), omitir la IA en este mensaje para ahorrar cuota
+          if (sentStatic) return
+
+          const aiResult = await evaluateAndGenerateAutoAiReply({
+            businessId,
+            channel: 'instagram',
+            existingDocData: existing,
+            chatHistory: nextHistory,
+            incomingText: text,
+            customerName: effectiveName,
+          }).catch(() => null)
+
+          if (!aiResult?.ok || !aiResult.reply) return
+          const sendRes = await sendInstagramDirectMessage({
+            businessId,
+            docId,
+            recipientId: customerIgId,
+            text: aiResult.reply,
+            sourceOverride: 'ai_agent',
           })
-          .catch(() => {})
+          if (sendRes.ok) {
+            await docRef
+              .set(
+                {
+                  aiLastRepliedAtMillis: Date.now(),
+                  aiLastProvider: aiResult.provider || null,
+                  ...(aiResult.preorderState !== undefined
+                    ? { preorderState: aiResult.preorderState }
+                    : {}),
+                },
+                { merge: true }
+              )
+              .catch(() => {})
+          }
+        })()
       }
     }
   }
