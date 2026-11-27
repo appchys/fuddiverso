@@ -18,13 +18,15 @@ export function verifyInstagramWebhookSignature(
   rawBody: string,
   signatureHeader: string | null
 ): boolean {
-  const appSecret = process.env.INSTAGRAM_APP_SECRET?.trim()
-  if (!appSecret) return true // Si no hay secret configurado aún, no bloquear pruebas locales
+  // Meta firma los webhooks con el App Secret de la App Principal (META_APP_SECRET),
+  // que es diferente al Instagram App Secret usado en OAuth.
+  const metaAppSecret = process.env.META_APP_SECRET?.trim()
+  if (!metaAppSecret) return true
   if (!signatureHeader) return false
 
   const expected =
     'sha256=' +
-    crypto.createHmac('sha256', appSecret).update(rawBody, 'utf8').digest('hex')
+    crypto.createHmac('sha256', metaAppSecret).update(rawBody, 'utf8').digest('hex')
 
   try {
     return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signatureHeader))
