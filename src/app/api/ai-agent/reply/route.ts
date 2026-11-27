@@ -140,10 +140,25 @@ export async function POST(req: NextRequest) {
       channel,
       configOverride: body?.configOverride && typeof body.configOverride === 'object' ? body.configOverride : undefined,
       testMessage: testMessage || undefined,
+      extractPreorder: Boolean(docId && !testMessage),
     })
 
     if (!result.ok) {
       return NextResponse.json(result, { status: 422 })
+    }
+
+    // Si el agente detectó o actualizó datos de la preorden, persistirlos en la conversación para que el chat web se actualice en tiempo real
+    if (docId && result.preorderState !== undefined) {
+      const adminDb = ensureAdminDb()
+      if (adminDb) {
+        await adminDb
+          .collection('businesses')
+          .doc(businessId)
+          .collection('whatsappPending')
+          .doc(docId)
+          .set({ preorderState: result.preorderState }, { merge: true })
+          .catch(() => {})
+      }
     }
 
     return NextResponse.json(result)

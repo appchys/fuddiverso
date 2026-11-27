@@ -156,11 +156,53 @@ interface FormattedChatMessage {
   imageUrls?: string[]
 }
 
+export interface AiPreorderItem {
+  productId: string
+  name: string
+  productName?: string
+  variant?: string
+  variantName?: string
+  price: number
+  quantity: number
+  image?: string
+}
+
+export interface AiPreorderState {
+  items: AiPreorderItem[]
+  timingType: '' | 'immediate' | 'scheduled'
+  scheduledDate: string
+  scheduledTime: string
+  deliveryType: '' | 'delivery' | 'pickup'
+  selectedLocationId: string | null
+  customLocationInput: string
+  customLocationReference?: string
+  paymentMethod: '' | 'cash' | 'transfer' | 'mixed'
+  cashAmountInput: string
+  transferAmountInput: string
+  updatedAtMillis?: number
+}
+
+interface CatalogProductSummary {
+  id: string
+  name: string
+  price: number
+  image?: string
+  variants: Array<{ name: string; price: number }>
+}
+
+interface CustomerLocationSummary {
+  id: string
+  sector?: string
+  referencia?: string
+  latlong?: string
+}
+
 export interface GenerateAiReplyResult {
   ok: boolean
   reply?: string
   provider?: Exclude<AiProviderId, 'auto'>
   model?: string
+  preorderState?: AiPreorderState | null
   error?: string
 }
 
@@ -438,6 +480,7 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
   storeIsOpenNow: boolean | null
   bizData: Record<string, any>
   coverageZones: Array<Record<string, any>>
+  catalogProducts: CatalogProductSummary[]
 }> {
   const db = ensureAdminDb()
   if (!db) {
@@ -447,12 +490,14 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
       storeIsOpenNow: null,
       bizData: {},
       coverageZones: [],
+      catalogProducts: [],
     }
   }
 
   let bizData: Record<string, any> = {}
   let storeIsOpenNow: boolean | null = null
   let coverageZones: Array<Record<string, any>> = []
+  const catalogProducts: CatalogProductSummary[] = []
 
   try {
     const [bizSnap, zonesSnap] = await Promise.all([
@@ -639,20 +684,28 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
         if (!name) continue
 
         const variants = Array.isArray(p.variants) ? p.variants.filter((v: any) => v?.isAvailable !== false) : []
-        if (variants.length > 0) {
-          const variantStr = variants
+        const normalizedVariants = variants.slice(0, 8).map((v: any) => ({
+          name: String(v.name || '').trim(),
+          price: Number(v.price ?? p.price ?? 0),
+        }))
+        const basePrice = Number(p.price ?? normalizedVariants[0]?.price ?? 0)
+        catalogProducts.push({
+          id: docSnap.id,
+          name,
+          price: basePrice,
+          image: typeof p.image === 'string' ? p.image : Array.isArray(p.images) ? p.images[0] : undefined,
+          variants: normalizedVariants,
+        })
+
+        if (normalizedVariants.length > 0) {
+          const variantStr = normalizedVariants
             .slice(0, 6)
-            .map((v: any) => {
-              const vName = String(v.name || '').trim()
-              const vPrice = Number(v.price ?? p.price ?? 0)
-              return vName ? `${vName} ($${vPrice.toFixed(2)})` : `$${vPrice.toFixed(2)}`
-            })
+            .map((v) => (v.name ? `${v.name} ($${v.price.toFixed(2)})` : `$${v.price.toFixed(2)}`))
             .join(', ')
-          catalogLines.push(`- ${name}: ${variantStr}`)
+          catalogLines.push(`- [id:${docSnap.id}] ${name}: ${variantStr}`)
         } else {
-          const price = Number(p.price ?? 0)
           const desc = p.description ? ` — ${String(p.description).trim().slice(0, 75)}` : ''
-          catalogLines.push(`- ${name} ($${price.toFixed(2)})${desc}`)
+          catalogLines.push(`- [id:${docSnap.id}] ${name} ($${basePrice.toFixed(2)})${desc}`)
         }
       }
 
@@ -672,6 +725,7 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
     storeIsOpenNow,
     bizData,
     coverageZones,
+    catalogProducts,
   }
 }
 
@@ -819,11 +873,16 @@ async function buildCustomerContext(params: {
   customerClientId?: string
   bizData?: Record<string, any>
   coverageZones?: Array<Record<string, any>>
-}): Promise<{ resolvedName?: string; customerContextText: string }> {
+}): Promise<{
+  resolvedName?: string
+  customerContextText: string
+  customerLocations: CustomerLocationSummary[]
+}> {
   const db = ensureAdminDb()
   const cleanPhone = String(params.customerPhone || '').trim()
   let clientId = String(params.customerClientId || '').trim()
   let clientData: Record<string, any> | null = null
+  const customerLocations: CustomerLocationSummary[] = []
 
   if (db) {
     try {
@@ -881,7 +940,13 @@ async function buildCustomerContext(params: {
 
           lines.push('Ubicaciones registradas del cliente:')
           for (const loc of locs) {
-            const parts: string[] = []
+            customerLocations.push({
+              id: String(loc.id || ''),
+              sector: loc.sector ? String(loc.sector).trim() : undefined,
+              referencia: loc.referencia ? String(loc.referencia).trim() : undefined,
+              latlong: loc.latlong ? String(loc.latlong).trim() : undefined,
+            })
+            const parts: string[] = [`[locId:${loc.id}]`]
             if (loc.isFavorite) parts.push('[Favorita]')
             if (loc.sector) parts.push(`Sector: ${String(loc.sector).trim()}`)
             if (loc.referencia) parts.push(`Referencia: ${String(loc.referencia).trim()}`)
@@ -925,6 +990,7 @@ async function buildCustomerContext(params: {
   return {
     resolvedName,
     customerContextText: lines.join('\n'),
+    customerLocations,
   }
 }
 
@@ -936,8 +1002,18 @@ function buildSystemPrompt(params: {
   globalConfig?: AiAgentGlobalConfig
   customerName?: string
   channel?: 'whatsapp' | 'instagram'
+  extractPreorder?: boolean
 }): string {
-  const { storeName, storeContextText, customerContextText, config, globalConfig, customerName, channel } = params
+  const {
+    storeName,
+    storeContextText,
+    customerContextText,
+    config,
+    globalConfig,
+    customerName,
+    channel,
+    extractPreorder,
+  } = params
 
   const toneGuide =
     config.tone === 'professional'
@@ -976,7 +1052,173 @@ function buildSystemPrompt(params: {
     parts.push('', '=== INSTRUCCIONES PERSONALIZADAS DEL NEGOCIO ===', config.customInstructions.trim())
   }
 
+  if (extractPreorder) {
+    parts.push(
+      '',
+      '=== EXTRACCIÓN INTERNA DE PREORDEN (OCULTA AL CLIENTE) ===',
+      'Si el cliente está armando, modificando o cancelando un pedido en la conversación, agrega AL FINAL de tu respuesta (después del mensaje para el cliente) un bloque exacto con este formato:',
+      '<PREORDER_JSON>{"hasOrderIntent":true,"cancelled":false,"items":[{"productId":"ID_DEL_CATALOGO","variantName":"NOMBRE_VARIANTE_SI_APLICA","quantity":1}],"timingType":"immediate|scheduled|","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:mm","deliveryType":"delivery|pickup|","selectedLocationId":"ID_DE_UBICACION_GUARDADA_O_NULL","customLocationInput":"DIRECCION_O_LINK_SI_ES_NUEVA","customLocationReference":"REFERENCIA_SI_DIO","paymentMethod":"cash|transfer|mixed|"}</PREORDER_JSON>',
+      'Reglas del bloque <PREORDER_JSON>:',
+      '- Si el cliente SOLO preguntó por un producto, horario o precio sin pedir nada todavía, NO agregues el bloque (o pon "hasOrderIntent":false).',
+      '- Incluye SIEMPRE el estado ACTUAL COMPLETO del pedido según toda la conversación: si el cliente cambió de producto, cantidad, hora, entrega (delivery/pickup), dirección o método de pago, refleja ÚNICAMENTE la decisión final más reciente.',
+      '- Usa únicamente los [id:...] del catálogo para productId y los [locId:...] del cliente para selectedLocationId.',
+      '- Si el cliente canceló todo el pedido, devuelve {"hasOrderIntent":true,"cancelled":true,"items":[]}.',
+      '- Nunca menciones este bloque ni el JSON en tu mensaje al cliente.'
+    )
+  }
+
   return parts.join('\n')
+}
+
+function getTodayEcuadorDateKey(now: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Guayaquil',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return formatter.format(now)
+}
+
+function parseAndResolvePreorderFromReply(
+  rawText: string,
+  catalogProducts: CatalogProductSummary[],
+  customerLocations: CustomerLocationSummary[],
+  now: Date = new Date()
+): { cleanReply: string; preorderState?: AiPreorderState | null } {
+  const tagStart = rawText.indexOf('<PREORDER_JSON>')
+  if (tagStart === -1) {
+    return { cleanReply: rawText.trim() }
+  }
+
+  const cleanReply = rawText.slice(0, tagStart).trim()
+  const afterStart = rawText.slice(tagStart + '<PREORDER_JSON>'.length)
+  const tagEnd = afterStart.indexOf('</PREORDER_JSON>')
+  const jsonStr = (tagEnd === -1 ? afterStart : afterStart.slice(0, tagEnd)).trim()
+
+  if (!jsonStr) {
+    return { cleanReply }
+  }
+
+  try {
+    const parsed = JSON.parse(jsonStr)
+    if (!parsed || parsed.hasOrderIntent !== true) {
+      return { cleanReply }
+    }
+    if (parsed.cancelled === true) {
+      return { cleanReply, preorderState: null }
+    }
+
+    const items: AiPreorderItem[] = []
+    if (Array.isArray(parsed.items)) {
+      for (const rawItem of parsed.items) {
+        const qty = Math.max(1, Math.min(99, Math.round(Number(rawItem?.quantity || 1))))
+        const pid = String(rawItem?.productId || '').trim()
+        const vNameInput = String(rawItem?.variantName || rawItem?.variant || '').trim()
+
+        let prod = catalogProducts.find((p) => p.id === pid)
+        if (!prod && rawItem?.name) {
+          const targetName = String(rawItem.name).trim().toLowerCase()
+          prod = catalogProducts.find((p) => p.name.toLowerCase() === targetName)
+        }
+        if (!prod) continue
+
+        let matchedVariant =
+          vNameInput && prod.variants.length > 0
+            ? prod.variants.find(
+                (v) =>
+                  v.name.toLowerCase() === vNameInput.toLowerCase() ||
+                  v.name.toLowerCase().includes(vNameInput.toLowerCase())
+              )
+            : undefined
+        if (!matchedVariant && prod.variants.length === 1) {
+          matchedVariant = prod.variants[0]
+        }
+
+        const finalPrice = matchedVariant ? matchedVariant.price : prod.price
+        const displayName = matchedVariant?.name ? `${prod.name} - ${matchedVariant.name}` : prod.name
+
+        items.push({
+          productId: prod.id,
+          name: displayName,
+          productName: prod.name,
+          ...(matchedVariant?.name ? { variant: matchedVariant.name, variantName: matchedVariant.name } : {}),
+          price: Number(finalPrice || 0),
+          quantity: qty,
+          ...(prod.image ? { image: prod.image } : {}),
+        })
+      }
+    }
+
+    const timingType: '' | 'immediate' | 'scheduled' =
+      parsed.timingType === 'immediate' || parsed.timingType === 'scheduled' ? parsed.timingType : ''
+    const scheduledDate =
+      typeof parsed.scheduledDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduledDate.trim())
+        ? parsed.scheduledDate.trim()
+        : getTodayEcuadorDateKey(now)
+    const scheduledTime =
+      typeof parsed.scheduledTime === 'string' && /^\d{1,2}:\d{2}$/.test(parsed.scheduledTime.trim())
+        ? parsed.scheduledTime.trim().padStart(5, '0')
+        : ''
+
+    const deliveryType: '' | 'delivery' | 'pickup' =
+      parsed.deliveryType === 'delivery' || parsed.deliveryType === 'pickup' ? parsed.deliveryType : ''
+
+    const rawLocId = typeof parsed.selectedLocationId === 'string' ? parsed.selectedLocationId.trim() : ''
+    const validLocId =
+      deliveryType === 'delivery' && rawLocId && customerLocations.some((l) => l.id === rawLocId)
+        ? rawLocId
+        : null
+
+    const customLocationInput =
+      deliveryType === 'delivery' && !validLocId && typeof parsed.customLocationInput === 'string'
+        ? parsed.customLocationInput.trim().slice(0, 300)
+        : ''
+    const customLocationReference =
+      deliveryType === 'delivery' && !validLocId && typeof parsed.customLocationReference === 'string'
+        ? parsed.customLocationReference.trim().slice(0, 200)
+        : ''
+
+    const paymentMethod: '' | 'cash' | 'transfer' | 'mixed' =
+      parsed.paymentMethod === 'cash' ||
+      parsed.paymentMethod === 'transfer' ||
+      parsed.paymentMethod === 'mixed'
+        ? parsed.paymentMethod
+        : ''
+
+    const hasAnyField =
+      items.length > 0 ||
+      Boolean(timingType) ||
+      Boolean(deliveryType) ||
+      Boolean(paymentMethod) ||
+      Boolean(validLocId) ||
+      Boolean(customLocationInput)
+
+    if (!hasAnyField) {
+      return { cleanReply }
+    }
+
+    return {
+      cleanReply,
+      preorderState: {
+        items,
+        timingType,
+        scheduledDate,
+        scheduledTime,
+        deliveryType,
+        selectedLocationId: validLocId,
+        customLocationInput,
+        customLocationReference,
+        paymentMethod,
+        cashAmountInput: '',
+        transferAmountInput: '',
+        updatedAtMillis: Date.now(),
+      },
+    }
+  } catch (err) {
+    console.warn('[AI Agent] No se pudo parsear PREORDER_JSON:', err)
+    return { cleanReply }
+  }
 }
 
 function formatConversationMessages(
@@ -1249,6 +1491,7 @@ export async function generateAiChatReply(params: {
   channel?: 'whatsapp' | 'instagram'
   configOverride?: Partial<AiAgentConfig>
   testMessage?: string
+  extractPreorder?: boolean
 }): Promise<GenerateAiReplyResult> {
   const baseConfig = await getAiAgentConfig(params.businessId)
   const config = params.configOverride
@@ -1264,17 +1507,20 @@ export async function generateAiChatReply(params: {
     }
   }
 
-  const [{ storeName, storeContextText, bizData, coverageZones }, globalConfig] = await Promise.all([
-    buildStoreContext(params.businessId, config.includeCatalog),
-    getGlobalAiAgentConfig(),
-  ])
-  const { resolvedName, customerContextText } = await buildCustomerContext({
+  const [{ storeName, storeContextText, bizData, coverageZones, catalogProducts }, globalConfig] =
+    await Promise.all([
+      buildStoreContext(params.businessId, config.includeCatalog),
+      getGlobalAiAgentConfig(),
+    ])
+  const { resolvedName, customerContextText, customerLocations } = await buildCustomerContext({
     customerName: params.customerName,
     customerPhone: params.customerPhone,
     customerClientId: params.customerClientId,
     bizData,
     coverageZones,
   })
+
+  const shouldExtractPreorder = params.extractPreorder === true && !params.testMessage
 
   const systemPrompt = buildSystemPrompt({
     storeName,
@@ -1284,6 +1530,7 @@ export async function generateAiChatReply(params: {
     globalConfig,
     customerName: resolvedName || params.customerName,
     channel: params.channel,
+    extractPreorder: shouldExtractPreorder,
   })
 
   const messages = formatConversationMessages(params.chatHistory, params.testMessage)
@@ -1340,7 +1587,13 @@ export async function generateAiChatReply(params: {
         })
       }
 
-      const cleanedReply = result.text.replace(/^["']|["']$/g, '').trim().slice(0, MAX_REPLY_CHARS)
+      const parsedOut = shouldExtractPreorder
+        ? parseAndResolvePreorderFromReply(result.text, catalogProducts, customerLocations)
+        : { cleanReply: result.text }
+      const cleanedReply = parsedOut.cleanReply
+        .replace(/^["']|["']$/g, '')
+        .trim()
+        .slice(0, MAX_REPLY_CHARS)
       if (!cleanedReply) continue
 
       return {
@@ -1348,6 +1601,7 @@ export async function generateAiChatReply(params: {
         reply: cleanedReply,
         provider,
         model: result.model,
+        ...(parsedOut.preorderState !== undefined ? { preorderState: parsedOut.preorderState } : {}),
       }
     } catch (err: any) {
       const msg = err?.message || String(err)
@@ -1457,5 +1711,6 @@ export async function evaluateAndGenerateAutoAiReply(params: {
     customerClientId: customerClientId || String(existingDocData?.fuddiClientId || '').trim() || undefined,
     channel,
     configOverride: config,
+    extractPreorder: true,
   })
 }

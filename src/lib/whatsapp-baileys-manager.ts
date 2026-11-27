@@ -2456,6 +2456,9 @@ class WhatsAppBaileysManager {
           {
             aiLastRepliedAtMillis: Date.now(),
             aiLastProvider: aiResult.provider || null,
+            ...(aiResult.preorderState !== undefined
+              ? { preorderState: aiResult.preorderState }
+              : {}),
           },
           { merge: true }
         )
