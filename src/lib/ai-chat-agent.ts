@@ -1,3 +1,4 @@
+import { FieldValue } from 'firebase-admin/firestore'
 import { ensureAdminDb } from '@/lib/firebase-admin'
 import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
 
@@ -140,6 +141,25 @@ export interface AvailableAiProviders {
   moonshot: boolean
 }
 
+export interface AiProviderUsageItem {
+  provider: Exclude<AiProviderId, 'auto'>
+  label: string
+  model: string
+  configured: boolean
+  usedToday: number
+  dailyLimit: number
+  remainingToday: number
+  remainingPercent: number
+  rateLimitedToday: number
+  lastUsedAtMillis?: number
+}
+
+export interface AiDailyUsageSummary {
+  dateKey: string
+  totalRequestsToday: number
+  providers: AiProviderUsageItem[]
+}
+
 export interface ChatHistoryEntry {
   id?: string
   text?: string
@@ -255,6 +275,142 @@ function getProviderKey(provider: Exclude<AiProviderId, 'auto'>): string {
       return (process.env.OPENROUTER_API_KEY || '').trim()
     case 'moonshot':
       return (process.env.MOONSHOT_API_KEY || '').trim()
+  }
+}
+
+const PROVIDER_DEFAULT_META: Record<
+  Exclude<AiProviderId, 'auto'>,
+  { label: string; defaultModel: () => string; dailyLimit: number }
+> = {
+  gemini: {
+    label: 'Google Gemini',
+    defaultModel: () => (process.env.GEMINI_MODEL || 'gemini-3-flash-preview').trim(),
+    dailyLimit: Number(process.env.GEMINI_DAILY_LIMIT || 1500),
+  },
+  groq: {
+    label: 'Groq',
+    defaultModel: () => (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile').trim(),
+    dailyLimit: Number(process.env.GROQ_DAILY_LIMIT || 1000),
+  },
+  mistral: {
+    label: 'Mistral AI',
+    defaultModel: () => (process.env.MISTRAL_MODEL || 'mistral-small-latest').trim(),
+    dailyLimit: Number(process.env.MISTRAL_DAILY_LIMIT || 1000),
+  },
+  openrouter: {
+    label: 'OpenRouter Free',
+    defaultModel: () => (process.env.OPENROUTER_MODEL || 'openrouter/free').trim(),
+    dailyLimit: Number(process.env.OPENROUTER_DAILY_LIMIT || 50),
+  },
+  moonshot: {
+    label: 'Moonshot AI',
+    defaultModel: () => (process.env.MOONSHOT_MODEL || 'moonshot-v1-8k').trim(),
+    dailyLimit: Number(process.env.MOONSHOT_DAILY_LIMIT || 1000),
+  },
+}
+
+function getUsageDateKey(now: Date = new Date()): string {
+  // Reinicio diario alineado a hora de Ecuador (UTC-5)
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Guayaquil',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return formatter.format(now)
+}
+
+async function recordAiProviderUsage(params: {
+  provider: Exclude<AiProviderId, 'auto'>
+  model?: string
+  rateLimited?: boolean
+}): Promise<void> {
+  const db = ensureAdminDb()
+  if (!db) return
+  const dateKey = getUsageDateKey()
+  const docRef = db.collection('appSettings').doc(`aiAgentUsage_${dateKey}`)
+  const nowMs = Date.now()
+  try {
+    await docRef.set(
+      {
+        dateKey,
+        updatedAtMillis: nowMs,
+        providers: {
+          [params.provider]: {
+            ...(params.rateLimited
+              ? { rateLimitedCount: FieldValue.increment(1) }
+              : {
+                  requests: FieldValue.increment(1),
+                  lastUsedAtMillis: nowMs,
+                  ...(params.model ? { lastModel: params.model } : {}),
+                }),
+          },
+        },
+      },
+      { merge: true }
+    )
+  } catch (err) {
+    console.warn('[AI Agent] Error registrando uso diario:', err)
+  }
+}
+
+export async function getAiDailyUsageSummary(): Promise<AiDailyUsageSummary> {
+  const dateKey = getUsageDateKey()
+  const available = getAvailableAiProviders()
+  const db = ensureAdminDb()
+  let rawProviders: Record<string, any> = {}
+
+  if (db) {
+    try {
+      const snap = await db.collection('appSettings').doc(`aiAgentUsage_${dateKey}`).get()
+      if (snap.exists) {
+        const data = snap.data() || {}
+        if (data.providers && typeof data.providers === 'object') {
+          rawProviders = data.providers
+        }
+      }
+    } catch (err) {
+      console.warn('[AI Agent] Error leyendo uso diario:', err)
+    }
+  }
+
+  const order: Array<Exclude<AiProviderId, 'auto'>> = [
+    'gemini',
+    'groq',
+    'mistral',
+    'openrouter',
+    'moonshot',
+  ]
+
+  let totalRequestsToday = 0
+  const providers: AiProviderUsageItem[] = order.map((provider) => {
+    const meta = PROVIDER_DEFAULT_META[provider]
+    const stats = rawProviders[provider] || {}
+    const usedToday = Math.max(0, Number(stats.requests || 0))
+    const rateLimitedToday = Math.max(0, Number(stats.rateLimitedCount || 0))
+    const dailyLimit = Math.max(1, meta.dailyLimit)
+    const remainingToday = Math.max(0, dailyLimit - usedToday)
+    const remainingPercent = Math.max(0, Math.min(100, Math.round((remainingToday / dailyLimit) * 100)))
+    totalRequestsToday += usedToday
+
+    return {
+      provider,
+      label: meta.label,
+      model: String(stats.lastModel || meta.defaultModel()),
+      configured: available[provider],
+      usedToday,
+      dailyLimit,
+      remainingToday,
+      remainingPercent,
+      rateLimitedToday,
+      lastUsedAtMillis: typeof stats.lastUsedAtMillis === 'number' ? stats.lastUsedAtMillis : undefined,
+    }
+  })
+
+  return {
+    dateKey,
+    totalRequestsToday,
+    providers,
   }
 }
 
@@ -1596,6 +1752,8 @@ export async function generateAiChatReply(params: {
         .slice(0, MAX_REPLY_CHARS)
       if (!cleanedReply) continue
 
+      void recordAiProviderUsage({ provider, model: result.model })
+
       return {
         ok: true,
         reply: cleanedReply,
@@ -1605,6 +1763,9 @@ export async function generateAiChatReply(params: {
       }
     } catch (err: any) {
       const msg = err?.message || String(err)
+      if (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) {
+        void recordAiProviderUsage({ provider, rateLimited: true })
+      }
       console.warn(`[AI Agent] Falló proveedor ${provider}:`, msg)
       errors.push(`${provider}: ${msg}`)
     }

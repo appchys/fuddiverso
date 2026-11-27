@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   DEFAULT_GLOBAL_AI_RULES,
+  getAiDailyUsageSummary,
   getAvailableAiProviders,
   getGlobalAiAgentConfig,
   saveGlobalAiAgentConfig,
@@ -23,7 +24,10 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const config = await getGlobalAiAgentConfig(true)
+    const [config, usageSummary] = await Promise.all([
+      getGlobalAiAgentConfig(true),
+      getAiDailyUsageSummary(),
+    ])
     const availableProviders = getAvailableAiProviders()
 
     return NextResponse.json({
@@ -31,6 +35,7 @@ export async function GET(req: NextRequest) {
       config,
       defaultBaseRules: DEFAULT_GLOBAL_AI_RULES,
       availableProviders,
+      usageSummary,
     })
   } catch (err: any) {
     console.error('[API GET /api/ai-agent/global-config] Error:', err)
