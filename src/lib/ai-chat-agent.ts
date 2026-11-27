@@ -74,6 +74,37 @@ const MAX_CATALOG_ITEMS = 60
 const MAX_HISTORY_MESSAGES = 14
 const MAX_REPLY_CHARS = 1500
 
+const FUDDI_DEFAULT_BANK_ACCOUNTS = [
+  {
+    bankName: 'Banco Pichincha',
+    accountType: 'Ahorros',
+    accountNumber: '2203257517',
+    accountHolder: 'Pedro Sánchez León',
+    idNumber: '0929057636',
+  },
+  {
+    bankName: 'Banco del Pacífico',
+    accountType: 'Ahorros',
+    accountNumber: '1063889358',
+    accountHolder: 'Pedro Sánchez León',
+    idNumber: '0929057636',
+  },
+  {
+    bankName: 'Banco Guayaquil',
+    accountType: 'Ahorros',
+    accountNumber: '0030697477',
+    accountHolder: 'Pedro Sánchez León',
+    idNumber: '0929057636',
+  },
+  {
+    bankName: 'Banco Produbanco',
+    accountType: 'Ahorros',
+    accountNumber: '20059842774',
+    accountHolder: 'Pedro Sánchez León',
+    idNumber: '0929057636',
+  },
+]
+
 function getProviderKey(provider: Exclude<AiProviderId, 'auto'>): string {
   switch (provider) {
     case 'gemini':
@@ -278,8 +309,14 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
   const storeName = String(bizData.name || 'la tienda').trim()
   const lines: string[] = []
   lines.push(`Nombre de la tienda: ${storeName}`)
+  if (bizData.category) {
+    lines.push(`Categoría: ${String(bizData.category).trim()}`)
+  }
   if (bizData.description) {
     lines.push(`Descripción: ${String(bizData.description).trim().slice(0, 300)}`)
+  }
+  if (bizData.phone) {
+    lines.push(`Teléfono de la tienda: ${String(bizData.phone).trim()}`)
   }
   if (storeIsOpenNow !== null) {
     lines.push(`Estado actual: ${storeIsOpenNow ? 'ABIERTA ahora mismo' : 'CERRADA en este momento'}`)
@@ -288,24 +325,97 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
   if (scheduleStr) {
     lines.push(`Horarios: ${scheduleStr}`)
   }
+
+  // Ubicación y referencias de la tienda
   if (bizData.address) {
-    lines.push(`Dirección: ${String(bizData.address).trim()}`)
+    lines.push(`Dirección de la tienda: ${String(bizData.address).trim()}`)
   }
+  if (bizData.references) {
+    lines.push(`Referencias de ubicación: ${String(bizData.references).trim()}`)
+  }
+  const lat = Number(bizData.mapLocation?.lat)
+  const lng = Number(bizData.mapLocation?.lng)
+  if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+    lines.push(`Ubicación en Google Maps: https://www.google.com/maps?q=${lat},${lng}`)
+  }
+
   if (bizData.username) {
-    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://fuddiverso.com').replace(/\/+$/, '')
+    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://fuddi.shop').replace(/\/+$/, '')
     lines.push(`Catálogo web para pedir: ${baseUrl}/${bizData.username}`)
   }
   if (bizData.defaultDeliveryTime || bizData.deliveryTime) {
     lines.push(`Tiempo estimado de preparación: ${bizData.defaultDeliveryTime || bizData.deliveryTime} min`)
   }
+  if (bizData.hasPackagingFee && Number(bizData.packagingFee) > 0) {
+    lines.push(`Recargo por empaque: $${Number(bizData.packagingFee).toFixed(2)} por producto`)
+  }
+  if (bizData.freeDeliveryCampaign?.enabled) {
+    const minOrder = Number(bizData.freeDeliveryCampaign.minOrderAmount || 0)
+    lines.push(
+      minOrder > 0
+        ? `Promoción activa: Envío gratis en pedidos desde $${minOrder.toFixed(2)}`
+        : 'Promoción activa: Envío gratis'
+    )
+  }
+
+  // Retiro en local (pickup)
+  if (bizData.pickupSettings?.enabled) {
+    const pickupRef = String(bizData.pickupSettings.references || '').trim()
+    const pickupLatLng = String(bizData.pickupSettings.latlong || '').trim()
+    const pickupParts = ['Disponible']
+    if (pickupRef) pickupParts.push(`Referencias: ${pickupRef}`)
+    if (pickupLatLng) {
+      const cleanCoords = pickupLatLng.replace(/\s+/g, '')
+      pickupParts.push(`Mapa: https://www.google.com/maps?q=${cleanCoords}`)
+    }
+    lines.push(`Retiro en local (pickup): ${pickupParts.join(' | ')}`)
+  }
+
+  // Métodos de pago y cuentas bancarias para transferencia
+  const acceptsCash = bizData.paymentMethods?.cash !== false
+  const acceptsTransfer = bizData.paymentMethods?.transfer !== false
   const methods: string[] = []
-  if (bizData.paymentMethods?.cash !== false) methods.push('Efectivo')
-  if (bizData.paymentMethods?.transfer !== false) methods.push('Transferencia bancaria')
+  if (acceptsCash) methods.push('Efectivo')
+  if (acceptsTransfer) methods.push('Transferencia bancaria')
   if (methods.length > 0) {
     lines.push(`Métodos de pago aceptados: ${methods.join(', ')}`)
   }
-  if (bizData.pickupSettings?.enabled) {
-    lines.push('Retiro en local (pickup): Disponible')
+
+  if (acceptsTransfer) {
+    let accountsToShow: Array<Record<string, any>> = []
+    if (bizData.bankAccountMode === 'custom') {
+      if (Array.isArray(bizData.bankAccounts) && bizData.bankAccounts.length > 0) {
+        accountsToShow = bizData.bankAccounts
+      } else if (bizData.bankAccount?.accountNumber) {
+        accountsToShow = [bizData.bankAccount]
+      }
+    } else {
+      accountsToShow = FUDDI_DEFAULT_BANK_ACCOUNTS
+    }
+
+    if (accountsToShow.length > 0) {
+      lines.push('')
+      lines.push('Cuentas bancarias para transferencia:')
+      for (const acc of accountsToShow) {
+        const bank = String(acc.bankName || 'Banco').trim()
+        const type = String(acc.accountType || 'Ahorros').trim()
+        const num = String(acc.accountNumber || '').trim()
+        const holder = String(acc.accountHolder || '').trim()
+        const idNum = String(acc.idNumber || '').trim()
+        const email = String(acc.email || '').trim()
+        const notes = String(acc.notes || '').trim()
+        if (!num) continue
+        const details = [
+          `${bank} (${type})`,
+          `Nro: ${num}`,
+          holder ? `Titular: ${holder}` : '',
+          idNum ? `C.I./RUC: ${idNum}` : '',
+          email ? `Correo: ${email}` : '',
+          notes ? `Nota: ${notes}` : '',
+        ].filter(Boolean)
+        lines.push(`- ${details.join(' | ')}`)
+      }
+    }
   }
 
   if (includeCatalog) {
