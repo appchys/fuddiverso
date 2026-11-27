@@ -156,14 +156,15 @@ export async function fetchLinkPreviewMetadata(rawUrl: string): Promise<LinkPrev
 }
 
 export async function fetchLinkPreviewJpegThumbnail(
-  imageUrl?: string | null
+  imageUrl?: string | null,
+  maxWidth = 320
 ): Promise<Buffer | undefined> {
   if (!imageUrl) return undefined
   const parsed = isSafePublicUrl(imageUrl)
   if (!parsed) return undefined
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 4500)
+  const timer = setTimeout(() => controller.abort(), 10_000)
 
   try {
     const res = await fetch(parsed.toString(), {
@@ -181,13 +182,13 @@ export async function fetchLinkPreviewJpegThumbnail(
       const sharpMod = await import('sharp')
       const sharpFn = (sharpMod as any).default || sharpMod
       const jpegBuffer = await sharpFn(rawBuffer)
-        .resize({ width: 320, withoutEnlargement: true })
-        .jpeg({ quality: 72, mozjpeg: true })
+        .resize({ width: maxWidth, withoutEnlargement: true })
+        .jpeg({ quality: maxWidth > 400 ? 82 : 74, mozjpeg: true })
         .toBuffer()
       return jpegBuffer
     } catch {
       const ct = (res.headers.get('content-type') || '').toLowerCase()
-      if ((ct.includes('jpeg') || ct.includes('jpg')) && rawBuffer.length <= 120_000) {
+      if ((ct.includes('jpeg') || ct.includes('jpg')) && rawBuffer.length <= 250_000) {
         return rawBuffer
       }
       return undefined

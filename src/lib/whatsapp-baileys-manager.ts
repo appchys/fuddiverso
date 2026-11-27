@@ -3128,7 +3128,10 @@ class WhatsAppBaileysManager {
       }
 
       const jpegThumbnail = resolvedPreview?.image
-        ? await fetchLinkPreviewJpegThumbnail(resolvedPreview.image)
+        ? await fetchLinkPreviewJpegThumbnail(resolvedPreview.image, 320)
+        : undefined
+      const highResJpeg = resolvedPreview?.image
+        ? await fetchLinkPreviewJpegThumbnail(resolvedPreview.image, 800)
         : undefined
 
       const matchedText =
@@ -3137,6 +3140,26 @@ class WhatsAppBaileysManager {
         targetUrl ||
         resolvedPreview?.url ||
         ''
+
+      let highQualityThumbnail: any = undefined
+      if (highResJpeg && session.socket) {
+        try {
+          const baileys = await loadBaileys()
+          const uploaded = await baileys.prepareWAMessageMedia(
+            { image: highResJpeg },
+            { upload: session.socket.waUploadToServer }
+          )
+          if (uploaded?.imageMessage) {
+            highQualityThumbnail = uploaded.imageMessage
+          }
+        } catch (hqErr) {
+          console.warn('[Baileys] No se pudo subir highQualityThumbnail para estado:', hqErr)
+        }
+      }
+
+      console.log(
+        `[Baileys] Status preview business=${businessId} img=${resolvedPreview?.image || 'none'} hasThumb=${Boolean(jpegThumbnail)} hasHQ=${Boolean(highQualityThumbnail)}`
+      )
 
       const baileysStatusPayload: any = {
         text: cleanText,
@@ -3147,7 +3170,9 @@ class WhatsAppBaileysManager {
                 'matched-text': matchedText,
                 title: resolvedPreview.title || resolvedPreview.siteName,
                 description: resolvedPreview.description || '',
+                ...(resolvedPreview.image ? { originalThumbnailUrl: resolvedPreview.image } : {}),
                 ...(jpegThumbnail ? { jpegThumbnail } : {}),
+                ...(highQualityThumbnail ? { highQualityThumbnail } : {}),
               },
             }
           : {}),
