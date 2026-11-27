@@ -456,15 +456,31 @@ export async function processChatImageReceiptForBusiness(params: {
     })
   }
 
-  // 3. Guardar también en el documento de la conversación para adjuntarlo automáticamente al crear una orden desde el chat
+  // 3. Guardar también en el documento de la conversación (y en la entrada correspondiente de chatHistory)
   if (params.docId) {
-    await db
+    const convRef = db
       .collection('businesses')
       .doc(params.businessId)
       .collection('whatsappPending')
       .doc(params.docId)
+
+    const convSnap = await convRef.get().catch(() => null)
+    const convData = convSnap?.exists ? convSnap.data() || {} : {}
+    const prevHistory: any[] = Array.isArray(convData.chatHistory) ? convData.chatHistory : []
+    const updatedHistory = prevHistory.map((entry) =>
+      entry?.mediaUrl === params.imageUrl
+        ? {
+            ...entry,
+            receiptValidation: validation,
+            linkedOrderId: linkedOrderId || null,
+          }
+        : entry
+    )
+
+    await convRef
       .set(
         {
+          ...(prevHistory.length > 0 ? { chatHistory: updatedHistory } : {}),
           receiptAttachment: {
             imageUrl: params.imageUrl,
             validation,

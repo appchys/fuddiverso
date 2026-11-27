@@ -2687,6 +2687,91 @@ export function WhatsAppChatPreorderView({
                       />
                     </div>
                   )}
+                  {msg.mediaUrl && (!msg.mediaType || msg.mediaType === 'image') && (() => {
+                    const msgAny = msg as any
+                    const matchedOrder = [activeOrder, ...clientOrders]
+                      .filter(Boolean)
+                      .find(
+                        (ord: any) =>
+                          ord?.payment?.receiptImageUrl === msg.mediaUrl ||
+                          (msgAny.linkedOrderId && ord?.id === msgAny.linkedOrderId) ||
+                          (conversation.receiptAttachment?.imageUrl === msg.mediaUrl &&
+                            conversation.receiptAttachment?.linkedOrderId &&
+                            ord?.id === conversation.receiptAttachment.linkedOrderId)
+                      )
+                    const validation =
+                      msgAny.receiptValidation ||
+                      (conversation.receiptAttachment?.imageUrl === msg.mediaUrl
+                        ? conversation.receiptAttachment?.validation
+                        : undefined) ||
+                      matchedOrder?.payment?.aiValidation
+
+                    const isDetectedReceipt = Boolean(
+                      validation?.isReceipt ||
+                        matchedOrder?.payment?.receiptImageUrl === msg.mediaUrl ||
+                        conversation.receiptAttachment?.imageUrl === msg.mediaUrl
+                    )
+                    if (!isDetectedReceipt) return null
+
+                    const rawStatus =
+                      matchedOrder?.payment?.paymentStatus ||
+                      validation?.status ||
+                      'validating'
+                    const effectiveStatus = rawStatus === 'pending' ? 'validating' : rawStatus
+
+                    const badgeStyle =
+                      effectiveStatus === 'paid'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : effectiveStatus === 'pre_validated'
+                        ? 'bg-violet-100 text-violet-800 border-violet-200'
+                        : effectiveStatus === 'rejected'
+                        ? 'bg-rose-100 text-rose-800 border-rose-200'
+                        : 'bg-amber-100 text-amber-800 border-amber-200'
+
+                    const statusLabel =
+                      effectiveStatus === 'paid'
+                        ? 'Pagado'
+                        : effectiveStatus === 'pre_validated'
+                        ? 'Pre validado'
+                        : effectiveStatus === 'rejected'
+                        ? 'Rechazado'
+                        : 'Validando'
+
+                    const metaParts: string[] = []
+                    if (typeof validation?.amount === 'number' && validation.amount > 0) {
+                      metaParts.push(`$${validation.amount.toFixed(2)}`)
+                    }
+                    if (validation?.bankName) {
+                      metaParts.push(validation.bankName)
+                    }
+
+                    return (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200/90 max-w-[240px] space-y-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700">
+                            <i className="bi bi-receipt text-violet-600"></i>
+                            Comprobante
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${badgeStyle}`}
+                          >
+                            {effectiveStatus === 'pre_validated' && (
+                              <i className="bi bi-stars text-[8px]"></i>
+                            )}
+                            {statusLabel}
+                          </span>
+                        </div>
+                        {metaParts.length > 0 && (
+                          <p className="text-[10px] font-medium text-slate-500 truncate">
+                            {metaParts.join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
                   {msg.mediaUrl && msg.mediaType === 'document' && (
                     <a
                       href={msg.mediaUrl}

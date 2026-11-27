@@ -50,6 +50,8 @@ export interface PendingWhatsAppConversation {
     mediaUrl?: string
     mediaType?: 'image' | 'document' | 'audio' | 'order' | 'contact' | 'location'
     fileName?: string
+    receiptValidation?: import('@/types').PaymentAiValidation
+    linkedOrderId?: string | null
     reactions?: Array<{
       emoji: string
       fromMe: boolean
