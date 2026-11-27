@@ -71,7 +71,7 @@ const PAUSE_OPTIONS = [
 const PROVIDER_LABELS: Array<{ id: AiProviderId; label: string; envKey?: string }> = [
   { id: 'auto', label: 'Automático (con respaldo)' },
   { id: 'gemini', label: 'Google Gemini Flash (Gratis)', envKey: 'GEMINI_API_KEY' },
-  { id: 'groq', label: 'Groq Llama 3.3 (Gratis)', envKey: 'GROQ_API_KEY' },
+  { id: 'groq', label: 'Groq GPT-OSS 120B (Gratis)', envKey: 'GROQ_API_KEY' },
   { id: 'mistral', label: 'Mistral AI (Gratis)', envKey: 'MISTRAL_API_KEY' },
   { id: 'openrouter', label: 'OpenRouter Free', envKey: 'OPENROUTER_API_KEY' },
   { id: 'moonshot', label: 'Moonshot AI', envKey: 'MOONSHOT_API_KEY' },

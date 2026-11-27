@@ -290,7 +290,7 @@ const PROVIDER_DEFAULT_META: Record<
   },
   groq: {
     label: 'Groq',
-    defaultModel: () => (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile').trim(),
+    defaultModel: () => (process.env.GROQ_MODEL || 'openai/gpt-oss-120b').trim(),
     dailyLimit: Number(process.env.GROQ_DAILY_LIMIT || 1000),
   },
   mistral: {
@@ -1631,6 +1631,7 @@ async function callOpenAiCompatible(params: {
   systemPrompt: string
   messages: FormattedChatMessage[]
   extraHeaders?: Record<string, string>
+  extraBody?: Record<string, any>
 }): Promise<{ text: string; model: string }> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 18_000)
@@ -1649,7 +1650,8 @@ async function callOpenAiCompatible(params: {
           ...params.messages.map((m) => ({ role: m.role, content: m.content })),
         ],
         temperature: 0.45,
-        max_tokens: 800,
+        max_tokens: 1024,
+        ...(params.extraBody || {}),
       }),
       signal: controller.signal,
     })
@@ -1747,13 +1749,15 @@ export async function generateAiChatReply(params: {
       if (provider === 'gemini') {
         result = await callGemini(apiKey, systemPrompt, messages)
       } else if (provider === 'groq') {
+        const groqModel = (process.env.GROQ_MODEL || 'openai/gpt-oss-120b').trim()
         result = await callOpenAiCompatible({
           providerName: 'Groq',
           endpoint: 'https://api.groq.com/openai/v1/chat/completions',
           apiKey,
-          model: (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile').trim(),
+          model: groqModel,
           systemPrompt,
           messages,
+          ...(groqModel.includes('gpt-oss') ? { extraBody: { reasoning_effort: 'low' } } : {}),
         })
       } else if (provider === 'mistral') {
         result = await callOpenAiCompatible({
