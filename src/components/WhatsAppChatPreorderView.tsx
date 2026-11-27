@@ -538,6 +538,7 @@ export function WhatsAppChatPreorderView({
   const [togglingAiPause, setTogglingAiPause] = useState<boolean>(false)
   const [aiStoreAutoReplyActive, setAiStoreAutoReplyActive] = useState<boolean>(false)
   const [showPauseAiModal, setShowPauseAiModal] = useState<boolean>(false)
+  const [isAiGeneratedDraft, setIsAiGeneratedDraft] = useState<boolean>(false)
 
   useEffect(() => {
     if (!businessId) {
@@ -569,6 +570,7 @@ export function WhatsAppChatPreorderView({
   }, [businessId, conversation.channel, conversation.sourcePackage, conversation.docId])
 
   const isAiActiveInChat = aiStoreAutoReplyActive && !Boolean(conversation.aiPaused)
+  const lockComposerForAi = isAiActiveInChat && !isAiGeneratedDraft
   const [optimisticReply, setOptimisticReply] = useState<{
     id: string
     text: string
@@ -1194,6 +1196,7 @@ export function WhatsAppChatPreorderView({
         throw new Error(data?.error || 'No se pudo generar la respuesta con IA.')
       }
 
+      setIsAiGeneratedDraft(true)
       setReplyText(String(data.reply))
       setTimeout(() => replyInputRef.current?.focus(), 30)
     } catch (err: any) {
@@ -1238,16 +1241,18 @@ export function WhatsAppChatPreorderView({
     const cleanText = replyText.trim()
     const attachmentToSend = draftMediaAttachment
     if ((!cleanText && !attachmentToSend) || !businessId || !conversation.docId || sendingReply) return
+    const activateAiAfterSend = isAiGeneratedDraft
     const previewToSend = dismissedPreviewUrl
       ? null
       : draftLinkPreview || undefined
     setReplyText('')
+    setIsAiGeneratedDraft(false)
     setDraftLinkPreview(null)
     setDraftMediaAttachment(null)
     setLoadingLinkPreview(false)
     setDismissedPreviewUrl(null)
     setSendingReply(true)
-    const replyId = `web_${Date.now()}`
+    const replyId = activateAiAfterSend ? `ai_${Date.now()}` : `web_${Date.now()}`
     setOptimisticReply({ id: replyId, text: cleanText, linkPreview: previewToSend || null })
     const targetPhone =
       resolvedProfile?.clientPhone || conversation.phone || conversation.rawPhone || ''
@@ -1274,6 +1279,10 @@ export function WhatsAppChatPreorderView({
         const data = await res.json().catch(() => ({}))
         if (!res.ok || !data?.ok) {
           console.error('[Instagram] Error enviando DM:', data?.error)
+        } else if (activateAiAfterSend) {
+          await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
+            aiPaused: false,
+          }).catch(() => {})
         }
         return
       }
@@ -1318,7 +1327,12 @@ export function WhatsAppChatPreorderView({
             status: 'pending',
             requestedAtMillis: Date.now(),
           },
+          ...(activateAiAfterSend ? { aiPaused: false } : {}),
         })
+      } else if (activateAiAfterSend) {
+        await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
+          aiPaused: false,
+        }).catch(() => {})
       }
     } catch (err) {
       console.error('[WhatsAppChatView] Error requesting direct reply:', err)
@@ -3963,29 +3977,29 @@ export function WhatsAppChatPreorderView({
               <textarea
                 ref={replyInputRef}
                 rows={1}
-                readOnly={isAiActiveInChat}
+                readOnly={lockComposerForAi}
                 autoCapitalize="sentences"
                 spellCheck={true}
                 value={replyText}
                 onClick={() => {
-                  if (isAiActiveInChat) {
+                  if (lockComposerForAi) {
                     setShowPauseAiModal(true)
                   }
                 }}
                 onFocus={(e) => {
-                  if (isAiActiveInChat) {
+                  if (lockComposerForAi) {
                     e.currentTarget.blur()
                     setShowPauseAiModal(true)
                   }
                 }}
                 onChange={(e) => {
-                  if (isAiActiveInChat) return
+                  if (lockComposerForAi) return
                   const rawVal = e.target.value
                   setReplyText((prev) => autoCapitalizeSentences(prev, rawVal))
                   setQuickReplyDismissed(false)
                 }}
                 onKeyDown={(e) => {
-                  if (isAiActiveInChat) {
+                  if (lockComposerForAi) {
                     e.preventDefault()
                     setShowPauseAiModal(true)
                     return
@@ -4021,12 +4035,12 @@ export function WhatsAppChatPreorderView({
                   }
                 }}
                 placeholder={
-                  isAiActiveInChat
+                  lockComposerForAi
                     ? 'Agente de IA respondiendo · Toca para pausar...'
                     : 'Escribe un mensaje o / para respuestas rápidas...'
                 }
                 className={`w-full min-h-[32px] max-h-[64px] py-1.5 pl-3 ${replyText ? 'pr-7' : 'pr-3'} text-xs leading-4 resize-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden rounded-lg transition-colors ${
-                  isAiActiveInChat
+                  lockComposerForAi
                     ? 'bg-slate-200/80 border border-slate-300 text-slate-500 placeholder:text-slate-500 cursor-pointer focus:outline-none'
                     : 'bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400'
                 }`}
@@ -4036,6 +4050,7 @@ export function WhatsAppChatPreorderView({
                   type="button"
                   onClick={() => {
                     setReplyText('')
+                    setIsAiGeneratedDraft(false)
                     setDraftLinkPreview(null)
                     setDismissedPreviewUrl(null)
                     setQuickReplyDismissed(false)
