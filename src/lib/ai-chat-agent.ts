@@ -1449,7 +1449,13 @@ function formatConversationMessages(
     messages.shift()
   }
 
-  if (messages.length === 0) {
+  // Asegurar que la conversación TERMINE con rol 'user' (Gemini rechaza requests terminando en 'model',
+  // lo cual ocurre cuando una auto-respuesta fija se guardó justo después del mensaje del cliente)
+  while (messages.length > 1 && messages[messages.length - 1].role === 'assistant') {
+    messages.pop()
+  }
+
+  if (messages.length === 0 || messages[messages.length - 1].role !== 'user') {
     messages.push({ role: 'user', content: 'Hola, necesito información.' })
   }
 
@@ -1497,8 +1503,9 @@ async function callGemini(
         configured,
         'gemini-3-flash-preview',
         'gemini-3.1-flash-lite',
+        'gemini-3.1-flash-lite-preview',
         'gemini-flash-latest',
-        'gemini-2.5-flash',
+        'gemma-4-31b-it',
       ].filter(Boolean)
     )
   )
@@ -1533,54 +1540,83 @@ async function callGemini(
   )
 
   let lastError = 'Gemini sin respuesta'
+  let sawRateLimit = false
 
-  for (const model of candidateModels) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      model
-    )}:generateContent?key=${encodeURIComponent(apiKey)}`
+  const tryModels = async (modelsList: string[]): Promise<{ text: string; model: string } | null> => {
+    for (const model of modelsList) {
+      const isGemma = model.toLowerCase().startsWith('gemma')
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        model
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 18_000)
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents,
-          generationConfig: {
-            temperature: 0.45,
-            maxOutputTokens: 1024,
-            thinkingConfig: {
-              thinkingBudget: 0,
+      const payload: Record<string, any> = isGemma
+        ? {
+            contents: contents.map((c, idx) =>
+              idx === 0
+                ? { ...c, parts: [{ text: `${systemPrompt}\n\n---\n\n` }, ...c.parts] }
+                : c
+            ),
+            generationConfig: {
+              temperature: 0.45,
+              maxOutputTokens: 1024,
             },
-          },
-        }),
-        signal: controller.signal,
-      })
+          }
+        : {
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents,
+            generationConfig: {
+              temperature: 0.45,
+              maxOutputTokens: 1024,
+              thinkingConfig: {
+                thinkingBudget: 0,
+              },
+            },
+          }
 
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        lastError = data?.error?.message || `Gemini HTTP ${res.status} (${model})`
-        // Si el modelo no existe (404) o llegó al límite (429), probar siguiente modelo candidato
-        if (res.status === 404 || res.status === 429 || res.status === 503) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 18_000)
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        })
+
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          lastError = data?.error?.message || `Gemini HTTP ${res.status} (${model})`
+          if (res.status === 429) sawRateLimit = true
+          if (res.status === 404 || res.status === 429 || res.status === 503 || (isGemma && res.status === 400)) {
+            continue
+          }
+          throw new Error(lastError)
+        }
+
+        const parts = data?.candidates?.[0]?.content?.parts
+        const text = Array.isArray(parts)
+          ? parts.map((p: any) => String(p?.text || '')).join('').trim()
+          : ''
+        if (!text) {
+          lastError = `Gemini devolvió una respuesta vacía (${model})`
           continue
         }
-        throw new Error(lastError)
+        return { text, model }
+      } finally {
+        clearTimeout(timer)
       }
-
-      const parts = data?.candidates?.[0]?.content?.parts
-      const text = Array.isArray(parts)
-        ? parts.map((p: any) => String(p?.text || '')).join('').trim()
-        : ''
-      if (!text) {
-        lastError = `Gemini devolvió una respuesta vacía (${model})`
-        continue
-      }
-      return { text, model }
-    } finally {
-      clearTimeout(timer)
     }
+    return null
+  }
+
+  const firstPass = await tryModels(candidateModels)
+  if (firstPass) return firstPass
+
+  // Si todos devolvieron 429 por ráfaga por minuto, esperar 6s y reintentar el modelo principal una vez
+  if (sawRateLimit) {
+    await new Promise((r) => setTimeout(r, 6000))
+    const retryPass = await tryModels(candidateModels.slice(0, 2))
+    if (retryPass) return retryPass
   }
 
   throw new Error(lastError)
