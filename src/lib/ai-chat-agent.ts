@@ -287,23 +287,48 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
   storeName: string
   storeContextText: string
   storeIsOpenNow: boolean | null
+  bizData: Record<string, any>
+  coverageZones: Array<Record<string, any>>
 }> {
   const db = ensureAdminDb()
   if (!db) {
-    return { storeName: 'la tienda', storeContextText: '', storeIsOpenNow: null }
+    return {
+      storeName: 'la tienda',
+      storeContextText: '',
+      storeIsOpenNow: null,
+      bizData: {},
+      coverageZones: [],
+    }
   }
 
   let bizData: Record<string, any> = {}
   let storeIsOpenNow: boolean | null = null
+  let coverageZones: Array<Record<string, any>> = []
 
   try {
-    const bizSnap = await db.collection('businesses').doc(businessId).get()
+    const [bizSnap, zonesSnap] = await Promise.all([
+      db.collection('businesses').doc(businessId).get(),
+      db.collection('coverageZones').where('isActive', '==', true).get().catch(() => null),
+    ])
     if (bizSnap.exists) {
       bizData = bizSnap.data() || {}
       storeIsOpenNow = isStoreOpen({ id: bizSnap.id, ...(bizData as any) })
     }
+    if (zonesSnap && !zonesSnap.empty) {
+      const allActive = zonesSnap.docs.map((d): Record<string, any> => ({
+        id: d.id,
+        ...(d.data() as Record<string, any>),
+      }))
+      const bizSpecific = allActive.filter((z) => z.businessId === businessId)
+      const globalZones = allActive.filter((z) => {
+        if (z.businessId) return false
+        if (bizData.groupId && z.groupId && z.groupId !== bizData.groupId) return false
+        return true
+      })
+      coverageZones = [...bizSpecific, ...globalZones]
+    }
   } catch (err) {
-    console.warn('[AI Agent] Error leyendo negocio:', err)
+    console.warn('[AI Agent] Error leyendo negocio/zonas:', err)
   }
 
   const storeName = String(bizData.name || 'la tienda').trim()
@@ -418,6 +443,28 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
     }
   }
 
+  if (coverageZones.length > 0) {
+    const isCustomFeesActive =
+      bizData?.deliveryZoneSettings?.useCustomFees ?? (bizData?.deliveryServiceType === 'self')
+    const zoneLines: string[] = []
+    for (const z of coverageZones) {
+      const zName = String(z.name || '').trim()
+      if (!zName) continue
+      const zCfg = isCustomFeesActive ? bizData?.deliveryZoneSettings?.zones?.[z.id] : undefined
+      if (zCfg && zCfg.enabled === false) continue
+      const effectiveFee =
+        zCfg && typeof zCfg.customFee === 'number' && !Number.isNaN(zCfg.customFee)
+          ? Math.max(0, zCfg.customFee)
+          : Number(z.deliveryFee || 0)
+      zoneLines.push(`- ${zName}: $${effectiveFee.toFixed(2)}`)
+    }
+    if (zoneLines.length > 0) {
+      lines.push('')
+      lines.push('Zonas de cobertura y tarifas de envío de la tienda:')
+      lines.push(...zoneLines)
+    }
+  }
+
   if (includeCatalog) {
     try {
       const prodSnap = await db
@@ -466,6 +513,108 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
     storeName,
     storeContextText: lines.join('\n'),
     storeIsOpenNow,
+    bizData,
+    coverageZones,
+  }
+}
+
+function parseLatLongStr(latlong?: string | null): { lat: number; lng: number } | null {
+  if (!latlong || typeof latlong !== 'string' || latlong.startsWith('pluscode:')) return null
+  const parts = latlong.split(',').map((c) => parseFloat(c.trim()))
+  if (parts.length !== 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return null
+  return { lat: parts[0], lng: parts[1] }
+}
+
+function isPointInPolygon(
+  point: { lat: number; lng: number },
+  polygon?: Array<{ lat: number; lng: number }>
+): boolean {
+  if (!Array.isArray(polygon) || polygon.length < 3) return false
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = Number(polygon[i]?.lat)
+    const yi = Number(polygon[i]?.lng)
+    const xj = Number(polygon[j]?.lat)
+    const yj = Number(polygon[j]?.lng)
+    const intersect =
+      yi > point.lng !== yj > point.lng &&
+      point.lat < ((xj - xi) * (point.lng - yi)) / (yj - yi) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+function calculateHaversineKm(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const R = 6371
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+function resolveDeliveryFeeForLocation(
+  latlong: string | undefined,
+  bizData: Record<string, any>,
+  coverageZones: Array<Record<string, any>>
+): { zoneName?: string; fee?: number; outOfCoverage?: boolean } | null {
+  const point = parseLatLongStr(latlong)
+  if (!point || coverageZones.length === 0) return null
+
+  const matchingZone = coverageZones.find((z) => z.isActive !== false && isPointInPolygon(point, z.polygon))
+  if (!matchingZone) {
+    return { zoneName: 'Fuera de cobertura', outOfCoverage: true }
+  }
+
+  const isCustomFeesActive =
+    bizData?.deliveryZoneSettings?.useCustomFees ?? (bizData?.deliveryServiceType === 'self')
+  if (isCustomFeesActive) {
+    const zoneConfig = bizData?.deliveryZoneSettings?.zones?.[matchingZone.id]
+    if (zoneConfig) {
+      if (zoneConfig.enabled === false) {
+        return { zoneName: String(matchingZone.name || 'Zona inactiva'), outOfCoverage: true }
+      }
+      if (typeof zoneConfig.customFee === 'number' && !Number.isNaN(zoneConfig.customFee)) {
+        return {
+          zoneName: String(matchingZone.name || ''),
+          fee: Math.max(0, zoneConfig.customFee),
+          outOfCoverage: false,
+        }
+      }
+    }
+  }
+
+  if (matchingZone.feeMode === 'distance' && matchingZone.distanceSettings) {
+    const storePoint =
+      parseLatLongStr(bizData?.pickupSettings?.latlong) ||
+      (Number.isFinite(Number(bizData?.mapLocation?.lat)) &&
+      Number.isFinite(Number(bizData?.mapLocation?.lng))
+        ? { lat: Number(bizData.mapLocation.lat), lng: Number(bizData.mapLocation.lng) }
+        : null)
+    if (storePoint) {
+      const distance = calculateHaversineKm(storePoint, point)
+      const baseFee = Number(matchingZone.distanceSettings.baseFee || 0)
+      const baseDistance = Number(matchingZone.distanceSettings.baseDistance || 0)
+      const extraKmFee = Number(matchingZone.distanceSettings.extraKmFee || 0)
+      const fee =
+        distance > baseDistance ? baseFee + Math.ceil(distance - baseDistance) * extraKmFee : baseFee
+      return {
+        zoneName: String(matchingZone.name || ''),
+        fee: Math.max(0, fee),
+        outOfCoverage: false,
+      }
+    }
+  }
+
+  return {
+    zoneName: String(matchingZone.name || ''),
+    fee: Math.max(0, Number(matchingZone.deliveryFee || 0)),
+    outOfCoverage: false,
   }
 }
 
@@ -511,6 +660,8 @@ async function buildCustomerContext(params: {
   customerName?: string
   customerPhone?: string
   customerClientId?: string
+  bizData?: Record<string, any>
+  coverageZones?: Array<Record<string, any>>
 }): Promise<{ resolvedName?: string; customerContextText: string }> {
   const db = ensureAdminDb()
   const cleanPhone = String(params.customerPhone || '').trim()
@@ -577,7 +728,20 @@ async function buildCustomerContext(params: {
             if (loc.isFavorite) parts.push('[Favorita]')
             if (loc.sector) parts.push(`Sector: ${String(loc.sector).trim()}`)
             if (loc.referencia) parts.push(`Referencia: ${String(loc.referencia).trim()}`)
-            if (loc.tarifa) parts.push(`Tarifa envío: $${String(loc.tarifa).replace(/^\$/, '').trim()}`)
+            const deliveryInfo = resolveDeliveryFeeForLocation(
+              loc.latlong,
+              params.bizData || {},
+              params.coverageZones || []
+            )
+            if (deliveryInfo) {
+              if (deliveryInfo.outOfCoverage) {
+                parts.push(`Cobertura: Fuera de cobertura para esta tienda (${deliveryInfo.zoneName || 'zona no habilitada'})`)
+              } else if (typeof deliveryInfo.fee === 'number') {
+                parts.push(
+                  `Zona: ${deliveryInfo.zoneName || 'Cobertura'} | Envío actual de esta tienda: $${deliveryInfo.fee.toFixed(2)}`
+                )
+              }
+            }
             if (loc.latlong) {
               const cleanCoords = String(loc.latlong).replace(/\s+/g, '')
               if (cleanCoords) parts.push(`Mapa: https://www.google.com/maps?q=${cleanCoords}`)
@@ -859,14 +1023,17 @@ export async function generateAiChatReply(params: {
     }
   }
 
-  const [{ storeName, storeContextText }, { resolvedName, customerContextText }] = await Promise.all([
-    buildStoreContext(params.businessId, config.includeCatalog),
-    buildCustomerContext({
-      customerName: params.customerName,
-      customerPhone: params.customerPhone,
-      customerClientId: params.customerClientId,
-    }),
-  ])
+  const { storeName, storeContextText, bizData, coverageZones } = await buildStoreContext(
+    params.businessId,
+    config.includeCatalog
+  )
+  const { resolvedName, customerContextText } = await buildCustomerContext({
+    customerName: params.customerName,
+    customerPhone: params.customerPhone,
+    customerClientId: params.customerClientId,
+    bizData,
+    coverageZones,
+  })
 
   const systemPrompt = buildSystemPrompt({
     storeName,
