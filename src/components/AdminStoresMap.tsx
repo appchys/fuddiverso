@@ -404,7 +404,7 @@ export default function AdminStoresMap({
     setSelectedGroupId(business.groupId || 'external')
     setPreviewCoords(defaultCoords)
     setCoordInput(existingCoords ? `${existingCoords.lat}, ${existingCoords.lng}` : `${defaultCoords.lat}, ${defaultCoords.lng}`)
-    setReferencesInput(business.pickupSettings?.references || business.references || business.address || '')
+    setReferencesInput(business.pickupSettings?.references || '')
   }
 
   // Actualizar coordenadas cuando el usuario usa el botón de GPS actual en el modal
@@ -664,14 +664,10 @@ export default function AdminStoresMap({
                       </span>
                     </div>
 
-                    {(selectedStoreItem.business.pickupSettings?.references ||
-                      selectedStoreItem.business.references ||
-                      selectedStoreItem.business.address) && (
+                    {selectedStoreItem.business.pickupSettings?.references && (
                       <p className="text-xs font-medium text-gray-600 leading-relaxed mt-1.5 line-clamp-2">
                         <i className="bi bi-geo-alt text-gray-400 mr-1"></i>
-                        {selectedStoreItem.business.pickupSettings?.references ||
-                          selectedStoreItem.business.references ||
-                          selectedStoreItem.business.address}
+                        {selectedStoreItem.business.pickupSettings.references}
                       </p>
                     )}
 
@@ -918,9 +914,9 @@ export default function AdminStoresMap({
                             </span>
                           </div>
 
-                          {(business.pickupSettings?.references || business.references || business.address) && (
+                          {business.pickupSettings?.references && (
                             <p className="text-[11px] font-medium text-gray-500 leading-relaxed mt-1 line-clamp-1">
-                              Ref: {business.pickupSettings?.references || business.references || business.address}
+                              Ref: {business.pickupSettings.references}
                             </p>
                           )}
                         </div>

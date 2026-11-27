@@ -536,6 +536,39 @@ export function WhatsAppChatPreorderView({
   const [generatingAiReply, setGeneratingAiReply] = useState<boolean>(false)
   const [aiReplyError, setAiReplyError] = useState<string | null>(null)
   const [togglingAiPause, setTogglingAiPause] = useState<boolean>(false)
+  const [aiStoreAutoReplyActive, setAiStoreAutoReplyActive] = useState<boolean>(false)
+  const [showPauseAiModal, setShowPauseAiModal] = useState<boolean>(false)
+
+  useEffect(() => {
+    if (!businessId) {
+      setAiStoreAutoReplyActive(false)
+      return
+    }
+    const unsub = onSnapshot(
+      doc(db, 'businesses', businessId, 'aiAgentConfig', 'settings'),
+      (snap) => {
+        if (!snap.exists()) {
+          setAiStoreAutoReplyActive(false)
+          return
+        }
+        const data = snap.data() || {}
+        const isInstagramConv =
+          conversation.channel === 'instagram' ||
+          conversation.sourcePackage === 'instagram' ||
+          conversation.docId?.startsWith('ig:')
+        const channelEnabled = isInstagramConv
+          ? data.channels?.instagram !== false
+          : data.channels?.whatsapp !== false
+        setAiStoreAutoReplyActive(Boolean(data.enabled && data.mode === 'auto_reply' && channelEnabled))
+      },
+      () => {
+        setAiStoreAutoReplyActive(false)
+      }
+    )
+    return () => unsub()
+  }, [businessId, conversation.channel, conversation.sourcePackage, conversation.docId])
+
+  const isAiActiveInChat = aiStoreAutoReplyActive && !Boolean(conversation.aiPaused)
   const [optimisticReply, setOptimisticReply] = useState<{
     id: string
     text: string
@@ -763,11 +796,7 @@ export function WhatsAppChatPreorderView({
           ].join('\n\n')
         : ''
 
-    const storeAddress =
-      businessData?.pickupSettings?.references?.trim() ||
-      businessData?.address?.trim() ||
-      businessData?.references?.trim() ||
-      ''
+    const storeAddress = businessData?.pickupSettings?.references?.trim() || ''
 
     const pickupCoords = businessData?.pickupSettings?.latlong?.trim()
     const mapCoords =
@@ -1171,6 +1200,22 @@ export function WhatsAppChatPreorderView({
       setAiReplyError(err?.message || 'Error al generar respuesta con IA.')
     } finally {
       setGeneratingAiReply(false)
+    }
+  }
+
+  const handleConfirmPauseAiFromModal = async () => {
+    if (!businessId || !conversation.docId || togglingAiPause) return
+    setTogglingAiPause(true)
+    try {
+      await updateDoc(doc(db, 'businesses', businessId, 'whatsappPending', conversation.docId), {
+        aiPaused: true,
+      })
+      setShowPauseAiModal(false)
+      setTimeout(() => replyInputRef.current?.focus(), 60)
+    } catch (err) {
+      console.error('[WhatsAppChatView] Error pausando IA:', err)
+    } finally {
+      setTogglingAiPause(false)
     }
   }
 
@@ -2136,19 +2181,6 @@ export function WhatsAppChatPreorderView({
 
           {!isEditingClientName && (
             <div className="shrink-0 flex items-center gap-1.5">
-              {conversation.aiPaused && (
-                <button
-                  type="button"
-                  style={{ minHeight: 0 }}
-                  onClick={() => void handleToggleConversationAiPause()}
-                  disabled={togglingAiPause}
-                  title="IA pausada en este chat. Clic para reactivar."
-                  className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 cursor-pointer transition-colors"
-                >
-                  <i className="bi bi-pause-circle-fill"></i>
-                  <span>IA pausada</span>
-                </button>
-              )}
               {headerActiveOrders.length > 0 && (
                 <div className="flex items-center gap-1 flex-wrap justify-end">
                   {headerActiveOrders.map((ord) => (
@@ -2165,6 +2197,40 @@ export function WhatsAppChatPreorderView({
                     </button>
                   ))}
                 </div>
+              )}
+              {aiStoreAutoReplyActive && (
+                <button
+                  type="button"
+                  style={{ minHeight: 0, minWidth: 0 }}
+                  disabled={togglingAiPause}
+                  onClick={() => {
+                    if (isAiActiveInChat) {
+                      setShowPauseAiModal(true)
+                    } else {
+                      void handleToggleConversationAiPause()
+                    }
+                  }}
+                  title={
+                    isAiActiveInChat
+                      ? 'Agente de IA activo en este chat · Clic para pausar'
+                      : 'Agente de IA pausado en este chat · Clic para reactivar'
+                  }
+                  aria-label={isAiActiveInChat ? 'Agente de IA activo' : 'Agente de IA pausado'}
+                  className={`relative w-7 h-7 min-h-0 min-w-0 p-0 shrink-0 rounded-full border inline-flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50 ${
+                    isAiActiveInChat
+                      ? 'bg-violet-50 hover:bg-violet-100 text-violet-700 border-violet-300'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-400 border-slate-200'
+                  }`}
+                >
+                  <i className="bi bi-robot text-xs"></i>
+                  {isAiActiveInChat ? (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+                  ) : (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-400 text-white ring-1 ring-white inline-flex items-center justify-center">
+                      <i className="bi bi-pause-fill text-[8px] leading-none"></i>
+                    </span>
+                  )}
+                </button>
               )}
               {(cleanPhone || onCloseConversation || onExcludeConversation) && (
                 <div ref={headerMenuRef} className="relative">
@@ -3897,15 +3963,33 @@ export function WhatsAppChatPreorderView({
               <textarea
                 ref={replyInputRef}
                 rows={1}
+                readOnly={isAiActiveInChat}
                 autoCapitalize="sentences"
                 spellCheck={true}
                 value={replyText}
+                onClick={() => {
+                  if (isAiActiveInChat) {
+                    setShowPauseAiModal(true)
+                  }
+                }}
+                onFocus={(e) => {
+                  if (isAiActiveInChat) {
+                    e.currentTarget.blur()
+                    setShowPauseAiModal(true)
+                  }
+                }}
                 onChange={(e) => {
+                  if (isAiActiveInChat) return
                   const rawVal = e.target.value
                   setReplyText((prev) => autoCapitalizeSentences(prev, rawVal))
                   setQuickReplyDismissed(false)
                 }}
                 onKeyDown={(e) => {
+                  if (isAiActiveInChat) {
+                    e.preventDefault()
+                    setShowPauseAiModal(true)
+                    return
+                  }
                   if (isQuickReplyMenuOpen && !showNewQuickReplyForm && filteredQuickReplies.length > 0) {
                     if (e.key === 'ArrowDown') {
                       e.preventDefault()
@@ -3936,8 +4020,16 @@ export function WhatsAppChatPreorderView({
                     void handleSendDirectReply()
                   }
                 }}
-                placeholder="Escribe un mensaje o / para respuestas rápidas..."
-                className={`w-full min-h-[32px] max-h-[64px] py-1.5 pl-3 ${replyText ? 'pr-7' : 'pr-3'} text-xs leading-4 resize-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400`}
+                placeholder={
+                  isAiActiveInChat
+                    ? 'Agente de IA respondiendo · Toca para pausar...'
+                    : 'Escribe un mensaje o / para respuestas rápidas...'
+                }
+                className={`w-full min-h-[32px] max-h-[64px] py-1.5 pl-3 ${replyText ? 'pr-7' : 'pr-3'} text-xs leading-4 resize-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden rounded-lg transition-colors ${
+                  isAiActiveInChat
+                    ? 'bg-slate-200/80 border border-slate-300 text-slate-500 placeholder:text-slate-500 cursor-pointer focus:outline-none'
+                    : 'bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400'
+                }`}
               />
               {replyText && (
                 <button
@@ -4103,6 +4195,52 @@ export function WhatsAppChatPreorderView({
                 {previewImageModal.caption}
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {showPauseAiModal && (
+        <div
+          className="fixed inset-0 z-[130] bg-slate-900/50 backdrop-blur-[2px] flex items-center justify-center p-4"
+          onClick={() => setShowPauseAiModal(false)}
+        >
+          <div
+            className="w-full max-w-xs bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+                <i className="bi bi-robot text-lg"></i>
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-black text-gray-900 tracking-tight leading-tight">
+                  ¿Pausar al agente?
+                </h3>
+                <p className="text-xs font-medium text-gray-500 leading-relaxed mt-1">
+                  El agente de IA está respondiendo automáticamente en este chat. Si lo pausas, podrás escribir manualmente.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                style={{ minHeight: 0 }}
+                onClick={() => setShowPauseAiModal(false)}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                style={{ minHeight: 0 }}
+                disabled={togglingAiPause}
+                onClick={() => void handleConfirmPauseAiFromModal()}
+                className="px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <i className="bi bi-pause-circle"></i>
+                <span>{togglingAiPause ? 'Pausando...' : 'Pausar agente'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

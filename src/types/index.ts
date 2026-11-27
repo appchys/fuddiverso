@@ -22,7 +22,6 @@ export interface Business {
   description: string
   phone: string // Formato ecuatoriano: 09XXXXXXXX (10 dígitos)
   email: string
-  address?: string // Dirección física / referencia del local
   ownerId?: string // UID del usuario propietario en Firebase Auth
   administrators?: BusinessAdministrator[] // Lista de administradores
   adminEmails?: string[] // Array de emails de administradores para queries optimizadas
@@ -34,7 +33,6 @@ export interface Business {
     lat: number
     lng: number
   }
-  references?: string
   bankAccount?: {
     bankName: string
     accountType: string

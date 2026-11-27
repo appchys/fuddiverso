@@ -709,17 +709,20 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
     lines.push(`Horarios: ${scheduleStr}`)
   }
 
-  // Ubicación y referencias de la tienda
-  if (bizData.address) {
-    lines.push(`Dirección de la tienda: ${String(bizData.address).trim()}`)
-  }
-  if (bizData.references) {
-    lines.push(`Referencias de ubicación: ${String(bizData.references).trim()}`)
-  }
+  // Ubicación de la tienda (desde pickupSettings)
+  const pickupRef = String(bizData.pickupSettings?.references || '').trim()
+  const pickupLatLng = String(bizData.pickupSettings?.latlong || '').trim()
   const lat = Number(bizData.mapLocation?.lat)
   const lng = Number(bizData.mapLocation?.lng)
-  if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
-    lines.push(`Ubicación en Google Maps: https://www.google.com/maps?q=${lat},${lng}`)
+  const fallbackCoords =
+    Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? `${lat},${lng}` : ''
+  const storeCoords = pickupLatLng ? pickupLatLng.replace(/\s+/g, '') : fallbackCoords
+
+  if (pickupRef) {
+    lines.push(`Ubicación y referencias de la tienda: ${pickupRef}`)
+  }
+  if (storeCoords) {
+    lines.push(`Ubicación en Google Maps: https://www.google.com/maps?q=${storeCoords}`)
   }
 
   if (bizData.username) {
@@ -743,15 +746,7 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
 
   // Retiro en local (pickup)
   if (bizData.pickupSettings?.enabled) {
-    const pickupRef = String(bizData.pickupSettings.references || '').trim()
-    const pickupLatLng = String(bizData.pickupSettings.latlong || '').trim()
-    const pickupParts = ['Disponible']
-    if (pickupRef) pickupParts.push(`Referencias: ${pickupRef}`)
-    if (pickupLatLng) {
-      const cleanCoords = pickupLatLng.replace(/\s+/g, '')
-      pickupParts.push(`Mapa: https://www.google.com/maps?q=${cleanCoords}`)
-    }
-    lines.push(`Retiro en local (pickup): ${pickupParts.join(' | ')}`)
+    lines.push('Retiro en local (pickup): Disponible (sin costo de envío)')
   }
 
   // Métodos de pago y cuentas bancarias para transferencia

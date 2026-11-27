@@ -392,7 +392,6 @@ export async function createBusinessFromForm(formData: {
     ownerId: formData.ownerId,
     administrators: [], // Inicializar vacío para administradores adicionales
     adminEmails: [], // Inicializar vacío para queries optimizadas
-    references: '',
     categories: [],
     category: formData.category,
     businessType: formData.businessType || 'food_store',
@@ -4016,7 +4015,6 @@ export async function createBusinessBranch(
       coverImage: branchData.coverImage || parentBiz.coverImage || '',
       locationImage: parentBiz.locationImage || '',
       mapLocation: branchData.mapLocation || parentBiz.mapLocation || { lat: -2.1894, lng: -79.8891 },
-      references: branchData.references || branchData.address || parentBiz.references || '',
       schedule: parentBiz.schedule || {
         monday: { open: '08:00', close: '22:00', isOpen: true },
         tuesday: { open: '08:00', close: '22:00', isOpen: true },

@@ -2533,7 +2533,7 @@ export function CheckoutContent({
           logo: business.image || '',
           username: business.username || '',
           latlong: business.pickupSettings?.latlong || (business.mapLocation ? `${business.mapLocation.lat},${business.mapLocation.lng}` : ''),
-          references: business.pickupSettings?.references || business.references || '',
+          references: business.pickupSettings?.references || '',
           storePhotoUrl: business.pickupSettings?.storePhotoUrl || business.locationImage || '',
           ...(business.pickupSettings ? {
             pickupSettings: {

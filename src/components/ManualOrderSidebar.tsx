@@ -3062,7 +3062,7 @@ export default function ManualOrderSidebar({
         logo: effectiveBusiness.image || '',
         username: effectiveBusiness.username || '',
         latlong: effectiveBusiness.pickupSettings?.latlong || (effectiveBusiness.mapLocation ? `${effectiveBusiness.mapLocation.lat},${effectiveBusiness.mapLocation.lng}` : ''),
-        references: effectiveBusiness.pickupSettings?.references || effectiveBusiness.references || '',
+        references: effectiveBusiness.pickupSettings?.references || '',
         storePhotoUrl: effectiveBusiness.pickupSettings?.storePhotoUrl || effectiveBusiness.locationImage || '',
         ...(effectiveBusiness.pickupSettings ? {
           pickupSettings: {

@@ -26,11 +26,7 @@ function CircularQuotaRing({ item }: { item: AiProviderUsageItem }) {
 
   return (
     <div
-      className={`p-3.5 rounded-2xl border flex flex-col items-center text-center gap-2 transition-all ${
-        item.configured
-          ? 'bg-white border-slate-200 shadow-2xs'
-          : 'bg-slate-50/70 border-slate-200/70 opacity-65'
-      }`}
+      className="p-3.5 rounded-2xl border bg-white border-slate-200 shadow-2xs flex flex-col items-center text-center gap-2 min-w-[150px] shrink-0 transition-all"
     >
       <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
@@ -251,10 +247,17 @@ export default function AdminAiAgentPage() {
               <span>Actualizar</span>
             </button>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {usageSummary.providers.map((item) => (
-              <CircularQuotaRing key={item.provider} item={item} />
-            ))}
+          <div className="flex flex-nowrap items-stretch gap-3 overflow-x-auto pb-1">
+            {usageSummary.providers
+              .filter((item) => item.configured)
+              .map((item) => (
+                <CircularQuotaRing key={item.provider} item={item} />
+              ))}
+            {usageSummary.providers.every((item) => !item.configured) && (
+              <p className="text-xs font-medium text-gray-500 py-2">
+                No hay ningún modelo de IA conectado en este momento.
+              </p>
+            )}
           </div>
         </div>
       )}

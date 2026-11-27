@@ -445,8 +445,7 @@ export default function AdminBusinessesPage() {
       await updateBusiness(business.id, {
         pickupSettings: nextPickupSettings,
         mapLocation: nextMapLocation,
-        groupId: nextGroupId,
-        ...(references ? { references } : {})
+        groupId: nextGroupId
       })
 
       setBusinesses(prev =>
@@ -456,8 +455,7 @@ export default function AdminBusinessesPage() {
                 ...b,
                 pickupSettings: nextPickupSettings,
                 mapLocation: nextMapLocation,
-                groupId: nextGroupId,
-                ...(references ? { references } : {})
+                groupId: nextGroupId
               }
             : b
         )
