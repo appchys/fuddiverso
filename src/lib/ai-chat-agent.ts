@@ -259,6 +259,59 @@ export function isWithinAiSchedule(
   return false
 }
 
+function formatEcuadorNowContext(now: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  })
+  const formatted = formatter.format(now)
+  const { hours, minutes } = getEcuadorDate(now)
+  const h24 = String(hours === 24 ? 0 : hours).padStart(2, '0')
+  const m24 = String(minutes).padStart(2, '0')
+  return `${formatted} (${h24}:${m24})`
+}
+
+function getNextOpeningSummary(schedule?: Record<string, any>, now: Date = new Date()): string | null {
+  if (!schedule || typeof schedule !== 'object') return null
+  const keysByDayIndex = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+  const labelsByDayIndex = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+
+  const parseHHMM = (val: string): number | null => {
+    const m = String(val || '').trim().match(/^(\d{1,2}):(\d{2})$/)
+    if (!m) return null
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+  }
+
+  const { dayOfWeekIndex, hours, minutes } = getEcuadorDate(now)
+  const nowMin = (hours === 24 ? 0 : hours) * 60 + minutes
+
+  for (let offset = 0; offset < 7; offset++) {
+    const idx = (dayOfWeekIndex + offset) % 7
+    const dayCfg = schedule[keysByDayIndex[idx]]
+    if (!dayCfg || dayCfg.isOpen === false || !dayCfg.open) continue
+    const openMin = parseHHMM(dayCfg.open)
+    if (openMin === null) continue
+
+    if (offset === 0) {
+      if (nowMin < openMin) {
+        return `HOY (${labelsByDayIndex[idx]}) a las ${dayCfg.open}${dayCfg.close ? ` hasta las ${dayCfg.close}` : ''}`
+      }
+      continue
+    }
+
+    const prefix = offset === 1 ? `MAÑANA (${labelsByDayIndex[idx]})` : labelsByDayIndex[idx]
+    return `${prefix} a las ${dayCfg.open}${dayCfg.close ? ` hasta las ${dayCfg.close}` : ''}`
+  }
+
+  return null
+}
+
 function formatScheduleSummary(schedule?: Record<string, any>): string {
   if (!schedule || typeof schedule !== 'object') return ''
   const dayNames: Record<string, string> = {
@@ -332,7 +385,9 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
   }
 
   const storeName = String(bizData.name || 'la tienda').trim()
+  const now = new Date()
   const lines: string[] = []
+  lines.push(`Fecha y hora actual (Ecuador): ${formatEcuadorNowContext(now)}`)
   lines.push(`Nombre de la tienda: ${storeName}`)
   if (bizData.category) {
     lines.push(`Categoría: ${String(bizData.category).trim()}`)
@@ -345,6 +400,12 @@ async function buildStoreContext(businessId: string, includeCatalog: boolean): P
   }
   if (storeIsOpenNow !== null) {
     lines.push(`Estado actual: ${storeIsOpenNow ? 'ABIERTA ahora mismo' : 'CERRADA en este momento'}`)
+    if (!storeIsOpenNow) {
+      const nextOpen = getNextOpeningSummary(bizData.schedule, now)
+      if (nextOpen) {
+        lines.push(`Próxima apertura: ${nextOpen}`)
+      }
+    }
   }
   const scheduleStr = formatScheduleSummary(bizData.schedule)
   if (scheduleStr) {
@@ -795,6 +856,7 @@ function buildSystemPrompt(params: {
     '',
     'Reglas importantes:',
     '- Usa ÚNICAMENTE la información real de la tienda, del catálogo y del cliente proporcionada abajo. Nunca inventes precios, productos, promociones, cuentas bancarias ni ubicaciones.',
+    '- Respeta estrictamente la fecha y hora actual de Ecuador indicada abajo. Si la tienda está cerrada y el horario de hoy ya pasó, NUNCA digas "hoy" para agendar ni ofrezcas una hora pasada; usa exactamente la "Próxima apertura" indicada (por ejemplo, mañana).',
     '- Si el cliente pregunta por sus ubicaciones guardadas o quiere un envío, puedes confirmarle las ubicaciones que tiene registradas en su perfil (si aparecen abajo) o pedirle su dirección si no tiene ninguna.',
     '- Si el cliente pregunta por algo que no está en la información o requiere confirmación humana (ej. un reclamo, cambio especial o validar un comprobante de pago), indícale amablemente que un asesor revisará su mensaje enseguida.',
     '- Si el cliente quiere hacer un pedido, ayúdale a elegir productos o compártele el enlace del catálogo web si está disponible.',
