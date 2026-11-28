@@ -933,7 +933,9 @@ export default function ManualOrderSidebar({
           : (draftSelectedLocation || prev.selectedLocation),
       paymentMethod: draft?.paymentMethod || prev.paymentMethod,
       selectedBank: draft?.selectedBank ? normalizeBankName(draft.selectedBank) : prev.selectedBank,
-      paymentStatus: draft?.paymentStatus || prev.paymentStatus,
+      paymentStatus: draft?.receiptImageUrl
+        ? (draft.paymentStatus || 'validating')
+        : (draft?.paymentMethod ? 'pending' : prev.paymentStatus),
       receiptImageUrl: draft?.receiptImageUrl || prev.receiptImageUrl,
       aiValidation: draft?.aiValidation || prev.aiValidation,
       cashAmount: draft?.paymentMethod === 'mixed' && typeof draft.cashAmount === 'number'

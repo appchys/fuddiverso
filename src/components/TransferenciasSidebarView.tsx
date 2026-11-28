@@ -646,6 +646,8 @@ export default function TransferenciasSidebarView({
                                                                         ? 'bg-violet-100 text-violet-800'
                                                                         : order.payment?.paymentStatus === 'rejected'
                                                                         ? 'bg-rose-100 text-rose-800'
+                                                                        : order.payment?.paymentStatus === 'pending' && !order.payment?.receiptImageUrl
+                                                                        ? 'bg-slate-100 text-slate-600'
                                                                         : 'bg-amber-100 text-amber-800'
                                                                 }`}>
                                                                     {order.payment?.paymentStatus === 'pre_validated' && (
@@ -657,6 +659,8 @@ export default function TransferenciasSidebarView({
                                                                         ? 'Pre validado'
                                                                         : order.payment?.paymentStatus === 'rejected'
                                                                         ? 'Rechazado'
+                                                                        : order.payment?.paymentStatus === 'pending' && !order.payment?.receiptImageUrl
+                                                                        ? 'Pendiente'
                                                                         : 'Validando'}
                                                                 </span>
                                                             </div>

@@ -508,6 +508,9 @@ export async function processChatImageReceiptForBusiness(params: {
       'payment.paymentStatus': validation.status,
       'payment.aiValidation': validation,
     }
+    if (o.payment?.method !== 'transfer' && o.payment?.method !== 'mixed') {
+      updatePayload['payment.method'] = 'transfer'
+    }
     if (validation.bankName && !o.payment?.selectedBank) {
       updatePayload['payment.selectedBank'] = validation.bankName
     }

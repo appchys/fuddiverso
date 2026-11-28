@@ -2443,8 +2443,9 @@ export function WhatsAppChatPreorderView({
 
       const paymentPayload: any = {
         method: resolvedMethod,
-        paymentStatus:
-          draft.paymentStatus || (isTransferOrMixed ? 'validating' : 'pending'),
+        paymentStatus: draft.receiptImageUrl
+          ? draft.paymentStatus || 'validating'
+          : 'pending',
         selectedBank,
         ...(draft.receiptImageUrl ? { receiptImageUrl: draft.receiptImageUrl } : {}),
         ...(draft.aiValidation ? { aiValidation: draft.aiValidation } : {}),
