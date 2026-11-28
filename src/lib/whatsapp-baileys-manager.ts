@@ -51,6 +51,8 @@ interface ManagedSession {
   state: BaileysBusinessState
   firestoreUnsub: (() => void) | null
   excludedUnsub: (() => void) | null
+  deliveredOrdersUnsub: (() => void) | null
+  processedDeliveredOrderIds: Set<string>
   excludedPhones: Set<string>
   processedReplyIds: Set<string>
   sentByBridgeMsgIds: Set<string>
@@ -1035,6 +1037,7 @@ class WhatsAppBaileysManager {
       } catch {}
       try {
         s.excludedUnsub?.()
+        s.deliveredOrdersUnsub?.()
       } catch {}
       try {
         s.socket?.ev?.removeAllListeners?.('connection.update')
@@ -1129,6 +1132,8 @@ class WhatsAppBaileysManager {
         },
         firestoreUnsub: null,
         excludedUnsub: null,
+        deliveredOrdersUnsub: null,
+        processedDeliveredOrderIds: new Set(),
         excludedPhones: new Set(),
         processedReplyIds: new Set(),
         sentByBridgeMsgIds: new Set(),
@@ -1523,6 +1528,7 @@ class WhatsAppBaileysManager {
           )
           await this.persistConnectionState(session)
           await this.markAllConversationsDirectReplyReady(businessId, true)
+          this.startDeliveredOrdersWatcher(session)
         }
 
         if (connection === 'close') {
@@ -2357,6 +2363,7 @@ class WhatsAppBaileysManager {
 
     for (const rule of rules) {
       const mode = String(rule.triggerMode || 'always')
+      if (mode === 'order_delivered') continue
       let matchesCondition = false
 
       if (mode === 'always') {
@@ -2426,6 +2433,156 @@ class WhatsAppBaileysManager {
       return true
     }
     return false
+  }
+
+  private startDeliveredOrdersWatcher(session: ManagedSession) {
+    if (session.businessId === ADMIN_WHATSAPP_SESSION_ID) return
+    if (session.deliveredOrdersUnsub) return
+
+    const db = ensureAdminDb()
+    if (!db) return
+
+    const businessId = session.businessId
+    let isInitialSnapshot = true
+
+    try {
+      session.deliveredOrdersUnsub = db
+        .collection('orders')
+        .where('businessId', '==', businessId)
+        .where('status', '==', 'delivered')
+        .onSnapshot(
+          (snap) => {
+            if (isInitialSnapshot) {
+              isInitialSnapshot = false
+              snap.docs.forEach((d) => session.processedDeliveredOrderIds.add(d.id))
+              return
+            }
+
+            for (const change of snap.docChanges()) {
+              if (change.type !== 'added' && change.type !== 'modified') continue
+              const orderId = change.doc.id
+              const data = change.doc.data() || {}
+              if (String(data.status || '') !== 'delivered') continue
+              if (data.ratingRequestSentAt) {
+                session.processedDeliveredOrderIds.add(orderId)
+                continue
+              }
+              if (session.processedDeliveredOrderIds.has(orderId)) continue
+
+              // Evitar enviar a pedidos antiguos si Firestore reconectó el snapshot
+              const updatedMs =
+                typeof data.updatedAt?.toMillis === 'function'
+                  ? data.updatedAt.toMillis()
+                  : typeof data.updatedAt?.seconds === 'number'
+                    ? data.updatedAt.seconds * 1000
+                    : typeof data.statusHistory?.deliveredAt?.toMillis === 'function'
+                      ? data.statusHistory.deliveredAt.toMillis()
+                      : Date.now()
+              if (Date.now() - updatedMs > 2 * 60 * 60 * 1000) {
+                session.processedDeliveredOrderIds.add(orderId)
+                continue
+              }
+
+              session.processedDeliveredOrderIds.add(orderId)
+              void this.handleOrderDeliveredAutoMessage(session, orderId, data)
+            }
+          },
+          (err) => {
+            console.warn(`[Baileys] Error en watcher de pedidos entregados business=${businessId}:`, err?.message || err)
+          }
+        )
+    } catch (err: any) {
+      console.warn(`[Baileys] No se pudo iniciar watcher de pedidos entregados business=${businessId}:`, err?.message || err)
+    }
+  }
+
+  private async handleOrderDeliveredAutoMessage(
+    session: ManagedSession,
+    orderId: string,
+    orderData: Record<string, any>
+  ) {
+    const db = ensureAdminDb()
+    if (!db) return
+
+    try {
+      const rulesSnap = await db
+        .collection('businesses')
+        .doc(session.businessId)
+        .collection('whatsappAutoReplies')
+        .get()
+
+      const rules = rulesSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() || {}) }) as Record<string, any>)
+        .filter(
+          (r) =>
+            r.enabled !== false &&
+            String(r.triggerMode || '') === 'order_delivered' &&
+            String(r.message || '').trim().length > 0
+        )
+
+      if (rules.length === 0) return
+
+      const rawPhone = String(orderData.customer?.phone || '').trim()
+      const normPhone = normalizeEcuadorPhone(rawPhone)
+      if (!normPhone || normPhone.replace(/\D/g, '').length < 9) return
+      if (session.excludedPhones.has(normPhone)) return
+
+      const fullName = String(orderData.customer?.name || '').trim()
+      const firstName =
+        fullName && fullName.replace(/\D/g, '') !== normPhone.replace(/\D/g, '')
+          ? fullName.split(/\s+/)[0]
+          : ''
+      const storeName = String(orderData.businessSnapshot?.name || '').trim()
+      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://fuddi.shop').replace(/\/+$/, '')
+      const orderUrl = `${baseUrl}/o/${encodeURIComponent(orderId)}`
+
+      let anySent = false
+      for (const rule of rules) {
+        let finalText = String(rule.message || '').trim()
+        if (firstName) {
+          finalText = finalText.replace(/\{\{\s*cliente\s*\}\}/gi, firstName)
+        } else {
+          finalText = finalText
+            .replace(/,\s*\{\{\s*cliente\s*\}\}/gi, '')
+            .replace(/\s*\{\{\s*cliente\s*\}\}/gi, '')
+        }
+        finalText = finalText
+          .replace(/\{\{\s*tienda\s*\}\}/gi, storeName || 'nuestra tienda')
+          .replace(/\{\{\s*enlace_orden\s*\}\}/gi, orderUrl)
+
+        if (!finalText.includes(orderUrl) && !/\/o\//.test(finalText)) {
+          finalText = `${finalText}\n${orderUrl}`
+        }
+
+        const res = await this.sendOutgoingMessage(
+          session.businessId,
+          '',
+          normPhone,
+          finalText,
+          `auto_delivered_${rule.id}_${orderId}`
+        )
+        if (res.ok) {
+          anySent = true
+          console.log(
+            `[Baileys] Auto-mensaje de pedido entregado enviado business=${session.businessId} order=${orderId} phone=${normPhone}`
+          )
+        } else {
+          console.warn(
+            `[Baileys] Falló auto-mensaje de pedido entregado business=${session.businessId} order=${orderId}: ${res.error || 'error'}`
+          )
+        }
+      }
+
+      if (anySent) {
+        await db
+          .collection('orders')
+          .doc(orderId)
+          .update({ ratingRequestSentAt: Date.now() })
+          .catch(() => {})
+      }
+    } catch (err) {
+      console.warn(`[Baileys] Error enviando auto-mensaje de pedido entregado order=${orderId}:`, err)
+    }
   }
 
   private async processAiAutoReplyForIncomingMessage(
@@ -3827,6 +3984,7 @@ export function getWhatsAppBaileysManager(): WhatsAppBaileysManager {
             } catch {}
             try {
               s.excludedUnsub?.()
+        s.deliveredOrdersUnsub?.()
             } catch {}
             try {
               s.socket?.ev?.removeAllListeners?.('connection.update')

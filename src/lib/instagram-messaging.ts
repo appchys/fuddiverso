@@ -260,6 +260,7 @@ async function processAutoRepliesForInstagramMessage(
 
   for (const rule of rules) {
     const mode = String(rule.triggerMode || 'always')
+    if (mode === 'order_delivered') continue
     let matchesCondition = false
     if (mode === 'always') matchesCondition = true
     else if (mode === 'store_open') matchesCondition = storeIsOpenCached === true

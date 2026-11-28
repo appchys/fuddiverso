@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 
-export type AutoReplyTriggerMode = 'always' | 'store_open' | 'store_closed' | 'schedule'
+export type AutoReplyTriggerMode = 'always' | 'store_open' | 'store_closed' | 'schedule' | 'order_delivered'
 
 export interface WhatsAppAutoReplyRule {
   id: string
@@ -84,10 +84,21 @@ const TRIGGER_MODES: Array<{
     desc: 'Elige días y rango de horas personalizado',
     icon: 'bi-clock-history',
   },
+  {
+    value: 'order_delivered',
+    label: 'Pedido entregado',
+    desc: 'Se envía al instante al marcar un pedido como Entregado (con enlace para calificar)',
+    icon: 'bi-star-fill',
+  },
 ]
+
+const DEFAULT_DELIVERED_RATING_MESSAGE =
+  '¡Gracias por tu pedido, {{cliente}}! 🙌\nEsperamos que lo disfrutes mucho. ¿Nos ayudas calificando tu orden aquí? ⭐\n{{enlace_orden}}'
 
 function formatTriggerSummary(rule: WhatsAppAutoReplyRule): string {
   switch (rule.triggerMode) {
+    case 'order_delivered':
+      return 'Al marcar pedido como Entregado'
     case 'store_open':
       return 'Cuando la tienda está abierta'
     case 'store_closed':
@@ -153,7 +164,7 @@ export function WhatsAppAutoRepliesModal({
             name: String(data.name || 'Mensaje automático'),
             message: String(data.message || ''),
             enabled: data.enabled !== false,
-            triggerMode: (['always', 'store_open', 'store_closed', 'schedule'].includes(data.triggerMode)
+            triggerMode: (['always', 'store_open', 'store_closed', 'schedule', 'order_delivered'].includes(data.triggerMode)
               ? data.triggerMode
               : 'always') as AutoReplyTriggerMode,
             daysOfWeek: Array.isArray(data.daysOfWeek) ? data.daysOfWeek : [0, 1, 2, 3, 4, 5, 6],
@@ -378,6 +389,32 @@ export function WhatsAppAutoRepliesModal({
                   placeholder="Escribe el mensaje que se enviará automáticamente al cliente..."
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none"
                 />
+                {triggerMode === 'order_delivered' && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-medium text-slate-500">Insertar:</span>
+                    {[
+                      { token: '{{cliente}}', label: 'Nombre cliente' },
+                      { token: '{{enlace_orden}}', label: 'Enlace para calificar' },
+                      { token: '{{tienda}}', label: 'Nombre tienda' },
+                    ].map((v) => (
+                      <button
+                        key={v.token}
+                        type="button"
+                        onClick={() =>
+                          setMessage((prev) =>
+                            prev ? `${prev}${prev.endsWith(' ') || prev.endsWith('\n') ? '' : ' '}${v.token}` : v.token
+                          )
+                        }
+                        className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-bold transition-colors cursor-pointer"
+                      >
+                        + {v.label}
+                      </button>
+                    ))}
+                    <p className="w-full text-[11px] text-slate-500 leading-snug">
+                      Si no incluyes <code className="font-mono text-slate-700">{'{{enlace_orden}}'}</code>, el enlace para calificar la orden se agregará automáticamente al final.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -391,7 +428,13 @@ export function WhatsAppAutoRepliesModal({
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => setTriggerMode(opt.value)}
+                        onClick={() => {
+                          setTriggerMode(opt.value)
+                          if (opt.value === 'order_delivered') {
+                            if (!name.trim()) setName('Calificar pedido entregado')
+                            if (!message.trim()) setMessage(DEFAULT_DELIVERED_RATING_MESSAGE)
+                          }
+                        }}
                         className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
                           active
                             ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-400'
@@ -467,30 +510,32 @@ export function WhatsAppAutoRepliesModal({
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Frecuencia por cliente (evita repetir el mismo mensaje)
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {COOLDOWN_OPTIONS.map((opt) => {
-                    const active = cooldownHours === opt.hours
-                    return (
-                      <button
-                        key={opt.hours}
-                        type="button"
-                        onClick={() => setCooldownHours(opt.hours)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
-                          active
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    )
-                  })}
+              {triggerMode !== 'order_delivered' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Frecuencia por cliente (evita repetir el mismo mensaje)
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {COOLDOWN_OPTIONS.map((opt) => {
+                      const active = cooldownHours === opt.hours
+                      return (
+                        <button
+                          key={opt.hours}
+                          type="button"
+                          onClick={() => setCooldownHours(opt.hours)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-slate-900 text-white border-slate-900'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                 <label className="inline-flex items-center gap-2 cursor-pointer select-none">
@@ -566,7 +611,9 @@ export function WhatsAppAutoRepliesModal({
                         </span>
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            rule.triggerMode === 'store_open'
+                            rule.triggerMode === 'order_delivered'
+                              ? 'bg-amber-50 text-amber-800 border-amber-300'
+                              : rule.triggerMode === 'store_open'
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : rule.triggerMode === 'store_closed'
                               ? 'bg-amber-50 text-amber-800 border-amber-200'
@@ -578,7 +625,9 @@ export function WhatsAppAutoRepliesModal({
                           {formatTriggerSummary(rule)}
                         </span>
                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                          {formatCooldown(rule.cooldownHours)}
+                          {rule.triggerMode === 'order_delivered'
+                            ? '1 vez por pedido'
+                            : formatCooldown(rule.cooldownHours)}
                         </span>
                       </div>
                       <p className="text-xs font-medium text-gray-600 mt-1.5 whitespace-pre-line leading-relaxed line-clamp-3">
