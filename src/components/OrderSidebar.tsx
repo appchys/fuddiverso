@@ -84,12 +84,28 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
   const fetchedBusinessIdRef = useRef<string | null>(null)
   const fetchedDeliveryIdRef = useRef<string | null>(null)
   const ratingCheckedRef = useRef<boolean>(false)
+  const autoSelectedDeliveredTabRef = useRef<boolean>(false)
 
   useEffect(() => {
     fetchedBusinessIdRef.current = null
     fetchedDeliveryIdRef.current = null
     ratingCheckedRef.current = false
+    autoSelectedDeliveredTabRef.current = false
+    setActiveTab('tracking')
   }, [orderId])
+
+  // Si el pedido ya fue entregado, abrir directamente en la pestaña Opiniones
+  useEffect(() => {
+    if (!isOpen) {
+      autoSelectedDeliveredTabRef.current = false
+      return
+    }
+    if (!order || autoSelectedDeliveredTabRef.current) return
+    if (order.status === 'delivered') {
+      autoSelectedDeliveredTabRef.current = true
+      setActiveTab('rate')
+    }
+  }, [isOpen, order?.id, order?.status])
 
   // Estado para Firebase Auth (dueños/administradores del dashboard)
   const [fbUser, setFbUser] = useState<any>(null)
