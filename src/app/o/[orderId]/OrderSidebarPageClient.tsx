@@ -6,12 +6,15 @@ import OrderSidebar from '@/components/OrderSidebar'
 
 type Props = {
   orderId: string
+  initialOrder?: any | null
 }
 
-export default function OrderSidebarPageClient({ orderId }: Props) {
+export default function OrderSidebarPageClient({ orderId, initialOrder }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(true)
-  const [businessSlug, setBusinessSlug] = useState<string | null>(null)
+  const [businessSlug, setBusinessSlug] = useState<string | null>(
+    initialOrder?.businessSnapshot?.username || initialOrder?.businessId || null
+  )
 
   const handleClose = useCallback(() => {
     setOpen(false)
@@ -28,6 +31,7 @@ export default function OrderSidebarPageClient({ orderId }: Props) {
         isOpen={open}
         onClose={handleClose}
         orderId={orderId}
+        initialOrder={initialOrder}
         onBusinessSlug={setBusinessSlug}
       />
     </main>

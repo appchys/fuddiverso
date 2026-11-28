@@ -46,7 +46,30 @@ interface OrderSidebarProps {
   isOpen: boolean
   onClose: () => void
   orderId: string | null
+  initialOrder?: any | null
   onBusinessSlug?: (slug: string) => void
+}
+
+function buildBusinessFromOrderSnapshot(orderData: any): any | null {
+  const snap = orderData?.businessSnapshot
+  if (!snap) return null
+  return {
+    id: snap.id || orderData.businessId,
+    name: snap.name,
+    phone: snap.phone,
+    image: snap.logo || snap.image,
+    address: snap.address,
+    username: snap.username,
+    references: snap.references,
+    storePhotoUrl: snap.storePhotoUrl,
+    pickupSettings: snap.pickupSettings,
+    ...(snap.latlong ? {
+      mapLocation: {
+        lat: parseFloat(String(snap.latlong).split(',')[0]),
+        lng: parseFloat(String(snap.latlong).split(',')[1])
+      }
+    } : {})
+  }
 }
 
 const STATUS_STEPS = [
@@ -59,23 +82,28 @@ const STATUS_STEPS = [
   { status: 'cancelled', label: 'Cancelado', desc: 'El pedido fue cancelado.', icon: 'bi-x-circle' }
 ]
 
-export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug }: OrderSidebarProps) {
+export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, onBusinessSlug }: OrderSidebarProps) {
   const { user: clientUser } = useAuth()
   const pathname = usePathname()
   const isOrderPage = pathname?.startsWith('/o/')
+  const matchedInitialOrder = initialOrder && (!orderId || initialOrder.id === orderId) ? initialOrder : null
   
-  // Estados principales de datos
-  const [order, setOrder] = useState<any | null>(null)
-  const [business, setBusiness] = useState<any | null>(null)
-  const [deliveryPerson, setDeliveryPerson] = useState<any | null>(null)
+  // Estados principales de datos (precargados instantáneamente si viene initialOrder del servidor)
+  const [order, setOrder] = useState<any | null>(matchedInitialOrder)
+  const [business, setBusiness] = useState<any | null>(() => buildBusinessFromOrderSnapshot(matchedInitialOrder))
+  const [deliveryPerson, setDeliveryPerson] = useState<any | null>(
+    matchedInitialOrder?.delivery?.assignedDeliveryData || null
+  )
   const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!matchedInitialOrder)
   const [error, setError] = useState<string | null>(null)
   
   // Estados de UI
-  const [activeTab, setActiveTab] = useState<'tracking' | 'gestion' | 'rate'>('tracking')
+  const [activeTab, setActiveTab] = useState<'tracking' | 'gestion' | 'rate'>(
+    matchedInitialOrder?.status === 'delivered' ? 'rate' : 'tracking'
+  )
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [estimatedArrival, setEstimatedArrival] = useState<number | null>(null)
   const [showReceiptModal, setShowReceiptModal] = useState(false)
@@ -84,15 +112,25 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
   const fetchedBusinessIdRef = useRef<string | null>(null)
   const fetchedDeliveryIdRef = useRef<string | null>(null)
   const ratingCheckedRef = useRef<boolean>(false)
-  const autoSelectedDeliveredTabRef = useRef<boolean>(false)
+  const autoSelectedDeliveredTabRef = useRef<boolean>(matchedInitialOrder?.status === 'delivered')
+  const prevOrderIdRef = useRef<string | null>(orderId)
 
   useEffect(() => {
+    if (prevOrderIdRef.current === orderId) return
+    prevOrderIdRef.current = orderId
     fetchedBusinessIdRef.current = null
     fetchedDeliveryIdRef.current = null
     ratingCheckedRef.current = false
-    autoSelectedDeliveredTabRef.current = false
-    setActiveTab('tracking')
-  }, [orderId])
+    const nextInit = initialOrder && initialOrder.id === orderId ? initialOrder : null
+    autoSelectedDeliveredTabRef.current = nextInit?.status === 'delivered'
+    setActiveTab(nextInit?.status === 'delivered' ? 'rate' : 'tracking')
+    if (nextInit) {
+      setOrder(nextInit)
+      setBusiness(buildBusinessFromOrderSnapshot(nextInit))
+      setDeliveryPerson(nextInit.delivery?.assignedDeliveryData || null)
+      setLoading(false)
+    }
+  }, [orderId, initialOrder])
 
   // Si el pedido ya fue entregado, abrir directamente en la pestaña Opiniones
   useEffect(() => {
@@ -190,25 +228,6 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
       setActiveTab('tracking')
     }
   }, [activeTab, isStoreAdmin, loading])
-
-  // Console.log de diagnóstico para verificar el reconocimiento del negocio
-  useEffect(() => {
-    if (order) {
-      console.log('[OrderSidebar Admin Check]', {
-        orderId: order.id,
-        orderBusinessId: order.businessId,
-        savedBusinessId: typeof window !== 'undefined' ? localStorage.getItem('businessId') : null,
-        savedOwnerId: typeof window !== 'undefined' ? localStorage.getItem('ownerId') : null,
-        fbUserUid: (fbUser || auth.currentUser)?.uid,
-        fbUserEmail: (fbUser || auth.currentUser)?.email,
-        clientUserId: clientUser?.id,
-        clientUserRole: (clientUser as any)?.role,
-        businessOwnerId: business?.ownerId,
-        businessAdmins: business?.administrators,
-        isStoreAdminResult: isStoreAdmin
-      })
-    }
-  }, [order, business, clientUser, fbUser, isStoreAdmin])
 
   const handleDeliveryAssign = async (targetOrderId: string, deliveryId: string) => {
     try {
@@ -314,7 +333,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
 
     setLoadingComments(true)
     const ratingsRef = collection(db, 'businesses', targetBusinessId, 'ratings')
-    const q = query(ratingsRef, orderBy('createdAt', 'desc'), limit(60))
+    const q = query(ratingsRef, orderBy('createdAt', 'desc'), limit(20))
 
     const processRatingsDocs = (docs: any[]) => {
       const cList: DisplayComment[] = []
@@ -396,7 +415,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
       },
       (error) => {
         console.error('Error al escuchar comentarios:', error)
-        getBusinessRatings(targetBusinessId, 60)
+        getBusinessRatings(targetBusinessId, 20)
           .then((ratings) => {
             processRatingsDocs(ratings)
           })
@@ -683,7 +702,9 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
     let unsubscribe: (() => void) | null = null
 
     const setupOrderListener = async () => {
-      setLoading(true)
+      if (!order || order.id !== orderId) {
+        setLoading(true)
+      }
       setError(null)
       try {
         const orderRef = doc(db, 'orders', orderId)
@@ -700,24 +721,10 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
             setOrder(orderData)
 
             // Renderizado instantáneo de negocio si existe snapshot en la orden
-            if (orderData.businessSnapshot) {
-              const snap = orderData.businessSnapshot
+            const snapBiz = buildBusinessFromOrderSnapshot(orderData)
+            if (snapBiz) {
               setBusiness((prev: any) => ({
-                id: snap.id || orderData.businessId,
-                name: snap.name,
-                phone: snap.phone,
-                image: snap.logo || snap.image,
-                address: snap.address,
-                username: snap.username,
-                references: snap.references,
-                storePhotoUrl: snap.storePhotoUrl,
-                pickupSettings: snap.pickupSettings,
-                ...(snap.latlong ? {
-                  mapLocation: {
-                    lat: parseFloat(snap.latlong.split(',')[0]),
-                    lng: parseFloat(snap.latlong.split(',')[1])
-                  }
-                } : {}),
+                ...snapBiz,
                 ...prev
               }))
             }
@@ -728,7 +735,8 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
               onBusinessSlug(resolvedSlug)
             }
 
-            // Renderizado instantáneo de calificación si ya existe en la orden
+            // Renderizado instantáneo de calificación si ya existe en la orden;
+            // solo consultar colección externa si la orden ya está entregada y aún no se revisó
             if (orderData.rating) {
               setExistingRating({
                 id: 'embedded',
@@ -738,8 +746,11 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
                 comment: orderData.rating.comment,
                 createdAt: orderData.rating.createdAt
               } as any)
-            } else if (orderData.businessId && !ratingCheckedRef.current) {
-              // Buscar calificación externa a lo sumo 1 sola vez por ciclo de vida
+            } else if (
+              orderData.status === 'delivered' &&
+              orderData.businessId &&
+              !ratingCheckedRef.current
+            ) {
               ratingCheckedRef.current = true
               getOrderRating(orderData.businessId, orderId)
                 .then(ratingData => {
@@ -750,11 +761,11 @@ export default function OrderSidebar({ isOpen, onClose, orderId, onBusinessSlug 
                 .catch(err => console.error('Error buscando calificación:', err))
             }
 
-            // Cargar información completa del negocio solo si es estrictamente necesario:
-            // 1) Si no vino businessSnapshot embebido, O
-            // 2) Si hay una sesión activa de administrador que requiere validar ownerId/administrators
-            const hasPotentialAdminSession = Boolean(fbUser || auth.currentUser || (localBizAuth.businessId && localBizAuth.businessId === orderData.businessId))
-            const shouldFetchFullBusiness = !orderData.businessSnapshot || hasPotentialAdminSession
+            // Cargar información completa del negocio SOLO si falta businessSnapshot o si hay sesión de dashboard de esta tienda
+            const hasStoreDashboardSession = Boolean(
+              localBizAuth.businessId && localBizAuth.businessId === orderData.businessId
+            )
+            const shouldFetchFullBusiness = !orderData.businessSnapshot?.name || hasStoreDashboardSession
 
             if (shouldFetchFullBusiness && orderData.businessId && fetchedBusinessIdRef.current !== orderData.businessId) {
               fetchedBusinessIdRef.current = orderData.businessId
