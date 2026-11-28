@@ -3,9 +3,11 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { db, auth } from '@/lib/firebase'
+import { db, auth, storage } from '@/lib/firebase'
 import { onAuthStateChanged } from 'firebase/auth'
 import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit } from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { optimizeImage } from '@/lib/image-utils'
 import {
   getBusiness,
   getDelivery,
@@ -23,7 +25,7 @@ import {
   toggleRatingLike,
   addStoreRatingReply
 } from '@/lib/database'
-import { Heart, MessageSquare, ArrowUp, Package, Store, Star } from 'lucide-react'
+import { Heart, MessageSquare, ArrowUp, Package, Store, Star, Camera, X } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/date-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatPrice } from '@/lib/price-utils'
@@ -297,7 +299,10 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
   const [generalRating, setGeneralRating] = useState<number>(0)
   const [generalHover, setGeneralHover] = useState<number>(0)
   const [generalComment, setGeneralComment] = useState<string>('')
+  const [storeRatingImageFile, setStoreRatingImageFile] = useState<File | null>(null)
+  const [storeRatingImagePreview, setStoreRatingImagePreview] = useState<string | null>(null)
   const [productRatings, setProductRatings] = useState<{ [productId: string]: { rating: number; hover: number; comment: string } }>({})
+  const [productRatingImages, setProductRatingImages] = useState<{ [productId: string]: { file: File; preview: string } }>({})
   const [isSubmittingStoreRating, setIsSubmittingStoreRating] = useState(false)
   const [submittingProducts, setSubmittingProducts] = useState<{ [productId: string]: boolean }>({})
   interface DisplayComment {
@@ -324,7 +329,9 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
   const [replyInputText, setReplyInputText] = useState<{ [cardId: string]: string }>({})
   const [isSendingReply, setIsSendingReply] = useState<{ [cardId: string]: boolean }>({})
   const storeCommentTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const storeFileInputRef = useRef<HTMLInputElement>(null)
   const productCommentTextareaRefs = useRef<{ [productId: string]: HTMLTextAreaElement | null }>({})
+  const productFileInputRefs = useRef<{ [productId: string]: HTMLInputElement | null }>({})
 
   // Escuchar comentarios recibidos por la tienda y productos en tiempo real (feed unificado)
   useEffect(() => {
@@ -960,12 +967,26 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
         email: order.customer?.email || ''
       }
 
-      if (existingRating?.id) {
+      let finalImageUrl = ''
+      if (storeRatingImageFile) {
+        try {
+          const optimizedBlob = await optimizeImage(storeRatingImageFile, 1200, 0.8, 'image/jpeg')
+          const storagePath = `ratings/${business.id}/${Date.now()}_store.jpg`
+          const storageRef = ref(storage, storagePath)
+          const snapshot = await uploadBytes(storageRef, optimizedBlob)
+          finalImageUrl = await getDownloadURL(snapshot.ref)
+        } catch (imgErr) {
+          console.error('Error subiendo foto de opinión de tienda:', imgErr)
+        }
+      }
+
+      if (existingRating?.id && existingRating.id !== 'embedded') {
         // Si ya existe un documento de rating en Firestore, lo actualizamos
         const docRef = doc(db, 'businesses', business.id, 'ratings', existingRating.id)
         await updateDoc(docRef, {
           rating: generalRating,
           comment: generalComment,
+          ...(finalImageUrl ? { image: finalImageUrl } : {}),
           storeRated: true,
           updatedAt: new Date()
         })
@@ -976,6 +997,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
             ...prev,
             rating: generalRating,
             comment: generalComment,
+            ...(finalImageUrl ? { image: finalImageUrl } : {}),
             storeRated: true,
             updatedAt: new Date()
           }
@@ -991,10 +1013,11 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
           []
         )
 
-        // Marcar que este documento en Firestore también lleva el flag storeRated
+        // Marcar que este documento en Firestore también lleva el flag storeRated y la imagen si se subió
         const docRef = doc(db, 'businesses', business.id, 'ratings', ratingsRef)
         await updateDoc(docRef, {
-          storeRated: true
+          storeRated: true,
+          ...(finalImageUrl ? { image: finalImageUrl } : {})
         })
 
         setExistingRating({
@@ -1003,6 +1026,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
           orderId: orderId!,
           rating: generalRating,
           comment: generalComment,
+          ...(finalImageUrl ? { image: finalImageUrl } : {}),
           storeRated: true,
           clientName: clientInfo.name,
           clientPhone: clientInfo.phone,
@@ -1011,6 +1035,10 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
           updatedAt: new Date()
         })
       }
+
+      setStoreRatingImageFile(null)
+      setStoreRatingImagePreview(null)
+      if (storeFileInputRef.current) storeFileInputRef.current.value = ''
 
       // Crear notificación para el negocio
       await createRatingNotification(
@@ -1045,15 +1073,31 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
         email: order.customer?.email || ''
       }
 
+      const targetBusinessId = item.originalBusinessId || business.id
+
+      let finalProductImageUrl = ''
+      const pendingProdImg = productRatingImages[productId]
+      if (pendingProdImg?.file) {
+        try {
+          const optimizedBlob = await optimizeImage(pendingProdImg.file, 1200, 0.8, 'image/jpeg')
+          const storagePath = `ratings/${targetBusinessId}/${Date.now()}_prod_${productId}.jpg`
+          const storageRef = ref(storage, storagePath)
+          const snapshot = await uploadBytes(storageRef, optimizedBlob)
+          finalProductImageUrl = await getDownloadURL(snapshot.ref)
+        } catch (imgErr) {
+          console.error('Error subiendo foto de opinión de producto:', imgErr)
+        }
+      }
+
       const newProductRating: ProductRating = {
         productId,
         productName: item.variant || item.name || 'Producto',
         productImage: getItemImage(item),
         rating: itemRating.rating,
-        comment: itemRating.comment
+        comment: itemRating.comment,
+        ...(finalProductImageUrl ? { image: finalProductImageUrl } : {})
       }
 
-      const targetBusinessId = item.originalBusinessId || business.id
       let targetRatingId = null
       let targetProductRatings: ProductRating[] = []
 
@@ -1136,6 +1180,15 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
         clientInfo.name,
         clientInfo.phone
       )
+
+      setProductRatingImages(prev => {
+        const next = { ...prev }
+        delete next[productId]
+        return next
+      })
+      if (productFileInputRefs.current[productId]) {
+        productFileInputRefs.current[productId]!.value = ''
+      }
 
       alert('¡Calificación de producto guardada! 👍')
     } catch (e) {
@@ -1963,6 +2016,14 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
                               {existingRating.comment}
                             </p>
                           )}
+                          {existingRating.image && (
+                            <img
+                              src={existingRating.image}
+                              alt="Foto de opinión"
+                              onClick={() => setViewingPhotoModalUrl(existingRating.image!)}
+                              className="w-20 h-20 object-cover rounded-xl border border-gray-100 shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                            />
+                          )}
                         </div>
                       ) : (
                         <div className="bg-white border border-gray-100 rounded-2xl p-3.5 shadow-sm space-y-3">
@@ -2021,21 +2082,66 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
                                 rows={2}
                                 className="w-full bg-gray-50 border border-gray-200/80 rounded-2xl px-3.5 py-2 text-xs text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 font-medium transition-all resize-none"
                               />
-                              <button
-                                type="button"
-                                onClick={handleSaveStoreRating}
-                                disabled={isSubmittingStoreRating}
-                                className="w-full rounded-2xl bg-gray-900 hover:bg-black text-white font-black text-xs py-2.5 px-4 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-                              >
-                                {isSubmittingStoreRating ? (
-                                  <>
-                                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                    <span>Publicando...</span>
-                                  </>
-                                ) : (
-                                  <span>Publicar opinión</span>
-                                )}
-                              </button>
+                              {storeRatingImagePreview && (
+                                <div className="relative inline-block">
+                                  <img
+                                    src={storeRatingImagePreview}
+                                    alt="Vista previa"
+                                    className="w-16 h-16 object-cover rounded-xl border border-gray-200 shadow-sm"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setStoreRatingImageFile(null)
+                                      setStoreRatingImagePreview(null)
+                                      if (storeFileInputRef.current) storeFileInputRef.current.value = ''
+                                    }}
+                                    className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:bg-red-600 transition-colors"
+                                    title="Quitar foto"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="file"
+                                  ref={storeFileInputRef}
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0]
+                                    if (file && file.type.startsWith('image/')) {
+                                      setStoreRatingImageFile(file)
+                                      setStoreRatingImagePreview(URL.createObjectURL(file))
+                                    }
+                                  }}
+                                  className="hidden"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => storeFileInputRef.current?.click()}
+                                  className="px-3 py-2.5 rounded-2xl border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold text-xs flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+                                  title="Adjuntar foto"
+                                >
+                                  <Camera size={14} />
+                                  <span>{storeRatingImagePreview ? 'Cambiar' : 'Foto'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleSaveStoreRating}
+                                  disabled={isSubmittingStoreRating}
+                                  className="flex-1 rounded-2xl bg-gray-900 hover:bg-black text-white font-black text-xs py-2.5 px-4 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                >
+                                  {isSubmittingStoreRating ? (
+                                    <>
+                                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                      <span>Publicando...</span>
+                                    </>
+                                  ) : (
+                                    <span>Publicar opinión</span>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -2105,6 +2211,14 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
                                   <p className="text-xs text-gray-600 font-medium leading-relaxed pt-1.5 border-t border-gray-50">
                                     {existingProductRating.comment}
                                   </p>
+                                )}
+                                {existingProductRating.image && (
+                                  <img
+                                    src={existingProductRating.image}
+                                    alt="Foto de opinión"
+                                    onClick={() => setViewingPhotoModalUrl(existingProductRating.image!)}
+                                    className="w-20 h-20 object-cover rounded-xl border border-gray-100 shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                                  />
                                 )}
                               </div>
                             )
@@ -2188,21 +2302,75 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
                                     rows={2}
                                     className="w-full bg-gray-50 border border-gray-200/80 rounded-2xl px-3.5 py-2 text-xs text-gray-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 font-medium transition-all resize-none"
                                   />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSaveProductRating(pId, item)}
-                                    disabled={submittingProducts[pId]}
-                                    className="w-full rounded-2xl bg-gray-900 hover:bg-black text-white font-black text-xs py-2.5 px-4 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-                                  >
-                                    {submittingProducts[pId] ? (
-                                      <>
-                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                        <span>Publicando...</span>
-                                      </>
-                                    ) : (
-                                      <span>Publicar opinión</span>
-                                    )}
-                                  </button>
+                                  {productRatingImages[pId]?.preview && (
+                                    <div className="relative inline-block">
+                                      <img
+                                        src={productRatingImages[pId].preview}
+                                        alt="Vista previa"
+                                        className="w-16 h-16 object-cover rounded-xl border border-gray-200 shadow-sm"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setProductRatingImages(prev => {
+                                            const next = { ...prev }
+                                            delete next[pId]
+                                            return next
+                                          })
+                                          if (productFileInputRefs.current[pId]) {
+                                            productFileInputRefs.current[pId]!.value = ''
+                                          }
+                                        }}
+                                        className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:bg-red-600 transition-colors"
+                                        title="Quitar foto"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="file"
+                                      ref={(el) => {
+                                        productFileInputRefs.current[pId] = el
+                                      }}
+                                      accept="image/*"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0]
+                                        if (file && file.type.startsWith('image/')) {
+                                          setProductRatingImages(prev => ({
+                                            ...prev,
+                                            [pId]: { file, preview: URL.createObjectURL(file) }
+                                          }))
+                                        }
+                                      }}
+                                      className="hidden"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => productFileInputRefs.current[pId]?.click()}
+                                      className="px-3 py-2.5 rounded-2xl border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold text-xs flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+                                      title="Adjuntar foto"
+                                    >
+                                      <Camera size={14} />
+                                      <span>{productRatingImages[pId]?.preview ? 'Cambiar' : 'Foto'}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveProductRating(pId, item)}
+                                      disabled={submittingProducts[pId]}
+                                      className="flex-1 rounded-2xl bg-gray-900 hover:bg-black text-white font-black text-xs py-2.5 px-4 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                    >
+                                      {submittingProducts[pId] ? (
+                                        <>
+                                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                          <span>Publicando...</span>
+                                        </>
+                                      ) : (
+                                        <span>Publicar opinión</span>
+                                      )}
+                                    </button>
+                                  </div>
                                 </div>
                               )}
                             </div>
