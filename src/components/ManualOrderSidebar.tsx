@@ -885,24 +885,37 @@ export default function ManualOrderSidebar({
 
     const draftProducts: OrderItem[] | null =
       draft?.items && draft.items.length > 0
-        ? draft.items.map(item => ({
-            productId: item.productId,
-            name: item.name,
-            productName: item.productName || item.name,
-            variant: item.variant,
-            variantName: item.variantName,
-            price: item.price,
-            quantity: item.quantity,
-            image: item.image,
-            basePrice: item.basePrice,
-            commission: item.commission,
-            commissionType: item.commissionType,
-            storeReceives: item.storeReceives,
-            ingredients: item.ingredients,
-            originalBusinessId: effectiveBusinessId || undefined,
-            originalBusinessName: effectiveBusiness?.name || undefined,
-            originalBusinessImage: effectiveBusiness?.image || null
-          }))
+        ? draft.items.map(item => {
+            const variantLabel = (item.variantName || item.variant || '').trim()
+            let cleanBaseName = (item.productName || item.name || 'Producto').trim()
+            if (variantLabel) {
+              const dashSuffix = ` - ${variantLabel}`
+              const parenSuffix = ` (${variantLabel})`
+              if (cleanBaseName.toLowerCase().endsWith(dashSuffix.toLowerCase())) {
+                cleanBaseName = cleanBaseName.slice(0, -dashSuffix.length).trim()
+              } else if (cleanBaseName.toLowerCase().endsWith(parenSuffix.toLowerCase())) {
+                cleanBaseName = cleanBaseName.slice(0, -parenSuffix.length).trim()
+              }
+            }
+            return {
+              productId: item.productId,
+              name: cleanBaseName,
+              productName: cleanBaseName,
+              variant: variantLabel,
+              variantName: variantLabel,
+              price: item.price,
+              quantity: item.quantity,
+              image: item.image,
+              basePrice: item.basePrice,
+              commission: item.commission,
+              commissionType: item.commissionType,
+              storeReceives: item.storeReceives,
+              ingredients: item.ingredients,
+              originalBusinessId: effectiveBusinessId || undefined,
+              originalBusinessName: effectiveBusiness?.name || undefined,
+              originalBusinessImage: effectiveBusiness?.image || null
+            }
+          })
         : null
 
     setManualOrderData(prev => ({

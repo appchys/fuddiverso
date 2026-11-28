@@ -1,11 +1,11 @@
 'use client'
 
 import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
-import { collection, doc, getDoc, updateDoc, addDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { collection, doc, getDoc, updateDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore'
 import { auth, db } from '@/lib/firebase'
 import type { Business, Product } from '@/types'
 import type { PendingWhatsAppConversation } from '@/components/WhatsAppPendingModal'
-import { searchClientByPhone, getClientLocations, createClient, createClientLocation, generateProductSlug, getDeliveryDetailsForLocation, type ClientLocation } from '@/lib/database'
+import { searchClientByPhone, getClientLocations, createClient, createClientLocation, createOrder, generateProductSlug, getDeliveryDetailsForLocation, type ClientLocation } from '@/lib/database'
 import { ClientLocationsModal } from '@/components/ClientLocationsModal'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { getDistanceMeters, parseLatLong } from '@/lib/location-utils'
@@ -2066,6 +2066,447 @@ export function WhatsAppChatPreorderView({
         }
       : {}),
   })
+
+  const handleCreateQuickOrder = async () => {
+    if (creatingQuickOrder || !businessId) return
+    const draft = buildDraft()
+    const rawItems = draft.items ?? []
+    if (rawItems.length === 0) return
+
+    setCreatingQuickOrder(true)
+    try {
+      // 1. Resolver cliente registrado (nombre real + id + teléfono)
+      const candidatePhone = (
+        resolvedProfile?.clientPhone ||
+        conversation.phone ||
+        conversation.rawPhone ||
+        cleanPhone ||
+        ''
+      ).trim()
+      let customerId = extractClientIdString(resolvedProfile?.clientId) || extractClientIdString(conversation.fuddiClientId)
+      let customerName = (resolvedProfile?.clientName || conversation.fuddiClientName || '').trim()
+      let customerPhone = candidatePhone
+      let customerTelegramChatId = ''
+
+      if ((!customerId || !customerName) && candidatePhone.replace(/\D/g, '').length >= 9) {
+        try {
+          const found = await searchClientByPhone(candidatePhone)
+          if (found) {
+            customerId = found.id || customerId
+            customerName = (found.nombres || '').trim() || customerName
+            customerPhone = (found.celular || '').trim() || customerPhone
+            customerTelegramChatId = ((found as any).telegramChatId || '').trim()
+            if (!resolvedProfile?.isRegistered) {
+              const foundLocations = await getClientLocations(found.id).catch(() => resolvedProfile?.locations || [])
+              setResolvedProfile({
+                clientId: found.id,
+                clientName: (found.nombres || '').trim() || undefined,
+                clientPhone: (found.celular || '').trim() || undefined,
+                clientEmail: (found.email || '').trim() || undefined,
+                clientNotes: (found.notas || '').trim() || undefined,
+                isRegistered: true,
+                locations: foundLocations,
+              })
+            }
+          }
+        } catch (err) {
+          console.warn('[WhatsAppChatPreorder] No se pudo buscar cliente por teléfono:', err)
+        }
+      }
+
+      const finalCustomerName =
+        customerName ||
+        cleanWhatsAppDisplayName(
+          [conversation.fuddiClientName, conversation.effectiveName, conversation.displayName],
+          customerPhone
+        ) ||
+        customerPhone ||
+        'Cliente'
+      const finalCustomerPhone = customerPhone || cleanPhone || ''
+
+      // 2. Normalizar productos igual que ManualOrderSidebar (name/productName separados de variant/variantName)
+      const normalizedItems = rawItems.map((it) => {
+        const catalogProduct = products.find((p) => p.id === it.productId)
+        let variantStr = (it.variantName || it.variant || '').trim()
+        let baseName = (catalogProduct?.name || it.productName || it.name || 'Producto').trim()
+
+        // Si el texto tiene variante pegada al final ("Producto - Variante" o "Producto (Variante)"), separarla
+        if (variantStr) {
+          const dashSuffix = ` - ${variantStr}`
+          const parenSuffix = ` (${variantStr})`
+          if (baseName.toLowerCase().endsWith(dashSuffix.toLowerCase())) {
+            baseName = baseName.slice(0, -dashSuffix.length).trim()
+          } else if (baseName.toLowerCase().endsWith(parenSuffix.toLowerCase())) {
+            baseName = baseName.slice(0, -parenSuffix.length).trim()
+          }
+        } else if (catalogProduct?.variants && catalogProduct.variants.length > 0) {
+          const parenMatch = baseName.match(/^(.+?)\s*\(([^()]+)\)$/)
+          const dashMatch = !parenMatch ? baseName.match(/^(.+?)\s*-\s*([^-]+)$/) : null
+          const matched = parenMatch || dashMatch
+          if (matched) {
+            const candidateVar = matched[2].trim()
+            const existsInCatalog = catalogProduct.variants.some(
+              (v) => (v.name || '').trim().toLowerCase() === candidateVar.toLowerCase()
+            )
+            if (existsInCatalog) {
+              baseName = catalogProduct.name.trim()
+              variantStr = candidateVar
+            }
+          }
+        }
+
+        const matchedVariantObj =
+          variantStr && catalogProduct?.variants
+            ? catalogProduct.variants.find(
+                (v) => (v.name || '').trim().toLowerCase() === variantStr.toLowerCase()
+              )
+            : undefined
+
+        const storePrice =
+          typeof it.basePrice === 'number' && !isNaN(it.basePrice)
+            ? it.basePrice
+            : typeof it.price === 'number' && !isNaN(it.price)
+              ? it.price
+              : getManualOrderStorePrice(matchedVariantObj || catalogProduct || { price: 0 })
+
+        return {
+          productId: it.productId,
+          name: baseName,
+          productName: baseName,
+          price: storePrice,
+          quantity: it.quantity,
+          variant: variantStr,
+          variantName: variantStr,
+          image: it.image || catalogProduct?.image || '',
+          originalBusinessId:
+            (catalogProduct as any)?.originalBusinessId ||
+            catalogProduct?.businessId ||
+            businessId,
+          originalBusinessName:
+            (catalogProduct as any)?.originalBusinessName ||
+            businessData?.name ||
+            '',
+          originalBusinessImage:
+            (catalogProduct as any)?.originalBusinessImage ||
+            businessData?.image ||
+            null,
+          basePrice: storePrice,
+          commission: 0,
+          commissionType: 'no_commission',
+          storeReceives: storePrice,
+          ingredients:
+            Array.isArray(it.ingredients) && it.ingredients.length > 0
+              ? it.ingredients
+              : matchedVariantObj?.ingredients || catalogProduct?.ingredients || [],
+          isCombo: Boolean((catalogProduct as any)?.isCombo),
+        }
+      })
+
+      const subtotal = normalizedItems.reduce((acc, it) => acc + it.price * it.quantity, 0)
+
+      // 3. Resolver ubicación y costo de envío igual que ManualOrderSidebar
+      const effectiveType: 'delivery' | 'pickup' =
+        draft.deliveryType === 'pickup' ? 'pickup' : 'delivery'
+
+      let deliveryCost = 0
+      let deliveryPayload: any
+
+      if (effectiveType === 'delivery') {
+        let latlong = ''
+        let references = ''
+        let sector = ''
+        let photo = ''
+        let selectedLocationObj: any = null
+
+        if (draft.selectedLocation) {
+          const sel = draft.selectedLocation
+          latlong = (sel.latlong || '').trim()
+          references = (sel.referencia || '').trim()
+          sector = (sel.sector || '').trim()
+          photo = (sel.photo || '').trim()
+
+          const parsedCoord = latlong ? parseLatLong(latlong) : null
+          if (parsedCoord) {
+            const coordKey = `${parsedCoord.lat},${parsedCoord.lng}`
+            const cachedDetails = resolvedLocationsByCoord[coordKey]
+            const details =
+              cachedDetails ||
+              (await getDeliveryDetailsForLocation(parsedCoord, businessId, businessData ?? undefined).catch(() => null))
+            if (details) {
+              if (!sector && details.zoneName) sector = details.zoneName
+              if (!details.isOutOfCoverage && typeof details.fee === 'number' && !isNaN(details.fee)) {
+                deliveryCost = details.fee
+              }
+            }
+          }
+          if (deliveryCost === 0 && sel.tarifa) {
+            const parsedTarifa = parseFloat(sel.tarifa)
+            if (!isNaN(parsedTarifa) && parsedTarifa > 0) deliveryCost = parsedTarifa
+          }
+
+          selectedLocationObj = {
+            id: sel.id || '',
+            id_cliente: sel.id_cliente || customerId || '',
+            latlong,
+            referencia: references,
+            sector,
+            tarifa: String(deliveryCost),
+            photo,
+          }
+        } else {
+          const rawCustomInput = (draft.customLocationInput || '').trim()
+          const rawCustomRef = (draft.customLocationReference || '').trim()
+          const preview = extractLocationPreviewFromMessage(rawCustomInput)
+          const parsedCoord = preview
+            ? { lat: Number(preview.lat), lng: Number(preview.lng) }
+            : rawCustomInput
+              ? parseLatLong(rawCustomInput)
+              : null
+
+          if (parsedCoord && Number.isFinite(parsedCoord.lat) && Number.isFinite(parsedCoord.lng)) {
+            latlong = `${parsedCoord.lat},${parsedCoord.lng}`
+            const coordKey = latlong
+            const cachedDetails = resolvedLocationsByCoord[coordKey]
+            const details =
+              cachedDetails ||
+              (await getDeliveryDetailsForLocation(parsedCoord, businessId, businessData ?? undefined).catch(() => null))
+            if (details) {
+              sector = details.zoneName || preview?.label || ''
+              if (!details.isOutOfCoverage && typeof details.fee === 'number' && !isNaN(details.fee)) {
+                deliveryCost = details.fee
+              }
+            } else {
+              sector = preview?.label || ''
+            }
+          }
+
+          references = rawCustomRef || (!latlong ? rawCustomInput : '')
+
+          // Si es una ubicación nueva con coordenadas y referencia para un cliente identificado, guardarla también en ubicaciones
+          let savedNewLocationId = ''
+          const clientKeyForLoc = customerId || finalCustomerPhone.replace(/\D/g, '')
+          if (latlong && references && clientKeyForLoc) {
+            try {
+              savedNewLocationId = await createClientLocation({
+                id_cliente: clientKeyForLoc,
+                latlong,
+                referencia: references,
+                tarifa: String(deliveryCost),
+                sector,
+                createdBy: 'admin',
+              })
+              const newLoc: ClientLocation = {
+                id: savedNewLocationId,
+                id_cliente: clientKeyForLoc,
+                latlong,
+                referencia: references,
+                tarifa: String(deliveryCost),
+                sector,
+                createdBy: 'admin',
+              }
+              setResolvedProfile((prev) =>
+                prev
+                  ? { ...prev, locations: [newLoc, ...(prev.locations || [])] }
+                  : {
+                      clientId: customerId || undefined,
+                      clientName: finalCustomerName,
+                      clientPhone: finalCustomerPhone,
+                      isRegistered: Boolean(customerId),
+                      locations: [newLoc],
+                    }
+              )
+            } catch (locErr) {
+              console.warn('[WhatsAppChatPreorder] No se pudo guardar ubicación nueva del cliente:', locErr)
+            }
+          }
+
+          selectedLocationObj =
+            latlong || references
+              ? {
+                  id: savedNewLocationId,
+                  id_cliente: clientKeyForLoc || '',
+                  latlong,
+                  referencia: references,
+                  sector,
+                  tarifa: String(deliveryCost),
+                  photo: '',
+                }
+              : null
+        }
+
+        deliveryPayload = {
+          type: 'delivery',
+          latlong,
+          references,
+          sector,
+          tarifa: String(deliveryCost),
+          photo,
+          deliveryCost,
+          selectedLocation: selectedLocationObj,
+          assignedDelivery: null,
+          assignedDeliveryData: null,
+        }
+      } else {
+        deliveryPayload = {
+          type: 'pickup',
+          latlong: '',
+          references: '',
+          sector: '',
+          tarifa: '0',
+          photo: '',
+          deliveryCost: 0,
+          selectedLocation: null,
+          assignedDelivery: null,
+          assignedDeliveryData: null,
+          acceptanceStatus: null,
+        }
+      }
+
+      const total = subtotal + deliveryCost
+
+      // 4. Construir businessSnapshot igual que ManualOrderSidebar
+      const businessSnapshotData = businessData
+        ? {
+            id: businessData.id,
+            name: businessData.name,
+            phone: businessData.phone,
+            logo: businessData.image || '',
+            username: businessData.username || '',
+            latlong:
+              businessData.pickupSettings?.latlong ||
+              (businessData.mapLocation
+                ? `${businessData.mapLocation.lat},${businessData.mapLocation.lng}`
+                : ''),
+            references: businessData.pickupSettings?.references || '',
+            storePhotoUrl:
+              businessData.pickupSettings?.storePhotoUrl || businessData.locationImage || '',
+            ...(businessData.pickupSettings
+              ? {
+                  pickupSettings: {
+                    enabled: !!businessData.pickupSettings.enabled,
+                    latlong: businessData.pickupSettings.latlong || '',
+                    references: businessData.pickupSettings.references || '',
+                    restrictToPrevious: !!businessData.pickupSettings.restrictToPrevious,
+                    storePhotoUrl: businessData.pickupSettings.storePhotoUrl || '',
+                  },
+                }
+              : {}),
+          }
+        : null
+
+      // 5. Construir timing con Timestamp nativo de Firestore igual que ManualOrderSidebar
+      const now = new Date()
+      const timingPayload = (() => {
+        if (draft.timingType === 'scheduled') {
+          let scheduledTimestamp: Timestamp | null = null
+          if (draft.scheduledDate) {
+            const [year, month, day] = draft.scheduledDate.split('-').map(Number)
+            const [hours, minutes] = draft.scheduledTime
+              ? draft.scheduledTime.split(':').map(Number)
+              : [0, 0]
+            scheduledTimestamp = Timestamp.fromDate(
+              new Date(year, (month || 1) - 1, day || 1, hours || 0, minutes || 0)
+            )
+          }
+          return {
+            type: 'scheduled' as const,
+            scheduledDate: scheduledTimestamp,
+            scheduledTime: draft.scheduledTime || '',
+          }
+        }
+
+        const baseDeliveryTime = businessData?.deliveryTime || 30
+        const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000)
+        const hh = String(deliveryTime.getHours()).padStart(2, '0')
+        const mm = String(deliveryTime.getMinutes()).padStart(2, '0')
+        return {
+          type: 'immediate' as const,
+          scheduledDate: Timestamp.fromDate(now),
+          scheduledTime: `${hh}:${mm}`,
+        }
+      })()
+
+      // 6. Construir payment igual que ManualOrderSidebar
+      const resolvedMethod = draft.paymentMethod || 'cash'
+      const isTransferOrMixed = resolvedMethod === 'transfer' || resolvedMethod === 'mixed'
+      const selectedBank = isTransferOrMixed ? (draft.selectedBank || '').trim() : ''
+      const matchedBankAccount =
+        isTransferOrMixed && selectedBank && businessData?.bankAccounts
+          ? businessData.bankAccounts.find(
+              (b) =>
+                (b.bankName || '').trim().toLowerCase() === selectedBank.toLowerCase() ||
+                b.accountNumber === selectedBank
+            )
+          : isTransferOrMixed && businessData?.bankAccount
+            ? businessData.bankAccount
+            : undefined
+
+      const paymentPayload: any = {
+        method: resolvedMethod,
+        paymentStatus:
+          draft.paymentStatus || (isTransferOrMixed ? 'validating' : 'pending'),
+        selectedBank,
+        ...(draft.receiptImageUrl ? { receiptImageUrl: draft.receiptImageUrl } : {}),
+        ...(draft.aiValidation ? { aiValidation: draft.aiValidation } : {}),
+        ...(matchedBankAccount ? { bankAccount: matchedBankAccount } : {}),
+        ...(resolvedMethod === 'mixed'
+          ? {
+              cashAmount: draft.cashAmount || 0,
+              transferAmount: draft.transferAmount || 0,
+            }
+          : {}),
+      }
+
+      const distinctBusinessIds = Array.from(
+        new Set(normalizedItems.map((i) => i.originalBusinessId || businessId).filter(Boolean))
+      ) as string[]
+
+      const orderData: any = {
+        businessId,
+        businessIds: distinctBusinessIds,
+        ...(distinctBusinessIds.length > 1 ? { isMultiStore: true } : {}),
+        businessSnapshot: businessSnapshotData,
+        items: normalizedItems,
+        customer: {
+          name: finalCustomerName,
+          phone: finalCustomerPhone,
+          ...(customerId ? { id: customerId } : {}),
+          ...(customerTelegramChatId ? { telegramChatId: customerTelegramChatId } : {}),
+        },
+        delivery: deliveryPayload,
+        timing: timingPayload,
+        payment: paymentPayload,
+        subtotal,
+        total,
+        creditUsed: 0,
+        status: 'confirmed',
+        createdByAdmin: true,
+        paymentCollector: 'store',
+        source: 'whatsapp_chat',
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      await createOrder(orderData)
+
+      // Limpiar estado de preorden tras crear el pedido
+      setDraftItems([])
+      setTimingType('')
+      setScheduledTime('')
+      setDeliveryType('')
+      setSelectedLocationId(null)
+      setCustomLocationInput('')
+      setCustomLocationReference('')
+      setPaymentMethod('')
+      setCashAmountInput('')
+      setTransferAmountInput('')
+      setActiveTab(null)
+    } catch (err) {
+      console.error('Error creando pedido rápido desde chat:', err)
+    } finally {
+      setCreatingQuickOrder(false)
+    }
+  }
 
   const stepIndicators: Array<{
     key: PreorderTabKey
@@ -4267,58 +4708,7 @@ export function WhatsAppChatPreorderView({
                 disabled={creatingQuickOrder}
                 onClick={() => {
                   if (allStepsComplete) {
-                    if (creatingQuickOrder || !businessId) return
-                    const draft = buildDraft()
-                    const items = draft.items ?? []
-                    const subtotal = items.reduce((acc, it) => acc + it.price * it.quantity, 0)
-                    const deliveryCost = 0
-                    const total = subtotal + deliveryCost
-                    setCreatingQuickOrder(true)
-                    void addDoc(collection(db, 'orders'), {
-                      businessId,
-                      customer: {
-                        id: resolvedProfile?.clientId || '',
-                        name: cleanPhone || conversation.phone || 'Cliente',
-                        phone: cleanPhone || conversation.phone || '',
-                      },
-                      items: items.map((it) => ({
-                        productId: it.productId,
-                        variantName: it.variant || null,
-                        name: it.name,
-                        quantity: it.quantity,
-                        price: it.price,
-                        subtotal: it.price * it.quantity,
-                      })),
-                      delivery: {
-                        type: draft.deliveryType === 'pickup' ? 'pickup' : 'delivery',
-                        cost: deliveryCost,
-                        references: draft.customLocationReference || '',
-                        latlng: draft.customLocationInput || '',
-                      },
-                      timing: {
-                        type: draft.timingType === 'scheduled' ? 'scheduled' : 'immediate',
-                        scheduledDate: draft.scheduledDate || '',
-                        scheduledTime: draft.scheduledTime || '',
-                      },
-                      payment: {
-                        method: draft.paymentMethod || 'cash',
-                        paymentStatus: 'pending',
-                        total,
-                      },
-                      subtotal,
-                      total,
-                      status: 'confirmed',
-                      createdByAdmin: true,
-                      source: 'whatsapp_chat',
-                      createdAt: new Date(),
-                      updatedAt: new Date(),
-                    })
-                      .catch((err) => {
-                        console.error('Error creando pedido rápido desde chat:', err)
-                      })
-                      .finally(() => {
-                        setCreatingQuickOrder(false)
-                      })
+                    void handleCreateQuickOrder()
                   } else {
                     onCreateOrder(enrichedConversation, buildDraft())
                   }
