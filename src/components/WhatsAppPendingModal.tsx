@@ -48,7 +48,7 @@ export interface PendingWhatsAppConversation {
     fromMe: boolean
     source?: string
     mediaUrl?: string
-    mediaType?: 'image' | 'document' | 'audio' | 'order' | 'contact' | 'location'
+    mediaType?: 'image' | 'document' | 'audio' | 'sticker' | 'order' | 'contact' | 'location'
     fileName?: string
     imageClassification?: import('@/types').ChatImageClassification
     audioTranscription?: import('@/types').ChatAudioTranscription

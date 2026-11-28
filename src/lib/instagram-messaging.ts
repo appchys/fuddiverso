@@ -356,19 +356,24 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
       const attachments = Array.isArray(msg.attachments) ? msg.attachments : []
       const firstAttachment = attachments[0]
       const mediaUrl = firstAttachment?.payload?.url || ''
-      const mediaType =
-        firstAttachment?.type === 'image'
-          ? 'image'
-          : firstAttachment?.type === 'audio'
-          ? 'audio'
-          : firstAttachment?.type === 'video'
-          ? 'video'
-          : undefined
+      const isStickerAttachment =
+        firstAttachment?.type === 'sticker' || Boolean(firstAttachment?.payload?.sticker_id)
+      const mediaType = isStickerAttachment
+        ? 'sticker'
+        : firstAttachment?.type === 'image'
+        ? 'image'
+        : firstAttachment?.type === 'audio'
+        ? 'audio'
+        : firstAttachment?.type === 'video'
+        ? 'video'
+        : undefined
 
       const rawText = String(msg.text || '').trim()
       const text =
         rawText ||
-        (mediaType === 'image'
+        (mediaType === 'sticker'
+          ? '💟 Sticker'
+          : mediaType === 'image'
           ? '📷 Imagen'
           : mediaType === 'audio'
           ? '🎵 Audio'

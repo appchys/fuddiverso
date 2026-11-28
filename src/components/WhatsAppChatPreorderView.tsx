@@ -1178,6 +1178,105 @@ export function WhatsAppChatPreorderView({
   >({})
   const [audioTranscriptionErrors, setAudioTranscriptionErrors] = useState<Record<string, string>>({})
 
+  const [analyzingImageUrls, setAnalyzingImageUrls] = useState<Record<string, boolean>>({})
+  const [localImageAnalysis, setLocalImageAnalysis] = useState<
+    Record<
+      string,
+      {
+        classification?: import('@/types').ChatImageClassification
+        validation?: import('@/types').PaymentAiValidation
+        linkedOrderId?: string | null
+      }
+    >
+  >({})
+  const analyzedImageUrlsRef = useRef<Set<string>>(new Set())
+
+  // Analizar automáticamente imágenes entrantes del cliente que aún no tengan clasificación,
+  // independientemente de si el agente de IA está en pausa o desactivado (igual que las ubicaciones).
+  useEffect(() => {
+    if (!businessId || !conversation.docId) return
+    const history = Array.isArray(conversation.chatHistory) ? conversation.chatHistory : []
+    const isInstagramConversation =
+      conversation.channel === 'instagram' ||
+      conversation.sourcePackage === 'instagram' ||
+      conversation.docId?.startsWith('ig:')
+
+    const pendingImages = history.filter((m) => {
+      if (!m || m.fromMe) return false
+      if (m.mediaType !== 'image' || !m.mediaUrl) return false
+      const url = String(m.mediaUrl).trim()
+      if (!/^https?:\/\//i.test(url)) return false
+      if (m.imageClassification || m.receiptValidation) return false
+      if (analyzedImageUrlsRef.current.has(url)) return false
+      return true
+    })
+
+    if (pendingImages.length === 0) return
+
+    let cancelled = false
+    const run = async () => {
+      const idToken = await auth.currentUser?.getIdToken().catch(() => null)
+      if (!idToken || cancelled) return
+
+      for (const imgMsg of pendingImages.slice(-4)) {
+        const url = String(imgMsg.mediaUrl || '').trim()
+        if (!url || analyzedImageUrlsRef.current.has(url)) continue
+        analyzedImageUrlsRef.current.add(url)
+        setAnalyzingImageUrls((prev) => ({ ...prev, [url]: true }))
+
+        try {
+          const res = await fetch('/api/chat/analyze-image', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              businessId,
+              docId: conversation.docId,
+              imageUrl: url,
+              channel: isInstagramConversation ? 'instagram' : 'whatsapp',
+              customerPhone: conversation.phone || conversation.rawPhone || '',
+              customerClientId: conversation.fuddiClientId || '',
+            }),
+          })
+
+          const data = await res.json().catch(() => ({}))
+          if (!cancelled && res.ok && data?.ok && (data.classification || data.validation)) {
+            setLocalImageAnalysis((prev) => ({
+              ...prev,
+              [url]: {
+                classification: data.classification || undefined,
+                validation: data.validation || undefined,
+                linkedOrderId: data.linkedOrderId ?? null,
+              },
+            }))
+          }
+        } catch {
+          // Ignorar fallo transitorio de red
+        } finally {
+          if (!cancelled) {
+            setAnalyzingImageUrls((prev) => ({ ...prev, [url]: false }))
+          }
+        }
+      }
+    }
+
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    businessId,
+    conversation.docId,
+    conversation.chatHistory,
+    conversation.channel,
+    conversation.sourcePackage,
+    conversation.phone,
+    conversation.rawPhone,
+    conversation.fuddiClientId,
+  ])
+
   const handleTranscribeAudio = async (msgKey: string, msg: any) => {
     if (!businessId || !conversation.docId || !msg?.mediaUrl) return
     const compositeKey = `${conversation.docId}::${msgKey}`
@@ -2924,6 +3023,7 @@ export function WhatsAppChatPreorderView({
                 : `Agregar al pedido: ${matchedCatalogItems
                     .map((m) => `${m.quantity}x ${m.variant?.name ? `${m.product.name} - ${m.variant.name}` : m.product.name}`)
                     .join(', ')}`
+              const isStickerMsg = Boolean(msg.mediaUrl && msg.mediaType === 'sticker')
               const isImageOnlyMsg = Boolean(msg.mediaUrl && msg.mediaType === 'image')
               const cleanedImageCaption = isImageOnlyMsg
                 ? String(msg.text || '')
@@ -2933,7 +3033,170 @@ export function WhatsAppChatPreorderView({
               const hasRealImageCaption =
                 Boolean(cleanedImageCaption) &&
                 !/^imagen enviada$/i.test(cleanedImageCaption) &&
+                !/^imagen$/i.test(cleanedImageCaption) &&
                 !/^envi[oó] una foto\.?$/i.test(cleanedImageCaption)
+
+              const imageBadgeNode = (() => {
+                if (msg.fromMe || !msg.mediaUrl || (msg.mediaType && msg.mediaType !== 'image')) {
+                  return null
+                }
+                const msgAny = msg as any
+                const localAnalysis = localImageAnalysis[msg.mediaUrl]
+                const isAnalyzing = Boolean(analyzingImageUrls[msg.mediaUrl])
+                const matchedOrder = [activeOrder, ...clientOrders]
+                  .filter(Boolean)
+                  .find(
+                    (ord: any) =>
+                      ord?.payment?.receiptImageUrl === msg.mediaUrl ||
+                      (msgAny.linkedOrderId && ord?.id === msgAny.linkedOrderId) ||
+                      (localAnalysis?.linkedOrderId && ord?.id === localAnalysis.linkedOrderId) ||
+                      (conversation.receiptAttachment?.imageUrl === msg.mediaUrl &&
+                        conversation.receiptAttachment?.linkedOrderId &&
+                        ord?.id === conversation.receiptAttachment.linkedOrderId)
+                  )
+                const validation =
+                  msgAny.receiptValidation ||
+                  localAnalysis?.validation ||
+                  (conversation.receiptAttachment?.imageUrl === msg.mediaUrl
+                    ? conversation.receiptAttachment?.validation
+                    : undefined) ||
+                  matchedOrder?.payment?.aiValidation
+
+                const cls = (msgAny.imageClassification || localAnalysis?.classification) as
+                  | import('@/types').ChatImageClassification
+                  | undefined
+
+                const isDetectedReceipt = Boolean(
+                  validation?.isReceipt ||
+                    cls?.category === 'receipt' ||
+                    matchedOrder?.payment?.receiptImageUrl === msg.mediaUrl ||
+                    conversation.receiptAttachment?.imageUrl === msg.mediaUrl
+                )
+
+                if (!isDetectedReceipt) {
+                  if (!cls) {
+                    if (!isAnalyzing) return null
+                    return (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="px-2.5 py-1.5 bg-slate-50/90 border-t border-slate-100 flex items-center gap-1.5"
+                      >
+                        <i className="bi bi-arrow-repeat animate-spin text-[10px] text-slate-400"></i>
+                        <span className="text-[10px] font-medium text-slate-500">
+                          Identificando imagen...
+                        </span>
+                      </div>
+                    )
+                  }
+                  if (cls.category === 'other') return null
+
+                  const catMeta: Record<
+                    string,
+                    { icon: string; badgeClass: string; iconClass: string; defaultLabel: string }
+                  > = {
+                    location_reference: {
+                      icon: 'bi-geo-alt-fill',
+                      badgeClass: 'bg-sky-100 text-sky-800 border-sky-200',
+                      iconClass: 'text-sky-600',
+                      defaultLabel: 'Referencia de ubicación',
+                    },
+                    product_capture: {
+                      icon: 'bi-bag-heart-fill',
+                      badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
+                      iconClass: 'text-amber-600',
+                      defaultLabel: 'Captura de producto',
+                    },
+                    order_capture: {
+                      icon: 'bi-card-checklist',
+                      badgeClass: 'bg-teal-100 text-teal-800 border-teal-200',
+                      iconClass: 'text-teal-600',
+                      defaultLabel: 'Captura de orden',
+                    },
+                  }
+                  const meta = catMeta[cls.category]
+                  if (!meta) return null
+
+                  return (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="px-2.5 py-1.5 bg-slate-50/95 border-t border-slate-100 space-y-0.5"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <i className={`bi ${meta.icon} text-[11px] ${meta.iconClass}`}></i>
+                        <span
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${meta.badgeClass}`}
+                        >
+                          {cls.label || meta.defaultLabel}
+                        </span>
+                      </div>
+                      {cls.summary && (
+                        <p className="text-[10px] font-medium text-slate-500 leading-snug">
+                          {cls.summary}
+                        </p>
+                      )}
+                    </div>
+                  )
+                }
+
+                const rawStatus =
+                  matchedOrder?.payment?.paymentStatus ||
+                  validation?.status ||
+                  'validating'
+                const effectiveStatus = rawStatus === 'pending' ? 'validating' : rawStatus
+
+                const badgeStyle =
+                  effectiveStatus === 'paid'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                    : effectiveStatus === 'pre_validated'
+                    ? 'bg-violet-100 text-violet-800 border-violet-200'
+                    : effectiveStatus === 'rejected'
+                    ? 'bg-rose-100 text-rose-800 border-rose-200'
+                    : 'bg-amber-100 text-amber-800 border-amber-200'
+
+                const statusLabel =
+                  effectiveStatus === 'paid'
+                    ? 'Pagado'
+                    : effectiveStatus === 'pre_validated'
+                    ? 'Pre validado'
+                    : effectiveStatus === 'rejected'
+                    ? 'Rechazado'
+                    : 'Validando'
+
+                const metaParts: string[] = []
+                if (typeof validation?.amount === 'number' && validation.amount > 0) {
+                  metaParts.push(`$${validation.amount.toFixed(2)}`)
+                }
+                if (validation?.bankName) {
+                  metaParts.push(validation.bankName)
+                }
+
+                return (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="px-2.5 py-1.5 bg-slate-50/95 border-t border-slate-100 space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700">
+                        <i className="bi bi-receipt text-violet-600"></i>
+                        Comprobante
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${badgeStyle}`}
+                      >
+                        {effectiveStatus === 'pre_validated' && (
+                          <i className="bi bi-stars text-[8px]"></i>
+                        )}
+                        {statusLabel}
+                      </span>
+                    </div>
+                    {metaParts.length > 0 && (
+                      <p className="text-[10px] font-medium text-slate-500 truncate">
+                        {metaParts.join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                )
+              })()
 
               const msgIdStr = String(msg?.id || '')
               const canReactToMsg =
@@ -2956,7 +3219,37 @@ export function WhatsAppChatPreorderView({
               const myReactionEmoji = effectiveReactions.find((r) => r?.fromMe)?.emoji || null
               const isReactionPickerOpen = openReactionMsgKey === entry.key
 
-              const bubbleNode = msg.fromMe ? (
+              const bubbleNode = isStickerMsg ? (
+                <button
+                  type="button"
+                  style={{ minHeight: 0 }}
+                  onClick={() =>
+                    setPreviewImageModal({
+                      url: msg.mediaUrl,
+                      caption: 'Sticker',
+                    })
+                  }
+                  className="relative inline-flex flex-col items-end bg-transparent p-1 rounded-xl hover:bg-slate-100/60 transition-colors cursor-zoom-in"
+                  title="Clic para ampliar sticker"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={msg.mediaUrl}
+                    alt="Sticker"
+                    onLoad={() => {
+                      if (isInitialScrollPendingRef.current) {
+                        scrollMessagesToBottom(false)
+                      }
+                    }}
+                    className="w-32 h-32 sm:w-36 sm:h-36 object-contain drop-shadow-xs select-none"
+                  />
+                  {msg.timestampMillis ? (
+                    <span className="mt-0.5 px-1.5 py-0.5 rounded-full bg-slate-900/50 text-[10px] font-medium text-white">
+                      {formatWhatsAppTime(msg.timestampMillis)}
+                    </span>
+                  ) : null}
+                </button>
+              ) : msg.fromMe ? (
                 <div className="bg-[#dcf8c6] border border-emerald-200/90 rounded-xl rounded-tr-xs px-3 py-1.5 text-xs text-slate-800 shadow-2xs space-y-1.5">
                   {msg.mediaUrl && (!msg.mediaType || msg.mediaType === 'image') && (
                     <div
@@ -3160,6 +3453,7 @@ export function WhatsAppChatPreorderView({
                       </span>
                     ) : null}
                   </button>
+                  {imageBadgeNode}
                   {hasRealImageCaption && (
                     <button
                       type="button"
@@ -3167,7 +3461,7 @@ export function WhatsAppChatPreorderView({
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => handlePasteMessageToActiveField(cleanedImageCaption)}
                       title="Toca para pegar en el campo activo"
-                      className="w-full text-left px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words hover:bg-blue-50/50 transition-colors cursor-pointer"
+                      className="w-full text-left px-2.5 py-1.5 text-xs leading-snug text-slate-800 whitespace-pre-wrap break-words hover:bg-blue-50/50 transition-colors cursor-pointer border-t border-slate-100"
                     >
                       <span className="block">{formatWhatsAppMessageText(cleanedImageCaption)}</span>
                       {msg.timestampMillis ? (
@@ -3218,145 +3512,11 @@ export function WhatsAppChatPreorderView({
                       />
                     </div>
                   )}
-                  {msg.mediaUrl && (!msg.mediaType || msg.mediaType === 'image') && (() => {
-                    const msgAny = msg as any
-                    const matchedOrder = [activeOrder, ...clientOrders]
-                      .filter(Boolean)
-                      .find(
-                        (ord: any) =>
-                          ord?.payment?.receiptImageUrl === msg.mediaUrl ||
-                          (msgAny.linkedOrderId && ord?.id === msgAny.linkedOrderId) ||
-                          (conversation.receiptAttachment?.imageUrl === msg.mediaUrl &&
-                            conversation.receiptAttachment?.linkedOrderId &&
-                            ord?.id === conversation.receiptAttachment.linkedOrderId)
-                      )
-                    const validation =
-                      msgAny.receiptValidation ||
-                      (conversation.receiptAttachment?.imageUrl === msg.mediaUrl
-                        ? conversation.receiptAttachment?.validation
-                        : undefined) ||
-                      matchedOrder?.payment?.aiValidation
-
-                    const isDetectedReceipt = Boolean(
-                      validation?.isReceipt ||
-                        msgAny.imageClassification?.category === 'receipt' ||
-                        matchedOrder?.payment?.receiptImageUrl === msg.mediaUrl ||
-                        conversation.receiptAttachment?.imageUrl === msg.mediaUrl
-                    )
-
-                    if (!isDetectedReceipt) {
-                      const cls = msgAny.imageClassification as
-                        | import('@/types').ChatImageClassification
-                        | undefined
-                      if (!cls || cls.category === 'other') return null
-
-                      const catMeta: Record<
-                        string,
-                        { icon: string; badgeClass: string; iconClass: string; defaultLabel: string }
-                      > = {
-                        location_reference: {
-                          icon: 'bi-geo-alt-fill',
-                          badgeClass: 'bg-sky-100 text-sky-800 border-sky-200',
-                          iconClass: 'text-sky-600',
-                          defaultLabel: 'Referencia de ubicación',
-                        },
-                        product_capture: {
-                          icon: 'bi-bag-heart-fill',
-                          badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
-                          iconClass: 'text-amber-600',
-                          defaultLabel: 'Captura de producto',
-                        },
-                        order_capture: {
-                          icon: 'bi-card-checklist',
-                          badgeClass: 'bg-teal-100 text-teal-800 border-teal-200',
-                          iconClass: 'text-teal-600',
-                          defaultLabel: 'Captura de orden',
-                        },
-                      }
-                      const meta = catMeta[cls.category]
-                      if (!meta) return null
-
-                      return (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200/90 max-w-[240px] space-y-0.5"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <i className={`bi ${meta.icon} text-[11px] ${meta.iconClass}`}></i>
-                            <span
-                              className={`inline-flex items-center px-1.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${meta.badgeClass}`}
-                            >
-                              {cls.label || meta.defaultLabel}
-                            </span>
-                          </div>
-                          {cls.summary && (
-                            <p className="text-[10px] font-medium text-slate-500 leading-snug">
-                              {cls.summary}
-                            </p>
-                          )}
-                        </div>
-                      )
-                    }
-
-                    const rawStatus =
-                      matchedOrder?.payment?.paymentStatus ||
-                      validation?.status ||
-                      'validating'
-                    const effectiveStatus = rawStatus === 'pending' ? 'validating' : rawStatus
-
-                    const badgeStyle =
-                      effectiveStatus === 'paid'
-                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                        : effectiveStatus === 'pre_validated'
-                        ? 'bg-violet-100 text-violet-800 border-violet-200'
-                        : effectiveStatus === 'rejected'
-                        ? 'bg-rose-100 text-rose-800 border-rose-200'
-                        : 'bg-amber-100 text-amber-800 border-amber-200'
-
-                    const statusLabel =
-                      effectiveStatus === 'paid'
-                        ? 'Pagado'
-                        : effectiveStatus === 'pre_validated'
-                        ? 'Pre validado'
-                        : effectiveStatus === 'rejected'
-                        ? 'Rechazado'
-                        : 'Validando'
-
-                    const metaParts: string[] = []
-                    if (typeof validation?.amount === 'number' && validation.amount > 0) {
-                      metaParts.push(`$${validation.amount.toFixed(2)}`)
-                    }
-                    if (validation?.bankName) {
-                      metaParts.push(validation.bankName)
-                    }
-
-                    return (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200/90 max-w-[240px] space-y-1"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700">
-                            <i className="bi bi-receipt text-violet-600"></i>
-                            Comprobante
-                          </span>
-                          <span
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${badgeStyle}`}
-                          >
-                            {effectiveStatus === 'pre_validated' && (
-                              <i className="bi bi-stars text-[8px]"></i>
-                            )}
-                            {statusLabel}
-                          </span>
-                        </div>
-                        {metaParts.length > 0 && (
-                          <p className="text-[10px] font-medium text-slate-500 truncate">
-                            {metaParts.join(' · ')}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })()}
+                  {imageBadgeNode && (
+                    <div className="mt-1 rounded-lg border border-slate-200/90 overflow-hidden max-w-[240px]">
+                      {imageBadgeNode}
+                    </div>
+                  )}
                   {msg.mediaUrl && msg.mediaType === 'document' && (
                     <a
                       href={msg.mediaUrl}

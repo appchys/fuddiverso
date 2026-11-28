@@ -419,7 +419,12 @@ export async function processChatImageReceiptForBusiness(params: {
   customerPhone?: string
   customerClientId?: string
   existingPreorderState?: Record<string, any> | null
-}): Promise<{ validation: PaymentAiValidation; linkedOrderId?: string; chatContextNote: string } | null> {
+}): Promise<{
+  classification: ChatImageClassification
+  validation: PaymentAiValidation
+  linkedOrderId?: string
+  chatContextNote: string
+} | null> {
   const db = ensureAdminDb()
   if (!db || !params.businessId || !params.imageUrl) return null
 
@@ -651,10 +656,12 @@ export async function processChatImageReceiptForBusiness(params: {
     })
   }
 
-  // 3. Guardar siempre la clasificación de la imagen en chatHistory (aunque se esté respondiendo manualmente)
-  // y guardar receiptAttachment (y actualizar preorderState si aún no se creó la orden)
-  if (convRef && classification.category !== 'other') {
-    const prevHistory: any[] = Array.isArray(convData.chatHistory) ? convData.chatHistory : []
+  // 3. Guardar siempre la clasificación de la imagen en chatHistory (aunque el agente esté en pausa
+  // o se esté respondiendo manualmente) y guardar receiptAttachment (y actualizar preorderState si aún no se creó la orden)
+  if (convRef) {
+    const freshSnap = await convRef.get().catch(() => null)
+    const latestConvData = freshSnap?.exists ? freshSnap.data() || {} : convData
+    const prevHistory: any[] = Array.isArray(latestConvData.chatHistory) ? latestConvData.chatHistory : []
     const updatedHistory = prevHistory.map((entry) =>
       entry?.mediaUrl === params.imageUrl
         ? {
@@ -670,7 +677,10 @@ export async function processChatImageReceiptForBusiness(params: {
         : entry
     )
 
-    const prevPreorder = convData.preorderState && typeof convData.preorderState === 'object' ? convData.preorderState : null
+    const prevPreorder =
+      latestConvData.preorderState && typeof latestConvData.preorderState === 'object'
+        ? latestConvData.preorderState
+        : null
     const updatedPreorder =
       isReceipt && validation && !matchedOrderDoc
         ? {
@@ -716,8 +726,8 @@ export async function processChatImageReceiptForBusiness(params: {
   }
 
   if (!isReceipt || !validation) {
-    if (classification.category === 'other') return null
     return {
+      classification,
       validation: {
         status: 'validating',
         isReceipt: false,
@@ -726,9 +736,12 @@ export async function processChatImageReceiptForBusiness(params: {
         model: classification.model,
         source: params.channel,
       },
-      chatContextNote: `IMAGEN CLASIFICADA COMO: ${classification.label}${
-        classification.summary ? ` (${classification.summary})` : ''
-      }`,
+      chatContextNote:
+        classification.category === 'other'
+          ? ''
+          : `IMAGEN CLASIFICADA COMO: ${classification.label}${
+              classification.summary ? ` (${classification.summary})` : ''
+            }`,
     }
   }
 
@@ -755,6 +768,7 @@ export async function processChatImageReceiptForBusiness(params: {
   ].filter(Boolean)
 
   return {
+    classification,
     validation,
     linkedOrderId,
     chatContextNote: noteParts.join('\n'),

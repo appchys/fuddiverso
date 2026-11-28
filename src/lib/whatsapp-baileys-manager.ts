@@ -186,7 +186,7 @@ interface ExtractedRichContent {
   text: string
   locationLink: string | null
   mediaUrl?: string | null
-  mediaType?: 'image' | 'document' | 'audio' | 'order' | 'contact' | 'location' | null
+  mediaType?: 'image' | 'document' | 'audio' | 'sticker' | 'order' | 'contact' | 'location' | null
   fileName?: string | null
 }
 
@@ -410,6 +410,12 @@ function isRedundantAndroidEcho(androidItem: any, baileysItems: any[]): boolean 
     ) {
       return true
     }
+    if (
+      bMedia === 'sticker' &&
+      (aText.startsWith('💟') || aLower.includes('sticker'))
+    ) {
+      return true
+    }
     if (bMedia === 'document' && aText.startsWith('📄')) {
       return true
     }
@@ -463,6 +469,12 @@ function mergeWithBaileysRichHistory(
           : {}),
         ...(existing.imageClassification || bItem.imageClassification
           ? { imageClassification: existing.imageClassification || bItem.imageClassification }
+          : {}),
+        ...(existing.receiptValidation || bItem.receiptValidation
+          ? { receiptValidation: existing.receiptValidation || bItem.receiptValidation }
+          : {}),
+        ...(existing.linkedOrderId || bItem.linkedOrderId
+          ? { linkedOrderId: existing.linkedOrderId || bItem.linkedOrderId }
           : {}),
         text:
           String(bItem.text || '').length >= String(existing.text || '').length
@@ -786,9 +798,41 @@ async function extractRichMessageContent(
   }
 
   if (inner.stickerMessage) {
+    const msgId = msg.key?.id || `stk_${Date.now()}`
+    let mediaUrl: string | null = null
+
+    try {
+      const { downloadMediaMessage } = await loadBaileys()
+      const buffer = (await downloadMediaMessage(
+        msg as any,
+        'buffer',
+        {},
+        {
+          logger,
+          reuploadRequest: session.socket
+            ? session.socket.updateMediaMessage
+            : (async (m: any) => m),
+        }
+      )) as Buffer
+      if (buffer && buffer.length > 0) {
+        const mime = inner.stickerMessage.mimetype || 'image/webp'
+        const ext = mime.includes('png') ? 'png' : mime.includes('gif') ? 'gif' : 'webp'
+        mediaUrl = await uploadWhatsAppMediaToStorage({
+          businessId: session.businessId,
+          fileName: `${msgId}.${ext}`,
+          buffer,
+          contentType: mime,
+        })
+      }
+    } catch {
+      // Ignorar fallo descargando sticker
+    }
+
     return {
-      text: '💟 Envió un sticker.',
+      text: '💟 Sticker',
       locationLink: null,
+      mediaUrl,
+      mediaType: 'sticker',
     }
   }
 
