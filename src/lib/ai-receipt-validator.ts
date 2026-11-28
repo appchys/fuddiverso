@@ -340,16 +340,6 @@ export async function analyzeChatImage(params: {
     if (!reasons.some((r) => r.toLowerCase().includes('fecha'))) {
       reasons.push(`La fecha del comprobante (${dateStr || 'antigua'}) no es reciente.`)
     }
-  } else if (
-    params.expectedAmount &&
-    params.expectedAmount > 0 &&
-    amount !== null &&
-    amount + 0.02 < params.expectedAmount
-  ) {
-    status = 'rejected'
-    reasons.push(
-      `Monto insuficiente: el comprobante es de $${amount.toFixed(2)} y el esperado es $${params.expectedAmount.toFixed(2)}.`
-    )
   } else if (amount === null || parsed.accountMatches === null) {
     status = 'validating'
     if (amount === null) reasons.push('No se pudo leer con claridad el monto del comprobante.')
@@ -400,13 +390,26 @@ export async function validateTransferReceiptImage(params: {
   return analyzed?.receiptValidation || null
 }
 
+export interface PaymentReceiptItem {
+  imageUrl: string
+  amount: number | null
+  bankName?: string | null
+  referenceNumber?: string | null
+  dateStr?: string | null
+  status: 'pre_validated' | 'validating' | 'rejected'
+  validatedAtMillis: number
+}
+
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
 /**
  * Procesa una imagen recibida en el chat (WhatsApp o Instagram):
  * 1. Evalúa si es un comprobante de transferencia con el validador de IA.
- * 2. Si es un comprobante, lo adjunta automáticamente a la orden activa reciente del cliente
- *    (en `payment.receiptImageUrl`, `payment.paymentStatus` y `payment.aiValidation`)
- *    y también en `whatsappPending/{docId}.receiptAttachment` si aún está en preorden.
- * 3. Devuelve un texto breve con el veredicto para que el agente del chat responda con exactitud.
+ * 2. Soporta pagos parciales (convierte automáticamente a pago mixto con saldo en efectivo)
+ *    y múltiples comprobantes (suma abonos y pasa a transferencia completa al cubrir el total).
+ * 3. Vincula los comprobantes a la orden activa reciente del cliente y a la preorden en chat.
  */
 export async function processChatImageReceiptForBusiness(params: {
   businessId: string
@@ -495,20 +498,149 @@ export async function processChatImageReceiptForBusiness(params: {
 
   if (!analyzed) return null
 
-  const { classification, receiptValidation: validation } = analyzed
-  const isReceipt = Boolean(validation?.isReceipt)
+  const { classification, receiptValidation: rawValidation } = analyzed
+  const isReceipt = Boolean(rawValidation?.isReceipt)
+  const validation: PaymentAiValidation | undefined = rawValidation ? { ...rawValidation } : undefined
+
+  // Leer conversación actual para acumular comprobantes previos y actualizar preorderState si aplica
+  const convRef = params.docId
+    ? db
+        .collection('businesses')
+        .doc(params.businessId)
+        .collection('whatsappPending')
+        .doc(params.docId)
+    : null
+  const convSnap = convRef ? await convRef.get().catch(() => null) : null
+  const convData = convSnap?.exists ? convSnap.data() || {} : {}
+
+  // Calcular total de la orden (o preorden) y acumular comprobantes previos válidos
+  const matchedOrderData = matchedOrderDoc ? matchedOrderDoc.data() || {} : null
+  const orderTotal =
+    matchedOrderData && Number(matchedOrderData.total) > 0
+      ? roundMoney(Number(matchedOrderData.total))
+      : expectedAmount && expectedAmount > 0
+        ? roundMoney(expectedAmount)
+        : 0
+
+  const buildInitialReceipts = (sourcePayment: any, sourceAttachment: any): PaymentReceiptItem[] => {
+    const rawList: any[] = Array.isArray(sourcePayment?.receipts) && sourcePayment.receipts.length > 0
+      ? sourcePayment.receipts
+      : Array.isArray(sourceAttachment?.receipts) && sourceAttachment.receipts.length > 0
+        ? sourceAttachment.receipts
+        : []
+
+    if (rawList.length > 0) {
+      return rawList
+        .filter((r) => r && typeof r.imageUrl === 'string' && r.imageUrl.trim())
+        .map((r) => ({
+          imageUrl: String(r.imageUrl).trim(),
+          amount: typeof r.amount === 'number' && !isNaN(r.amount) ? roundMoney(r.amount) : null,
+          bankName: r.bankName || null,
+          referenceNumber: r.referenceNumber || null,
+          dateStr: r.dateStr || null,
+          status:
+            r.status === 'pre_validated' || r.status === 'rejected' || r.status === 'validating'
+              ? r.status
+              : 'validating',
+          validatedAtMillis: Number(r.validatedAtMillis || Date.now()),
+        }))
+    }
+
+    const fallbackUrl = String(sourcePayment?.receiptImageUrl || sourceAttachment?.imageUrl || '').trim()
+    const fallbackVal = sourcePayment?.aiValidation || sourceAttachment?.validation
+    if (fallbackUrl) {
+      return [
+        {
+          imageUrl: fallbackUrl,
+          amount: typeof fallbackVal?.amount === 'number' && !isNaN(fallbackVal.amount) ? roundMoney(fallbackVal.amount) : null,
+          bankName: fallbackVal?.bankName || sourcePayment?.selectedBank || null,
+          referenceNumber: fallbackVal?.referenceNumber || null,
+          dateStr: fallbackVal?.dateStr || null,
+          status:
+            fallbackVal?.status === 'pre_validated' || fallbackVal?.status === 'rejected'
+              ? fallbackVal.status
+              : 'validating',
+          validatedAtMillis: Number(fallbackVal?.validatedAtMillis || Date.now()),
+        },
+      ]
+    }
+    return []
+  }
+
+  let updatedReceipts: PaymentReceiptItem[] = []
+  let totalTransferred = 0
+  let resolvedMethod: 'transfer' | 'mixed' | null = null
+  let resolvedTransferAmount = 0
+  let resolvedCashAmount = 0
+  let paymentAdjustmentNote = ''
+
+  if (isReceipt && validation) {
+    const prevReceipts = buildInitialReceipts(matchedOrderData?.payment, convData?.receiptAttachment)
+    const newEntry: PaymentReceiptItem = {
+      imageUrl: params.imageUrl,
+      amount: typeof validation.amount === 'number' && !isNaN(validation.amount) ? roundMoney(validation.amount) : null,
+      bankName: validation.bankName || null,
+      referenceNumber: validation.referenceNumber || null,
+      dateStr: validation.dateStr || null,
+      status: validation.status,
+      validatedAtMillis: validation.validatedAtMillis || Date.now(),
+    }
+
+    const alreadyIncluded = prevReceipts.some(
+      (r) =>
+        r.imageUrl === newEntry.imageUrl ||
+        (newEntry.referenceNumber && r.referenceNumber && r.referenceNumber === newEntry.referenceNumber)
+    )
+    updatedReceipts = alreadyIncluded ? prevReceipts : [...prevReceipts, newEntry]
+
+    const validReceipts = updatedReceipts.filter((r) => r.status !== 'rejected' && typeof r.amount === 'number' && r.amount > 0)
+    totalTransferred = roundMoney(validReceipts.reduce((sum, r) => sum + Number(r.amount || 0), 0))
+
+    if (validation.status !== 'rejected' && totalTransferred > 0) {
+      if (orderTotal > 0 && totalTransferred + 0.05 < orderTotal) {
+        resolvedMethod = 'mixed'
+        resolvedTransferAmount = totalTransferred
+        resolvedCashAmount = roundMoney(orderTotal - totalTransferred)
+        paymentAdjustmentNote = `Pago parcial detectado: se registró como PAGO MIXTO ($${resolvedTransferAmount.toFixed(2)} transferido + $${resolvedCashAmount.toFixed(2)} pendiente en efectivo).`
+        validation.summary = `Abono parcial ($${resolvedTransferAmount.toFixed(2)} transf. · saldo $${resolvedCashAmount.toFixed(2)} efectivo)`
+      } else if (orderTotal > 0 && totalTransferred + 0.05 >= orderTotal) {
+        resolvedMethod = 'transfer'
+        resolvedTransferAmount = totalTransferred
+        resolvedCashAmount = 0
+        if (validReceipts.length > 1) {
+          paymentAdjustmentNote = `Total completado sumando ${validReceipts.length} comprobantes ($${totalTransferred.toFixed(2)}). Método actualizado a TRANSFERENCIA completa.`
+          validation.summary = `Total completado en ${validReceipts.length} comprobantes ($${totalTransferred.toFixed(2)})`
+        } else {
+          paymentAdjustmentNote = `Pago completo por TRANSFERENCIA ($${totalTransferred.toFixed(2)}).`
+        }
+      } else {
+        resolvedMethod = matchedOrderData?.payment?.method === 'mixed' ? 'mixed' : 'transfer'
+        resolvedTransferAmount = totalTransferred
+      }
+    }
+  }
 
   // 2. Si es comprobante, vincular a la orden activa si existe
   let linkedOrderId: string | undefined
   if (isReceipt && validation && matchedOrderDoc) {
     linkedOrderId = matchedOrderDoc.id
-    const o = matchedOrderDoc.data() || {}
+    const o = matchedOrderData || {}
     const updatePayload: Record<string, any> = {
       'payment.receiptImageUrl': params.imageUrl,
+      'payment.receipts': updatedReceipts,
       'payment.paymentStatus': validation.status,
       'payment.aiValidation': validation,
     }
-    if (o.payment?.method !== 'transfer' && o.payment?.method !== 'mixed') {
+    if (resolvedMethod) {
+      updatePayload['payment.method'] = resolvedMethod
+      if (resolvedMethod === 'mixed') {
+        updatePayload['payment.transferAmount'] = resolvedTransferAmount
+        updatePayload['payment.cashAmount'] = resolvedCashAmount
+      } else {
+        updatePayload['payment.transferAmount'] = resolvedTransferAmount
+        updatePayload['payment.cashAmount'] = 0
+      }
+    } else if (o.payment?.method !== 'transfer' && o.payment?.method !== 'mixed') {
       updatePayload['payment.method'] = 'transfer'
     }
     if (validation.bankName && !o.payment?.selectedBank) {
@@ -520,16 +652,8 @@ export async function processChatImageReceiptForBusiness(params: {
   }
 
   // 3. Guardar siempre la clasificación de la imagen en chatHistory (aunque se esté respondiendo manualmente)
-  // y guardar receiptAttachment cuando sea comprobante
-  if (params.docId && classification.category !== 'other') {
-    const convRef = db
-      .collection('businesses')
-      .doc(params.businessId)
-      .collection('whatsappPending')
-      .doc(params.docId)
-
-    const convSnap = await convRef.get().catch(() => null)
-    const convData = convSnap?.exists ? convSnap.data() || {} : {}
+  // y guardar receiptAttachment (y actualizar preorderState si aún no se creó la orden)
+  if (convRef && classification.category !== 'other') {
     const prevHistory: any[] = Array.isArray(convData.chatHistory) ? convData.chatHistory : []
     const updatedHistory = prevHistory.map((entry) =>
       entry?.mediaUrl === params.imageUrl
@@ -546,6 +670,28 @@ export async function processChatImageReceiptForBusiness(params: {
         : entry
     )
 
+    const prevPreorder = convData.preorderState && typeof convData.preorderState === 'object' ? convData.preorderState : null
+    const updatedPreorder =
+      isReceipt && validation && !matchedOrderDoc
+        ? {
+            ...(prevPreorder || {}),
+            paymentMethod: resolvedMethod || prevPreorder?.paymentMethod || 'transfer',
+            paymentStatus: validation.status,
+            ...(resolvedMethod === 'mixed'
+              ? {
+                  transferAmountInput: resolvedTransferAmount.toFixed(2),
+                  cashAmountInput: resolvedCashAmount.toFixed(2),
+                }
+              : resolvedMethod === 'transfer'
+                ? {
+                    transferAmountInput: '',
+                    cashAmountInput: '',
+                  }
+                : {}),
+            updatedAtMillis: Date.now(),
+          }
+        : undefined
+
     await convRef
       .set(
         {
@@ -555,11 +701,14 @@ export async function processChatImageReceiptForBusiness(params: {
                 receiptAttachment: {
                   imageUrl: params.imageUrl,
                   validation,
+                  receipts: updatedReceipts,
+                  totalTransferred,
                   linkedOrderId: linkedOrderId || null,
                   receivedAtMillis: Date.now(),
                 },
               }
             : {}),
+          ...(updatedPreorder ? { preorderState: updatedPreorder } : {}),
         },
         { merge: true }
       )
@@ -593,6 +742,10 @@ export async function processChatImageReceiptForBusiness(params: {
         : 'EN VALIDACIÓN MANUAL'
     }`,
     validation.amount != null ? `- Monto detectado: $${validation.amount.toFixed(2)}` : '',
+    totalTransferred > 0 && updatedReceipts.length > 1
+      ? `- Total acumulado transferido (${updatedReceipts.length} comprobantes): $${totalTransferred.toFixed(2)}`
+      : '',
+    paymentAdjustmentNote ? `- Ajuste automático de pago: ${paymentAdjustmentNote}` : '',
     validation.bankName ? `- Banco: ${validation.bankName}` : '',
     validation.referenceNumber ? `- Nro. comprobante: ${validation.referenceNumber}` : '',
     validation.reasons && validation.reasons.length > 0

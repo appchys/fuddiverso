@@ -72,6 +72,16 @@ export interface PendingWhatsAppConversation {
   receiptAttachment?: {
     imageUrl: string
     validation?: import('@/types').PaymentAiValidation
+    receipts?: Array<{
+      imageUrl: string
+      amount: number | null
+      bankName?: string | null
+      referenceNumber?: string | null
+      dateStr?: string | null
+      status: 'pre_validated' | 'validating' | 'rejected'
+      validatedAtMillis: number
+    }>
+    totalTransferred?: number
     linkedOrderId?: string | null
     receivedAtMillis?: number
   }

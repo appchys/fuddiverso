@@ -526,6 +526,7 @@ export function WhatsAppChatPreorderView({
   const [customLocationReference, setCustomLocationReference] = useState<string>('')
   const [savingCustomLocation, setSavingCustomLocation] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<'' | 'cash' | 'transfer' | 'mixed'>('')
+  const [paymentStatus, setPaymentStatus] = useState<'' | 'pending' | 'validating' | 'pre_validated' | 'paid' | 'rejected'>('')
   const [cashAmountInput, setCashAmountInput] = useState<string>('')
   const [transferAmountInput, setTransferAmountInput] = useState<string>('')
   const [newClientName, setNewClientName] = useState<string>('')
@@ -1383,6 +1384,7 @@ export function WhatsAppChatPreorderView({
       customLocationInput,
       customLocationReference,
       paymentMethod,
+      paymentStatus,
       cashAmountInput,
       transferAmountInput,
     },
@@ -1396,6 +1398,7 @@ export function WhatsAppChatPreorderView({
       setCustomLocationInput(s.customLocationInput)
       setCustomLocationReference(s.customLocationReference || '')
       setPaymentMethod(s.paymentMethod)
+      setPaymentStatus(s.paymentStatus || '')
       setCashAmountInput(s.cashAmountInput)
       setTransferAmountInput(s.transferAmountInput)
     },
@@ -2055,12 +2058,21 @@ export function WhatsAppChatPreorderView({
         ? (customLocationReference.trim() || undefined)
         : undefined,
     paymentMethod: paymentMethod || undefined,
+    paymentStatus:
+      paymentStatus ||
+      (conversation.receiptAttachment?.imageUrl
+        ? (conversation.receiptAttachment.validation?.status || 'validating')
+        : paymentMethod
+          ? 'pending'
+          : undefined),
     cashAmount: paymentMethod === 'mixed' ? parsedCashAmount : undefined,
     transferAmount: paymentMethod === 'mixed' ? parsedTransferAmount : undefined,
     ...(conversation.receiptAttachment?.imageUrl
       ? {
           receiptImageUrl: conversation.receiptAttachment.imageUrl,
-          paymentStatus: conversation.receiptAttachment.validation?.status || 'validating',
+          ...(conversation.receiptAttachment.receipts?.length
+            ? { receipts: conversation.receiptAttachment.receipts }
+            : {}),
           selectedBank: conversation.receiptAttachment.validation?.bankName || undefined,
           aiValidation: conversation.receiptAttachment.validation,
         }
@@ -2443,11 +2455,10 @@ export function WhatsAppChatPreorderView({
 
       const paymentPayload: any = {
         method: resolvedMethod,
-        paymentStatus: draft.receiptImageUrl
-          ? draft.paymentStatus || 'validating'
-          : 'pending',
+        paymentStatus: draft.paymentStatus || (draft.receiptImageUrl ? 'validating' : 'pending'),
         selectedBank,
         ...(draft.receiptImageUrl ? { receiptImageUrl: draft.receiptImageUrl } : {}),
+        ...(draft.receipts && draft.receipts.length > 0 ? { receipts: draft.receipts } : {}),
         ...(draft.aiValidation ? { aiValidation: draft.aiValidation } : {}),
         ...(matchedBankAccount ? { bankAccount: matchedBankAccount } : {}),
         ...(resolvedMethod === 'mixed'
@@ -2499,6 +2510,7 @@ export function WhatsAppChatPreorderView({
       setCustomLocationInput('')
       setCustomLocationReference('')
       setPaymentMethod('')
+      setPaymentStatus('')
       setCashAmountInput('')
       setTransferAmountInput('')
       setActiveTab(null)
@@ -4038,6 +4050,171 @@ export function WhatsAppChatPreorderView({
                   </div>
                 </div>
               )}
+
+              {/* Estado del pago */}
+              {paymentMethod && (() => {
+                const effectivePayStatus =
+                  paymentStatus ||
+                  (conversation.receiptAttachment?.imageUrl
+                    ? (conversation.receiptAttachment.validation?.status || 'validating')
+                    : 'pending')
+                const statusOptions: Array<{
+                  key: 'pending' | 'validating' | 'pre_validated' | 'paid' | 'rejected'
+                  label: string
+                  activeClass: string
+                }> = [
+                  { key: 'pending', label: 'Pendiente', activeClass: 'bg-slate-800 text-white border-slate-800' },
+                  { key: 'validating', label: 'Validando', activeClass: 'bg-amber-100 text-amber-800 border-amber-300' },
+                  { key: 'pre_validated', label: 'Pre validado', activeClass: 'bg-violet-100 text-violet-800 border-violet-300' },
+                  { key: 'paid', label: 'Pagado', activeClass: 'bg-emerald-600 text-white border-emerald-600' },
+                  { key: 'rejected', label: 'Rechazado', activeClass: 'bg-rose-100 text-rose-800 border-rose-300' },
+                ]
+                return (
+                  <div className="pt-1 border-t border-slate-200/70 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                        Estado del pago
+                      </span>
+                      {conversation.receiptAttachment?.validation?.validatedByAi && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full">
+                          <i className="bi bi-stars text-[9px]"></i>
+                          Revisado por IA
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {statusOptions.map((st) => {
+                        const isSelected = effectivePayStatus === st.key
+                        return (
+                          <button
+                            key={st.key}
+                            type="button"
+                            style={{ minHeight: 0 }}
+                            onClick={() => setPaymentStatus(st.key)}
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
+                              isSelected
+                                ? st.activeClass
+                                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {st.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Visualización de comprobante(s) adjunto(s) */}
+              {(() => {
+                const att = conversation.receiptAttachment
+                const receiptsList =
+                  att?.receipts && att.receipts.length > 0
+                    ? att.receipts
+                    : att?.imageUrl
+                      ? [
+                          {
+                            imageUrl: att.imageUrl,
+                            amount: att.validation?.amount ?? null,
+                            bankName: att.validation?.bankName ?? null,
+                            referenceNumber: att.validation?.referenceNumber ?? null,
+                            status: att.validation?.status || ('validating' as const),
+                            validatedAtMillis: att.receivedAtMillis || Date.now(),
+                          },
+                        ]
+                      : []
+
+                if (receiptsList.length === 0) {
+                  if (paymentMethod === 'transfer' || paymentMethod === 'mixed') {
+                    return (
+                      <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-white border border-dashed border-slate-300 text-[11px] text-slate-500">
+                        <i className="bi bi-receipt text-slate-400"></i>
+                        <span>Sin comprobante adjunto aún · Se vinculará automáticamente cuando el cliente lo envíe.</span>
+                      </div>
+                    )
+                  }
+                  return null
+                }
+
+                const totalTransf =
+                  typeof att?.totalTransferred === 'number' && att.totalTransferred > 0
+                    ? att.totalTransferred
+                    : receiptsList
+                        .filter((r) => r.status !== 'rejected' && typeof r.amount === 'number')
+                        .reduce((s, r) => s + Number(r.amount || 0), 0)
+
+                return (
+                  <div className="pt-1 border-t border-slate-200/70 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1">
+                        <i className="bi bi-paperclip"></i>
+                        Comprobante{receiptsList.length > 1 ? `s (${receiptsList.length})` : ' adjunto'}
+                      </span>
+                      {totalTransf > 0 && (
+                        <span className="text-[11px] font-black text-emerald-700">
+                          Total transf.: ${totalTransf.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {receiptsList.map((rec, idx) => (
+                        <button
+                          key={`${rec.imageUrl}-${idx}`}
+                          type="button"
+                          onClick={() =>
+                            setPreviewImageModal({
+                              url: rec.imageUrl,
+                              caption: [
+                                rec.amount != null ? `$${rec.amount.toFixed(2)}` : null,
+                                rec.bankName || null,
+                                rec.referenceNumber ? `Ref. ${rec.referenceNumber}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ') || 'Comprobante de transferencia',
+                            })
+                          }
+                          className="w-full flex items-center gap-2.5 p-1.5 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all text-left cursor-pointer"
+                        >
+                          <img
+                            src={rec.imageUrl}
+                            alt={`Comprobante ${idx + 1}`}
+                            className="w-11 h-11 rounded-md object-cover border border-slate-200 shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-black text-gray-900">
+                                {rec.amount != null ? `$${rec.amount.toFixed(2)}` : 'Comprobante'}
+                              </span>
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                  rec.status === 'pre_validated'
+                                    ? 'bg-violet-100 text-violet-800'
+                                    : rec.status === 'rejected'
+                                      ? 'bg-rose-100 text-rose-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {rec.status === 'pre_validated'
+                                  ? 'Pre validado'
+                                  : rec.status === 'rejected'
+                                    ? 'Rechazado'
+                                    : 'Validando'}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-gray-500 truncate mt-0.5">
+                              {[rec.bankName, rec.referenceNumber ? `Ref. ${rec.referenceNumber}` : null]
+                                .filter(Boolean)
+                                .join(' · ') || 'Toca para ampliar el comprobante'}
+                            </p>
+                          </div>
+                          <i className="bi bi-arrows-fullscreen text-xs text-slate-400 pr-1"></i>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           )}
             </div>

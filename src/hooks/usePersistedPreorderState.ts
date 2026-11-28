@@ -22,6 +22,7 @@ export interface PersistedPreorderState {
   customLocationInput: string
   customLocationReference?: string
   paymentMethod: '' | 'cash' | 'transfer' | 'mixed'
+  paymentStatus?: '' | 'pending' | 'validating' | 'pre_validated' | 'paid' | 'rejected'
   cashAmountInput: string
   transferAmountInput: string
   updatedAtMillis?: number
@@ -66,6 +67,7 @@ function normalizeState(
     customLocationInput: typeof raw.customLocationInput === 'string' ? raw.customLocationInput : base.customLocationInput,
     customLocationReference: typeof raw.customLocationReference === 'string' ? raw.customLocationReference : '',
     paymentMethod: raw.paymentMethod || '',
+    paymentStatus: raw.paymentStatus || '',
     cashAmountInput: raw.cashAmountInput || '',
     transferAmountInput: raw.transferAmountInput || '',
   }
