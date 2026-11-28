@@ -331,6 +331,16 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
     const targetBusinessId = business?.id || order?.businessId
     if (!isOpen || activeTab !== 'rate' || !targetBusinessId) return
 
+    // Verificar calificación externa de esta orden (cualquier estado) solo al abrir la pestaña Opiniones
+    if (orderId && !order?.rating && !ratingCheckedRef.current) {
+      ratingCheckedRef.current = true
+      getOrderRating(targetBusinessId, orderId)
+        .then((ratingData) => {
+          if (ratingData) setExistingRating(ratingData)
+        })
+        .catch((err) => console.error('Error buscando calificación:', err))
+    }
+
     setLoadingComments(true)
     const ratingsRef = collection(db, 'businesses', targetBusinessId, 'ratings')
     const q = query(ratingsRef, orderBy('createdAt', 'desc'), limit(20))
@@ -735,8 +745,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
               onBusinessSlug(resolvedSlug)
             }
 
-            // Renderizado instantáneo de calificación si ya existe en la orden;
-            // solo consultar colección externa si la orden ya está entregada y aún no se revisó
+            // Renderizado instantáneo de calificación si ya existe embebida en la orden
             if (orderData.rating) {
               setExistingRating({
                 id: 'embedded',
@@ -746,19 +755,6 @@ export default function OrderSidebar({ isOpen, onClose, orderId, initialOrder, o
                 comment: orderData.rating.comment,
                 createdAt: orderData.rating.createdAt
               } as any)
-            } else if (
-              orderData.status === 'delivered' &&
-              orderData.businessId &&
-              !ratingCheckedRef.current
-            ) {
-              ratingCheckedRef.current = true
-              getOrderRating(orderData.businessId, orderId)
-                .then(ratingData => {
-                  if (ratingData) {
-                    setExistingRating(ratingData)
-                  }
-                })
-                .catch(err => console.error('Error buscando calificación:', err))
             }
 
             // Cargar información completa del negocio SOLO si falta businessSnapshot o si hay sesión de dashboard de esta tienda
