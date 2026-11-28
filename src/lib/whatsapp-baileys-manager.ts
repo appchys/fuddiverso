@@ -11,6 +11,7 @@ import { ensureAdminDb, uploadWhatsAppMediaToStorage } from '@/lib/firebase-admi
 import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
 import { evaluateAndGenerateAutoAiReply } from '@/lib/ai-chat-agent'
 import { processChatImageReceiptForBusiness } from '@/lib/ai-receipt-validator'
+import { processChatAudioTranscriptionForBusiness } from '@/lib/ai-audio-transcriber'
 import {
   extractFirstUrlFromText,
   fetchLinkPreviewMetadata,
@@ -457,6 +458,12 @@ function mergeWithBaileysRichHistory(
       byId.set(key, {
         ...existing,
         ...bItem,
+        ...(existing.audioTranscription || bItem.audioTranscription
+          ? { audioTranscription: existing.audioTranscription || bItem.audioTranscription }
+          : {}),
+        ...(existing.imageClassification || bItem.imageClassification
+          ? { imageClassification: existing.imageClassification || bItem.imageClassification }
+          : {}),
         text:
           String(bItem.text || '').length >= String(existing.text || '').length
             ? bItem.text
@@ -2206,6 +2213,8 @@ class WhatsAppBaileysManager {
     // Si ya se envió un mensaje automático fijo (ej. Bienvenida), omitir el Agente de IA en este mensaje para ahorrar cuota y evitar doble respuesta.
     void (async () => {
       let receiptValidationNote: string | undefined
+      let effectiveIncomingText = text
+
       if (mediaType === 'image' && mediaUrl) {
         try {
           const receiptRes = await processChatImageReceiptForBusiness({
@@ -2222,6 +2231,24 @@ class WhatsAppBaileysManager {
           }
         } catch (err) {
           console.warn('[Baileys] Error validando comprobante de imagen:', err)
+        }
+      } else if (mediaType === 'audio' && mediaUrl) {
+        try {
+          const transRes = await processChatAudioTranscriptionForBusiness({
+            businessId: session.businessId,
+            docId,
+            audioUrl: mediaUrl,
+            messageId: msgId,
+          })
+          if (transRes?.transcription?.text) {
+            effectiveIncomingText = `[Nota de voz transcrita]: ${transRes.transcription.text}`
+            recordBaileysHistoryEntry(session, docId, {
+              ...newBaileysEntry,
+              audioTranscription: transRes.transcription,
+            })
+          }
+        } catch (err) {
+          console.warn('[Baileys] Error transcribiendo audio:', err)
         }
       }
 
@@ -2256,7 +2283,7 @@ class WhatsAppBaileysManager {
           remoteJid,
           freshData,
           freshHistory,
-          text,
+          effectiveIncomingText,
           fuddiClientName || effectiveName,
           fuddiClientId,
           receiptValidationNote

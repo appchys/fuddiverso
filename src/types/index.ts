@@ -405,6 +405,14 @@ export interface ChatImageClassification {
   model?: string
 }
 
+export interface ChatAudioTranscription {
+  text: string
+  language?: string
+  provider?: 'groq' | 'gemini'
+  model?: string
+  transcribedAtMillis: number
+}
+
 export interface PaymentAiValidation {
   status: 'pre_validated' | 'validating' | 'rejected'
   isReceipt: boolean

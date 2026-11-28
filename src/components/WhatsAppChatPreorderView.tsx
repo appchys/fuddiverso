@@ -1172,6 +1172,59 @@ export function WhatsAppChatPreorderView({
     }
   }
 
+  const [transcribingAudioKeys, setTranscribingAudioKeys] = useState<Record<string, boolean>>({})
+  const [localAudioTranscriptions, setLocalAudioTranscriptions] = useState<
+    Record<string, import('@/types').ChatAudioTranscription>
+  >({})
+  const [audioTranscriptionErrors, setAudioTranscriptionErrors] = useState<Record<string, string>>({})
+
+  const handleTranscribeAudio = async (msgKey: string, msg: any) => {
+    if (!businessId || !conversation.docId || !msg?.mediaUrl) return
+    const compositeKey = `${conversation.docId}::${msgKey}`
+    if (transcribingAudioKeys[compositeKey]) return
+
+    setTranscribingAudioKeys((prev) => ({ ...prev, [compositeKey]: true }))
+    setAudioTranscriptionErrors((prev) => {
+      const next = { ...prev }
+      delete next[compositeKey]
+      return next
+    })
+
+    try {
+      const idToken = await auth.currentUser?.getIdToken()
+      const res = await fetch('/api/chat/transcribe-audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({
+          businessId,
+          docId: conversation.docId,
+          messageId: msg.id || msg.waMsgId || undefined,
+          audioUrl: msg.mediaUrl,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.ok || !data?.transcription?.text) {
+        throw new Error(data?.error || 'No se pudo transcribir el audio.')
+      }
+
+      setLocalAudioTranscriptions((prev) => ({
+        ...prev,
+        [compositeKey]: data.transcription,
+      }))
+    } catch (err: any) {
+      setAudioTranscriptionErrors((prev) => ({
+        ...prev,
+        [compositeKey]: err?.message || 'Error al transcribir el audio.',
+      }))
+    } finally {
+      setTranscribingAudioKeys((prev) => ({ ...prev, [compositeKey]: false }))
+    }
+  }
+
   const handleGenerateAiSuggestion = async () => {
     if (!businessId || !conversation.docId || generatingAiReply) return
     setGeneratingAiReply(true)
@@ -3318,11 +3371,78 @@ export function WhatsAppChatPreorderView({
                       </span>
                     </a>
                   )}
-                  {msg.mediaUrl && msg.mediaType === 'audio' && (
-                    <div onClick={(e) => e.stopPropagation()} className="pt-0.5">
-                      <audio controls src={msg.mediaUrl} className="h-8 max-w-[230px]" />
-                    </div>
-                  )}
+                  {msg.mediaUrl && msg.mediaType === 'audio' && (() => {
+                    const compositeKey = `${conversation.docId}::${entry.key}`
+                    const transcription =
+                      (msg as any).audioTranscription || localAudioTranscriptions[compositeKey]
+                    const isTranscribing = Boolean(transcribingAudioKeys[compositeKey])
+                    const transError = audioTranscriptionErrors[compositeKey]
+
+                    return (
+                      <div onClick={(e) => e.stopPropagation()} className="pt-0.5 space-y-1.5 max-w-[260px]">
+                        <audio controls src={msg.mediaUrl} className="h-8 w-full max-w-[240px]" />
+
+                        {transcription?.text ? (
+                          <div
+                            className={`rounded-lg px-2.5 py-1.5 border text-left ${
+                              msg.fromMe
+                                ? 'bg-white/75 border-emerald-200/80'
+                                : 'bg-slate-50/90 border-slate-200/80'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-violet-600 mb-0.5">
+                              <i className="bi bi-soundwave text-[11px]"></i>
+                              <span>Transcripción</span>
+                            </div>
+                            <p className="text-[12px] font-medium text-slate-700 leading-relaxed whitespace-pre-wrap break-words select-text">
+                              {transcription.text}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <span
+                              role="button"
+                              tabIndex={isTranscribing ? -1 : 0}
+                              aria-disabled={isTranscribing}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (!isTranscribing) handleTranscribeAudio(entry.key, msg)
+                              }}
+                              onKeyDown={(e) => {
+                                if ((e.key === 'Enter' || e.key === ' ') && !isTranscribing) {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  handleTranscribeAudio(entry.key, msg)
+                                }
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all active:scale-95 select-none ${
+                                isTranscribing
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
+                                  : 'bg-violet-50 hover:bg-violet-100 text-violet-700 border-violet-200/90 cursor-pointer'
+                              }`}
+                            >
+                              {isTranscribing ? (
+                                <>
+                                  <i className="bi bi-arrow-repeat animate-spin text-[11px]"></i>
+                                  <span>Transcribiendo...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <i className="bi bi-soundwave text-[11px]"></i>
+                                  <span>Transcribir audio</span>
+                                </>
+                              )}
+                            </span>
+                            {transError && (
+                              <p className="text-[10px] font-medium text-rose-600 leading-snug">
+                                {transError}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                   <span className="block">{formatWhatsAppMessageText(msg.text)}</span>
                   {msg.timestampMillis ? (
                     <span className="flex items-center justify-end text-[10px] text-slate-400 pt-0.5">

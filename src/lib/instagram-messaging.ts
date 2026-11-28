@@ -3,6 +3,7 @@ import { ensureAdminDb } from '@/lib/firebase-admin'
 import { getEcuadorDate, isStoreOpen } from '@/lib/store-utils'
 import { evaluateAndGenerateAutoAiReply } from '@/lib/ai-chat-agent'
 import { processChatImageReceiptForBusiness } from '@/lib/ai-receipt-validator'
+import { processChatAudioTranscriptionForBusiness } from '@/lib/ai-audio-transcriber'
 
 export interface InstagramConnectionInfo {
   status: 'connected' | 'disconnected'
@@ -449,6 +450,9 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
       if (!isEcho) {
         void (async () => {
           let receiptValidationNote: string | undefined
+          let effectiveIncomingText = text
+          let effectiveHistory = nextHistory
+
           if (mediaType === 'image' && mediaUrl) {
             try {
               const receiptRes = await processChatImageReceiptForBusiness({
@@ -465,6 +469,23 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
               }
             } catch {
               // Ignorar error de validación de imagen
+            }
+          } else if (mediaType === 'audio' && mediaUrl) {
+            try {
+              const transRes = await processChatAudioTranscriptionForBusiness({
+                businessId,
+                docId,
+                audioUrl: mediaUrl,
+                messageId: msgId,
+              })
+              if (transRes?.transcription?.text) {
+                effectiveIncomingText = `[Nota de voz transcrita]: ${transRes.transcription.text}`
+                effectiveHistory = nextHistory.map((h) =>
+                  h?.id === msgId ? { ...h, audioTranscription: transRes.transcription } : h
+                )
+              }
+            } catch {
+              // Ignorar error de transcripción de audio
             }
           }
 
@@ -483,8 +504,8 @@ export async function processIncomingInstagramWebhook(body: any): Promise<{ proc
             businessId,
             channel: 'instagram',
             existingDocData: existing,
-            chatHistory: nextHistory,
-            incomingText: text,
+            chatHistory: effectiveHistory,
+            incomingText: effectiveIncomingText,
             customerName: effectiveName,
             receiptValidationNote,
           }).catch(() => null)

@@ -170,6 +170,13 @@ export interface ChatHistoryEntry {
   source?: string
   mediaType?: string
   mediaUrl?: string
+  audioTranscription?: {
+    text?: string
+    language?: string
+    provider?: string
+    model?: string
+    transcribedAtMillis?: number
+  } | null
 }
 
 interface FormattedChatMessage {
@@ -1489,11 +1496,17 @@ function formatConversationMessages(
 
   for (const entry of recent) {
     const rawContent = String(entry.text || '').trim().slice(0, 1000)
+    const audioTranscript =
+      entry?.mediaType === 'audio' && entry?.audioTranscription?.text
+        ? String(entry.audioTranscription.text).trim().slice(0, 1000)
+        : ''
     const imgUrl =
       entry?.mediaType === 'image' && entry?.mediaUrl && allowedImageUrls.has(String(entry.mediaUrl).trim())
         ? String(entry.mediaUrl).trim()
         : undefined
-    const content = rawContent || (imgUrl ? '📷 Imagen enviada' : '')
+    const content = audioTranscript
+      ? `[Nota de voz transcrita]: ${audioTranscript}`
+      : rawContent || (imgUrl ? '📷 Imagen enviada' : '')
     if (!content && !imgUrl) continue
 
     const role: 'user' | 'assistant' = entry.fromMe ? 'assistant' : 'user'
